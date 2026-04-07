@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
 import {
   Table,
   TableBody,
@@ -15,7 +16,7 @@ import {
 import { useVault } from '@/lib/hooks/useProtocolStats';
 import { formatCompactUSD, formatPercentage, formatLtv, formatTokenAmount } from '@/lib/format/number';
 import { cn } from '@/lib/utils';
-import { ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
+import { Pencil, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
 import { TransactionButton } from '@/components/TransactionButton';
@@ -37,6 +38,7 @@ interface MarketAllocationInput {
   oracleAddress?: string | null;
   irmAddress?: string | null;
   lltv?: number | null;
+  lltvRaw?: string | null;
   currentAssets: bigint;
   currentAssetsUsd: number;
   isIdle: boolean;
@@ -57,8 +59,8 @@ interface ReallocEntry {
 export function AllocationV1({ vaultAddress }: AllocationV1Props) {
   const { data: vault, isLoading, error } = useVault(vaultAddress);
   const [allocations, setAllocations] = useState<Map<string, MarketAllocationInput>>(new Map());
-  const [showManage, setShowManage] = useState(false);
-  const [inputMode, setInputMode] = useState<InputMode>('tokens');
+  const [editing, setEditing] = useState(false);
+  const [inputMode, setInputMode] = useState<InputMode>('percentage');
   const [entries, setEntries] = useState<ReallocEntry[]>([]);
   const vaultWrite = useVaultWrite();
 
@@ -79,7 +81,6 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
     return (first.done ? null : first.value?.loanAssetSymbol) ?? vault?.asset ?? '';
   }, [allocations, vault?.asset]);
 
-  // Initialize allocations from vault data
   useEffect(() => {
     if (!vault?.allocation || allocations.size > 0) return;
     const dec = vault?.assetDecimals ?? 18;
@@ -109,6 +110,7 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
         oracleAddress: alloc.oracleAddress ?? null,
         irmAddress: alloc.irmAddress ?? null,
         lltv: alloc.lltv ?? null,
+        lltvRaw: alloc.lltvRaw ?? null,
         currentAssets: supplyAssets,
         currentAssetsUsd: alloc.supplyAssetsUsd ?? 0,
         isIdle: false,
@@ -122,100 +124,126 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
     setAllocations(init);
   }, [vault?.allocation, allocations.size, vault?.assetDecimals]);
 
-  // Seed entries once allocations are loaded
-  useEffect(() => {
-    if (allocations.size > 0 && entries.length === 0) {
-      const sorted = Array.from(allocations.values()).sort((a, b) => Number(b.currentAssets) - Number(a.currentAssets));
-      setEntries(sorted.map((a) => ({ marketKey: a.uniqueKey, newValue: '' })));
-    }
-  }, [allocations, entries.length]);
+  const seedEntries = useCallback(() => {
+    const sorted = Array.from(allocations.values()).sort((a, b) => Number(b.currentAssets) - Number(a.currentAssets));
+    setEntries(sorted.map((a) => ({ marketKey: a.uniqueKey, newValue: '' })));
+  }, [allocations]);
+
+  const startEditing = useCallback(() => {
+    seedEntries();
+    setEditing(true);
+  }, [seedEntries]);
+
+  const cancelEditing = useCallback(() => {
+    setEditing(false);
+    vaultWrite.reset();
+  }, [vaultWrite]);
 
   const updateEntry = useCallback((key: string, val: string) => {
     setEntries((prev) => prev.map((e) => e.marketKey === key ? { ...e, newValue: val } : e));
   }, []);
 
-  // Compute proposed token amounts per market + total
-  const proposed = useMemo(() => {
-    const result: { key: string; assets: bigint; valid: boolean }[] = [];
-    let total = BigInt(0);
-    let anyModified = false;
-    let parseError: string | null = null;
+  /**
+   * Resolve each entry to a target bigint, then apply dust correction so
+   * the sum exactly equals totalRawAssets.
+   */
+  const resolvedAllocations = useMemo(() => {
+    if (!editing || entries.length === 0) return null;
+
+    const modified = entries.filter((e) => e.newValue.trim() !== '');
+    if (modified.length === 0) return null;
+
+    const targets: { key: string; assets: bigint; current: bigint }[] = [];
+    let errorMsg: string | null = null;
 
     for (const e of entries) {
       const alloc = allocations.get(e.marketKey);
       if (!alloc) continue;
 
       if (e.newValue.trim() === '') {
-        result.push({ key: e.marketKey, assets: alloc.currentAssets, valid: true });
-        total += alloc.currentAssets;
+        targets.push({ key: e.marketKey, assets: alloc.currentAssets, current: alloc.currentAssets });
         continue;
       }
 
-      anyModified = true;
       if (inputMode === 'percentage') {
         const pct = parseFloat(e.newValue);
         if (isNaN(pct) || pct < 0 || pct > 100) {
-          parseError = `Invalid percentage for ${alloc.marketName}`;
-          result.push({ key: e.marketKey, assets: BigInt(0), valid: false });
-          continue;
+          errorMsg = `Invalid percentage for ${alloc.marketName}`;
+          break;
         }
-        // pct% of totalRawAssets, rounding down
-        const assets = totalRawAssets * BigInt(Math.round(pct * 1e6)) / BigInt(1e8);
-        result.push({ key: e.marketKey, assets, valid: true });
-        total += assets;
+        const raw = totalRawAssets * BigInt(Math.round(pct * 1e10)) / BigInt(1e12);
+        targets.push({ key: e.marketKey, assets: raw, current: alloc.currentAssets });
       } else {
         try {
-          const assets = parseUnits(e.newValue, decimals);
-          if (assets < BigInt(0)) {
-            parseError = `Negative amount for ${alloc.marketName}`;
-            result.push({ key: e.marketKey, assets: BigInt(0), valid: false });
-            continue;
+          const raw = parseUnits(e.newValue, decimals);
+          if (raw < BigInt(0)) {
+            errorMsg = `Negative amount for ${alloc.marketName}`;
+            break;
           }
-          result.push({ key: e.marketKey, assets, valid: true });
-          total += assets;
+          targets.push({ key: e.marketKey, assets: raw, current: alloc.currentAssets });
         } catch {
-          parseError = `Invalid number for ${alloc.marketName}`;
-          result.push({ key: e.marketKey, assets: BigInt(0), valid: false });
+          errorMsg = `Invalid number for ${alloc.marketName}`;
+          break;
         }
       }
     }
 
-    return { items: result, total, anyModified, parseError };
-  }, [entries, inputMode, allocations, totalRawAssets, decimals]);
+    if (errorMsg) return { valid: false as const, error: errorMsg, targets: [] };
+    if (targets.length !== entries.length) return { valid: false as const, error: 'Missing entries', targets: [] };
 
-  const validationError = useMemo(() => {
-    if (proposed.parseError) return proposed.parseError;
-    if (!proposed.anyModified) return null;
-    if (proposed.total !== totalRawAssets) {
-      const diff = proposed.total > totalRawAssets
-        ? `+${formatTokenAmount(proposed.total - totalRawAssets, decimals, 4)}`
-        : `-${formatTokenAmount(totalRawAssets - proposed.total, decimals, 4)}`;
-      return `Total differs from vault assets by ${diff} ${assetSymbol}. Reallocate must preserve total (${formatTokenAmount(totalRawAssets, decimals, 2)} ${assetSymbol}).`;
+    // Auto-adjust dust: push remainder onto the largest allocation
+    let sum = targets.reduce((s, t) => s + t.assets, BigInt(0));
+    const diff = totalRawAssets - sum;
+    if (diff !== BigInt(0)) {
+      const largest = targets.reduce((best, t) => t.assets > best.assets ? t : best, targets[0]);
+      largest.assets += diff;
+      sum = totalRawAssets;
     }
-    return null;
-  }, [proposed, totalRawAssets, decimals, assetSymbol]);
 
-  const canSubmit = proposed.anyModified && !validationError;
+    if (targets.some((t) => t.assets < BigInt(0))) {
+      return { valid: false as const, error: 'Allocation would go negative after dust adjustment', targets: [] };
+    }
+
+    const anyChanged = targets.some((t) => t.assets !== t.current);
+    if (!anyChanged) return { valid: false as const, error: null, targets: [] };
+
+    return { valid: true as const, error: null, targets };
+  }, [editing, entries, inputMode, allocations, totalRawAssets, decimals]);
 
   const handleReallocate = useCallback(() => {
-    if (!canSubmit) return;
-    const allocationsList: MarketAllocation[] = [];
-    for (const p of proposed.items) {
-      const alloc = allocations.get(p.key);
-      if (!alloc) continue;
-      allocationsList.push({
+    if (!resolvedAllocations?.valid) return;
+
+    const toMarketAlloc = (t: { key: string; assets: bigint; current: bigint }): MarketAllocation | null => {
+      const alloc = allocations.get(t.key);
+      if (!alloc) return null;
+      const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as Address;
+      return {
         marketParams: {
-          loanToken: (alloc.loanAssetAddress || '0x0000000000000000000000000000000000000000') as Address,
-          collateralToken: (alloc.collateralAssetAddress || '0x0000000000000000000000000000000000000000') as Address,
-          oracle: (alloc.oracleAddress || '0x0000000000000000000000000000000000000000') as Address,
-          irm: (alloc.irmAddress || '0x0000000000000000000000000000000000000000') as Address,
-          lltv: BigInt(Math.floor((alloc.lltv ?? 0) * 1e18)),
+          loanToken: (alloc.loanAssetAddress || ZERO_ADDR) as Address,
+          collateralToken: (alloc.collateralAssetAddress || ZERO_ADDR) as Address,
+          oracle: (alloc.oracleAddress || ZERO_ADDR) as Address,
+          irm: (alloc.irmAddress || ZERO_ADDR) as Address,
+          lltv: alloc.lltvRaw ? BigInt(alloc.lltvRaw) : BigInt(0),
         },
-        assets: p.assets,
-      });
-    }
+        assets: t.assets,
+      };
+    };
+
+    // MetaMorpho V1 reallocate processes entries sequentially:
+    // withdrawals (decreased allocations) must come first to create idle balance,
+    // then deposits (increased allocations) can consume the idle balance.
+    const withdrawals = resolvedAllocations.targets
+      .filter((t) => t.assets < t.current)
+      .map(toMarketAlloc)
+      .filter((a): a is MarketAllocation => a !== null);
+    const deposits = resolvedAllocations.targets
+      .filter((t) => t.assets >= t.current)
+      .map(toMarketAlloc)
+      .filter((a): a is MarketAllocation => a !== null);
+
+    const allocationsList = [...withdrawals, ...deposits];
     vaultWrite.write(v1WriteConfigs.reallocate(vaultAddress as Address, allocationsList));
-  }, [canSubmit, proposed, allocations, vaultAddress, vaultWrite]);
+  }, [resolvedAllocations, allocations, vaultAddress, vaultWrite]);
 
   if (isLoading) {
     return (
@@ -262,14 +290,37 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
   const fmt = (v: number | null | undefined) =>
     v != null && Number.isFinite(v) ? formatPercentage(v, 2) : '—';
 
+  const entryByKey = new Map(entries.map((e) => [e.marketKey, e]));
+
   return (
     <Card>
       <CardHeader>
-        <div>
-          <CardTitle>Allocation</CardTitle>
-          <CardDescription>
-            Total: {formatCompactUSD(totalAssetsUsd)} ({formatTokenAmount(totalRawAssets, decimals, 2)} {assetSymbol})
-          </CardDescription>
+        <div className="flex items-start justify-between gap-2 flex-wrap">
+          <div>
+            <CardTitle>Allocation</CardTitle>
+            <CardDescription>
+              Total: {formatCompactUSD(totalAssetsUsd)} ({formatTokenAmount(totalRawAssets, decimals, 2)} {assetSymbol})
+            </CardDescription>
+          </div>
+          {!editing ? (
+            <Button variant="outline" size="sm" onClick={startEditing} className="flex items-center gap-1.5">
+              <Pencil className="h-3.5 w-3.5" /> Reallocate
+            </Button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <div className="flex gap-0.5 rounded-md border p-0.5">
+                <button
+                  onClick={() => { setInputMode('percentage'); setEntries((prev) => prev.map((e) => ({ ...e, newValue: '' }))); }}
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${inputMode === 'percentage' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                >%</button>
+                <button
+                  onClick={() => { setInputMode('tokens'); setEntries((prev) => prev.map((e) => ({ ...e, newValue: '' }))); }}
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${inputMode === 'tokens' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                >{assetSymbol || 'Tokens'}</button>
+              </div>
+              <Button variant="ghost" size="sm" onClick={cancelEditing}>Cancel</Button>
+            </div>
+          )}
         </div>
       </CardHeader>
       <CardContent>
@@ -283,12 +334,18 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
                 <TableHead className="text-right">Borrow APY</TableHead>
                 <TableHead className="text-right">Supply APY</TableHead>
                 <TableHead className="text-right">Allocated</TableHead>
-                <TableHead className="text-right">% Allocated</TableHead>
+                <TableHead className="text-right">%</TableHead>
+                {editing && <TableHead className="text-right w-40">New Allocation</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {sortedAllocations.map((alloc) => {
                 const pct = totalAssetsUsd > 0 ? (alloc.currentAssetsUsd / totalAssetsUsd) * 100 : 0;
+                const rawPct = totalRawAssets > BigInt(0)
+                  ? Number(alloc.currentAssets * BigInt(10000) / totalRawAssets) / 100
+                  : 0;
+                const entry = entryByKey.get(alloc.uniqueKey);
+
                 return (
                   <TableRow key={alloc.uniqueKey} className={cn(alloc.isIdle && 'opacity-75')}>
                     <TableCell>
@@ -330,6 +387,26 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
                     <TableCell className="text-right">
                       {totalAssetsUsd > 0 ? `${pct.toFixed(2)}%` : '—'}
                     </TableCell>
+                    {editing && (
+                      <TableCell className="text-right">
+                        {entry ? (
+                          <div className="flex items-center justify-end gap-1">
+                            <Input
+                              type="text"
+                              placeholder={inputMode === 'percentage' ? rawPct.toFixed(2) : formatTokenAmount(alloc.currentAssets, decimals, 4)}
+                              value={entry.newValue}
+                              onChange={(e) => updateEntry(entry.marketKey, e.target.value)}
+                              className="text-right text-sm w-28 h-8"
+                            />
+                            <span className="text-xs text-muted-foreground w-6 text-left">
+                              {inputMode === 'percentage' ? '%' : assetSymbol}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">—</span>
+                        )}
+                      </TableCell>
+                    )}
                   </TableRow>
                 );
               })}
@@ -337,101 +414,57 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
           </Table>
         </div>
 
-        {/* Manage Reallocation */}
-        <div className="mt-6 border-t pt-4">
-          <button
-            onClick={() => setShowManage(!showManage)}
-            className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100"
-          >
-            {showManage ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            Manage Allocation
-          </button>
-
-          {showManage && (
-            <div className="mt-4 space-y-4">
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold">Reallocate</h4>
-                  <div className="flex gap-1 rounded-md border p-0.5">
-                    <button
-                      onClick={() => { setInputMode('tokens'); setEntries((prev) => prev.map((e) => ({ ...e, newValue: '' }))); }}
-                      className={`px-3 py-1 rounded text-xs font-medium transition-colors ${inputMode === 'tokens' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                    >
-                      Tokens
-                    </button>
-                    <button
-                      onClick={() => { setInputMode('percentage'); setEntries((prev) => prev.map((e) => ({ ...e, newValue: '' }))); }}
-                      className={`px-3 py-1 rounded text-xs font-medium transition-colors ${inputMode === 'percentage' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                    >
-                      Percentage
-                    </button>
-                  </div>
-                </div>
-
-                <p className="text-xs text-muted-foreground">
-                  {inputMode === 'tokens'
-                    ? `Set the new token amount per market. Total must equal ${formatTokenAmount(totalRawAssets, decimals, 2)} ${assetSymbol}. Leave blank to keep current.`
-                    : 'Set the new % allocation per market. Total must equal 100%. Leave blank to keep current.'}
-                </p>
-
-                <div className="space-y-2">
-                  {entries.map((entry) => {
-                    const alloc = allocations.get(entry.marketKey);
-                    if (!alloc) return null;
-                    const currentPct = totalRawAssets > BigInt(0)
-                      ? (Number(alloc.currentAssets * BigInt(10000) / totalRawAssets) / 100)
-                      : 0;
-                    return (
-                      <div key={entry.marketKey} className="flex items-center gap-3 rounded-md border border-slate-100 dark:border-slate-800 p-2">
-                        <div className="flex-1 min-w-0">
-                          <span className="text-sm font-medium truncate block">{alloc.marketName}</span>
-                          <span className="text-xs text-muted-foreground">
-                            Current: {formatTokenAmount(alloc.currentAssets, decimals, 2)} {assetSymbol} ({currentPct.toFixed(2)}%)
-                          </span>
-                        </div>
-                        <div className="w-40">
-                          <Input
-                            type="text"
-                            placeholder={inputMode === 'tokens' ? formatTokenAmount(alloc.currentAssets, decimals, 4) : currentPct.toFixed(2)}
-                            value={entry.newValue}
-                            onChange={(e) => updateEntry(entry.marketKey, e.target.value)}
-                            className="text-right text-sm"
-                          />
-                        </div>
-                        <span className="text-xs text-muted-foreground w-8">
-                          {inputMode === 'percentage' ? '%' : assetSymbol}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {validationError && (
-                  <div className="flex items-start gap-2 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 p-3">
-                    <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
-                    <p className="text-xs text-red-700 dark:text-red-300">{validationError}</p>
-                  </div>
-                )}
-
-                {canSubmit && (
-                  <div className="rounded-md bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 p-3">
-                    <p className="text-xs text-green-700 dark:text-green-300">Allocation is balanced. Ready to submit.</p>
-                  </div>
-                )}
-
-                <TransactionButton
-                  label="Reallocate"
-                  onClick={handleReallocate}
-                  disabled={!canSubmit}
-                  isLoading={vaultWrite.isLoading}
-                  isSuccess={vaultWrite.isSuccess}
-                  error={vaultWrite.error}
-                  txHash={vaultWrite.txHash}
-                />
+        {editing && (
+          <div className="mt-4 space-y-3">
+            {resolvedAllocations?.error && (
+              <div className="flex items-start gap-2 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 p-3">
+                <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-red-700 dark:text-red-300">{resolvedAllocations.error}</p>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+
+            {resolvedAllocations?.valid && (
+              <div className="flex items-start gap-2 rounded-md bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 p-3">
+                <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-green-700 dark:text-green-300">
+                  Balanced (dust auto-adjusted). Ready to submit.
+                </p>
+              </div>
+            )}
+
+            {vaultWrite.isSuccess && (
+              <div className="flex items-start gap-2 rounded-md bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 p-3">
+                <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-green-700 dark:text-green-300">
+                  Transaction confirmed! Refresh to see updated allocations.
+                </p>
+              </div>
+            )}
+
+            {vaultWrite.error && (
+              <div className="flex items-start gap-2 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 p-3">
+                <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-red-700 dark:text-red-300 break-all">
+                  {vaultWrite.error.message?.slice(0, 300)}
+                </p>
+              </div>
+            )}
+
+            <TransactionButton
+              label={vaultWrite.isLoading ? 'Confirming...' : 'Reallocate'}
+              onClick={handleReallocate}
+              disabled={!resolvedAllocations?.valid}
+              isLoading={vaultWrite.isLoading}
+              isSuccess={vaultWrite.isSuccess}
+              error={vaultWrite.error}
+              txHash={vaultWrite.txHash}
+            />
+
+            {vaultWrite.txHash && (
+              <p className="text-xs text-muted-foreground break-all">Tx: {vaultWrite.txHash}</p>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

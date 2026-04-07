@@ -82,6 +82,7 @@ export interface VaultDetail extends VaultWithData {
     oracleAddress?: string | null;
     irmAddress?: string | null;
     lltv?: number | null;
+    lltvRaw?: string | null;
     supplyCap?: number | null;
     supplyAssets?: number | null;
     supplyAssetsUsd?: number | null;

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { vaultAddresses } from '@/lib/config/vaults';
+import { getVaultAddressesForBusinessViews } from '@/lib/config/vaults';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { handleApiError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
@@ -254,7 +254,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const addresses = vaultAddresses.map(v => getAddress(v.address));
+    const addresses = getVaultAddressesForBusinessViews().map((v) => getAddress(v.address));
     const allMonths = getAllMonths();
     const treasuryAddr = getAddress(TREASURY_ADDRESS);
 

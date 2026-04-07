@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { vaultAddresses } from '@/lib/config/vaults';
+import { getVaultAddressesForBusinessViews } from '@/lib/config/vaults';
 import { 
   BASE_CHAIN_ID, 
   GRAPHQL_FIRST_LIMIT,
@@ -58,7 +58,8 @@ export async function GET(request: Request) {
   }
 
   try {
-    const addresses = vaultAddresses.map(v => getAddress(v.address));
+    const businessVaults = getVaultAddressesForBusinessViews();
+    const addresses = businessVaults.map((v) => getAddress(v.address));
 
     const query = gql`
       query FetchProtocolStats($addresses: [String!]) {
@@ -97,7 +98,7 @@ export async function GET(request: Request) {
 
     // Calculate totalDeposited from V1 vaults (from main query)
     let totalDeposited = morphoVaults.reduce((sum, v) => sum + (v.state?.totalAssetsUsd ?? 0), 0);
-    const activeVaults = vaultAddresses.length;
+    const activeVaults = businessVaults.length;
 
     // Create a map of V1 vault current TVL for fallback
     const v1VaultCurrentTvl = new Map<string, number>();

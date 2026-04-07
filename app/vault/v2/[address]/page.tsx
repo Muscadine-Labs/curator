@@ -83,7 +83,7 @@ export default function V2VaultPage() {
     );
   }
 
-  const category = getVaultCategory(vault.name);
+  const category = getVaultCategory(vault.name, vault.address);
   const vaultBadge = category === 'prime' ? 'V2 Prime' : category === 'vineyard' ? 'V2 Vineyard' : 'V2';
 
   const morphoUiUrl = vault.address 

@@ -651,4 +651,11 @@ export const vaultV2Abi = [
     inputs: [{ name: "newSymbol", type: "string" }],
     outputs: [],
   },
+  {
+    type: "function",
+    name: "multicall",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "data", type: "bytes[]" }],
+    outputs: [],
+  },
 ] as const;

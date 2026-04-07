@@ -20,9 +20,9 @@ type VaultSection = { type: 'vineyard' | 'prime' | 'v1'; label: string; vaults: 
 function getSectionsForNetwork(vaults: VaultWithData[], chainId: number): VaultSection[] {
   const byChain = vaults.filter((v) => v.chainId === chainId);
   const sections: VaultSection[] = [];
-  const prime = byChain.filter((v) => getVaultCategory(v.name) === 'prime');
-  const vineyard = byChain.filter((v) => getVaultCategory(v.name) === 'vineyard');
-  const v1 = byChain.filter((v) => getVaultCategory(v.name) === 'v1');
+  const prime = byChain.filter((v) => getVaultCategory(v.name, v.address) === 'prime');
+  const vineyard = byChain.filter((v) => getVaultCategory(v.name, v.address) === 'vineyard');
+  const v1 = byChain.filter((v) => getVaultCategory(v.name, v.address) === 'v1');
   if (vineyard.length > 0) sections.push({ type: 'vineyard', label: 'V2 Vineyard Vaults', vaults: vineyard });
   if (prime.length > 0) sections.push({ type: 'prime', label: 'V2 Prime Vaults', vaults: prime });
   if (v1.length > 0) sections.push({ type: 'v1', label: 'V1 Vaults', vaults: v1 });
@@ -141,7 +141,7 @@ export function Sidebar({ onClose }: SidebarProps) {
                         <div className="space-y-1">
                           {section.vaults.map((vault) => {
                             const useV2Route =
-                              section.type !== 'v1' && shouldUseV2Query(vault.name);
+                              section.type !== 'v1' && shouldUseV2Query(vault.name, vault.address);
                             const href =
                               section.type === 'v1'
                                 ? `/vault/v1/${vault.address}`

@@ -1,6 +1,6 @@
 'use client';
 
-import { Address, Hex } from 'viem';
+import { Address, Hex, encodeFunctionData } from 'viem';
 import { metaMorphoV1Abi, vaultV2Abi } from './abis';
 
 // ===== V1 MetaMorpho Types =====
@@ -269,4 +269,17 @@ export const v2WriteConfigs = {
     functionName: 'setSymbol' as const,
     args: [newSymbol] as const,
   }),
+
+  multicall: (vaultAddress: Address, calls: Hex[]) => ({
+    address: vaultAddress,
+    abi: vaultV2Abi,
+    functionName: 'multicall' as const,
+    args: [calls] as const,
+  }),
+
+  encodeAllocate: (adapter: Address, data: Hex, assets: bigint): Hex =>
+    encodeFunctionData({ abi: vaultV2Abi, functionName: 'allocate', args: [adapter, data, assets] }),
+
+  encodeDeallocate: (adapter: Address, data: Hex, assets: bigint): Hex =>
+    encodeFunctionData({ abi: vaultV2Abi, functionName: 'deallocate', args: [adapter, data, assets] }),
 };

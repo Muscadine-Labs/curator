@@ -1,8 +1,15 @@
 // Simplified vault config - only stores addresses
 // All other data (name, symbol, asset, performance fee, etc.) is fetched from GraphQL
+
+export type VaultCategory = 'prime' | 'vineyard' | 'v1';
+
 export interface VaultAddressConfig {
   address: string;
   chainId: number;
+  /** Overrides name-based UI routing when the Morpho vault name lacks "Prime" / "Vineyard" */
+  listCategory?: VaultCategory;
+  /** When true, hidden from overview, protocol stats, monthly statements, and GET /api/vaults (direct /vault/... still works) */
+  excludeFromBusinessViews?: boolean;
 }
 
 export interface RoleConfig {
@@ -44,6 +51,14 @@ export const vaultAddresses: VaultAddressConfig[] = [
   {
     address: process.env.NEXT_PUBLIC_VAULT_CBBTC_V2 || '0x99dcd0d75822ba398f13b2a8852b07c7e137ec70',
     chainId: BASE_CHAIN_ID,
+  },
+  {
+    address:
+      process.env.NEXT_PUBLIC_VAULT_CBBTC_V2_TEST ||
+      '0xB15a51F46a53CF7dBB378A459A552F342bC54815',
+    chainId: BASE_CHAIN_ID,
+    listCategory: 'prime',
+    excludeFromBusinessViews: true,
   },
   // V1 Vaults
   {
@@ -97,10 +112,20 @@ export const getAllVaultAddresses = (): VaultAddressConfig[] => {
   return vaultAddresses;
 };
 
-// Categorize vaults by name pattern (works with GraphQL data)
-export type VaultCategory = 'prime' | 'vineyard' | 'v1';
+/** Vaults included in overview, protocol stats, monthly statements, and the public vault list API */
+export const getVaultAddressesForBusinessViews = (): VaultAddressConfig[] => {
+  return vaultAddresses.filter((v) => !v.excludeFromBusinessViews);
+};
 
-export const getVaultCategory = (vaultName: string | null | undefined): VaultCategory => {
+// Categorize vaults by name pattern (works with GraphQL data); optional address uses listCategory from config
+export const getVaultCategory = (
+  vaultName: string | null | undefined,
+  vaultAddress?: string | null
+): VaultCategory => {
+  if (vaultAddress) {
+    const cfg = getVaultByAddress(vaultAddress);
+    if (cfg?.listCategory) return cfg.listCategory;
+  }
   if (!vaultName) {
     return 'v1'; // Default to v1 if name is missing
   }
@@ -115,7 +140,10 @@ export const getVaultCategory = (vaultName: string | null | undefined): VaultCat
 };
 
 // Determine if vault should use v2 GraphQL query (Prime and Vineyard are both v2)
-export const shouldUseV2Query = (vaultName: string | null | undefined): boolean => {
-  const category = getVaultCategory(vaultName);
+export const shouldUseV2Query = (
+  vaultName: string | null | undefined,
+  vaultAddress?: string | null
+): boolean => {
+  const category = getVaultCategory(vaultName, vaultAddress);
   return category === 'prime' || category === 'vineyard';
 };
