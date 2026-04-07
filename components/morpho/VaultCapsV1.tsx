@@ -1,11 +1,17 @@
 'use client';
 
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useVaultCaps } from '@/lib/hooks/useVaultCaps';
 import { formatUSD, formatTokenAmount } from '@/lib/format/number';
-import { ExternalLink } from 'lucide-react';
+import { ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
+import { TransactionButton } from '@/components/TransactionButton';
+import { v1WriteConfigs } from '@/lib/onchain/vault-writes';
+import { parseUnits } from 'viem';
 import type { Address } from 'viem';
 import type { VaultCapsData } from '@/lib/hooks/useVaultCaps';
 
@@ -19,6 +25,15 @@ function formatMarketName(loanAsset: string, collateralAsset: string): string {
 }
 
 export function VaultCapsV1({ vaultAddress, preloadedData }: VaultCapsV1Props) {
+  const [showManage, setShowManage] = useState(false);
+  const [selectedMarketKey, setSelectedMarketKey] = useState('');
+  const [newCapAmount, setNewCapAmount] = useState('');
+  const [oracleAddr, setOracleAddr] = useState('');
+  const [irmAddr, setIrmAddr] = useState('');
+  const [lltvInput, setLltvInput] = useState('');
+  const submitCapWrite = useVaultWrite();
+  const acceptCapWrite = useVaultWrite();
+
   const { data: fetchedData, isLoading, error } = useVaultCaps(vaultAddress);
   const data = preloadedData ?? fetchedData;
 
@@ -220,6 +235,127 @@ export function VaultCapsV1({ vaultAddress, preloadedData }: VaultCapsV1Props) {
             </div>
           );
         })}
+
+        {/* Manage Section */}
+        <div className="border-t pt-4">
+          <button
+            onClick={() => setShowManage(!showManage)}
+            className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100"
+          >
+            {showManage ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            Manage Caps
+          </button>
+
+          {showManage && (
+            <div className="mt-4 space-y-6">
+              {/* Submit Cap */}
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-4">
+                <h4 className="text-sm font-semibold">Submit New Cap</h4>
+                <div className="space-y-2">
+                  <label className="text-xs text-muted-foreground">Market</label>
+                  <select
+                    value={selectedMarketKey}
+                    onChange={(e) => setSelectedMarketKey(e.target.value)}
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    <option value="">Select market...</option>
+                    {data.markets.map((m) => (
+                      <option key={m.marketKey} value={m.marketKey}>
+                        {formatMarketName(m.loanAsset.symbol, m.collateralAsset.symbol)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs text-muted-foreground">Oracle Address</label>
+                  <Input type="text" placeholder="0x..." value={oracleAddr} onChange={(e) => setOracleAddr(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs text-muted-foreground">IRM Address</label>
+                  <Input type="text" placeholder="0x..." value={irmAddr} onChange={(e) => setIrmAddr(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs text-muted-foreground">LLTV (in WAD, e.g. 860000000000000000 for 86%)</label>
+                  <Input type="text" placeholder="e.g. 860000000000000000" value={lltvInput} onChange={(e) => setLltvInput(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs text-muted-foreground">New Supply Cap (in token units)</label>
+                  <Input
+                    type="text"
+                    placeholder="e.g. 1000000"
+                    value={newCapAmount}
+                    onChange={(e) => setNewCapAmount(e.target.value)}
+                  />
+                </div>
+                <TransactionButton
+                  label="Submit Cap"
+                  onClick={() => {
+                    const market = data.markets.find((m) => m.marketKey === selectedMarketKey);
+                    if (!market || !newCapAmount || !oracleAddr || !irmAddr || !lltvInput) return;
+                    const decimals = market.loanAsset.decimals;
+                    const capBigInt = parseUnits(newCapAmount, decimals);
+                    const marketParams = {
+                      loanToken: market.loanAsset.address as Address,
+                      collateralToken: market.collateralAsset.address as Address,
+                      oracle: oracleAddr as Address,
+                      irm: irmAddr as Address,
+                      lltv: BigInt(lltvInput),
+                    };
+                    const config = v1WriteConfigs.submitCap(vaultAddress as Address, marketParams, capBigInt);
+                    submitCapWrite.write(config);
+                  }}
+                  disabled={!selectedMarketKey || !newCapAmount || !oracleAddr || !irmAddr || !lltvInput}
+                  isLoading={submitCapWrite.isLoading}
+                  isSuccess={submitCapWrite.isSuccess}
+                  error={submitCapWrite.error}
+                  txHash={submitCapWrite.txHash}
+                />
+              </div>
+
+              {/* Accept Cap - per market buttons */}
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-4">
+                <h4 className="text-sm font-semibold">Accept Pending Cap</h4>
+                <p className="text-xs text-muted-foreground">Accept a pending cap after its timelock has elapsed.</p>
+                <div className="space-y-2">
+                  <label className="text-xs text-muted-foreground">Market</label>
+                  <select
+                    value={selectedMarketKey}
+                    onChange={(e) => setSelectedMarketKey(e.target.value)}
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    <option value="">Select market...</option>
+                    {data.markets.map((m) => (
+                      <option key={`accept-${m.marketKey}`} value={m.marketKey}>
+                        {formatMarketName(m.loanAsset.symbol, m.collateralAsset.symbol)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <TransactionButton
+                  label="Accept Cap"
+                  onClick={() => {
+                    const market = data.markets.find((m) => m.marketKey === selectedMarketKey);
+                    if (!market || !oracleAddr || !irmAddr || !lltvInput) return;
+                    const marketParams = {
+                      loanToken: market.loanAsset.address as Address,
+                      collateralToken: market.collateralAsset.address as Address,
+                      oracle: oracleAddr as Address,
+                      irm: irmAddr as Address,
+                      lltv: BigInt(lltvInput),
+                    };
+                    const config = v1WriteConfigs.acceptCap(vaultAddress as Address, marketParams);
+                    acceptCapWrite.write(config);
+                  }}
+                  disabled={!selectedMarketKey || !oracleAddr || !irmAddr || !lltvInput}
+                  isLoading={acceptCapWrite.isLoading}
+                  isSuccess={acceptCapWrite.isSuccess}
+                  error={acceptCapWrite.error}
+                  txHash={acceptCapWrite.txHash}
+                />
+              </div>
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

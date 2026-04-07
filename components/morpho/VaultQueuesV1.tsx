@@ -1,12 +1,17 @@
 'use client';
 
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Input } from '@/components/ui/input';
 import { useVaultQueues } from '@/lib/hooks/useVaultQueues';
+import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
 import { formatUSD, formatTokenAmount } from '@/lib/format/number';
-import { ExternalLink, ArrowDown, ArrowUp } from 'lucide-react';
-import type { Address } from 'viem';
+import { ExternalLink, ArrowDown, ArrowUp, ChevronDown, ChevronUp } from 'lucide-react';
+import { TransactionButton } from '@/components/TransactionButton';
+import { v1WriteConfigs } from '@/lib/onchain/vault-writes';
+import type { Address, Hex } from 'viem';
 import type { VaultQueuesData } from '@/lib/hooks/useVaultQueues';
 
 interface VaultQueuesV1Props {
@@ -21,6 +26,12 @@ function formatMarketName(loanAsset: string, collateralAsset: string): string {
 export function VaultQueuesV1({ vaultAddress, preloadedData }: VaultQueuesV1Props) {
   const { data: fetchedData, isLoading, error } = useVaultQueues(vaultAddress);
   const data = preloadedData ?? fetchedData;
+
+  const [showManage, setShowManage] = useState(false);
+  const [supplyQueueInput, setSupplyQueueInput] = useState('');
+  const [withdrawIndexesInput, setWithdrawIndexesInput] = useState('');
+  const supplyQueueWrite = useVaultWrite();
+  const withdrawQueueWrite = useVaultWrite();
 
   if (!preloadedData && isLoading) {
     return (
@@ -177,6 +188,78 @@ export function VaultQueuesV1({ vaultAddress, preloadedData }: VaultQueuesV1Prop
         <ArrowUp className="h-5 w-5 text-red-600 dark:text-red-400" />,
         'Markets are tapped for withdrawals in this order. Lower positions are processed first.'
       )}
+
+      {/* Manage Queues */}
+      <Card>
+        <CardHeader>
+          <button
+            onClick={() => setShowManage(!showManage)}
+            className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100"
+          >
+            {showManage ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            Manage Queues
+          </button>
+        </CardHeader>
+        {showManage && (
+          <CardContent className="space-y-6">
+            {/* Set Supply Queue */}
+            <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-4">
+              <h4 className="text-sm font-semibold">Set Supply Queue</h4>
+              <p className="text-xs text-muted-foreground">Comma-separated market IDs (bytes32 hex values)</p>
+              <div className="space-y-2">
+                <Input
+                  type="text"
+                  placeholder="0xabc...,0xdef..."
+                  value={supplyQueueInput}
+                  onChange={(e) => setSupplyQueueInput(e.target.value)}
+                />
+              </div>
+              <TransactionButton
+                label="Set Supply Queue"
+                onClick={() => {
+                  if (!supplyQueueInput.trim()) return;
+                  const ids = supplyQueueInput.split(',').map((s) => s.trim() as Hex);
+                  const config = v1WriteConfigs.setSupplyQueue(vaultAddress as Address, ids);
+                  supplyQueueWrite.write(config);
+                }}
+                disabled={!supplyQueueInput.trim()}
+                isLoading={supplyQueueWrite.isLoading}
+                isSuccess={supplyQueueWrite.isSuccess}
+                error={supplyQueueWrite.error}
+                txHash={supplyQueueWrite.txHash}
+              />
+            </div>
+
+            {/* Update Withdraw Queue */}
+            <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-4">
+              <h4 className="text-sm font-semibold">Update Withdraw Queue</h4>
+              <p className="text-xs text-muted-foreground">Comma-separated index permutation (e.g., &quot;2,0,1,3&quot;)</p>
+              <div className="space-y-2">
+                <Input
+                  type="text"
+                  placeholder="e.g. 2,0,1,3"
+                  value={withdrawIndexesInput}
+                  onChange={(e) => setWithdrawIndexesInput(e.target.value)}
+                />
+              </div>
+              <TransactionButton
+                label="Update Withdraw Queue"
+                onClick={() => {
+                  if (!withdrawIndexesInput.trim()) return;
+                  const indexes = withdrawIndexesInput.split(',').map((s) => BigInt(s.trim()));
+                  const config = v1WriteConfigs.updateWithdrawQueue(vaultAddress as Address, indexes);
+                  withdrawQueueWrite.write(config);
+                }}
+                disabled={!withdrawIndexesInput.trim()}
+                isLoading={withdrawQueueWrite.isLoading}
+                isSuccess={withdrawQueueWrite.isSuccess}
+                error={withdrawQueueWrite.error}
+                txHash={withdrawQueueWrite.txHash}
+              />
+            </div>
+          </CardContent>
+        )}
+      </Card>
     </div>
   );
 }

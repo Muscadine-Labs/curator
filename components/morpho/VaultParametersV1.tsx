@@ -1,12 +1,18 @@
 'use client';
 
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { useVault } from '@/lib/hooks/useProtocolStats';
-import { ExternalLink } from 'lucide-react';
+import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
+import { ExternalLink, ChevronDown, ChevronUp } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { getScanUrlForChain } from '@/lib/constants';
 import { multicallRead } from '@/lib/onchain/client';
+import { TransactionButton } from '@/components/TransactionButton';
+import { v1WriteConfigs } from '@/lib/onchain/vault-writes';
 import type { Address } from 'viem';
 
 interface VaultParametersV1Props {
@@ -36,6 +42,15 @@ async function fetchVaultParamsOnChain(vaultAddress: Address) {
 
 export function VaultParametersV1({ vaultAddress }: VaultParametersV1Props) {
   const { data: vault, isLoading: isVaultLoading } = useVault(vaultAddress);
+
+  const [showManage, setShowManage] = useState(false);
+  const [newFeePercent, setNewFeePercent] = useState('');
+  const [newFeeRecipient, setNewFeeRecipient] = useState('');
+  const [newTimelockSeconds, setNewTimelockSeconds] = useState('');
+  const feeWrite = useVaultWrite();
+  const feeRecipientWrite = useVaultWrite();
+  const timelockWrite = useVaultWrite();
+  const acceptTimelockWrite = useVaultWrite();
 
   const { data: onChainParams, isLoading: isOnChainLoading } = useQuery({
     queryKey: ['vault-parameters-onchain', vaultAddress],
@@ -175,6 +190,114 @@ export function VaultParametersV1({ vaultAddress }: VaultParametersV1Props) {
               </div>
             </div>
           ))}
+        </div>
+
+        {/* Manage Section */}
+        <div className="border-t pt-4">
+          <button
+            onClick={() => setShowManage(!showManage)}
+            className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100"
+          >
+            {showManage ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            Manage Parameters
+          </button>
+
+          {showManage && (
+            <div className="mt-4 space-y-4">
+              {/* Set Fee */}
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-4">
+                <h4 className="text-sm font-semibold">Set Fee</h4>
+                <p className="text-xs text-muted-foreground">Max 50%. Value is in percentage (e.g., 5 = 5%)</p>
+                <Input
+                  type="text"
+                  placeholder="e.g. 5"
+                  value={newFeePercent}
+                  onChange={(e) => setNewFeePercent(e.target.value)}
+                />
+                <TransactionButton
+                  label="Set Fee"
+                  onClick={() => {
+                    if (!newFeePercent) return;
+                    // Convert percentage to WAD: 5% = 5e16
+                    const feeWad = BigInt(Math.floor(parseFloat(newFeePercent) * 1e16));
+                    const config = v1WriteConfigs.setFee(vaultAddress as Address, feeWad);
+                    feeWrite.write(config);
+                  }}
+                  disabled={!newFeePercent}
+                  isLoading={feeWrite.isLoading}
+                  isSuccess={feeWrite.isSuccess}
+                  error={feeWrite.error}
+                  txHash={feeWrite.txHash}
+                />
+              </div>
+
+              {/* Set Fee Recipient */}
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-4">
+                <h4 className="text-sm font-semibold">Set Fee Recipient</h4>
+                <Input
+                  type="text"
+                  placeholder="0x..."
+                  value={newFeeRecipient}
+                  onChange={(e) => setNewFeeRecipient(e.target.value)}
+                />
+                <TransactionButton
+                  label="Set Fee Recipient"
+                  onClick={() => {
+                    if (!newFeeRecipient) return;
+                    const config = v1WriteConfigs.setFeeRecipient(vaultAddress as Address, newFeeRecipient as Address);
+                    feeRecipientWrite.write(config);
+                  }}
+                  disabled={!newFeeRecipient}
+                  isLoading={feeRecipientWrite.isLoading}
+                  isSuccess={feeRecipientWrite.isSuccess}
+                  error={feeRecipientWrite.error}
+                  txHash={feeRecipientWrite.txHash}
+                />
+              </div>
+
+              {/* Submit Timelock */}
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-4">
+                <h4 className="text-sm font-semibold">Submit Timelock</h4>
+                <p className="text-xs text-muted-foreground">Duration in seconds</p>
+                <Input
+                  type="text"
+                  placeholder="e.g. 86400 (1 day)"
+                  value={newTimelockSeconds}
+                  onChange={(e) => setNewTimelockSeconds(e.target.value)}
+                />
+                <TransactionButton
+                  label="Submit Timelock"
+                  onClick={() => {
+                    if (!newTimelockSeconds) return;
+                    const config = v1WriteConfigs.submitTimelock(vaultAddress as Address, BigInt(newTimelockSeconds));
+                    timelockWrite.write(config);
+                  }}
+                  disabled={!newTimelockSeconds}
+                  isLoading={timelockWrite.isLoading}
+                  isSuccess={timelockWrite.isSuccess}
+                  error={timelockWrite.error}
+                  txHash={timelockWrite.txHash}
+                />
+              </div>
+
+              {/* Accept Timelock */}
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-4">
+                <h4 className="text-sm font-semibold">Accept Timelock</h4>
+                <p className="text-xs text-muted-foreground">Accept a pending timelock after its delay has elapsed.</p>
+                <TransactionButton
+                  label="Accept Timelock"
+                  onClick={() => {
+                    const config = v1WriteConfigs.acceptTimelock(vaultAddress as Address);
+                    acceptTimelockWrite.write(config);
+                  }}
+                  isLoading={acceptTimelockWrite.isLoading}
+                  isSuccess={acceptTimelockWrite.isSuccess}
+                  error={acceptTimelockWrite.error}
+                  txHash={acceptTimelockWrite.txHash}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

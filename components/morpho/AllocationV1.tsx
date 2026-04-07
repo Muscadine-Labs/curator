@@ -15,6 +15,14 @@ import {
 import { useVault } from '@/lib/hooks/useProtocolStats';
 import { formatCompactUSD, formatPercentage, formatLtv, formatTokenAmount } from '@/lib/format/number';
 import { cn } from '@/lib/utils';
+import { ChevronDown, ChevronUp } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
+import { TransactionButton } from '@/components/TransactionButton';
+import { v1WriteConfigs, type MarketAllocation, type MarketParams } from '@/lib/onchain/vault-writes';
+import type { Address, Hex } from 'viem';
+import { parseUnits } from 'viem';
 
 interface AllocationV1Props {
   vaultAddress: string;
@@ -43,6 +51,11 @@ interface MarketAllocationInput {
 export function AllocationV1({ vaultAddress }: AllocationV1Props) {
   const { data: vault, isLoading, error } = useVault(vaultAddress);
   const [allocations, setAllocations] = useState<Map<string, MarketAllocationInput>>(new Map());
+  const [showManage, setShowManage] = useState(false);
+  const [fromMarket, setFromMarket] = useState('');
+  const [toMarket, setToMarket] = useState('');
+  const [reallocateAmount, setReallocateAmount] = useState('');
+  const vaultWrite = useVaultWrite();
 
   // Calculate total assets for percentage calculations (memoized)
   const totalAssets = useMemo(() => {
@@ -246,6 +259,94 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
               })}
             </TableBody>
           </Table>
+        </div>
+
+        {/* Manage Section */}
+        <div className="mt-6 border-t pt-4">
+          <button
+            onClick={() => setShowManage(!showManage)}
+            className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100"
+          >
+            {showManage ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            Manage Allocation
+          </button>
+
+          {showManage && (
+            <div className="mt-4 space-y-4">
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-4">
+                <h4 className="text-sm font-semibold">Reallocate Between Markets</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs text-muted-foreground">From Market</label>
+                    <select
+                      value={fromMarket}
+                      onChange={(e) => setFromMarket(e.target.value)}
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    >
+                      <option value="">Select market...</option>
+                      {sortedAllocations.map((alloc) => (
+                        <option key={`from-${alloc.uniqueKey}`} value={alloc.uniqueKey}>
+                          {alloc.marketName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs text-muted-foreground">To Market</label>
+                    <select
+                      value={toMarket}
+                      onChange={(e) => setToMarket(e.target.value)}
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    >
+                      <option value="">Select market...</option>
+                      {sortedAllocations.map((alloc) => (
+                        <option key={`to-${alloc.uniqueKey}`} value={alloc.uniqueKey}>
+                          {alloc.marketName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs text-muted-foreground">Amount (in token units)</label>
+                  <Input
+                    type="text"
+                    placeholder="e.g. 1000.0"
+                    value={reallocateAmount}
+                    onChange={(e) => setReallocateAmount(e.target.value)}
+                  />
+                </div>
+                <TransactionButton
+                  label="Reallocate"
+                  onClick={() => {
+                    const fromAlloc = allocations.get(fromMarket);
+                    const toAlloc = allocations.get(toMarket);
+                    if (!fromAlloc || !toAlloc || !reallocateAmount) return;
+                    const decimals = fromAlloc.decimals;
+                    const amount = parseUnits(reallocateAmount, decimals);
+                    const makeParams = (a: MarketAllocationInput): MarketParams => ({
+                      loanToken: (a.loanAssetAddress || '0x0000000000000000000000000000000000000000') as Address,
+                      collateralToken: (a.collateralAssetAddress || '0x0000000000000000000000000000000000000000') as Address,
+                      oracle: (a.oracleAddress || '0x0000000000000000000000000000000000000000') as Address,
+                      irm: (a.irmAddress || '0x0000000000000000000000000000000000000000') as Address,
+                      lltv: BigInt(Math.floor((a.lltv ?? 0) * 1e18)),
+                    });
+                    const allocationsList: MarketAllocation[] = [
+                      { marketParams: makeParams(fromAlloc), assets: fromAlloc.currentAssets - amount },
+                      { marketParams: makeParams(toAlloc), assets: toAlloc.currentAssets + amount },
+                    ];
+                    const config = v1WriteConfigs.reallocate(vaultAddress as Address, allocationsList);
+                    vaultWrite.write(config);
+                  }}
+                  disabled={!fromMarket || !toMarket || !reallocateAmount || fromMarket === toMarket}
+                  isLoading={vaultWrite.isLoading}
+                  isSuccess={vaultWrite.isSuccess}
+                  error={vaultWrite.error}
+                  txHash={vaultWrite.txHash}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

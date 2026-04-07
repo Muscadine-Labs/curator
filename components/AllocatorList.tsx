@@ -9,7 +9,7 @@ import { AddressBadge } from './AddressBadge';
 import { Plus, X, Loader2 } from 'lucide-react';
 import { Address, isAddress } from 'viem';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { vaultWriteConfigs } from '@/lib/onchain/vault-writes';
+import { v1WriteConfigs } from '@/lib/onchain/vault-writes';
 import { BASE_CHAIN_ID, getScanUrlForChain } from '@/lib/constants';
 import { useVaultRoles } from '@/lib/hooks/useVaultRoles';
 import { logger } from '@/lib/utils/logger';
@@ -52,11 +52,7 @@ export function AllocatorList({ vaultAddress, chainId = BASE_CHAIN_ID }: Allocat
 
     setIsAdding(true);
     try {
-      const config = vaultWriteConfigs.setIsAllocator({
-        vaultAddress,
-        allocator: address as Address,
-        isAllocator: true,
-      });
+      const config = v1WriteConfigs.setIsAllocator(vaultAddress, address as Address, true);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setIsAllocator(config as any);
       setNewAllocatorAddress('');
@@ -77,11 +73,7 @@ export function AllocatorList({ vaultAddress, chainId = BASE_CHAIN_ID }: Allocat
     }
 
     try {
-      const config = vaultWriteConfigs.setIsAllocator({
-        vaultAddress,
-        allocator: allocatorAddress,
-        isAllocator: false,
-      });
+      const config = v1WriteConfigs.setIsAllocator(vaultAddress, allocatorAddress, false);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setIsAllocator(config as any);
     } catch (error) {

@@ -14,6 +14,7 @@ import { VaultV2Adapters } from '@/components/morpho/VaultV2Adapters';
 import { VaultV2Allocations } from '@/components/morpho/VaultV2Allocations';
 import { VaultV2Caps } from '@/components/morpho/VaultV2Caps';
 import { VaultV2Timelocks } from '@/components/morpho/VaultV2Timelocks';
+import { VaultV2Parameters } from '@/components/morpho/VaultV2Parameters';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -125,6 +126,7 @@ export default function V2VaultPage() {
               <TabsTrigger value="adapters" className="sm:flex-1 flex-shrink-0 min-w-fit">Adapters</TabsTrigger>
               <TabsTrigger value="allocations" className="sm:flex-1 flex-shrink-0 min-w-fit">Allocations</TabsTrigger>
               <TabsTrigger value="caps" className="sm:flex-1 flex-shrink-0 min-w-fit">Caps</TabsTrigger>
+              <TabsTrigger value="parameters" className="sm:flex-1 flex-shrink-0 min-w-fit">Parameters</TabsTrigger>
               <TabsTrigger value="timelocks" className="sm:flex-1 flex-shrink-0 min-w-fit">Timelocks</TabsTrigger>
             </TabsList>
           </div>
@@ -196,6 +198,11 @@ export default function V2VaultPage() {
           {/* Caps Tab */}
           <TabsContent value="caps">
             <VaultV2Caps vaultAddress={vault.address} preloadedData={governance} />
+          </TabsContent>
+
+          {/* Parameters Tab */}
+          <TabsContent value="parameters">
+            <VaultV2Parameters vaultAddress={vault.address} />
           </TabsContent>
 
           {/* Timelocks Tab */}

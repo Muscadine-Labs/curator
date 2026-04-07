@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -12,7 +12,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { ChevronDown, ChevronUp } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 import { useVaultV2Risk } from '@/lib/hooks/useVaultV2Risk';
+import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
+import { TransactionButton } from '@/components/TransactionButton';
+import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
+import type { Address, Hex } from 'viem';
+import { parseUnits } from 'viem';
 import { formatCompactUSD, formatPercentage, formatLtv, formatTokenAmount } from '@/lib/format/number';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
 
@@ -147,6 +154,13 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
 
     return { rows, total: totalUsd };
   }, [risk]);
+
+  const [showManage, setShowManage] = useState(false);
+  const [adapterAddr, setAdapterAddr] = useState('');
+  const [allocData, setAllocData] = useState('0x');
+  const [allocAssets, setAllocAssets] = useState('');
+  const [action, setAction] = useState<'allocate' | 'deallocate'>('allocate');
+  const vaultWrite = useVaultWrite();
 
   if (!preloadedRisk && isLoading) {
     return (
@@ -306,6 +320,85 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
               )}
             </TableBody>
           </Table>
+        </div>
+
+        {/* Manage Section */}
+        <div className="mt-6 border-t pt-4">
+          <button
+            onClick={() => setShowManage(!showManage)}
+            className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100"
+          >
+            {showManage ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            Manage Allocations
+          </button>
+
+          {showManage && (
+            <div className="mt-4 space-y-4">
+              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-4">
+                <h4 className="text-sm font-semibold">Allocate / Deallocate</h4>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setAction('allocate')}
+                    className={`px-3 py-1 rounded-md text-sm font-medium ${action === 'allocate' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'}`}
+                  >
+                    Allocate
+                  </button>
+                  <button
+                    onClick={() => setAction('deallocate')}
+                    className={`px-3 py-1 rounded-md text-sm font-medium ${action === 'deallocate' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'}`}
+                  >
+                    Deallocate
+                  </button>
+                </div>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs text-muted-foreground">Adapter Address</label>
+                    <Input
+                      type="text"
+                      placeholder="0x..."
+                      value={adapterAddr}
+                      onChange={(e) => setAdapterAddr(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs text-muted-foreground">Data (bytes, optional)</label>
+                    <Input
+                      type="text"
+                      placeholder="0x"
+                      value={allocData}
+                      onChange={(e) => setAllocData(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs text-muted-foreground">Assets Amount (in token units)</label>
+                    <Input
+                      type="text"
+                      placeholder="e.g. 1000.0"
+                      value={allocAssets}
+                      onChange={(e) => setAllocAssets(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <TransactionButton
+                  label={action === 'allocate' ? 'Allocate' : 'Deallocate'}
+                  onClick={() => {
+                    if (!adapterAddr || !allocAssets) return;
+                    const decimals = risk?.vaultAsset?.decimals ?? 18;
+                    const assets = parseUnits(allocAssets, decimals);
+                    const config = action === 'allocate'
+                      ? v2WriteConfigs.allocate(vaultAddress as Address, adapterAddr as Address, allocData as Hex, assets)
+                      : v2WriteConfigs.deallocate(vaultAddress as Address, adapterAddr as Address, allocData as Hex, assets);
+                    vaultWrite.write(config);
+                  }}
+                  disabled={!adapterAddr || !allocAssets}
+                  isLoading={vaultWrite.isLoading}
+                  isSuccess={vaultWrite.isSuccess}
+                  error={vaultWrite.error}
+                  txHash={vaultWrite.txHash}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>
