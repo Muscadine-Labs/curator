@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -15,13 +15,12 @@ import {
 import { useVault } from '@/lib/hooks/useProtocolStats';
 import { formatCompactUSD, formatPercentage, formatLtv, formatTokenAmount } from '@/lib/format/number';
 import { cn } from '@/lib/utils';
-import { ChevronDown, ChevronUp } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
 import { TransactionButton } from '@/components/TransactionButton';
 import { v1WriteConfigs, type MarketAllocation, type MarketParams } from '@/lib/onchain/vault-writes';
-import type { Address, Hex } from 'viem';
+import type { Address } from 'viem';
 import { parseUnits } from 'viem';
 
 interface AllocationV1Props {
@@ -48,58 +47,61 @@ interface MarketAllocationInput {
   liquidityAssetsUsd?: number | null;
 }
 
+type InputMode = 'tokens' | 'percentage';
+
+interface ReallocEntry {
+  marketKey: string;
+  newValue: string;
+}
+
 export function AllocationV1({ vaultAddress }: AllocationV1Props) {
   const { data: vault, isLoading, error } = useVault(vaultAddress);
   const [allocations, setAllocations] = useState<Map<string, MarketAllocationInput>>(new Map());
   const [showManage, setShowManage] = useState(false);
-  const [fromMarket, setFromMarket] = useState('');
-  const [toMarket, setToMarket] = useState('');
-  const [reallocateAmount, setReallocateAmount] = useState('');
+  const [inputMode, setInputMode] = useState<InputMode>('tokens');
+  const [entries, setEntries] = useState<ReallocEntry[]>([]);
   const vaultWrite = useVaultWrite();
 
-  // Calculate total assets for percentage calculations (memoized)
-  const totalAssets = useMemo(() => {
-    return vault?.allocation?.reduce((sum, alloc) => {
-      return sum + (alloc.supplyAssetsUsd ?? 0);
-    }, 0) ?? 0;
+  const totalAssetsUsd = useMemo(() => {
+    return vault?.allocation?.reduce((sum, alloc) => sum + (alloc.supplyAssetsUsd ?? 0), 0) ?? 0;
   }, [vault?.allocation]);
 
-  // Initialize allocations from vault data (useEffect for side effects)
+  const totalRawAssets = useMemo(() => {
+    let total = BigInt(0);
+    allocations.forEach((a) => { total += a.currentAssets; });
+    return total;
+  }, [allocations]);
+
+  const decimals = vault?.assetDecimals ?? 18;
+
+  const assetSymbol = useMemo(() => {
+    const first = allocations.values().next();
+    return (first.done ? null : first.value?.loanAssetSymbol) ?? vault?.asset ?? '';
+  }, [allocations, vault?.asset]);
+
+  // Initialize allocations from vault data
   useEffect(() => {
     if (!vault?.allocation || allocations.size > 0) return;
-
-    const initialAllocations = new Map<string, MarketAllocationInput>();
-    const decimals = vault?.assetDecimals ?? 18;
-
+    const dec = vault?.assetDecimals ?? 18;
+    const init = new Map<string, MarketAllocationInput>();
     vault.allocation.forEach((alloc) => {
       if (!alloc.marketKey) return;
-
       let supplyAssets: bigint;
       if (typeof alloc.supplyAssets === 'string') {
-        try {
-          supplyAssets = BigInt(alloc.supplyAssets);
-        } catch {
-          supplyAssets = BigInt(0);
-        }
+        try { supplyAssets = BigInt(alloc.supplyAssets); } catch { supplyAssets = BigInt(0); }
       } else if (typeof alloc.supplyAssets === 'number') {
         supplyAssets = BigInt(Math.floor(alloc.supplyAssets));
       } else {
         supplyAssets = BigInt(0);
       }
 
-      const formatMarketIdentifier = (
-        loanSymbol: string | null | undefined,
-        collateralSymbol: string | null | undefined
-      ): string => {
-        if (collateralSymbol && loanSymbol) return `${collateralSymbol}/${loanSymbol}`;
-        if (loanSymbol) return loanSymbol;
-        if (collateralSymbol) return collateralSymbol;
-        return 'Unknown Market';
-      };
+      const col = alloc.collateralAssetSymbol;
+      const loan = alloc.loanAssetSymbol;
+      const name = col && loan ? `${col}/${loan}` : loan || col || 'Unknown Market';
 
-      initialAllocations.set(alloc.marketKey, {
+      init.set(alloc.marketKey, {
         uniqueKey: alloc.marketKey,
-        marketName: formatMarketIdentifier(alloc.loanAssetSymbol, alloc.collateralAssetSymbol),
+        marketName: name,
         loanAssetAddress: alloc.loanAssetAddress ?? null,
         loanAssetSymbol: alloc.loanAssetSymbol ?? null,
         collateralAssetAddress: alloc.collateralAssetAddress ?? null,
@@ -110,27 +112,117 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
         currentAssets: supplyAssets,
         currentAssetsUsd: alloc.supplyAssetsUsd ?? 0,
         isIdle: false,
-        decimals,
+        decimals: dec,
         supplyApy: alloc.supplyApy ?? null,
         borrowApy: alloc.borrowApy ?? null,
         utilization: alloc.utilization ?? null,
         liquidityAssetsUsd: alloc.liquidityAssetsUsd ?? null,
       });
     });
+    setAllocations(init);
+  }, [vault?.allocation, allocations.size, vault?.assetDecimals]);
 
-    setAllocations(initialAllocations);
-  }, [vault?.allocation, allocations.size]);
+  // Seed entries once allocations are loaded
+  useEffect(() => {
+    if (allocations.size > 0 && entries.length === 0) {
+      const sorted = Array.from(allocations.values()).sort((a, b) => Number(b.currentAssets) - Number(a.currentAssets));
+      setEntries(sorted.map((a) => ({ marketKey: a.uniqueKey, newValue: '' })));
+    }
+  }, [allocations, entries.length]);
+
+  const updateEntry = useCallback((key: string, val: string) => {
+    setEntries((prev) => prev.map((e) => e.marketKey === key ? { ...e, newValue: val } : e));
+  }, []);
+
+  // Compute proposed token amounts per market + total
+  const proposed = useMemo(() => {
+    const result: { key: string; assets: bigint; valid: boolean }[] = [];
+    let total = BigInt(0);
+    let anyModified = false;
+    let parseError: string | null = null;
+
+    for (const e of entries) {
+      const alloc = allocations.get(e.marketKey);
+      if (!alloc) continue;
+
+      if (e.newValue.trim() === '') {
+        result.push({ key: e.marketKey, assets: alloc.currentAssets, valid: true });
+        total += alloc.currentAssets;
+        continue;
+      }
+
+      anyModified = true;
+      if (inputMode === 'percentage') {
+        const pct = parseFloat(e.newValue);
+        if (isNaN(pct) || pct < 0 || pct > 100) {
+          parseError = `Invalid percentage for ${alloc.marketName}`;
+          result.push({ key: e.marketKey, assets: BigInt(0), valid: false });
+          continue;
+        }
+        // pct% of totalRawAssets, rounding down
+        const assets = totalRawAssets * BigInt(Math.round(pct * 1e6)) / BigInt(1e8);
+        result.push({ key: e.marketKey, assets, valid: true });
+        total += assets;
+      } else {
+        try {
+          const assets = parseUnits(e.newValue, decimals);
+          if (assets < BigInt(0)) {
+            parseError = `Negative amount for ${alloc.marketName}`;
+            result.push({ key: e.marketKey, assets: BigInt(0), valid: false });
+            continue;
+          }
+          result.push({ key: e.marketKey, assets, valid: true });
+          total += assets;
+        } catch {
+          parseError = `Invalid number for ${alloc.marketName}`;
+          result.push({ key: e.marketKey, assets: BigInt(0), valid: false });
+        }
+      }
+    }
+
+    return { items: result, total, anyModified, parseError };
+  }, [entries, inputMode, allocations, totalRawAssets, decimals]);
+
+  const validationError = useMemo(() => {
+    if (proposed.parseError) return proposed.parseError;
+    if (!proposed.anyModified) return null;
+    if (proposed.total !== totalRawAssets) {
+      const diff = proposed.total > totalRawAssets
+        ? `+${formatTokenAmount(proposed.total - totalRawAssets, decimals, 4)}`
+        : `-${formatTokenAmount(totalRawAssets - proposed.total, decimals, 4)}`;
+      return `Total differs from vault assets by ${diff} ${assetSymbol}. Reallocate must preserve total (${formatTokenAmount(totalRawAssets, decimals, 2)} ${assetSymbol}).`;
+    }
+    return null;
+  }, [proposed, totalRawAssets, decimals, assetSymbol]);
+
+  const canSubmit = proposed.anyModified && !validationError;
+
+  const handleReallocate = useCallback(() => {
+    if (!canSubmit) return;
+    const allocationsList: MarketAllocation[] = [];
+    for (const p of proposed.items) {
+      const alloc = allocations.get(p.key);
+      if (!alloc) continue;
+      allocationsList.push({
+        marketParams: {
+          loanToken: (alloc.loanAssetAddress || '0x0000000000000000000000000000000000000000') as Address,
+          collateralToken: (alloc.collateralAssetAddress || '0x0000000000000000000000000000000000000000') as Address,
+          oracle: (alloc.oracleAddress || '0x0000000000000000000000000000000000000000') as Address,
+          irm: (alloc.irmAddress || '0x0000000000000000000000000000000000000000') as Address,
+          lltv: BigInt(Math.floor((alloc.lltv ?? 0) * 1e18)),
+        },
+        assets: p.assets,
+      });
+    }
+    vaultWrite.write(v1WriteConfigs.reallocate(vaultAddress as Address, allocationsList));
+  }, [canSubmit, proposed, allocations, vaultAddress, vaultWrite]);
 
   if (isLoading) {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle>Allocation</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle>Allocation</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-16 w-full" />
-          ))}
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
         </CardContent>
       </Card>
     );
@@ -139,9 +231,7 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
   if (error) {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle>Allocation</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle>Allocation</CardTitle></CardHeader>
         <CardContent>
           <p className="text-sm text-red-600 dark:text-red-400">
             Failed to load allocation data: {error instanceof Error ? error.message : 'Unknown error'}
@@ -154,22 +244,16 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
   if (!vault || !vault.allocation || vault.allocation.length === 0) {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle>Allocation</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle>Allocation</CardTitle></CardHeader>
         <CardContent>
-          <p className="text-center py-8 text-slate-500 dark:text-slate-400">
-            No allocation data available
-          </p>
+          <p className="text-center py-8 text-slate-500 dark:text-slate-400">No allocation data available</p>
         </CardContent>
       </Card>
     );
   }
 
   const sortedAllocations = Array.from(allocations.values()).sort((a, b) => {
-    const aAssets = Number(a.currentAssets);
-    const bAssets = Number(b.currentAssets);
-    if (aAssets !== bAssets) return bAssets - aAssets;
+    if (Number(b.currentAssets) !== Number(a.currentAssets)) return Number(b.currentAssets) - Number(a.currentAssets);
     if (a.isIdle && !b.isIdle) return 1;
     if (!a.isIdle && b.isIdle) return -1;
     return 0;
@@ -184,7 +268,7 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
         <div>
           <CardTitle>Allocation</CardTitle>
           <CardDescription>
-            Total allocated: {formatCompactUSD(totalAssets)}
+            Total: {formatCompactUSD(totalAssetsUsd)} ({formatTokenAmount(totalRawAssets, decimals, 2)} {assetSymbol})
           </CardDescription>
         </div>
       </CardHeader>
@@ -204,12 +288,9 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
             </TableHeader>
             <TableBody>
               {sortedAllocations.map((alloc) => {
-                const pct = totalAssets > 0 ? (alloc.currentAssetsUsd / totalAssets) * 100 : 0;
+                const pct = totalAssetsUsd > 0 ? (alloc.currentAssetsUsd / totalAssetsUsd) * 100 : 0;
                 return (
-                  <TableRow
-                    key={alloc.uniqueKey}
-                    className={cn(alloc.isIdle && 'opacity-75')}
-                  >
+                  <TableRow key={alloc.uniqueKey} className={cn(alloc.isIdle && 'opacity-75')}>
                     <TableCell>
                       <div className="flex flex-col gap-0.5">
                         <div className="flex flex-wrap items-center gap-2">
@@ -222,9 +303,7 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
                             {alloc.marketName}
                           </a>
                           {(alloc.isIdle || formatLtv(alloc.lltv) === '—') && (
-                            <Badge variant="outline" className="text-xs">
-                              Idle
-                            </Badge>
+                            <Badge variant="outline" className="text-xs">Idle</Badge>
                           )}
                         </div>
                         <span className="text-muted-foreground text-xs">
@@ -243,16 +322,13 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
                     <TableCell className="text-right">
                       <div className="flex flex-col items-end gap-0.5">
                         <span>
-                          {formatTokenAmount(alloc.currentAssets, alloc.decimals, 2)}{' '}
-                          {alloc.loanAssetSymbol || ''}
+                          {formatTokenAmount(alloc.currentAssets, alloc.decimals, 2)} {alloc.loanAssetSymbol || ''}
                         </span>
-                        <span className="text-muted-foreground text-xs">
-                          {formatCompactUSD(alloc.currentAssetsUsd)}
-                        </span>
+                        <span className="text-muted-foreground text-xs">{formatCompactUSD(alloc.currentAssetsUsd)}</span>
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
-                      {totalAssets > 0 ? `${pct.toFixed(2)}%` : '—'}
+                      {totalAssetsUsd > 0 ? `${pct.toFixed(2)}%` : '—'}
                     </TableCell>
                   </TableRow>
                 );
@@ -261,7 +337,7 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
           </Table>
         </div>
 
-        {/* Manage Section */}
+        {/* Manage Reallocation */}
         <div className="mt-6 border-t pt-4">
           <button
             onClick={() => setShowManage(!showManage)}
@@ -274,71 +350,79 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
           {showManage && (
             <div className="mt-4 space-y-4">
               <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-4">
-                <h4 className="text-sm font-semibold">Reallocate Between Markets</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-xs text-muted-foreground">From Market</label>
-                    <select
-                      value={fromMarket}
-                      onChange={(e) => setFromMarket(e.target.value)}
-                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold">Reallocate</h4>
+                  <div className="flex gap-1 rounded-md border p-0.5">
+                    <button
+                      onClick={() => { setInputMode('tokens'); setEntries((prev) => prev.map((e) => ({ ...e, newValue: '' }))); }}
+                      className={`px-3 py-1 rounded text-xs font-medium transition-colors ${inputMode === 'tokens' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                     >
-                      <option value="">Select market...</option>
-                      {sortedAllocations.map((alloc) => (
-                        <option key={`from-${alloc.uniqueKey}`} value={alloc.uniqueKey}>
-                          {alloc.marketName}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs text-muted-foreground">To Market</label>
-                    <select
-                      value={toMarket}
-                      onChange={(e) => setToMarket(e.target.value)}
-                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      Tokens
+                    </button>
+                    <button
+                      onClick={() => { setInputMode('percentage'); setEntries((prev) => prev.map((e) => ({ ...e, newValue: '' }))); }}
+                      className={`px-3 py-1 rounded text-xs font-medium transition-colors ${inputMode === 'percentage' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                     >
-                      <option value="">Select market...</option>
-                      {sortedAllocations.map((alloc) => (
-                        <option key={`to-${alloc.uniqueKey}`} value={alloc.uniqueKey}>
-                          {alloc.marketName}
-                        </option>
-                      ))}
-                    </select>
+                      Percentage
+                    </button>
                   </div>
                 </div>
+
+                <p className="text-xs text-muted-foreground">
+                  {inputMode === 'tokens'
+                    ? `Set the new token amount per market. Total must equal ${formatTokenAmount(totalRawAssets, decimals, 2)} ${assetSymbol}. Leave blank to keep current.`
+                    : 'Set the new % allocation per market. Total must equal 100%. Leave blank to keep current.'}
+                </p>
+
                 <div className="space-y-2">
-                  <label className="text-xs text-muted-foreground">Amount (in token units)</label>
-                  <Input
-                    type="text"
-                    placeholder="e.g. 1000.0"
-                    value={reallocateAmount}
-                    onChange={(e) => setReallocateAmount(e.target.value)}
-                  />
+                  {entries.map((entry) => {
+                    const alloc = allocations.get(entry.marketKey);
+                    if (!alloc) return null;
+                    const currentPct = totalRawAssets > BigInt(0)
+                      ? (Number(alloc.currentAssets * BigInt(10000) / totalRawAssets) / 100)
+                      : 0;
+                    return (
+                      <div key={entry.marketKey} className="flex items-center gap-3 rounded-md border border-slate-100 dark:border-slate-800 p-2">
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-medium truncate block">{alloc.marketName}</span>
+                          <span className="text-xs text-muted-foreground">
+                            Current: {formatTokenAmount(alloc.currentAssets, decimals, 2)} {assetSymbol} ({currentPct.toFixed(2)}%)
+                          </span>
+                        </div>
+                        <div className="w-40">
+                          <Input
+                            type="text"
+                            placeholder={inputMode === 'tokens' ? formatTokenAmount(alloc.currentAssets, decimals, 4) : currentPct.toFixed(2)}
+                            value={entry.newValue}
+                            onChange={(e) => updateEntry(entry.marketKey, e.target.value)}
+                            className="text-right text-sm"
+                          />
+                        </div>
+                        <span className="text-xs text-muted-foreground w-8">
+                          {inputMode === 'percentage' ? '%' : assetSymbol}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
+
+                {validationError && (
+                  <div className="flex items-start gap-2 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 p-3">
+                    <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+                    <p className="text-xs text-red-700 dark:text-red-300">{validationError}</p>
+                  </div>
+                )}
+
+                {canSubmit && (
+                  <div className="rounded-md bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 p-3">
+                    <p className="text-xs text-green-700 dark:text-green-300">Allocation is balanced. Ready to submit.</p>
+                  </div>
+                )}
+
                 <TransactionButton
                   label="Reallocate"
-                  onClick={() => {
-                    const fromAlloc = allocations.get(fromMarket);
-                    const toAlloc = allocations.get(toMarket);
-                    if (!fromAlloc || !toAlloc || !reallocateAmount) return;
-                    const decimals = fromAlloc.decimals;
-                    const amount = parseUnits(reallocateAmount, decimals);
-                    const makeParams = (a: MarketAllocationInput): MarketParams => ({
-                      loanToken: (a.loanAssetAddress || '0x0000000000000000000000000000000000000000') as Address,
-                      collateralToken: (a.collateralAssetAddress || '0x0000000000000000000000000000000000000000') as Address,
-                      oracle: (a.oracleAddress || '0x0000000000000000000000000000000000000000') as Address,
-                      irm: (a.irmAddress || '0x0000000000000000000000000000000000000000') as Address,
-                      lltv: BigInt(Math.floor((a.lltv ?? 0) * 1e18)),
-                    });
-                    const allocationsList: MarketAllocation[] = [
-                      { marketParams: makeParams(fromAlloc), assets: fromAlloc.currentAssets - amount },
-                      { marketParams: makeParams(toAlloc), assets: toAlloc.currentAssets + amount },
-                    ];
-                    const config = v1WriteConfigs.reallocate(vaultAddress as Address, allocationsList);
-                    vaultWrite.write(config);
-                  }}
-                  disabled={!fromMarket || !toMarket || !reallocateAmount || fromMarket === toMarket}
+                  onClick={handleReallocate}
+                  disabled={!canSubmit}
                   isLoading={vaultWrite.isLoading}
                   isSuccess={vaultWrite.isSuccess}
                   error={vaultWrite.error}
