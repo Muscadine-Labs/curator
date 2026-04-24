@@ -26,9 +26,14 @@ import { Pencil, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
 import { TransactionButton } from '@/components/TransactionButton';
-import { v1WriteConfigs, type MarketAllocation } from '@/lib/onchain/vault-writes';
+import { v1WriteConfigs, type MarketParams } from '@/lib/onchain/vault-writes';
 import type { Address } from 'viem';
-import { parseUnits, maxUint256 } from 'viem';
+import { parseUnits } from 'viem';
+import {
+  buildV1ReallocationPlan,
+  ZERO_ADDRESS,
+  type ReallocationTarget,
+} from '@/lib/onchain/reallocation';
 import {
   AllocationFilters,
   DEFAULT_FILTER_STATE,
@@ -272,63 +277,30 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
   const handleReallocate = useCallback(() => {
     if (!resolvedAllocations?.valid) return;
 
-    const toMarketAlloc = (t: { key: string; assets: bigint; current: bigint }, override?: bigint): MarketAllocation | null => {
-      const alloc = allocations.get(t.key);
+    // Resolve key → MarketParams; we feed this into the pure planner so the
+    // ordering + catcher logic stays unit tested in
+    // lib/onchain/__tests__/reallocation.test.ts.
+    const getMarketParams = (key: string): MarketParams | null => {
+      const alloc = allocations.get(key);
       if (!alloc) return null;
-      const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as Address;
       return {
-        marketParams: {
-          loanToken: (alloc.loanAssetAddress || ZERO_ADDR) as Address,
-          collateralToken: (alloc.collateralAssetAddress || ZERO_ADDR) as Address,
-          oracle: (alloc.oracleAddress || ZERO_ADDR) as Address,
-          irm: (alloc.irmAddress || ZERO_ADDR) as Address,
-          lltv: alloc.lltvRaw ? BigInt(alloc.lltvRaw) : BigInt(0),
-        },
-        assets: override ?? t.assets,
+        loanToken: (alloc.loanAssetAddress || ZERO_ADDRESS) as Address,
+        collateralToken: (alloc.collateralAssetAddress || ZERO_ADDRESS) as Address,
+        oracle: (alloc.oracleAddress || ZERO_ADDRESS) as Address,
+        irm: (alloc.irmAddress || ZERO_ADDRESS) as Address,
+        lltv: alloc.lltvRaw ? BigInt(alloc.lltvRaw) : BigInt(0),
       };
     };
 
-    // MetaMorpho V1 reallocate processes entries sequentially:
-    // withdrawals (decreased allocations) come first to create idle balance,
-    // then deposits (increased allocations) consume the idle balance.
-    //
-    // IMPORTANT: between fetching state and the tx landing, each market
-    // accrues interest. On-chain, totalWithdrawn will therefore be slightly
-    // larger than our client-side estimate. If we pass fixed supply targets
-    // for every deposit, the contract's final check (totalSupplied ==
-    // totalWithdrawn) will revert with InconsistentReallocation.
-    //
-    // The canonical fix is to mark the LAST deposit with assets =
-    // type(uint256).max — the contract then interprets that entry as
-    // "supply the residual (totalWithdrawn - totalSupplied)", making the
-    // transaction resilient to interest accrual and rounding.
+    const targets: ReallocationTarget[] = resolvedAllocations.targets.map((t) => ({
+      key: t.key,
+      assets: t.assets,
+      current: t.current,
+    }));
 
-    const withdrawalTargets = resolvedAllocations.targets.filter((t) => t.assets < t.current);
-    // Deposits: sorted ascending by delta so the LARGEST deposit is the catcher
-    const depositTargets = resolvedAllocations.targets
-      .filter((t) => t.assets > t.current)
-      .sort((a, b) => {
-        const da = a.assets - a.current;
-        const db = b.assets - b.current;
-        if (da === db) return 0;
-        return da < db ? -1 : 1;
-      });
-
-    const withdrawals = withdrawalTargets
-      .map((t) => toMarketAlloc(t))
-      .filter((a): a is MarketAllocation => a !== null);
-
-    const deposits: MarketAllocation[] = [];
-    for (let i = 0; i < depositTargets.length; i++) {
-      const isCatcher = i === depositTargets.length - 1 && withdrawalTargets.length > 0;
-      const override = isCatcher ? maxUint256 : undefined;
-      const alloc = toMarketAlloc(depositTargets[i], override);
-      if (alloc) deposits.push(alloc);
-    }
-
-    const allocationsList = [...withdrawals, ...deposits];
-    if (allocationsList.length === 0) return;
-    vaultWrite.write(v1WriteConfigs.reallocate(vaultAddress as Address, allocationsList));
+    const plan = buildV1ReallocationPlan(targets, getMarketParams);
+    if (plan.allocations.length === 0) return;
+    vaultWrite.write(v1WriteConfigs.reallocate(vaultAddress as Address, plan.allocations));
   }, [resolvedAllocations, allocations, vaultAddress, vaultWrite]);
 
   if (isLoading) {
@@ -476,12 +448,12 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
             <TableHeader>
               <TableRow>
                 <TableHead>Market</TableHead>
-                <TableHead className="text-right">Utilization</TableHead>
-                <TableHead className="text-right">Liquidity</TableHead>
-                <TableHead className="text-right">Borrow APY</TableHead>
-                <TableHead className="text-right">Supply APY</TableHead>
-                <TableHead className="text-right">Allocated</TableHead>
-                <TableHead className="text-right">Cap</TableHead>
+                {filters.columns.utilization && <TableHead className="text-right">Utilization</TableHead>}
+                {filters.columns.liquidity && <TableHead className="text-right">Liquidity</TableHead>}
+                {filters.columns.borrowApy && <TableHead className="text-right">Borrow APY</TableHead>}
+                {filters.columns.supplyApy && <TableHead className="text-right">Supply APY</TableHead>}
+                {filters.columns.allocated && <TableHead className="text-right">Allocated</TableHead>}
+                {filters.columns.cap && <TableHead className="text-right">Cap</TableHead>}
                 <TableHead className="text-right">%</TableHead>
                 {editing && <TableHead className="text-right w-40">New Allocation</TableHead>}
               </TableRow>
@@ -522,38 +494,58 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell className="text-right">{fmt(alloc.utilization)}</TableCell>
-                    <TableCell className="text-right">
-                      {alloc.liquidityAssetsUsd != null && Number.isFinite(alloc.liquidityAssetsUsd)
-                        ? formatCompactUSD(alloc.liquidityAssetsUsd)
-                        : '—'}
-                    </TableCell>
-                    <TableCell className="text-right">{fmt(alloc.borrowApy)}</TableCell>
-                    <TableCell className="text-right">{fmt(alloc.supplyApy)}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex flex-col items-end gap-0.5">
-                        <span>
-                          {formatRawTokenAmount(alloc.currentAssets, alloc.decimals, 2)} {alloc.loanAssetSymbol || ''}
-                        </span>
-                        <span className="text-muted-foreground text-xs">{formatCompactUSD(alloc.currentAssetsUsd)}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {alloc.supplyCapRaw == null ? (
-                        <span className="text-muted-foreground text-xs">—</span>
-                      ) : (
-                        <div className="flex flex-col items-end gap-0.5">
+                    {filters.columns.utilization && (
+                      <TableCell className="text-right">{fmt(alloc.utilization)}</TableCell>
+                    )}
+                    {filters.columns.liquidity && (
+                      <TableCell className="text-right">
+                        {alloc.liquidityAssetsUsd != null && Number.isFinite(alloc.liquidityAssetsUsd)
+                          ? formatCompactUSD(alloc.liquidityAssetsUsd)
+                          : '—'}
+                      </TableCell>
+                    )}
+                    {filters.columns.borrowApy && (
+                      <TableCell className="text-right">{fmt(alloc.borrowApy)}</TableCell>
+                    )}
+                    {filters.columns.supplyApy && (
+                      <TableCell className="text-right">{fmt(alloc.supplyApy)}</TableCell>
+                    )}
+                    {filters.columns.allocated && (
+                      <TableCell className="text-right">
+                        {filters.displayMode === 'percent' ? (
+                          <span>{totalAssetsUsd > 0 ? `${pct.toFixed(2)}%` : '—'}</span>
+                        ) : (
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span>
+                              {formatRawTokenAmount(alloc.currentAssets, alloc.decimals, 2)} {alloc.loanAssetSymbol || ''}
+                            </span>
+                            <span className="text-muted-foreground text-xs">{formatCompactUSD(alloc.currentAssetsUsd)}</span>
+                          </div>
+                        )}
+                      </TableCell>
+                    )}
+                    {filters.columns.cap && (
+                      <TableCell className="text-right">
+                        {alloc.supplyCapRaw == null ? (
+                          <span className="text-muted-foreground text-xs">—</span>
+                        ) : filters.displayMode === 'percent' && totalRawAssets > BigInt(0) ? (
                           <span className="text-xs">
-                            {formatRawTokenAmount(alloc.supplyCapRaw, alloc.decimals, 2)}
+                            {`${(Number((alloc.supplyCapRaw * BigInt(10000)) / totalRawAssets) / 100).toFixed(2)}%`}
                           </span>
-                          <span className="text-muted-foreground text-[11px]">
-                            {capRemaining != null
-                              ? `+${formatRawTokenAmount(capRemaining, alloc.decimals, 2)} free`
-                              : ''}
-                          </span>
-                        </div>
-                      )}
-                    </TableCell>
+                        ) : (
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span className="text-xs">
+                              {formatRawTokenAmount(alloc.supplyCapRaw, alloc.decimals, 2)}
+                            </span>
+                            <span className="text-muted-foreground text-[11px]">
+                              {capRemaining != null
+                                ? `+${formatRawTokenAmount(capRemaining, alloc.decimals, 2)} free`
+                                : ''}
+                            </span>
+                          </div>
+                        )}
+                      </TableCell>
+                    )}
                     <TableCell className="text-right">
                       {totalAssetsUsd > 0 ? `${pct.toFixed(2)}%` : '—'}
                     </TableCell>
@@ -582,7 +574,20 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
               })}
               {sortedAllocations.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={editing ? 9 : 8} className="text-center py-6 text-xs text-muted-foreground">
+                  <TableCell
+                    colSpan={
+                      1 +
+                      (filters.columns.utilization ? 1 : 0) +
+                      (filters.columns.liquidity ? 1 : 0) +
+                      (filters.columns.borrowApy ? 1 : 0) +
+                      (filters.columns.supplyApy ? 1 : 0) +
+                      (filters.columns.allocated ? 1 : 0) +
+                      (filters.columns.cap ? 1 : 0) +
+                      1 +
+                      (editing ? 1 : 0)
+                    }
+                    className="text-center py-6 text-xs text-muted-foreground"
+                  >
                     No markets match your filters.
                   </TableCell>
                 </TableRow>

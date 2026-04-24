@@ -80,35 +80,18 @@ export const formatCompactNumber = (value: number | bigint | null): string => {
   }).format(numValue);
 };
 
-// Format date
-export const formatDate = (date: Date | string | number | null): string => {
+function formatDate(date: Date | string | number | null): string {
   if (!date) return 'N/A';
-  
+
   try {
-    const dateObj = typeof date === 'string' || typeof date === 'number' 
-      ? new Date(date) 
-      : date;
-    
+    const dateObj =
+      typeof date === 'string' || typeof date === 'number' ? new Date(date) : date;
+
     return format(dateObj, 'MMM dd, yyyy');
   } catch {
     return 'N/A';
   }
-};
-
-// Format date with time
-export const formatDateTime = (date: Date | string | number | null): string => {
-  if (!date) return 'N/A';
-  
-  try {
-    const dateObj = typeof date === 'string' || typeof date === 'number' 
-      ? new Date(date) 
-      : date;
-    
-    return format(dateObj, 'MMM dd, yyyy HH:mm');
-  } catch {
-    return 'N/A';
-  }
-};
+}
 
 // Format relative time (e.g., "2 hours ago")
 export const formatRelativeTime = (date: Date | string | number | null): string => {

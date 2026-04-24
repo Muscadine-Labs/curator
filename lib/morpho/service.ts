@@ -55,14 +55,3 @@ export async function getMorphoMarketRatings(
   });
 }
 
-export function groupMarketsByUnderlying(
-  markets: MorphoMarketMetrics[]
-): Record<string, MorphoMarketMetrics[]> {
-  return markets.reduce<Record<string, MorphoMarketMetrics[]>>((acc, market) => {
-    const symbol = market.symbol?.toUpperCase() || 'UNKNOWN';
-    if (!acc[symbol]) acc[symbol] = [];
-    acc[symbol].push(market);
-    return acc;
-  }, {});
-}
-

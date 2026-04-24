@@ -4,7 +4,8 @@ import { useTheme } from '@/lib/theme/ThemeContext';
 import { Sun, Moon, Monitor } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-type Option = { value: 'light' | 'dark' | 'system'; label: string; icon: typeof Sun; title?: string };
+type ThemeValue = 'light' | 'dark' | 'system';
+type Option = { value: ThemeValue; label: string; icon: typeof Sun; title?: string };
 
 const OPTIONS: Option[] = [
   { value: 'light', label: 'Light', icon: Sun },

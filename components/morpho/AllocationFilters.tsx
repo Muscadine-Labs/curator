@@ -6,13 +6,33 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
-export type SortKey =
+type SortKey =
   | 'allocated-desc'
   | 'allocated-asc'
   | 'supplyApy-desc'
   | 'utilization-desc'
   | 'capacity-desc'
   | 'name-asc';
+
+/**
+ * Which data columns the allocation table should show.
+ * Kept flat so components can do `if (filters.columns.utilization)`.
+ */
+interface AllocationColumnState {
+  utilization: boolean;
+  liquidity: boolean;
+  borrowApy: boolean;
+  supplyApy: boolean;
+  allocated: boolean;
+  cap: boolean;
+}
+
+/**
+ * Display mode for the Allocated / Cap columns.
+ * - 'amount'  — raw token amount (e.g. "12,345.67 USDC")
+ * - 'percent' — share of total vault allocation (e.g. "12.34%")
+ */
+type AllocationDisplayMode = 'amount' | 'percent';
 
 export interface AllocationFilterState {
   search: string;
@@ -22,7 +42,18 @@ export interface AllocationFilterState {
   onlyWithCapacity: boolean;
   onlyEdited: boolean;
   sort: SortKey;
+  columns: AllocationColumnState;
+  displayMode: AllocationDisplayMode;
 }
+
+const DEFAULT_COLUMN_STATE: AllocationColumnState = {
+  utilization: true,
+  liquidity: true,
+  borrowApy: true,
+  supplyApy: true,
+  allocated: true,
+  cap: true,
+};
 
 export const DEFAULT_FILTER_STATE: AllocationFilterState = {
   search: '',
@@ -32,6 +63,8 @@ export const DEFAULT_FILTER_STATE: AllocationFilterState = {
   onlyWithCapacity: false,
   onlyEdited: false,
   sort: 'allocated-desc',
+  columns: DEFAULT_COLUMN_STATE,
+  displayMode: 'amount',
 };
 
 interface AllocationFiltersProps {
@@ -50,6 +83,15 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: 'name-asc', label: 'Market (A → Z)' },
 ];
 
+const COLUMN_OPTIONS: { key: keyof AllocationColumnState; label: string }[] = [
+  { key: 'utilization', label: 'Utilization' },
+  { key: 'liquidity', label: 'Liquidity' },
+  { key: 'borrowApy', label: 'Borrow APY' },
+  { key: 'supplyApy', label: 'Supply APY' },
+  { key: 'allocated', label: 'Allocated' },
+  { key: 'cap', label: 'Cap' },
+];
+
 export function AllocationFilters({ value, onChange, editing = false, showIdleToggles = true }: AllocationFiltersProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -65,6 +107,10 @@ export function AllocationFilters({ value, onChange, editing = false, showIdleTo
   }, [open]);
 
   const update = (patch: Partial<AllocationFilterState>) => onChange({ ...value, ...patch });
+  const updateColumn = (key: keyof AllocationColumnState, v: boolean) =>
+    update({ columns: { ...value.columns, [key]: v } });
+
+  const hiddenColumnCount = COLUMN_OPTIONS.filter((c) => !value.columns[c.key]).length;
 
   const activeCount =
     (value.search ? 1 : 0) +
@@ -73,7 +119,9 @@ export function AllocationFilters({ value, onChange, editing = false, showIdleTo
     (value.hideIdle ? 1 : 0) +
     (value.onlyWithCapacity ? 1 : 0) +
     (value.onlyEdited ? 1 : 0) +
-    (value.sort !== DEFAULT_FILTER_STATE.sort ? 1 : 0);
+    (value.sort !== DEFAULT_FILTER_STATE.sort ? 1 : 0) +
+    (hiddenColumnCount > 0 ? 1 : 0) +
+    (value.displayMode !== DEFAULT_FILTER_STATE.displayMode ? 1 : 0);
 
   const clearAll = () => onChange(DEFAULT_FILTER_STATE);
 
@@ -95,7 +143,7 @@ export function AllocationFilters({ value, onChange, editing = false, showIdleTo
       </Button>
 
       {open && (
-        <div className="absolute right-0 z-30 mt-2 w-72 rounded-md border bg-popover p-3 shadow-md text-sm">
+        <div className="absolute right-0 z-30 mt-2 w-80 rounded-md border bg-popover p-3 shadow-md text-sm">
           <div className="flex items-center justify-between mb-3">
             <span className="font-medium">Filter markets</span>
             <button
@@ -156,7 +204,69 @@ export function AllocationFilters({ value, onChange, editing = false, showIdleTo
               />
             )}
 
-            <div>
+            <div className="pt-1 border-t">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-muted-foreground">Columns</label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    update({
+                      columns: COLUMN_OPTIONS.reduce(
+                        (acc, c) => ({ ...acc, [c.key]: true }),
+                        {} as AllocationColumnState
+                      ),
+                    })
+                  }
+                  className="text-[10px] text-muted-foreground hover:text-foreground"
+                >
+                  Show all
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+                {COLUMN_OPTIONS.map((c) => (
+                  <FilterCheckbox
+                    key={c.key}
+                    label={c.label}
+                    checked={value.columns[c.key]}
+                    onChange={(v) => updateColumn(c.key, v)}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="pt-1 border-t">
+              <label className="text-xs text-muted-foreground mb-1 block">
+                Show Allocated / Cap as
+              </label>
+              <div className="flex gap-0.5 rounded-md border p-0.5">
+                <button
+                  type="button"
+                  onClick={() => update({ displayMode: 'amount' })}
+                  className={cn(
+                    'flex-1 px-2 py-1 rounded text-xs font-medium transition-colors',
+                    value.displayMode === 'amount'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  Amount
+                </button>
+                <button
+                  type="button"
+                  onClick={() => update({ displayMode: 'percent' })}
+                  className={cn(
+                    'flex-1 px-2 py-1 rounded text-xs font-medium transition-colors',
+                    value.displayMode === 'percent'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  Percent
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-1 border-t">
               <label className="text-xs text-muted-foreground mb-1 block">Sort by</label>
               <select
                 className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
