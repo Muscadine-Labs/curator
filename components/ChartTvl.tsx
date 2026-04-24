@@ -3,11 +3,11 @@
 import { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Button } from '@/components/ui/button';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { formatCompactUSD } from '@/lib/format/number';
 import { filterDataByRange, type TimeRange } from '@/lib/utils/date-filter';
 import { TimeRangeFilter } from '@/components/charts/TimeRangeFilter';
+import { SourceModeFilter, type ChartSourceMode } from '@/components/charts/SourceModeFilter';
 
 interface ChartTvlProps {
   totalData?: Array<{ date: string; value: number }>;
@@ -32,7 +32,7 @@ const VAULT_COLORS = [
 ];
 
 export function ChartTvl({ totalData, vaultData, isLoading = false, title = 'TVL Over Time' }: ChartTvlProps) {
-  const [viewMode, setViewMode] = useState<'total' | 'byVault'>('total');
+  const [viewMode, setViewMode] = useState<ChartSourceMode>('total');
   const [range, setRange] = useState<TimeRange>('all');
 
   const filteredTotalData = useMemo(
@@ -189,22 +189,7 @@ export function ChartTvl({ totalData, vaultData, isLoading = false, title = 'TVL
           <div className="flex flex-wrap items-center gap-2">
             <TimeRangeFilter value={range} onChange={setRange} />
             {showToggle && (
-              <div className="flex gap-1">
-                <Button
-                  variant={viewMode === 'total' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setViewMode('total')}
-                >
-                  Total
-                </Button>
-                <Button
-                  variant={viewMode === 'byVault' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setViewMode('byVault')}
-                >
-                  By Vault
-                </Button>
-              </div>
+              <SourceModeFilter value={viewMode} onChange={setViewMode} />
             )}
           </div>
         </div>

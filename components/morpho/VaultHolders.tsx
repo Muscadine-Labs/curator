@@ -29,7 +29,7 @@ interface VaultHoldersProps {
   chainId: number;
   /** Upper bound on holders to request from the API. */
   limit?: number;
-  /** How many holders to show per page. Default 20. */
+  /** How many holders to show per page. Default 10. */
   pageSize?: number;
   /**
    * Asset decimals / symbol from the parent page. Used as a fallback when the
@@ -45,7 +45,7 @@ export function VaultHolders({
   vaultAddress,
   chainId,
   limit = 500,
-  pageSize = 20,
+  pageSize = 10,
   assetDecimals,
   assetSymbol,
 }: VaultHoldersProps) {

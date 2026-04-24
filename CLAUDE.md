@@ -114,6 +114,11 @@ contract semantics. Getting those semantics wrong is the #1 source of reverts.
   - Set the last deposit's `assets` to `type(uint256).max` (`maxUint256`). The
     contract interprets this as "supply whatever is still idle," which exactly
     absorbs the dust from accrual and guarantees the invariant.
+  - The pure helper that enforces this lives in `lib/onchain/reallocation.ts`
+    (`buildV1ReallocationPlan`). `AllocationV1.tsx` calls it instead of
+    duplicating the logic, and `lib/onchain/__tests__/reallocation.test.ts`
+    asserts the catcher is always present whenever the plan contains at
+    least one withdrawal.
   - We do this in `components/morpho/AllocationV1.tsx` by sorting deposits by
     positive delta and tagging the **largest** as the catcher.
 - **Cap model**: each market has a `supplyCap` (absolute assets). We validate
@@ -354,6 +359,7 @@ npm run build
 | Number formatting                | `lib/format/number.ts`                                   |
 | ABIs                             | `lib/onchain/abis.ts`                                    |
 | Write configs                    | `lib/onchain/vault-writes.ts`                            |
+| V1 reallocation planner (pure)   | `lib/onchain/reallocation.ts`                            |
 | Write hook                       | `lib/hooks/useVaultWrite.ts`                             |
 | V1 data hook                     | `lib/hooks/useVaultV1Complete.ts`                        |
 | V2 data hook                     | `lib/hooks/useVaultV2Complete.ts`                        |
@@ -370,6 +376,7 @@ npm run build
 | Global density + theme vars      | `app/globals.css`                                        |
 | Chart time-range filter          | `components/charts/TimeRangeFilter.tsx`                  |
 | Chart cumulative/daily toggle    | `components/charts/ViewModeFilter.tsx`                   |
+| Chart total/by-vault toggle      | `components/charts/SourceModeFilter.tsx`                 |
 | Vault holders (paginated)        | `components/morpho/VaultHolders.tsx`                     |
 | Vault transactions (paginated)   | `components/morpho/VaultTransactions.tsx`                |
 | Holders API (V1/V2)              | `app/api/vaults/[id]/holders/route.ts`                   |
@@ -571,24 +578,30 @@ Rules:
 ### 15.3 Chart filters
 
 Dashboard charts (`ChartTvl`, `ChartInflows`, `ChartRevenue`, `ChartFees`)
-expose two filter dropdowns:
+expose at most two filter dropdowns:
 
-- `TimeRangeFilter` — `All / Month / Week / Daily` (single button with a
-  popover).
-- `ViewModeFilter` — `Cumulative / Daily` (single button; previously two
-  separate buttons). Not all charts use it — only the ones where daily vs.
-  cumulative makes sense.
+- `TimeRangeFilter` — `All Time / 30D / 7D` (single button with a popover).
+- `ViewModeFilter` — `Cumulative / Daily` (single button). Used by
+  `ChartInflows`, `ChartRevenue`, `ChartFees` where daily-vs-cumulative is
+  meaningful.
+- `SourceModeFilter` — `Total / By Vault` (single button). Used by
+  `ChartTvl` when both `totalData` and `vaultData` are supplied; gates the
+  TVL chart between the aggregate line and per-vault breakdown lines.
 
-Keep the two-dropdown pattern consistent across charts. Don't regress to a
-row of inline buttons; it breaks the header density we're aiming for.
+All three follow the same pattern: a small outline button with an icon, a
+label, and a `ChevronDown`, opening a popover of options. Keep it consistent
+— don't regress to a row of inline buttons; it breaks the header density
+we're aiming for.
 
 ### 15.4 Holders & transactions pagination
 
 Both `components/morpho/VaultHolders.tsx` and
-`components/morpho/VaultTransactions.tsx` paginate locally at **20 rows per
+`components/morpho/VaultTransactions.tsx` paginate locally at **10 rows per
 page**, with `ChevronLeft` / `ChevronRight` controls and a `Showing X–Y of Z`
-label. Fetch limits were raised to surface "all" holders and a deep
-transaction history:
+label. Page state resets to 1 when the user changes a filter (e.g. the
+deposit/withdraw toggle in `VaultTransactions`) so they're never stranded on
+an empty tail page. Fetch limits remain generous so the UI sees a deep
+history:
 
 - `/api/vaults/[id]/holders` defaults to `first=100`, caps at `1000`. The V1
   GraphQL query also returns `vaultByAddress.asset { symbol, decimals }` so
@@ -597,12 +610,46 @@ transaction history:
 - `useVaultHolders` defaults to `first=500`.
 - `VaultHolders` accepts `assetDecimals` / `assetSymbol` props as a fallback
   when the API doesn't supply them.
+- `VaultTransactions` defaults to `limit=100`.
 
-When adding new paginated tables, reuse the same 20/page pattern and the
+When adding new paginated tables, reuse the same 10/page pattern and the
 `ChevronLeft`/`ChevronRight` control set for visual consistency.
 
 ---
 
+## 16. Tests
+
+`jest.config.js` sets up `ts-jest` + `jest-environment-jsdom`, with viem and
+wagmi transformed via `transformIgnorePatterns`. Run with `npm test` (or
+`npm run test:coverage`). V1/V2 vault **write** builders are covered by ABI
+round-trip tests in `vault-writes.test.ts`; other suites cover reallocation,
+CCTP, formatting, and chart date filtering.
+
+### 16.1 Test files
+
+| Suite | What it asserts |
+| ---------------------------------------------------------- | --------------- |
+| `lib/onchain/__tests__/vault-writes.test.ts`               | Every V1 (`metaMorphoV1Abi`) and V2 (`vaultV2Abi`) write builder produces calldata that round-trips through `encodeFunctionData` / `decodeFunctionData`. Catches drift between `abis.ts` and `vault-writes.ts`. |
+| `lib/onchain/__tests__/reallocation.test.ts`               | The `buildV1ReallocationPlan` helper preserves the contract-required ordering (withdrawals first, deposits after, largest deposit = `maxUint256` catcher). Pure-function regression test for `InconsistentReallocation`. |
+| `lib/cctp/__tests__/constants.test.ts`                     | Domain ids match Circle's registry; every enabled EVM chain has the full contract triple; disabled chains expose a `disabledReason`. |
+| `lib/cctp/__tests__/attestation.test.ts`                   | `addressToBytes32`, `extractMessageFromReceipt`, `fetchAttestation` (with `fetch` mocked for 200/404/500 paths). |
+| `lib/format/__tests__/number.test.ts`                      | `formatRawTokenAmount` regression test for the V1 holders "0.000" bug + every other `format*` helper. |
+| `lib/utils/__tests__/date-filter.test.ts`                  | `filterDataByRange` honours the launch cutoff and the 7d/30d/all selectors. |
+
+### 16.2 Conventions
+
+- Pure logic lives in `lib/` and gets a `*.test.ts` next to it under
+  `__tests__/`. Component behaviour gets a `*.test.tsx` under
+  `components/.../__tests__/`.
+- Do not call wagmi hooks from tests; mock the React Query hook
+  (`useVaultHolders`, `useVaultTransactions`, etc.) at module level with
+  `jest.mock(...)`. Tests should never hit the network.
+- When extending a write config in `vault-writes.ts`, also extend
+  `vault-writes.test.ts` with a round-trip case. The "every wrapper points
+  at a function in the ABI" assertion will catch missing entries.
+
+---
+
 _Last updated: 2026-04-25. When you change reallocation logic, caps,
-formatting, the CCTP flow, or global density, update Sections 3, 5, 6, 13,
-and 15 accordingly._
+formatting, the CCTP flow, global density, or add a new vault interaction,
+update Sections 3, 5, 6, 13, 15, and 16 accordingly._

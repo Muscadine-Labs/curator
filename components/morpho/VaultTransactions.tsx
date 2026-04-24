@@ -37,7 +37,7 @@ interface VaultTransactionsProps {
   assetDecimals: number | null | undefined;
   assetSymbol: string | null | undefined;
   limit?: number;
-  /** Rows per page; default 20. */
+  /** Rows per page; default 10. */
   pageSize?: number;
 }
 
@@ -89,7 +89,7 @@ export function VaultTransactions({
   assetDecimals,
   assetSymbol,
   limit = 100,
-  pageSize = 20,
+  pageSize = 10,
 }: VaultTransactionsProps) {
   const { data, isLoading, error } = useVaultTransactions(vaultAddress, limit);
   const [filter, setFilter] = useState<TxFilter>('all');
@@ -177,10 +177,20 @@ export function VaultTransactions({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {paged.map((tx) => {
+              {paged.map((tx, i) => {
                 const timestampMs = tx.timestamp != null ? tx.timestamp * 1000 : null;
+                // The Morpho API can emit multiple transaction rows that
+                // share the same tx hash (e.g. a multicall that performs both
+                // a deposit and a withdraw, or an internal call that re-emits
+                // the event). React keys must be unique, so we compose
+                // `hash:type:user:index` — index alone would still be unique
+                // but degrades reconciliation when the page changes; this
+                // composite stays stable across renders of the same dataset.
+                const rowKey = `${tx.hash}:${tx.type}:${tx.user ?? 'noUser'}:${
+                  safePage * pageSize + i
+                }`;
                 return (
-                  <TableRow key={tx.hash}>
+                  <TableRow key={rowKey}>
                     <TableCell>{txKindBadge(tx.type)}</TableCell>
                     <TableCell>
                       {tx.user ? (
