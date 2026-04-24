@@ -698,12 +698,12 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
             <TableHeader>
               <TableRow>
                 <TableHead>Market</TableHead>
-                <TableHead className="text-right">Utilization</TableHead>
-                <TableHead className="text-right">Liquidity</TableHead>
-                <TableHead className="text-right">Borrow APY</TableHead>
-                <TableHead className="text-right">Supply APY</TableHead>
-                <TableHead className="text-right">Allocated</TableHead>
-                <TableHead className="text-right">Cap</TableHead>
+                {filters.columns.utilization && <TableHead className="text-right">Utilization</TableHead>}
+                {filters.columns.liquidity && <TableHead className="text-right">Liquidity</TableHead>}
+                {filters.columns.borrowApy && <TableHead className="text-right">Borrow APY</TableHead>}
+                {filters.columns.supplyApy && <TableHead className="text-right">Supply APY</TableHead>}
+                {filters.columns.allocated && <TableHead className="text-right">Allocated</TableHead>}
+                {filters.columns.cap && <TableHead className="text-right">Cap</TableHead>}
                 <TableHead className="text-right">%</TableHead>
                 {editing && <TableHead className="text-right w-40">New Allocation</TableHead>}
               </TableRow>
@@ -731,41 +731,57 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
                           </span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-right">—</TableCell>
-                      <TableCell className="text-right">
-                        {r.liquidity != null && Number.isFinite(r.liquidity) ? formatCompactUSD(r.liquidity) : '—'}
-                      </TableCell>
-                      <TableCell className="text-right">—</TableCell>
-                      <TableCell className="text-right">{formatOrDash(scalePercent(r.supplyApy))}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex flex-col items-end gap-0.5">
-                          <span>
-                            {r.allocAssets != null
-                              ? `${formatRawTokenAmount(BigInt(r.allocAssets), r.allocDecimals, 2)} ${r.allocSymbol ?? ''}`.trim()
-                              : '—'}
-                          </span>
-                          <span className="text-muted-foreground text-xs">{formatCompactUSD(r.allocated)}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {t.absoluteCapRaw == null ? (
-                          <span className="text-muted-foreground text-xs">—</span>
-                        ) : (
-                          <div className="flex flex-col items-end gap-0.5">
+                      {filters.columns.utilization && <TableCell className="text-right">—</TableCell>}
+                      {filters.columns.liquidity && (
+                        <TableCell className="text-right">
+                          {r.liquidity != null && Number.isFinite(r.liquidity) ? formatCompactUSD(r.liquidity) : '—'}
+                        </TableCell>
+                      )}
+                      {filters.columns.borrowApy && <TableCell className="text-right">—</TableCell>}
+                      {filters.columns.supplyApy && (
+                        <TableCell className="text-right">{formatOrDash(scalePercent(r.supplyApy))}</TableCell>
+                      )}
+                      {filters.columns.allocated && (
+                        <TableCell className="text-right">
+                          {filters.displayMode === 'percent' ? (
+                            <span>{`${r.pct.toFixed(2)}%`}</span>
+                          ) : (
+                            <div className="flex flex-col items-end gap-0.5">
+                              <span>
+                                {r.allocAssets != null
+                                  ? `${formatRawTokenAmount(BigInt(r.allocAssets), r.allocDecimals, 2)} ${r.allocSymbol ?? ''}`.trim()
+                                  : '—'}
+                              </span>
+                              <span className="text-muted-foreground text-xs">{formatCompactUSD(r.allocated)}</span>
+                            </div>
+                          )}
+                        </TableCell>
+                      )}
+                      {filters.columns.cap && (
+                        <TableCell className="text-right">
+                          {t.absoluteCapRaw == null ? (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          ) : filters.displayMode === 'percent' && totalRawAssets > BigInt(0) ? (
                             <span className="text-xs">
-                              {formatRawTokenAmount(t.absoluteCapRaw, t.decimals, 2)}
+                              {`${(Number((t.absoluteCapRaw * BigInt(10000)) / totalRawAssets) / 100).toFixed(2)}%`}
                             </span>
-                            <span className="text-muted-foreground text-[11px]">
-                              {capRemaining != null
-                                ? `+${formatRawTokenAmount(capRemaining, t.decimals, 2)} free`
-                                : ''}
-                              {t.relativeCapWad != null && t.relativeCapWad < BigInt('1000000000000000000')
-                                ? ` · rel ${(Number(t.relativeCapWad) / 1e16).toFixed(2)}%`
-                                : ''}
-                            </span>
-                          </div>
-                        )}
-                      </TableCell>
+                          ) : (
+                            <div className="flex flex-col items-end gap-0.5">
+                              <span className="text-xs">
+                                {formatRawTokenAmount(t.absoluteCapRaw, t.decimals, 2)}
+                              </span>
+                              <span className="text-muted-foreground text-[11px]">
+                                {capRemaining != null
+                                  ? `+${formatRawTokenAmount(capRemaining, t.decimals, 2)} free`
+                                  : ''}
+                                {t.relativeCapWad != null && t.relativeCapWad < BigInt('1000000000000000000')
+                                  ? ` · rel ${(Number(t.relativeCapWad) / 1e16).toFixed(2)}%`
+                                  : ''}
+                              </span>
+                            </div>
+                          )}
+                        </TableCell>
+                      )}
                       <TableCell className="text-right">{`${r.pct.toFixed(2)}%`}</TableCell>
                       {editing && (
                         <TableCell className="text-right">
@@ -800,25 +816,41 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell className="text-right">{formatOrDash(scalePercent(r.utilization))}</TableCell>
-                    <TableCell className="text-right">
-                      {r.liquidity != null && Number.isFinite(r.liquidity) ? formatCompactUSD(r.liquidity) : '—'}
-                    </TableCell>
-                    <TableCell className="text-right">{formatOrDash(scalePercent(r.borrowApy))}</TableCell>
-                    <TableCell className="text-right">{formatOrDash(scalePercent(r.supplyApy))}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex flex-col items-end gap-0.5">
-                        <span>
-                          {r.allocAssets != null
-                            ? `${formatRawTokenAmount(BigInt(r.allocAssets), r.allocDecimals, 2)} ${r.allocSymbol ?? ''}`.trim()
-                            : '—'}
-                        </span>
-                        <span className="text-muted-foreground text-xs">{formatCompactUSD(r.allocated)}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <span className="text-muted-foreground text-xs">—</span>
-                    </TableCell>
+                    {filters.columns.utilization && (
+                      <TableCell className="text-right">{formatOrDash(scalePercent(r.utilization))}</TableCell>
+                    )}
+                    {filters.columns.liquidity && (
+                      <TableCell className="text-right">
+                        {r.liquidity != null && Number.isFinite(r.liquidity) ? formatCompactUSD(r.liquidity) : '—'}
+                      </TableCell>
+                    )}
+                    {filters.columns.borrowApy && (
+                      <TableCell className="text-right">{formatOrDash(scalePercent(r.borrowApy))}</TableCell>
+                    )}
+                    {filters.columns.supplyApy && (
+                      <TableCell className="text-right">{formatOrDash(scalePercent(r.supplyApy))}</TableCell>
+                    )}
+                    {filters.columns.allocated && (
+                      <TableCell className="text-right">
+                        {filters.displayMode === 'percent' ? (
+                          <span>{`${r.pct.toFixed(2)}%`}</span>
+                        ) : (
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span>
+                              {r.allocAssets != null
+                                ? `${formatRawTokenAmount(BigInt(r.allocAssets), r.allocDecimals, 2)} ${r.allocSymbol ?? ''}`.trim()
+                                : '—'}
+                            </span>
+                            <span className="text-muted-foreground text-xs">{formatCompactUSD(r.allocated)}</span>
+                          </div>
+                        )}
+                      </TableCell>
+                    )}
+                    {filters.columns.cap && (
+                      <TableCell className="text-right">
+                        <span className="text-muted-foreground text-xs">—</span>
+                      </TableCell>
+                    )}
                     <TableCell className="text-right">{`${r.pct.toFixed(2)}%`}</TableCell>
                     {editing && <TableCell />}
                   </TableRow>
@@ -826,7 +858,20 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
               })}
               {rowsToRender.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={editing ? 9 : 8} className="text-center py-6 text-xs text-muted-foreground">
+                  <TableCell
+                    colSpan={
+                      1 +
+                      (filters.columns.utilization ? 1 : 0) +
+                      (filters.columns.liquidity ? 1 : 0) +
+                      (filters.columns.borrowApy ? 1 : 0) +
+                      (filters.columns.supplyApy ? 1 : 0) +
+                      (filters.columns.allocated ? 1 : 0) +
+                      (filters.columns.cap ? 1 : 0) +
+                      1 +
+                      (editing ? 1 : 0)
+                    }
+                    className="text-center py-6 text-xs text-muted-foreground"
+                  >
                     No targets match your filters.
                   </TableCell>
                 </TableRow>

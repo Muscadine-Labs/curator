@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Shield, X, FileText, BookOpen, LayoutGrid, Book, ChevronDown, ChevronRight } from 'lucide-react';
+import { Shield, X, FileText, BookOpen, LayoutGrid, Book, ChevronDown, ChevronRight, ArrowLeftRight } from 'lucide-react';
 import { getVaultCategory, shouldUseV2Query } from '@/lib/config/vaults';
 import { useVaultList } from '@/lib/hooks/useProtocolStats';
 import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
@@ -230,6 +230,16 @@ export function Sidebar({ onClose }: SidebarProps) {
               >
                 <BookOpen className="h-4 w-4 shrink-0" />
                 <span className="truncate min-w-0">EIP-7702</span>
+              </Link>
+              <Link
+                href="/curator/cctp"
+                onClick={handleLinkClick}
+                className={`flex min-h-[44px] w-full touch-manipulation items-center gap-2 rounded-lg px-2 py-2 text-slate-700 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 ${
+                  isActive('/curator/cctp') ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : ''
+                }`}
+              >
+                <ArrowLeftRight className="h-4 w-4 shrink-0" />
+                <span className="truncate min-w-0">USDC Bridge (CCTP)</span>
               </Link>
             </div>
           </div>

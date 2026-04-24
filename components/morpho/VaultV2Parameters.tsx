@@ -1,13 +1,13 @@
 'use client';
 
-import { useState } from 'react';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { useQuery } from '@tanstack/react-query';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
 import { TransactionButton } from '@/components/TransactionButton';
+import { InlineEdit } from '@/components/morpho/InlineEdit';
 import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
 import { vaultV2Abi } from '@/lib/onchain/abis';
 import { multicallRead } from '@/lib/onchain/client';
@@ -56,19 +56,6 @@ export function VaultV2Parameters({ vaultAddress }: VaultV2ParametersProps) {
     enabled: !!vaultAddress,
   });
 
-  const [showManage, setShowManage] = useState(false);
-  const [perfFee, setPerfFee] = useState('');
-  const [mgmtFee, setMgmtFee] = useState('');
-  const [maxRateInput, setMaxRateInput] = useState('');
-  const [newName, setNewName] = useState('');
-  const [newSymbol, setNewSymbol] = useState('');
-
-  const perfFeeWrite = useVaultWrite();
-  const mgmtFeeWrite = useVaultWrite();
-  const maxRateWrite = useVaultWrite();
-  const nameWrite = useVaultWrite();
-  const symbolWrite = useVaultWrite();
-
   if (isLoading) {
     return (
       <Card>
@@ -99,141 +86,173 @@ export function VaultV2Parameters({ vaultAddress }: VaultV2ParametersProps) {
     );
   }
 
-  const params = [
-    { label: 'Performance Fee', value: data.performanceFee != null ? `${data.performanceFee.toFixed(2)}%` : 'N/A' },
-    { label: 'Management Fee', value: data.managementFee != null ? `${data.managementFee.toFixed(2)}%` : 'N/A' },
-    { label: 'Timelock', value: formatDuration(data.timelock) },
-    { label: 'Max Rate', value: data.maxRate ?? 'N/A' },
-    { label: 'Name', value: data.name ?? 'N/A' },
-    { label: 'Symbol', value: data.symbol ?? 'N/A' },
-  ];
-
   return (
     <Card>
       <CardHeader>
         <CardTitle>Parameters</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent>
         <div className="grid gap-3 md:grid-cols-2">
-          {params.map((p) => (
-            <div key={p.label} className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-              <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{p.label}</div>
-              <div className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                {p.value}
-              </div>
-            </div>
-          ))}
-        </div>
+          <ParamTile label="Performance Fee" value={data.performanceFee != null ? `${data.performanceFee.toFixed(2)}%` : 'N/A'}>
+            <PerformanceFeeForm vaultAddress={vaultAddress} />
+          </ParamTile>
 
-        {/* Manage Section */}
-        <div className="border-t pt-4">
-          <button
-            onClick={() => setShowManage(!showManage)}
-            className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100"
-          >
-            {showManage ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            Manage Parameters
-          </button>
+          <ParamTile label="Management Fee" value={data.managementFee != null ? `${data.managementFee.toFixed(2)}%` : 'N/A'}>
+            <ManagementFeeForm vaultAddress={vaultAddress} />
+          </ParamTile>
 
-          {showManage && (
-            <div className="mt-4 space-y-4">
-              {/* Set Performance Fee */}
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-                <h4 className="text-sm font-semibold">Set Performance Fee</h4>
-                <p className="text-xs text-muted-foreground">Max 50%. Enter percentage (e.g., 5 = 5%)</p>
-                <Input type="text" placeholder="e.g. 5" value={perfFee} onChange={(e) => setPerfFee(e.target.value)} />
-                <TransactionButton
-                  label="Set Performance Fee"
-                  onClick={() => {
-                    if (!perfFee) return;
-                    const feeWad = BigInt(Math.floor(parseFloat(perfFee) * 1e16));
-                    perfFeeWrite.write(v2WriteConfigs.setPerformanceFee(vaultAddress as Address, feeWad));
-                  }}
-                  disabled={!perfFee}
-                  isLoading={perfFeeWrite.isLoading}
-                  isSuccess={perfFeeWrite.isSuccess}
-                  error={perfFeeWrite.error}
-                  txHash={perfFeeWrite.txHash}
-                />
-              </div>
+          <ParamTile label="Timelock" value={formatDuration(data.timelock)}>
+            <p className="text-[11px] text-slate-500">
+              Timelock changes must be submitted on-chain and accepted via the governance flow.
+            </p>
+          </ParamTile>
 
-              {/* Set Management Fee */}
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-                <h4 className="text-sm font-semibold">Set Management Fee</h4>
-                <p className="text-xs text-muted-foreground">Max 5%. Enter percentage (e.g., 1 = 1%)</p>
-                <Input type="text" placeholder="e.g. 1" value={mgmtFee} onChange={(e) => setMgmtFee(e.target.value)} />
-                <TransactionButton
-                  label="Set Management Fee"
-                  onClick={() => {
-                    if (!mgmtFee) return;
-                    const feeWad = BigInt(Math.floor(parseFloat(mgmtFee) * 1e16));
-                    mgmtFeeWrite.write(v2WriteConfigs.setManagementFee(vaultAddress as Address, feeWad));
-                  }}
-                  disabled={!mgmtFee}
-                  isLoading={mgmtFeeWrite.isLoading}
-                  isSuccess={mgmtFeeWrite.isSuccess}
-                  error={mgmtFeeWrite.error}
-                  txHash={mgmtFeeWrite.txHash}
-                />
-              </div>
+          <ParamTile label="Max Rate" value={data.maxRate ?? 'N/A'}>
+            <MaxRateForm vaultAddress={vaultAddress} />
+          </ParamTile>
 
-              {/* Set Max Rate */}
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-                <h4 className="text-sm font-semibold">Set Max Rate</h4>
-                <Input type="text" placeholder="Value in WAD" value={maxRateInput} onChange={(e) => setMaxRateInput(e.target.value)} />
-                <TransactionButton
-                  label="Set Max Rate"
-                  onClick={() => {
-                    if (!maxRateInput) return;
-                    maxRateWrite.write(v2WriteConfigs.setMaxRate(vaultAddress as Address, BigInt(maxRateInput)));
-                  }}
-                  disabled={!maxRateInput}
-                  isLoading={maxRateWrite.isLoading}
-                  isSuccess={maxRateWrite.isSuccess}
-                  error={maxRateWrite.error}
-                  txHash={maxRateWrite.txHash}
-                />
-              </div>
+          <ParamTile label="Name" value={data.name ?? 'N/A'}>
+            <NameForm vaultAddress={vaultAddress} current={data.name} />
+          </ParamTile>
 
-              {/* Set Name */}
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-                <h4 className="text-sm font-semibold">Set Vault Name</h4>
-                <Input type="text" placeholder="New name" value={newName} onChange={(e) => setNewName(e.target.value)} />
-                <TransactionButton
-                  label="Set Name"
-                  onClick={() => {
-                    if (!newName) return;
-                    nameWrite.write(v2WriteConfigs.setName(vaultAddress as Address, newName));
-                  }}
-                  disabled={!newName}
-                  isLoading={nameWrite.isLoading}
-                  isSuccess={nameWrite.isSuccess}
-                  error={nameWrite.error}
-                  txHash={nameWrite.txHash}
-                />
-              </div>
-
-              {/* Set Symbol */}
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-                <h4 className="text-sm font-semibold">Set Vault Symbol</h4>
-                <Input type="text" placeholder="New symbol" value={newSymbol} onChange={(e) => setNewSymbol(e.target.value)} />
-                <TransactionButton
-                  label="Set Symbol"
-                  onClick={() => {
-                    if (!newSymbol) return;
-                    symbolWrite.write(v2WriteConfigs.setSymbol(vaultAddress as Address, newSymbol));
-                  }}
-                  disabled={!newSymbol}
-                  isLoading={symbolWrite.isLoading}
-                  isSuccess={symbolWrite.isSuccess}
-                  error={symbolWrite.error}
-                  txHash={symbolWrite.txHash}
-                />
-              </div>
-            </div>
-          )}
+          <ParamTile label="Symbol" value={data.symbol ?? 'N/A'}>
+            <SymbolForm vaultAddress={vaultAddress} current={data.symbol} />
+          </ParamTile>
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function ParamTile({
+  label,
+  value,
+  children,
+}: {
+  label: string;
+  value: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+      <InlineEdit label={`Edit ${label}`} form={() => <>{children}</>}>
+        <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</div>
+        <div className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-100">{value}</div>
+      </InlineEdit>
+    </div>
+  );
+}
+
+function PerformanceFeeForm({ vaultAddress }: { vaultAddress: string }) {
+  const [input, setInput] = useState('');
+  const write = useVaultWrite();
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] text-slate-500">Max 50%. Enter percentage (e.g., 5 = 5%).</p>
+      <Input type="text" placeholder="e.g. 5" value={input} onChange={(e) => setInput(e.target.value)} />
+      <TransactionButton
+        label="Set Performance Fee"
+        onClick={() => {
+          if (!input) return;
+          const feeWad = BigInt(Math.floor(parseFloat(input) * 1e16));
+          write.write(v2WriteConfigs.setPerformanceFee(vaultAddress as Address, feeWad));
+        }}
+        disabled={!input}
+        isLoading={write.isLoading}
+        isSuccess={write.isSuccess}
+        error={write.error}
+        txHash={write.txHash}
+      />
+    </div>
+  );
+}
+
+function ManagementFeeForm({ vaultAddress }: { vaultAddress: string }) {
+  const [input, setInput] = useState('');
+  const write = useVaultWrite();
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] text-slate-500">Max 5%. Enter percentage (e.g., 1 = 1%).</p>
+      <Input type="text" placeholder="e.g. 1" value={input} onChange={(e) => setInput(e.target.value)} />
+      <TransactionButton
+        label="Set Management Fee"
+        onClick={() => {
+          if (!input) return;
+          const feeWad = BigInt(Math.floor(parseFloat(input) * 1e16));
+          write.write(v2WriteConfigs.setManagementFee(vaultAddress as Address, feeWad));
+        }}
+        disabled={!input}
+        isLoading={write.isLoading}
+        isSuccess={write.isSuccess}
+        error={write.error}
+        txHash={write.txHash}
+      />
+    </div>
+  );
+}
+
+function MaxRateForm({ vaultAddress }: { vaultAddress: string }) {
+  const [input, setInput] = useState('');
+  const write = useVaultWrite();
+  return (
+    <div className="space-y-2">
+      <Input type="text" placeholder="Value in WAD" value={input} onChange={(e) => setInput(e.target.value)} />
+      <TransactionButton
+        label="Set Max Rate"
+        onClick={() => {
+          if (!input) return;
+          write.write(v2WriteConfigs.setMaxRate(vaultAddress as Address, BigInt(input)));
+        }}
+        disabled={!input}
+        isLoading={write.isLoading}
+        isSuccess={write.isSuccess}
+        error={write.error}
+        txHash={write.txHash}
+      />
+    </div>
+  );
+}
+
+function NameForm({ vaultAddress, current }: { vaultAddress: string; current: string | null }) {
+  const [input, setInput] = useState(current ?? '');
+  const write = useVaultWrite();
+  return (
+    <div className="space-y-2">
+      <Input type="text" placeholder="New name" value={input} onChange={(e) => setInput(e.target.value)} />
+      <TransactionButton
+        label="Set Name"
+        onClick={() => {
+          if (!input) return;
+          write.write(v2WriteConfigs.setName(vaultAddress as Address, input));
+        }}
+        disabled={!input}
+        isLoading={write.isLoading}
+        isSuccess={write.isSuccess}
+        error={write.error}
+        txHash={write.txHash}
+      />
+    </div>
+  );
+}
+
+function SymbolForm({ vaultAddress, current }: { vaultAddress: string; current: string | null }) {
+  const [input, setInput] = useState(current ?? '');
+  const write = useVaultWrite();
+  return (
+    <div className="space-y-2">
+      <Input type="text" placeholder="New symbol" value={input} onChange={(e) => setInput(e.target.value)} />
+      <TransactionButton
+        label="Set Symbol"
+        onClick={() => {
+          if (!input) return;
+          write.write(v2WriteConfigs.setSymbol(vaultAddress as Address, input));
+        }}
+        disabled={!input}
+        isLoading={write.isLoading}
+        isSuccess={write.isSuccess}
+        error={write.error}
+        txHash={write.txHash}
+      />
+    </div>
   );
 }

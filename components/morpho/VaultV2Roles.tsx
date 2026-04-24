@@ -4,15 +4,17 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { AddressBadge } from '@/components/AddressBadge';
 import { TransactionButton } from '@/components/TransactionButton';
+import { InlineEdit } from '@/components/morpho/InlineEdit';
 import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
 import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
+import { isAddress, type Address } from 'viem';
 import type { VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governance/route';
-import type { Address } from 'viem';
 
 interface VaultV2RolesProps {
   vaultAddress: string;
@@ -22,15 +24,6 @@ interface VaultV2RolesProps {
 export function VaultV2Roles({ vaultAddress, preloadedData }: VaultV2RolesProps) {
   const { data: fetchedData, isLoading, error } = useVaultV2Governance(vaultAddress);
   const data = preloadedData ?? fetchedData;
-
-  const [showManage, setShowManage] = useState(false);
-  const [newOwner, setNewOwner] = useState('');
-  const [newCurator, setNewCurator] = useState('');
-  const [sentinelAddr, setSentinelAddr] = useState('');
-  const [sentinelGrant, setSentinelGrant] = useState(true);
-  const ownerWrite = useVaultWrite();
-  const curatorWrite = useVaultWrite();
-  const sentinelWrite = useVaultWrite();
 
   if (!preloadedData && isLoading) {
     return (
@@ -69,128 +62,153 @@ export function VaultV2Roles({ vaultAddress, preloadedData }: VaultV2RolesProps)
         <CardTitle>Roles</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-4 md:grid-cols-2">
-        <RoleTile title="Owner" address={data.owner} />
-        <RoleTile title="Curator" address={data.curator} />
-        <RoleList title="Allocators" addresses={data.allocators} emptyText="No allocators configured" />
-        <RoleList title="Sentinels" addresses={data.sentinels} emptyText="No sentinels configured" />
-
-        {/* Manage Section */}
-        <div className="border-t pt-4 col-span-full">
-          <button
-            onClick={() => setShowManage(!showManage)}
-            className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100"
-          >
-            {showManage ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            Manage Roles
-          </button>
-
-          {showManage && (
-            <div className="mt-4 space-y-4">
-              {/* Set Owner */}
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-                <h4 className="text-sm font-semibold">Set Owner</h4>
-                <Input type="text" placeholder="0x..." value={newOwner} onChange={(e) => setNewOwner(e.target.value)} />
-                <TransactionButton
-                  label="Set Owner"
-                  variant="destructive"
-                  onClick={() => { if (!newOwner) return; ownerWrite.write(v2WriteConfigs.setOwner(vaultAddress as Address, newOwner as Address)); }}
-                  disabled={!newOwner}
-                  isLoading={ownerWrite.isLoading}
-                  isSuccess={ownerWrite.isSuccess}
-                  error={ownerWrite.error}
-                  txHash={ownerWrite.txHash}
-                />
-              </div>
-
-              {/* Set Curator */}
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-                <h4 className="text-sm font-semibold">Set Curator</h4>
-                <Input type="text" placeholder="0x..." value={newCurator} onChange={(e) => setNewCurator(e.target.value)} />
-                <TransactionButton
-                  label="Set Curator"
-                  onClick={() => { if (!newCurator) return; curatorWrite.write(v2WriteConfigs.setCurator(vaultAddress as Address, newCurator as Address)); }}
-                  disabled={!newCurator}
-                  isLoading={curatorWrite.isLoading}
-                  isSuccess={curatorWrite.isSuccess}
-                  error={curatorWrite.error}
-                  txHash={curatorWrite.txHash}
-                />
-              </div>
-
-              {/* Set Sentinel */}
-              <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-3">
-                <h4 className="text-sm font-semibold">Set Sentinel</h4>
-                <Input type="text" placeholder="0x..." value={sentinelAddr} onChange={(e) => setSentinelAddr(e.target.value)} />
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setSentinelGrant(true)}
-                    className={`px-3 py-1 rounded-md text-xs font-medium ${sentinelGrant ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'}`}
-                  >
-                    Grant
-                  </button>
-                  <button
-                    onClick={() => setSentinelGrant(false)}
-                    className={`px-3 py-1 rounded-md text-xs font-medium ${!sentinelGrant ? 'bg-destructive text-white' : 'bg-secondary text-secondary-foreground'}`}
-                  >
-                    Revoke
-                  </button>
-                </div>
-                <TransactionButton
-                  label={sentinelGrant ? 'Grant Sentinel' : 'Revoke Sentinel'}
-                  onClick={() => { if (!sentinelAddr) return; sentinelWrite.write(v2WriteConfigs.setIsSentinel(vaultAddress as Address, sentinelAddr as Address, sentinelGrant)); }}
-                  disabled={!sentinelAddr}
-                  isLoading={sentinelWrite.isLoading}
-                  isSuccess={sentinelWrite.isSuccess}
-                  error={sentinelWrite.error}
-                  txHash={sentinelWrite.txHash}
-                />
-              </div>
-            </div>
-          )}
-        </div>
+        <OwnerTile vaultAddress={vaultAddress} owner={data.owner} />
+        <CuratorTile vaultAddress={vaultAddress} curator={data.curator} />
+        <AllocatorsTile allocators={data.allocators} />
+        <SentinelsTile vaultAddress={vaultAddress} sentinels={data.sentinels} />
       </CardContent>
     </Card>
   );
 }
 
-function RoleTile({ title, address }: { title: string; address: string | null }) {
+function OwnerTile({ vaultAddress, owner }: { vaultAddress: string; owner: string | null }) {
+  const [newOwner, setNewOwner] = useState('');
+  const write = useVaultWrite();
+  const valid = isAddress(newOwner);
+
   return (
     <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
-      <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{title}</p>
-      {address ? (
-        <div className="mt-2">
-          <AddressBadge address={address} truncate={false} />
-        </div>
-      ) : (
-        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Not set</p>
-      )}
+      <InlineEdit
+        label="Change owner"
+        form={() => (
+          <div className="space-y-2">
+            <Input
+              type="text"
+              placeholder="0x… new owner"
+              value={newOwner}
+              onChange={(e) => setNewOwner(e.target.value)}
+            />
+            <TransactionButton
+              label="Set Owner"
+              variant="destructive"
+              onClick={() => {
+                if (!valid) return;
+                write.write(v2WriteConfigs.setOwner(vaultAddress as Address, newOwner as Address));
+              }}
+              disabled={!valid}
+              isLoading={write.isLoading}
+              isSuccess={write.isSuccess}
+              error={write.error}
+              txHash={write.txHash}
+            />
+          </div>
+        )}
+      >
+        <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Owner</p>
+        {owner ? (
+          <div className="mt-2">
+            <AddressBadge address={owner} truncate={false} />
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Not set</p>
+        )}
+      </InlineEdit>
     </div>
   );
 }
 
-function RoleList({
-  title,
-  addresses,
-  emptyText,
-}: {
-  title: string;
-  addresses: string[];
-  emptyText: string;
-}) {
+function CuratorTile({ vaultAddress, curator }: { vaultAddress: string; curator: string | null }) {
+  const [newCurator, setNewCurator] = useState('');
+  const write = useVaultWrite();
+  const valid = isAddress(newCurator);
+
+  return (
+    <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+      <InlineEdit
+        label="Change curator"
+        form={() => (
+          <div className="space-y-2">
+            <Input
+              type="text"
+              placeholder="0x… new curator"
+              value={newCurator}
+              onChange={(e) => setNewCurator(e.target.value)}
+            />
+            <TransactionButton
+              label="Set Curator"
+              onClick={() => {
+                if (!valid) return;
+                write.write(v2WriteConfigs.setCurator(vaultAddress as Address, newCurator as Address));
+              }}
+              disabled={!valid}
+              isLoading={write.isLoading}
+              isSuccess={write.isSuccess}
+              error={write.error}
+              txHash={write.txHash}
+            />
+          </div>
+        )}
+      >
+        <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Curator</p>
+        {curator ? (
+          <div className="mt-2">
+            <AddressBadge address={curator} truncate={false} />
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Not set</p>
+        )}
+      </InlineEdit>
+    </div>
+  );
+}
+
+function AllocatorsTile({ allocators }: { allocators: string[] }) {
   return (
     <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
       <div className="flex items-center justify-between">
-        <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{title}</p>
+        <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Allocators</p>
         <Badge variant="outline" className="text-xs">
-          {addresses.length}
+          {allocators.length}
         </Badge>
       </div>
-      {addresses.length === 0 ? (
-        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{emptyText}</p>
+      {allocators.length === 0 ? (
+        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">No allocators configured</p>
       ) : (
         <div className="mt-2 space-y-2">
-          {addresses.map((addr) => (
+          {allocators.map((addr) => (
             <AddressBadge key={addr} address={addr} truncate={false} />
+          ))}
+        </div>
+      )}
+      <p className="mt-3 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+        Allocators on V2 are managed via role registries — manage via the curator registry UI.
+      </p>
+    </div>
+  );
+}
+
+function SentinelsTile({ vaultAddress, sentinels }: { vaultAddress: string; sentinels: string[] }) {
+  return (
+    <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+      <InlineEdit
+        label="Add sentinel"
+        buttonSize="sm"
+        buttonLabel="Add"
+        form={(close) => <SentinelForm vaultAddress={vaultAddress} isGrant onDone={close} />}
+      >
+        <div className="flex items-center justify-between">
+          <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Sentinels</p>
+          <Badge variant="outline" className="text-xs">
+            {sentinels.length}
+          </Badge>
+        </div>
+      </InlineEdit>
+      {sentinels.length === 0 ? (
+        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">No sentinels configured</p>
+      ) : (
+        <div className="mt-2 space-y-2">
+          {sentinels.map((addr) => (
+            <SentinelRow key={addr} vaultAddress={vaultAddress} address={addr} />
           ))}
         </div>
       )}
@@ -198,3 +216,85 @@ function RoleList({
   );
 }
 
+function SentinelRow({ vaultAddress, address }: { vaultAddress: string; address: string }) {
+  const [confirm, setConfirm] = useState(false);
+  const write = useVaultWrite();
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-md border border-slate-100 bg-slate-50/50 px-2 py-1 dark:border-slate-800 dark:bg-slate-800/40">
+      <AddressBadge address={address} truncate={false} />
+      {confirm ? (
+        <div className="flex items-center gap-1">
+          <TransactionButton
+            label="Revoke"
+            variant="destructive"
+            onClick={() =>
+              write.write(v2WriteConfigs.setIsSentinel(vaultAddress as Address, address as Address, false))
+            }
+            isLoading={write.isLoading}
+            isSuccess={write.isSuccess}
+            error={write.error}
+            txHash={write.txHash}
+          />
+          <Button size="sm" variant="ghost" onClick={() => setConfirm(false)}>
+            Cancel
+          </Button>
+        </div>
+      ) : (
+        <Button
+          size="icon"
+          variant="ghost"
+          aria-label="Revoke sentinel"
+          onClick={() => setConfirm(true)}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function SentinelForm({
+  vaultAddress,
+  isGrant,
+  onDone,
+}: {
+  vaultAddress: string;
+  isGrant: boolean;
+  onDone: () => void;
+}) {
+  const [addr, setAddr] = useState('');
+  const write = useVaultWrite();
+  const valid = isAddress(addr);
+  return (
+    <div className="space-y-2">
+      <Input
+        type="text"
+        placeholder="0x… sentinel address"
+        value={addr}
+        onChange={(e) => setAddr(e.target.value)}
+      />
+      <div className="flex items-center gap-2">
+        <TransactionButton
+          label={isGrant ? 'Grant Sentinel' : 'Revoke Sentinel'}
+          onClick={() => {
+            if (!valid) return;
+            write.write(v2WriteConfigs.setIsSentinel(vaultAddress as Address, addr as Address, isGrant));
+          }}
+          disabled={!valid}
+          isLoading={write.isLoading}
+          isSuccess={write.isSuccess}
+          error={write.error}
+          txHash={write.txHash}
+        />
+        {write.isSuccess && (
+          <Button size="sm" variant="outline" onClick={onDone}>
+            Done
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Keep icon available without warning about unused
+void Plus;

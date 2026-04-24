@@ -19,6 +19,8 @@ import { VaultRolesV1 } from '@/components/morpho/VaultRolesV1';
 import { VaultParametersV1 } from '@/components/morpho/VaultParametersV1';
 import { VaultCapsV1 } from '@/components/morpho/VaultCapsV1';
 import { VaultQueuesV1 } from '@/components/morpho/VaultQueuesV1';
+import { VaultHolders } from '@/components/morpho/VaultHolders';
+import { VaultTransactions } from '@/components/morpho/VaultTransactions';
 
 export default function VaultDetailPage() {
   const params = useParams();
@@ -167,6 +169,22 @@ export default function VaultDetailPage() {
               <KpiCard title="Revenue (All Time)" value={vault.revenueAllTime} subtitle="Total revenue to protocol" format="usd" />
               <KpiCard title="Fees (All Time)" value="Coming Soon" subtitle="Total fees collected to token holders" format="raw" />
             </div>
+
+            {/* Holders — placed under Fee/Revenue */}
+            <VaultHolders
+              vaultAddress={vault.address}
+              chainId={vault.chainId}
+              assetDecimals={vault.assetDecimals}
+              assetSymbol={vault.asset}
+            />
+
+            {/* Transactions — last ~100 deposits/withdraws/interactions */}
+            <VaultTransactions
+              vaultAddress={vault.address}
+              chainId={vault.chainId}
+              assetDecimals={vault.assetDecimals}
+              assetSymbol={vault.asset}
+            />
           </TabsContent>
 
           <TabsContent value="roles" className="space-y-4">

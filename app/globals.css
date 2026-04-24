@@ -45,7 +45,7 @@
 }
 
 :root {
-  --radius: 0.625rem;
+  --radius: 0.5rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -113,6 +113,98 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* -----------------------------------------------------------
+ * Compact density (applies to every theme: light / dark / system).
+ *
+ * Previously the only way to get this density was the now-removed Y2K
+ * theme. We keep the compactness — because this is an information-dense
+ * curator dashboard — but bump the base font from 12.5px to ~13.5px so
+ * it sits between Y2K's tiny reading size and the stock 16px default.
+ *
+ * Rules here are intentionally *style-only* and target `data-slot`
+ * attributes that shadcn/ui sets on its primitives, so component
+ * structure is untouched.
+ * --------------------------------------------------------- */
+html {
+  font-size: 13.5px;
+}
+body {
+  line-height: 1.45;
+}
+
+/* Cards — tighter header/content padding than the shadcn defaults. */
+[data-slot='card'] {
+  gap: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+[data-slot='card-header'] {
+  padding: 10px 14px;
+  min-height: 0;
+}
+[data-slot='card-title'] {
+  font-size: 14px;
+  font-weight: 600;
+}
+[data-slot='card-description'] {
+  font-size: 12px;
+}
+[data-slot='card-content'] {
+  padding: 12px 14px;
+}
+[data-slot='card-footer'] {
+  padding: 10px 14px;
+}
+
+/* Tables — legible but dense rows. */
+[data-slot='table'] {
+  font-size: 12.5px;
+}
+[data-slot='table-head'] {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+[data-slot='table-cell'] {
+  padding: 6px 10px;
+}
+
+/* Buttons — keep the standard shape; just tighten default text size. */
+[data-slot='button'] {
+  font-size: 12.5px;
+}
+
+/* Inputs / selects — match the smaller base type size. */
+[data-slot='input'],
+select {
+  font-size: 12.5px;
+}
+
+/* Badges — tight "label" styling. */
+[data-slot='badge'] {
+  font-size: 10.5px;
+  padding: 1px 6px;
+  letter-spacing: 0.01em;
+}
+
+/* Tabs — tighter strip. */
+[data-slot='tabs-list'] {
+  padding: 2px;
+  gap: 2px;
+}
+[data-slot='tabs-trigger'] {
+  font-size: 12.5px;
+  padding: 4px 10px;
+}
+
+/* Sidebar — compact nav, portal feel. */
+aside {
+  font-size: 12.5px;
+}
+
 @layer base {
   * {
     /* stylelint-disable-next-line at-rule-no-unknown */
@@ -133,7 +225,7 @@
   .scrollbar-hide::-webkit-scrollbar {
     display: none;  /* Chrome, Safari and Opera */
   }
-  
+
   /* Smooth scrolling for touch devices */
   .scrollbar-hide {
     -webkit-overflow-scrolling: touch;

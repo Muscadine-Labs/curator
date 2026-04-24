@@ -362,8 +362,247 @@ npm run build
 | V1 market risk API               | `app/api/vaults/v1/[id]/market-risk/route.ts`            |
 | Vault list API                   | `app/api/vaults/route.ts`, `app/api/vaults/[id]/route.ts`|
 | Vault addresses                  | `lib/config/vaults.ts`                                   |
+| CCTP constants (chains/ABIs)     | `lib/cctp/constants.ts`                                  |
+| CCTP attestation helper          | `lib/cctp/attestation.ts`                                |
+| CCTP transfer page               | `app/curator/cctp/page.tsx`                              |
+| Theme context + migration        | `lib/theme/ThemeContext.tsx`                             |
+| Theme switcher UI                | `components/ThemeSwitcher.tsx`                           |
+| Global density + theme vars      | `app/globals.css`                                        |
+| Chart time-range filter          | `components/charts/TimeRangeFilter.tsx`                  |
+| Chart cumulative/daily toggle    | `components/charts/ViewModeFilter.tsx`                   |
+| Vault holders (paginated)        | `components/morpho/VaultHolders.tsx`                     |
+| Vault transactions (paginated)   | `components/morpho/VaultTransactions.tsx`                |
+| Holders API (V1/V2)              | `app/api/vaults/[id]/holders/route.ts`                   |
+| Transactions API                 | `app/api/vaults/[id]/transactions/route.ts`              |
 
 ---
 
-_Last updated: 2026-04-24. When you change reallocation logic, caps, or
-formatting, update Sections 3, 5, and 6 accordingly._
+## 13. CCTP (Circle Cross-Chain Transfer) Page
+
+`app/curator/cctp/page.tsx` provides a step-by-step USDC bridge using Circle's
+**CCTP V1**. No third-party bridge, no extra fees — users pay only source and
+destination chain gas. Circle's attestation service is free.
+
+### 13.1 Supported chains
+
+`lib/cctp/constants.ts :: CCTP_CHAINS` lists every chain that appears in
+Circle's registry, but tags which ones are actually wired up end-to-end in
+this app.
+
+Each entry is typed:
+
+```ts
+interface CctpChain {
+  chainId: number;          // EVM chainId, or 0 for non-EVM (Solana)
+  name: string;
+  scanUrl: string;
+  domain: number;           // Circle CCTP domain id
+  isEvm: boolean;
+  cctpVersion: 'v1' | 'v2' | 'v1+v2';
+  disabledReason?: string;  // when set, UI renders the chain read-only
+  usdc?: Address;
+  tokenMessenger?: Address;
+  messageTransmitter?: Address;
+}
+```
+
+Fully wired up (CCTP V1 burn-and-mint, enabled for transfers):
+
+- Ethereum (domain 0), Avalanche (1), Optimism (2), Arbitrum (3), Base (6),
+  Polygon (7).
+
+Listed for reference only (rendered with a warning badge + `disabledReason`):
+
+- **HyperEVM** (domain 19) — CCTP **V2-only**. The V2 `depositForBurn` shape
+  and fee-quote flow aren't implemented yet. Addresses are recorded so the
+  chain selector surfaces the correct metadata, but the burn/claim buttons
+  short-circuit.
+- **Solana** (domain 5) — non-EVM. Requires a Solana wallet adapter +
+  program-level tooling; the EVM-only flow here can't produce or verify a
+  Solana transfer.
+
+The UI (`app/curator/cctp/page.tsx`) uses `isChainDisabled()` to guard every
+`useReadContract`, `useWriteContract`, and state transition, and renders an
+`AlertTriangle` banner explaining which side is disabled. `ChainSelect` shows
+`(not yet supported)` next to disabled options and labels each chain with its
+CCTP version.
+
+See the full Circle registry at
+<https://developers.circle.com/cctp/concepts/supported-chains-and-domains>.
+When Circle adds more chains, update `CCTP_CHAINS` first; only flip
+`disabledReason` off once the contract addresses are verified and (for EVM) the
+chain is also added to `lib/wallet/config.ts`.
+
+To keep wagmi wallet sessions working on the enabled chains, `lib/wallet/config.ts`
+registers `base, mainnet, optimism, polygon, arbitrum, avalanche` as
+wagmi-supported chains.
+
+### 13.2 Flow
+
+```
+[User]            [Source chain]                 [Circle]           [Dest chain]
+  │                     │                            │                    │
+  │  1. approve USDC ──▶ TokenMessenger              │                    │
+  │                     │                            │                    │
+  │  2. depositForBurn ─▶ TokenMessenger             │                    │
+  │                     │ emits MessageSent(message) │                    │
+  │                     │                            │                    │
+  │  3. keccak256(message) = messageHash             │                    │
+  │     GET /attestations/{messageHash} ────────────▶                    │
+  │                     │                 poll q~10s │                    │
+  │                     │           returns { status: complete,          │
+  │                     │                      attestation }              │
+  │                     │                            │                    │
+  │  4. receiveMessage(message, attestation) ─────────────────────────▶ MessageTransmitter
+  │                                                                      │  mints native USDC
+  │                                                                      ▼  to recipient
+```
+
+The page implements this as a 4-step state machine: `approve → burn → attest →
+claim`, with each step owning its own button and tx hash. If the user refreshes
+or closes the tab mid-flow, the in-progress transfer is written to
+`localStorage` under `cctp:pendingTransfer` and rehydrated on mount, so they
+can resume without losing their message.
+
+### 13.3 Key utilities
+
+- `addressToBytes32(addr)` — converts a 20-byte EVM address to the bytes32
+  `mintRecipient` required by `depositForBurn`.
+- `extractMessageFromReceipt(receipt, messageTransmitter)` — parses the
+  `MessageSent(bytes message)` log from the burn tx and returns both the raw
+  message and its `keccak256` (the Circle lookup key).
+- `fetchAttestation(messageHash)` — polls `iris-api.circle.com/attestations/{hash}`;
+  normalizes 404 into `pending_confirmations`.
+
+### 13.4 "About CCTP" copy
+
+The page footer card explains the four on-chain steps (approve → burn → Circle
+attestation → claim) and explicitly calls out which chains in the selector are
+reference-only. When you change the transfer state machine, keep that section
+in sync with the actual step implementations.
+
+### 13.5 Notes when extending
+
+- If Circle adds a new domain, add it to `CCTP_CHAINS` **and** to
+  `lib/wallet/config.ts` (chains + transports), or the wagmi write/read hooks
+  won't find the chain. (CCTP V2 domains have a different set — keep V1 and
+  V2 separate if you introduce V2.)
+- To enable HyperEVM: implement the CCTP V2 `depositForBurn` variant (fee
+  quote, finality threshold, hook data), register HyperEVM in `wagmi` config,
+  then remove its `disabledReason`.
+- To enable Solana: bring in `@solana/web3.js` + Circle's Solana CCTP program
+  client, wire a separate wallet adapter, and either build a second transfer
+  flow or abstract the current one over a chain kind.
+- `depositForBurnWithCaller` (CCTP V1 "handler" variant) and CCTP V2's
+  `depositForBurn` (hook-based) aren't supported here yet. The current
+  implementation intentionally uses plain V1 `depositForBurn` for maximum
+  chain coverage.
+- Attestation time is typically 10–20 minutes on mainnet (L1 finality). The
+  UI communicates this and the tx is safe to leave in the background.
+
+---
+
+## 14. Repo Hygiene — Known Dead Code / Bloat
+
+`knip` was run on 2026-04-24 to audit imports. Summary:
+
+- **No unused files** — all source files are referenced.
+- **Unused direct deps** — `@reown/appkit-controllers` appears in
+  `package.json` but isn't directly imported; it's a transitive peer of
+  `@rainbow-me/rainbowkit` and should stay pinned.
+- **Unused test/lint devDeps** — `@testing-library/*`, `@eslint/compat`,
+  `@eslint/eslintrc`, `@jest/globals`, `fake-indexeddb`, `eslint-config-next`
+  are flagged by knip because they're used via config files, not `import`.
+  They are legitimately required. **Don't remove.**
+- **Unused exports** — a number of helpers are exported but not yet consumed
+  (examples: `lib/constants.ts` time helpers, `lib/morpho/graphql-client.ts`
+  types). They are kept as a shared vocabulary; remove individual ones only
+  when you have a concrete reason. `filterDataByDate` was removed in favor of
+  `filterDataByRange` (the superset).
+- **Required peer deps pinned to fix build**:
+  - `@swc/helpers` — required by Next.js client chunks under the webpack
+    builder.
+  - `@reduxjs/toolkit` + `react-redux` — required by `recharts` v3's
+    Redux-backed state.
+  Both are now listed in `package.json`.
+
+If knip is re-run in the future, evaluate each flagged item individually; a
+flag is a _signal_, not a mandate to delete.
+
+---
+
+## 15. Theme & Visual Density
+
+### 15.1 Themes
+
+The app supports three themes: `light`, `dark`, and `system` (follows OS).
+They live in `lib/theme/ThemeContext.tsx` and are switched by
+`components/ThemeSwitcher.tsx`.
+
+A previous `y2k` theme was removed. `ThemeContext.getStored()` still recognizes
+the legacy `'y2k'` value in `localStorage` and silently migrates those users to
+`'system'`. The migration list (`LEGACY_THEMES`) is the place to add any
+future retired themes.
+
+### 15.2 Global compactness
+
+The density that used to be scoped to the Y2K theme is now applied to every
+theme through global CSS in `app/globals.css`:
+
+- `html { font-size: 13.5px }` — intentionally smaller than shadcn's default
+  16px, intentionally larger than the old Y2K `12.5px`. Tweak this single
+  value before touching individual component paddings.
+- `body { line-height: 1.45 }` — tighter than 1.5 so tables and lists pack
+  more rows per viewport.
+- `[data-slot='card-*']`, `[data-slot='table-*']`, `[data-slot='button']`,
+  `[data-slot='input']`, `[data-slot='badge']`, `[data-slot='tabs-*']`,
+  sidebar, and topbar selectors override shadcn defaults for tighter padding
+  and smaller font sizes, across light/dark/system.
+
+Rules:
+
+- **Do not add a new theme to achieve compactness.** Adjust the global
+  selectors instead so all themes stay consistent.
+- **Do not inline `text-xs`/`p-2` on shadcn primitives** if the adjustment
+  belongs on every instance — put it in the `[data-slot='...']` rule.
+- When a component genuinely needs more breathing room (e.g. a chart tooltip
+  or a modal header), add a local class rather than weakening the globals.
+
+### 15.3 Chart filters
+
+Dashboard charts (`ChartTvl`, `ChartInflows`, `ChartRevenue`, `ChartFees`)
+expose two filter dropdowns:
+
+- `TimeRangeFilter` — `All / Month / Week / Daily` (single button with a
+  popover).
+- `ViewModeFilter` — `Cumulative / Daily` (single button; previously two
+  separate buttons). Not all charts use it — only the ones where daily vs.
+  cumulative makes sense.
+
+Keep the two-dropdown pattern consistent across charts. Don't regress to a
+row of inline buttons; it breaks the header density we're aiming for.
+
+### 15.4 Holders & transactions pagination
+
+Both `components/morpho/VaultHolders.tsx` and
+`components/morpho/VaultTransactions.tsx` paginate locally at **20 rows per
+page**, with `ChevronLeft` / `ChevronRight` controls and a `Showing X–Y of Z`
+label. Fetch limits were raised to surface "all" holders and a deep
+transaction history:
+
+- `/api/vaults/[id]/holders` defaults to `first=100`, caps at `1000`. The V1
+  GraphQL query also returns `vaultByAddress.asset { symbol, decimals }` so
+  the UI can format share → asset amounts with the correct decimals (the fix
+  for the previous "0.000" display on V1 vaults with 6-decimal USDC).
+- `useVaultHolders` defaults to `first=500`.
+- `VaultHolders` accepts `assetDecimals` / `assetSymbol` props as a fallback
+  when the API doesn't supply them.
+
+When adding new paginated tables, reuse the same 20/page pattern and the
+`ChevronLeft`/`ChevronRight` control set for visual consistency.
+
+---
+
+_Last updated: 2026-04-25. When you change reallocation logic, caps,
+formatting, the CCTP flow, or global density, update Sections 3, 5, 6, 13,
+and 15 accordingly._
