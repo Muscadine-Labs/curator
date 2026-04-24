@@ -4,7 +4,7 @@
 
 import { logger } from './logger';
 
-export interface ApiError {
+interface ApiError {
   message: string;
   code?: string;
   statusCode: number;
@@ -29,7 +29,7 @@ export class AppError extends Error {
 /**
  * Create a standardized API error response
  */
-export function createErrorResponse(
+function createErrorResponse(
   error: unknown,
   defaultMessage: string = 'An error occurred'
 ): { error: ApiError; statusCode: number } {

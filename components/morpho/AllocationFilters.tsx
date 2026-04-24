@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
-export type SortKey =
+type SortKey =
   | 'allocated-desc'
   | 'allocated-asc'
   | 'supplyApy-desc'
@@ -18,7 +18,7 @@ export type SortKey =
  * Which data columns the allocation table should show.
  * Kept flat so components can do `if (filters.columns.utilization)`.
  */
-export interface AllocationColumnState {
+interface AllocationColumnState {
   utilization: boolean;
   liquidity: boolean;
   borrowApy: boolean;
@@ -32,7 +32,7 @@ export interface AllocationColumnState {
  * - 'amount'  — raw token amount (e.g. "12,345.67 USDC")
  * - 'percent' — share of total vault allocation (e.g. "12.34%")
  */
-export type AllocationDisplayMode = 'amount' | 'percent';
+type AllocationDisplayMode = 'amount' | 'percent';
 
 export interface AllocationFilterState {
   search: string;
@@ -46,7 +46,7 @@ export interface AllocationFilterState {
   displayMode: AllocationDisplayMode;
 }
 
-export const DEFAULT_COLUMN_STATE: AllocationColumnState = {
+const DEFAULT_COLUMN_STATE: AllocationColumnState = {
   utilization: true,
   liquidity: true,
   borrowApy: true,

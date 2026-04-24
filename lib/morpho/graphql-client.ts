@@ -5,11 +5,6 @@
 import { request, type RequestDocument } from 'graphql-request';
 import { MORPHO_GRAPHQL_ENDPOINT } from '@/lib/constants';
 
-export type GraphQLResponse<T> = {
-  data?: T;
-  errors?: Array<{ message: string; path?: string[] }>;
-};
-
 type GraphQLError = {
   message: string;
   path?: string[];
@@ -25,7 +20,7 @@ type GraphQLResponseError = {
 /**
  * Type-safe GraphQL client wrapper
  */
-export class MorphoGraphQLClient {
+class MorphoGraphQLClient {
   private endpoint: string;
 
   constructor(endpoint: string = MORPHO_GRAPHQL_ENDPOINT) {

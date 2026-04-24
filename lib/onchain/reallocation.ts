@@ -47,7 +47,7 @@ export interface ReallocationTarget {
 }
 
 /** Result of `buildV1ReallocationPlan`. Empty `allocations` ⇒ nothing to do. */
-export interface ReallocationPlan {
+interface ReallocationPlan {
   allocations: MarketAllocation[];
   /** Number of withdrawal entries placed first in the array. */
   withdrawalCount: number;

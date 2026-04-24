@@ -19,7 +19,7 @@ const IRM_ABI = [
  * @param irmAddress - The address of the IRM contract
  * @returns Target utilization as a ratio (0-1), or null if not available
  */
-export async function getIRMTargetUtilization(irmAddress: Address | null): Promise<number | null> {
+async function getIRMTargetUtilization(irmAddress: Address | null): Promise<number | null> {
   if (!irmAddress || irmAddress.toLowerCase() === '0x0000000000000000000000000000000000000000') {
     return null;
   }
