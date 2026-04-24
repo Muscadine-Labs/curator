@@ -158,7 +158,11 @@ export default function Home() {
                   .map((vault) => (
                     <Link
                       key={vault.address}
-                      href={shouldUseV2Query(vault.name) ? `/vault/v2/${vault.address}` : `/vault/v1/${vault.address}`}
+                      href={
+                        shouldUseV2Query(vault.name, vault.address)
+                          ? `/vault/v2/${vault.address}`
+                          : `/vault/v1/${vault.address}`
+                      }
                       className="hover:underline"
                     >
                       <span className="text-slate-700 dark:text-slate-300">{vault.name}:</span>{' '}

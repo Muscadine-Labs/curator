@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { ExternalLink, Edit2, Check, X, Loader2 } from 'lucide-react';
 import { Address, isAddress } from 'viem';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { vaultWriteConfigs } from '@/lib/onchain/vault-writes';
+import { v1WriteConfigs } from '@/lib/onchain/vault-writes';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { useVaultRoles } from '@/lib/hooks/useVaultRoles';
 import { logger } from '@/lib/utils/logger';
@@ -61,15 +61,15 @@ export function RoleList({ vaultAddress, chainId = BASE_CHAIN_ID }: RoleListProp
 
     try {
       if (roleName === 'Owner') {
-        const config = vaultWriteConfigs.transferOwnership({ vaultAddress, newOwner: newAddress as Address });
+        const config = v1WriteConfigs.transferOwnership(vaultAddress, newAddress as Address);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         transferOwnership(config as any);
       } else if (roleName === 'Curator') {
-        const config = vaultWriteConfigs.setCurator({ vaultAddress, newCurator: newAddress as Address });
+        const config = v1WriteConfigs.setCurator(vaultAddress, newAddress as Address);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         setCurator(config as any);
       } else if (roleName === 'Guardian') {
-        const config = vaultWriteConfigs.submitGuardian({ vaultAddress, newGuardian: newAddress as Address });
+        const config = v1WriteConfigs.submitGuardian(vaultAddress, newAddress as Address);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         submitGuardian(config as any);
       }
@@ -86,7 +86,7 @@ export function RoleList({ vaultAddress, chainId = BASE_CHAIN_ID }: RoleListProp
   };
 
   const handleAcceptGuardian = () => {
-    const config = vaultWriteConfigs.acceptGuardian(vaultAddress);
+    const config = v1WriteConfigs.acceptGuardian(vaultAddress);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     acceptGuardian(config as any);
   };

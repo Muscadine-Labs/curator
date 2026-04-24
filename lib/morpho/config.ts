@@ -41,7 +41,7 @@ function clamp01(x: number): number {
  * - rateAlignmentEps: 0.01-0.05 (1-5% APY tolerance)
  * - fallbackBenchmarkRate: 0.03-0.08 (3-8% APY)
  */
-export const DEFAULT_CURATOR_CONFIG: CuratorConfig = {
+const DEFAULT_CURATOR_CONFIG: CuratorConfig = {
   morphoApiUrl: MORPHO_GRAPHQL_ENDPOINT,
   utilizationCeiling: 0.9, // 90% utilization ceiling
   utilizationBufferHours: 48,
@@ -100,7 +100,7 @@ function normalizeWeights(weights: CuratorWeights): CuratorWeights {
   };
 }
 
-export function loadConfigFromEnv(): CuratorConfigOverrides {
+function loadConfigFromEnv(): CuratorConfigOverrides {
   const weights: Partial<CuratorWeights> = {};
   const weightKeys: Array<keyof CuratorWeights> = [
     'utilization',

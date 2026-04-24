@@ -96,14 +96,17 @@ const VAULT_V2_RISK_QUERY = gql`
         items {
           __typename
           address
-          assets
-          assetsUsd
-          type
-          factory { address }
           ... on MetaMorphoAdapter {
+            assets
+            assetsUsd
+            type
+            factory { address }
             metaMorpho { address name symbol }
           }
           ... on MorphoMarketV1Adapter {
+            assets
+            assetsUsd
+            type
             positions(first: $positionLimit) {
               items {
                 state {
@@ -204,11 +207,44 @@ async function buildMarketRisk(
   };
 }
 
+function sumPositionSupplyAssetsUsd(
+  positions: NonNullable<GraphAdapter['positions']>['items']
+): number {
+  if (!positions?.length) return 0;
+  return positions.reduce((sum, p) => sum + (p?.state?.supplyAssetsUsd ?? 0), 0);
+}
+
+function sumPositionSupplyAssetsRaw(
+  positions: NonNullable<GraphAdapter['positions']>['items']
+): string | null {
+  if (!positions?.length) return null;
+  try {
+    let total = 0n;
+    for (const p of positions) {
+      const raw = p?.state?.supplyAssets;
+      if (raw == null) continue;
+      total += BigInt(raw);
+    }
+    return total.toString();
+  } catch {
+    return null;
+  }
+}
+
 async function computeAdapterRisk(
   adapter: GraphAdapter,
   chainId: number
 ): Promise<V2AdapterRiskData | null> {
-  const allocationUsd = adapter.assetsUsd ?? 0;
+  const positions = adapter.positions?.items?.filter(Boolean) ?? [];
+  const posItems = adapter.positions?.items ?? null;
+  const allocationUsd =
+    adapter.__typename === 'MorphoMarketV1Adapter' && posItems
+      ? sumPositionSupplyAssetsUsd(posItems)
+      : (adapter.assetsUsd ?? 0);
+  const allocationAssetsFromPositions =
+    adapter.__typename === 'MorphoMarketV1Adapter' && posItems
+      ? sumPositionSupplyAssetsRaw(posItems)
+      : null;
 
   if (adapter.__typename === 'MetaMorphoAdapter' && adapter.metaMorpho?.address) {
     const { markets } = await fetchV1VaultMarkets(adapter.metaMorpho.address, chainId);

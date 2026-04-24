@@ -102,7 +102,7 @@ export async function GET(
     // Otherwise, if we have a name, use it to confirm query type
     if (vaultName) {
       // Use the vault name to confirm query type (should match what we detected)
-      const nameBasedIsV2 = shouldUseV2Query(vaultName);
+      const nameBasedIsV2 = shouldUseV2Query(vaultName, address);
       if (isV2 !== nameBasedIsV2) {
         // Log warning if there's a mismatch, but trust the GraphQL result
         logger.warn('Vault type detection mismatch', {
@@ -671,6 +671,7 @@ export async function GET(
                 oracleAddress: a.market?.oracleAddress ?? null,
                 irmAddress: a.market?.irmAddress ?? null,
                 lltv: a.market?.lltv ? (typeof a.market.lltv === 'string' ? parseFloat(a.market.lltv) : Number(a.market.lltv)) : null,
+                lltvRaw: a.market?.lltv ? String(a.market.lltv) : null,
                 supplyCap: a.supplyCap ? (typeof a.supplyCap === 'string' ? parseFloat(a.supplyCap) : Number(a.supplyCap)) : null,
                 supplyAssets: a.supplyAssets ? (typeof a.supplyAssets === 'string' ? a.supplyAssets : String(a.supplyAssets)) : null,
                 supplyAssetsUsd: a.supplyAssetsUsd ?? null,

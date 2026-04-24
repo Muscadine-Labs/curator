@@ -54,9 +54,11 @@ const nextConfig: NextConfig = {
             key: 'Permissions-Policy',
             value: 'camera=(), microphone=(), geolocation=()',
           },
+          // same-origin breaks Base Account SDK + other wallet popups (window.opener messaging).
+          // Base recommends same-origin-allow-popups: https://docs.base.org/base-account/more/troubleshooting/usage-details/popups
           {
             key: 'Cross-Origin-Opener-Policy',
-            value: 'same-origin',
+            value: 'same-origin-allow-popups',
           },
         ],
       },

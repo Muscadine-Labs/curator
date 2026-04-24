@@ -14,6 +14,9 @@ import { VaultV2Adapters } from '@/components/morpho/VaultV2Adapters';
 import { VaultV2Allocations } from '@/components/morpho/VaultV2Allocations';
 import { VaultV2Caps } from '@/components/morpho/VaultV2Caps';
 import { VaultV2Timelocks } from '@/components/morpho/VaultV2Timelocks';
+import { VaultV2Parameters } from '@/components/morpho/VaultV2Parameters';
+import { VaultHolders } from '@/components/morpho/VaultHolders';
+import { VaultTransactions } from '@/components/morpho/VaultTransactions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -82,7 +85,7 @@ export default function V2VaultPage() {
     );
   }
 
-  const category = getVaultCategory(vault.name);
+  const category = getVaultCategory(vault.name, vault.address);
   const vaultBadge = category === 'prime' ? 'V2 Prime' : category === 'vineyard' ? 'V2 Vineyard' : 'V2';
 
   const morphoUiUrl = vault.address 
@@ -125,6 +128,7 @@ export default function V2VaultPage() {
               <TabsTrigger value="adapters" className="sm:flex-1 flex-shrink-0 min-w-fit">Adapters</TabsTrigger>
               <TabsTrigger value="allocations" className="sm:flex-1 flex-shrink-0 min-w-fit">Allocations</TabsTrigger>
               <TabsTrigger value="caps" className="sm:flex-1 flex-shrink-0 min-w-fit">Caps</TabsTrigger>
+              <TabsTrigger value="parameters" className="sm:flex-1 flex-shrink-0 min-w-fit">Parameters</TabsTrigger>
               <TabsTrigger value="timelocks" className="sm:flex-1 flex-shrink-0 min-w-fit">Timelocks</TabsTrigger>
             </TabsList>
           </div>
@@ -171,6 +175,22 @@ export default function V2VaultPage() {
               <KpiCard title="Revenue (All Time)" value={vault.revenueAllTime} subtitle="Total revenue to protocol" format="usd" />
               <KpiCard title="Fees (All Time)" value="Coming Soon" subtitle="Total fees collected to token holders" format="raw" />
             </div>
+
+            {/* Holders — placed under Fee/Revenue */}
+            <VaultHolders
+              vaultAddress={vault.address}
+              chainId={vault.chainId}
+              assetDecimals={vault.assetDecimals}
+              assetSymbol={vault.asset}
+            />
+
+            {/* Transactions — last ~100 deposits/withdraws/interactions */}
+            <VaultTransactions
+              vaultAddress={vault.address}
+              chainId={vault.chainId}
+              assetDecimals={vault.assetDecimals}
+              assetSymbol={vault.asset}
+            />
           </TabsContent>
 
           {/* Risk Management Tab */}
@@ -190,12 +210,21 @@ export default function V2VaultPage() {
 
           {/* Allocations Tab */}
           <TabsContent value="allocations">
-            <VaultV2Allocations vaultAddress={vault.address} preloadedData={governance} />
+            <VaultV2Allocations
+              vaultAddress={vault.address}
+              preloadedData={governance}
+              preloadedRisk={risk}
+            />
           </TabsContent>
 
           {/* Caps Tab */}
           <TabsContent value="caps">
             <VaultV2Caps vaultAddress={vault.address} preloadedData={governance} />
+          </TabsContent>
+
+          {/* Parameters Tab */}
+          <TabsContent value="parameters">
+            <VaultV2Parameters vaultAddress={vault.address} />
           </TabsContent>
 
           {/* Timelocks Tab */}

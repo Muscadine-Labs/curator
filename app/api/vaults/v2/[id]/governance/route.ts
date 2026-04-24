@@ -99,24 +99,34 @@ const VAULT_V2_GOVERNANCE_QUERY = gql`
       liquidityAdapter {
         __typename
         address
-        type
-        assets
-        assetsUsd
-        factory { address }
         ... on MetaMorphoAdapter {
+          type
+          assets
+          assetsUsd
+          factory { address }
           metaMorpho { address name symbol }
+        }
+        ... on MorphoMarketV1Adapter {
+          type
+          assets
+          assetsUsd
         }
       }
       adapters(first: $adapterLimit) {
         items {
           __typename
           address
-          type
-          assets
-          assetsUsd
-          factory { address }
           ... on MetaMorphoAdapter {
+            type
+            assets
+            assetsUsd
+            factory { address }
             metaMorpho { address name symbol }
+          }
+          ... on MorphoMarketV1Adapter {
+            type
+            assets
+            assetsUsd
           }
         }
       }

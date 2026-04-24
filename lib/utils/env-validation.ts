@@ -14,7 +14,7 @@ interface EnvValidationResult {
 /**
  * Validate required environment variables
  */
-export function validateEnvVars(): EnvValidationResult {
+function validateEnvVars(): EnvValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
 

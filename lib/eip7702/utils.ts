@@ -5,7 +5,7 @@ import { EIP7702_CONTRACTS, ERC1967_IMPLEMENTATION_SLOT } from './constants';
 /**
  * Check if an address has code deployed (is a contract or upgraded EOA)
  */
-export async function hasCode(address: Address, chain: Chain = base): Promise<boolean> {
+async function hasCode(address: Address, chain: Chain = base): Promise<boolean> {
   try {
     const publicClient = createPublicClient({
       chain,

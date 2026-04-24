@@ -1,36 +1,5 @@
 import { Address } from 'viem';
-import { VAULT_ABI, ERC20_ABI, safeContractRead } from './client';
-
-// Contract interfaces
-export interface VaultData {
-  asset: Address | null;
-  totalAssets: bigint | null;
-  performanceFeeBps: number | null;
-  lastHarvest: bigint | null;
-}
-
-export interface ERC20Data {
-  symbol: string | null;
-  decimals: number | null;
-  balance: bigint | null;
-}
-
-// Vault contract reader
-export const readVaultData = async (vaultAddress: Address): Promise<VaultData> => {
-  const [asset, totalAssets, performanceFeeBps, lastHarvest] = await Promise.all([
-    safeContractRead<Address>(vaultAddress, VAULT_ABI, 'asset'),
-    safeContractRead<bigint>(vaultAddress, VAULT_ABI, 'totalAssets'),
-    safeContractRead<number>(vaultAddress, VAULT_ABI, 'performanceFeeBps'),
-    safeContractRead<bigint>(vaultAddress, VAULT_ABI, 'lastHarvest'),
-  ]);
-
-  return {
-    asset,
-    totalAssets,
-    performanceFeeBps,
-    lastHarvest,
-  };
-};
+import { VAULT_ABI, safeContractRead } from './client';
 
 // Vault roles interface
 export interface VaultRoles {
@@ -71,41 +40,7 @@ export const readVaultAllocators = async (vaultAddress: Address): Promise<Addres
   return null;
 };
 
-// Check if an address is an allocator (for mapping-based storage)
-export const checkIsAllocator = async (
-  vaultAddress: Address,
-  allocatorAddress: Address
-): Promise<boolean | null> => {
-  return safeContractRead<boolean>(vaultAddress, VAULT_ABI, 'isAllocator', [allocatorAddress]);
-};
-
 // Read pending guardian
 export const readPendingGuardian = async (vaultAddress: Address): Promise<Address | null> => {
   return safeContractRead<Address>(vaultAddress, VAULT_ABI, 'pendingGuardian');
-};
-
-// ERC20 contract reader
-export const readERC20Data = async (
-  tokenAddress: Address,
-  accountAddress?: Address
-): Promise<ERC20Data> => {
-  const [symbol, decimals, balance] = await Promise.all([
-    safeContractRead<string>(tokenAddress, ERC20_ABI, 'symbol'),
-    safeContractRead<number>(tokenAddress, ERC20_ABI, 'decimals'),
-    accountAddress 
-      ? safeContractRead<bigint>(tokenAddress, ERC20_ABI, 'balanceOf', [accountAddress])
-      : Promise.resolve(null),
-  ]);
-
-  return {
-    symbol,
-    decimals,
-    balance,
-  };
-};
-
-// Helper to calculate percentage from basis points
-export const bpsToPercentage = (bps: number | null): number => {
-  if (!bps) return 0;
-  return bps / 100;
 };

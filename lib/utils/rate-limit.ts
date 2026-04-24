@@ -23,7 +23,7 @@ const store: RateLimitStore = {};
  * @param windowMs - Time window in milliseconds
  * @returns true if request is allowed, false if rate limited
  */
-export function rateLimit(
+function rateLimit(
   identifier: string,
   maxRequests: number,
   windowMs: number
@@ -70,7 +70,7 @@ export function rateLimit(
  * @param maxRequests - Maximum number of requests allowed (used to calculate remaining)
  * @returns Rate limit info with remaining requests and reset time, or null if no active limit
  */
-export function getRateLimitInfo(
+function getRateLimitInfo(
   identifier: string,
   maxRequests: number
 ): { remaining: number; resetTime: number } | null {
