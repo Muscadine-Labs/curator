@@ -178,3 +178,58 @@ export const formatTokenAmount = (
     maximumFractionDigits: displayDecimals,
   }).format(formatted);
 };
+
+/**
+ * Format a raw token amount (bigint in base units) to a human-readable string
+ * with commas and a decimal point. Preserves precision for bigint inputs by
+ * splitting integer/fraction before conversion.
+ */
+export const formatRawTokenAmount = (
+  raw: bigint | string | null | undefined,
+  decimals: number,
+  displayDecimals: number = 2
+): string => {
+  if (raw == null) return '0.00';
+  let value: bigint;
+  try {
+    value = typeof raw === 'bigint' ? raw : BigInt(raw);
+  } catch {
+    return '0.00';
+  }
+  if (value === 0n || decimals < 0) {
+    return (0).toLocaleString('en-US', {
+      minimumFractionDigits: displayDecimals,
+      maximumFractionDigits: displayDecimals,
+    });
+  }
+
+  const negative = value < 0n;
+  if (negative) value = -value;
+
+  const base = 10n ** BigInt(decimals);
+  const whole = value / base;
+  const frac = value % base;
+
+  const wholeStr = whole.toLocaleString('en-US');
+  if (displayDecimals <= 0) return negative ? `-${wholeStr}` : wholeStr;
+
+  const fracPadded = frac.toString().padStart(decimals, '0');
+  const fracTrimmed = fracPadded.slice(0, displayDecimals).padEnd(displayDecimals, '0');
+  const out = `${wholeStr}.${fracTrimmed}`;
+  return negative ? `-${out}` : out;
+};
+
+/** Format a USD amount with full precision using commas and dots. */
+export const formatFullUSD = (amount: number | bigint | null | undefined, decimals: number = 2): string => {
+  if (amount == null) return '$0.00';
+  const numAmount = typeof amount === 'bigint' ? Number(amount) : amount;
+  if (!Number.isFinite(numAmount)) return '$0.00';
+  if (numAmount > 0 && numAmount < 0.01) return '<$0.01';
+  if (numAmount < 0 && numAmount > -0.01) return '>-$0.01';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(numAmount);
+};

@@ -16,17 +16,37 @@ import { AlertTriangle, CheckCircle2, Pencil } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useVaultV2Risk } from '@/lib/hooks/useVaultV2Risk';
+import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
 import { TransactionButton } from '@/components/TransactionButton';
 import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
 import type { Address, Hex } from 'viem';
-import { parseUnits, encodeAbiParameters, parseAbiParameters } from 'viem';
-import { formatCompactUSD, formatPercentage, formatLtv, formatTokenAmount } from '@/lib/format/number';
+import {
+  parseUnits,
+  encodeAbiParameters,
+  parseAbiParameters,
+  keccak256,
+} from 'viem';
+import {
+  formatCompactUSD,
+  formatPercentage,
+  formatLtv,
+  formatTokenAmount,
+  formatRawTokenAmount,
+} from '@/lib/format/number';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
+import type { VaultV2GovernanceResponse, CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
+import {
+  AllocationFilters,
+  DEFAULT_FILTER_STATE,
+  type AllocationFilterState,
+} from '@/components/morpho/AllocationFilters';
 
 interface VaultV2AllocationsProps {
   vaultAddress: string;
-  preloadedData?: unknown;
+  /** Preloaded governance (from parent). Contains caps/timelocks/etc. */
+  preloadedData?: VaultV2GovernanceResponse | null;
+  /** Preloaded risk data (adapters+markets+allocations). Optional. */
   preloadedRisk?: V2VaultRiskResponse | null;
 }
 
@@ -48,11 +68,17 @@ interface AllocTarget {
   adapterType: AdapterType;
   /** ABI-encoded data param for allocate/deallocate. MetaMorpho=0x, Market=encoded market params */
   data: Hex;
+  /** keccak256(data) — the primary cap id used by the vault. */
+  capIdHash: Hex;
   currentAssets: bigint;
   currentUsd: number;
   decimals: number;
   symbol: string;
   isMetaMorpho: boolean;
+  /** Absolute cap in raw token units (null when unknown). */
+  absoluteCapRaw: bigint | null;
+  /** Relative cap as WAD (1e18 = 100%). Null when unknown. */
+  relativeCapWad: bigint | null;
 }
 
 type InputMode = 'tokens' | 'percentage';
@@ -74,6 +100,20 @@ function encodeMarketData(market: {
     parseAbiParameters('address, address, address, address, uint256'),
     [loan as Address, col as Address, oracle as Address, irm as Address, lltv]
   );
+}
+
+/** Encode adapter-scoped cap data (MetaMorphoAdapter): `address`. */
+function encodeAdapterCapData(adapterAddress: string): Hex {
+  return encodeAbiParameters(parseAbiParameters('address'), [adapterAddress as Address]);
+}
+
+function parseBigIntOrNull(s: string | number | null | undefined): bigint | null {
+  if (s == null) return null;
+  try {
+    return typeof s === 'bigint' ? s : BigInt(typeof s === 'number' ? Math.floor(s).toString() : s.toString());
+  } catch {
+    return null;
+  }
 }
 
 /** Display-only row (sub-markets under an adapter). */
@@ -105,16 +145,65 @@ type TargetRow = {
   allocAssets: string | null;
   allocDecimals: number;
   allocSymbol: string | null;
+  /** For filtering */
+  searchHaystack: string;
 };
 
 type RowType = TargetRow | DisplayRow;
 
-export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2AllocationsProps) {
+export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk }: VaultV2AllocationsProps) {
   const { data: fetchedRisk, isLoading, error } = useVaultV2Risk(vaultAddress);
+  const { data: fetchedGov } = useVaultV2Governance(vaultAddress);
   const risk = preloadedRisk ?? fetchedRisk;
+  const governance = preloadedData ?? fetchedGov;
+
+  const capByIdHash = useMemo(() => {
+    const map = new Map<string, CapInfo>();
+    for (const cap of governance?.caps ?? []) {
+      // Build idHash for each cap based on its kind.
+      if (cap.adapterAddress && cap.type === 'adapter') {
+        const h = keccak256(encodeAdapterCapData(cap.adapterAddress));
+        map.set(h.toLowerCase(), cap);
+      }
+      if (cap.marketKey && cap.type === 'market') {
+        // MarketV1CapData id = keccak256(MarketParams tuple) — cannot rebuild
+        // without full market params. We instead key by marketKey for lookup.
+        map.set(cap.marketKey.toLowerCase(), cap);
+      }
+    }
+    return map;
+  }, [governance]);
+
+  /** Lookup caps for a target. Prefers exact idHash, then falls back by address/marketKey. */
+  const capsForTarget = useCallback(
+    (t: AllocTarget, marketKey?: string): CapInfo | null => {
+      const byHash = capByIdHash.get(t.capIdHash.toLowerCase());
+      if (byHash) return byHash;
+      if (t.isMetaMorpho) {
+        const byAdapter = (governance?.caps ?? []).find(
+          (c) => c.adapterAddress?.toLowerCase() === t.adapterAddress.toLowerCase() && c.type === 'adapter'
+        );
+        if (byAdapter) return byAdapter;
+      } else if (marketKey) {
+        const byMarket = capByIdHash.get(marketKey.toLowerCase());
+        if (byMarket) return byMarket;
+      }
+      return null;
+    },
+    [capByIdHash, governance?.caps]
+  );
 
   const { rows, totalUsd, targets, totalRawAssets, vaultDecimals, vaultSymbol } = useMemo(() => {
-    if (!risk?.adapters) return { rows: [] as RowType[], totalUsd: 0, targets: [] as AllocTarget[], totalRawAssets: BigInt(0), vaultDecimals: 18, vaultSymbol: '' };
+    if (!risk?.adapters) {
+      return {
+        rows: [] as RowType[],
+        totalUsd: 0,
+        targets: [] as AllocTarget[],
+        totalRawAssets: BigInt(0),
+        vaultDecimals: 18,
+        vaultSymbol: '',
+      };
+    }
 
     const totalUsd = risk.totalAdapterAssetsUsd ?? 0;
     const va = risk.vaultAsset;
@@ -131,7 +220,6 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
       const isMetaMorpho = adapter.adapterType === 'MetaMorphoAdapter';
 
       if (isMetaMorpho) {
-        // MetaMorphoAdapter: one target per adapter, data=0x
         const adapterPct = totalUsd > 0 ? ((adapter.allocationUsd ?? 0) / totalUsd) * 100 : 0;
         let adapterSupplyApy: number | null = null;
         let adapterLiquidity: number | null = null;
@@ -150,16 +238,23 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
         if (allocAssets) { try { rawAssets = BigInt(allocAssets); } catch { /* */ } }
         totalRaw += rawAssets;
 
+        const adapterDataHex = '0x' as Hex;
+        const adapterIdData = encodeAdapterCapData(adapter.adapterAddress);
+        const adapterIdHash = keccak256(adapterIdData);
+
         targets.push({
           label: adapter.adapterLabel || 'MetaMorpho',
           adapterAddress: adapter.adapterAddress,
           adapterType: adapter.adapterType,
-          data: '0x' as Hex,
+          data: adapterDataHex,
+          capIdHash: adapterIdHash,
           currentAssets: rawAssets,
           currentUsd: adapter.allocationUsd ?? 0,
           decimals: allocDec,
           symbol: allocSym,
           isMetaMorpho: true,
+          absoluteCapRaw: null,
+          relativeCapWad: null,
         });
 
         rows.push({
@@ -174,9 +269,9 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
           allocAssets,
           allocDecimals: allocDec,
           allocSymbol: allocSym,
+          searchHaystack: `${adapter.adapterLabel ?? ''} ${allocSym ?? ''}`.toLowerCase(),
         });
 
-        // Sub-market display rows
         for (const m of markets.slice().sort((a, b) => (b.allocationUsd ?? 0) - (a.allocationUsd ?? 0))) {
           const col = m.market?.collateralAsset?.symbol;
           const loan = m.market?.loanAsset?.symbol;
@@ -196,7 +291,6 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
           });
         }
       } else {
-        // MorphoMarketV1Adapter: one target PER MARKET
         const sortedMarkets = markets.slice().sort((a, b) => (b.allocationUsd ?? 0) - (a.allocationUsd ?? 0));
         for (const m of sortedMarkets) {
           const col = m.market?.collateralAsset?.symbol;
@@ -212,6 +306,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
           totalRaw += rawAssets;
 
           const data = m.market ? encodeMarketData(m.market) : ('0x' as Hex);
+          const idHash = keccak256(data);
 
           const tIdx = targets.length;
           targets.push({
@@ -219,11 +314,14 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
             adapterAddress: adapter.adapterAddress,
             adapterType: adapter.adapterType,
             data,
+            capIdHash: idHash,
             currentAssets: rawAssets,
             currentUsd: m.allocationUsd ?? 0,
             decimals: allocDec,
             symbol: allocSym,
             isMetaMorpho: false,
+            absoluteCapRaw: null,
+            relativeCapWad: null,
           });
 
           rows.push({
@@ -238,6 +336,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
             allocAssets,
             allocDecimals: allocDec,
             allocSymbol: allocSym,
+            searchHaystack: `${label} ${allocSym ?? ''}`.toLowerCase(),
           });
         }
       }
@@ -246,15 +345,38 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
     return { rows, totalUsd, targets, totalRawAssets: totalRaw, vaultDecimals: dec, vaultSymbol: sym };
   }, [risk]);
 
+  // Attach caps to each target now that `targets` and `capByIdHash` are known.
+  const targetsWithCaps: AllocTarget[] = useMemo(() => {
+    return targets.map((t) => {
+      const marketKey =
+        !t.isMetaMorpho
+          ? (risk?.adapters ?? [])
+              .flatMap((a) => a.markets ?? [])
+              .find((m) => {
+                if (!m.market) return false;
+                const data = encodeMarketData(m.market);
+                return data.toLowerCase() === t.data.toLowerCase();
+              })?.market?.uniqueKey ?? undefined
+          : undefined;
+      const cap = capsForTarget(t, marketKey);
+      return {
+        ...t,
+        absoluteCapRaw: cap ? parseBigIntOrNull(cap.absoluteCap) : null,
+        relativeCapWad: cap ? parseBigIntOrNull(cap.relativeCap) : null,
+      };
+    });
+  }, [targets, capsForTarget, risk?.adapters]);
+
   const [editing, setEditing] = useState(false);
   const [inputMode, setInputMode] = useState<InputMode>('percentage');
   const [inputValues, setInputValues] = useState<string[]>([]);
+  const [filters, setFilters] = useState<AllocationFilterState>(DEFAULT_FILTER_STATE);
   const multicallWrite = useVaultWrite();
 
   const startEditing = useCallback(() => {
-    setInputValues(targets.map(() => ''));
+    setInputValues(targetsWithCaps.map(() => ''));
     setEditing(true);
-  }, [targets]);
+  }, [targetsWithCaps]);
 
   const cancelEditing = useCallback(() => {
     setEditing(false);
@@ -266,16 +388,17 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
   }, []);
 
   const resolvedAllocations = useMemo(() => {
-    if (!editing || inputValues.length === 0 || inputValues.length !== targets.length) return null;
+    if (!editing || inputValues.length === 0 || inputValues.length !== targetsWithCaps.length) return null;
 
     const modified = inputValues.filter((v) => v.trim() !== '');
     if (modified.length === 0) return null;
 
-    const results: { target: AllocTarget; assets: bigint; current: bigint }[] = [];
+    type Result = { target: AllocTarget; assets: bigint; current: bigint };
+    const results: Result[] = [];
     let errorMsg: string | null = null;
 
-    for (let i = 0; i < targets.length; i++) {
-      const t = targets[i];
+    for (let i = 0; i < targetsWithCaps.length; i++) {
+      const t = targetsWithCaps[i];
       const v = inputValues[i];
 
       if (v.trim() === '') {
@@ -303,32 +426,61 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
       }
     }
 
-    if (errorMsg) return { valid: false as const, error: errorMsg, results: [] };
-    if (results.length !== targets.length) return { valid: false as const, error: 'Missing entries', results: [] };
+    if (errorMsg) return { valid: false as const, error: errorMsg, results: [] as Result[], sumAssets: BigInt(0) };
+    if (results.length !== targetsWithCaps.length) {
+      return { valid: false as const, error: 'Missing entries', results: [] as Result[], sumAssets: BigInt(0) };
+    }
 
-    // Dust adjustment: push remainder onto the largest allocation
     let sum = results.reduce((s, r) => s + r.assets, BigInt(0));
     const diff = totalRawAssets - sum;
-    if (diff !== BigInt(0)) {
+    if (diff !== BigInt(0) && results.length > 0) {
       const largest = results.reduce((best, r) => r.assets > best.assets ? r : best, results[0]);
       largest.assets += diff;
       sum = totalRawAssets;
     }
 
     if (results.some((r) => r.assets < BigInt(0))) {
-      return { valid: false as const, error: 'Allocation would go negative after dust adjustment', results: [] };
+      return { valid: false as const, error: 'Allocation would go negative after dust adjustment', results: [] as Result[], sumAssets: BigInt(0) };
+    }
+
+    // Cap validation
+    for (const r of results) {
+      if (r.assets <= r.current) continue;
+      const t = r.target;
+      if (t.absoluteCapRaw != null && r.assets > t.absoluteCapRaw) {
+        return {
+          valid: false as const,
+          error: `${t.label}: allocation exceeds absolute cap (${formatRawTokenAmount(t.absoluteCapRaw, t.decimals, 2)} ${t.symbol}).`,
+          results: [] as Result[],
+          sumAssets: BigInt(0),
+        };
+      }
+      if (t.relativeCapWad != null && totalRawAssets > BigInt(0)) {
+        // allocation <= firstTotalAssets * relativeCap / 1e18 — we use totalRawAssets as proxy for firstTotalAssets.
+        const wad = BigInt('1000000000000000000');
+        const maxAllowed = (totalRawAssets * t.relativeCapWad) / wad;
+        if (t.relativeCapWad < wad && r.assets > maxAllowed) {
+          return {
+            valid: false as const,
+            error: `${t.label}: allocation exceeds relative cap (${(Number(t.relativeCapWad) / 1e16).toFixed(2)}% of vault).`,
+            results: [] as Result[],
+            sumAssets: BigInt(0),
+          };
+        }
+      }
     }
 
     const anyChanged = results.some((r) => r.assets !== r.current);
-    if (!anyChanged) return { valid: false as const, error: null, results: [] };
+    if (!anyChanged) {
+      return { valid: false as const, error: null, results: [] as Result[], sumAssets: sum };
+    }
 
-    return { valid: true as const, error: null, results };
-  }, [editing, inputValues, targets, inputMode, totalRawAssets]);
+    return { valid: true as const, error: null, results, sumAssets: sum };
+  }, [editing, inputValues, targetsWithCaps, inputMode, totalRawAssets]);
 
   const handleRebalance = useCallback(() => {
     if (!resolvedAllocations?.valid) return;
 
-    // Build multicall: deallocations first (to free idle), then allocations
     const deallocCalls: Hex[] = [];
     const allocCalls: Hex[] = [];
 
@@ -355,7 +507,6 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
     if (allCalls.length === 0) return;
 
     if (allCalls.length === 1) {
-      // Single operation: no need for multicall wrapper
       const r = resolvedAllocations.results.find((r) => r.assets !== r.current)!;
       if (r.assets > r.current) {
         multicallWrite.write(v2WriteConfigs.allocate(
@@ -413,6 +564,90 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
     );
   }
 
+  // --- Filtering & sorting -------------------------------------------------
+  // We only filter TARGET rows (adapters / markets). Display rows (sub-markets
+  // below a MetaMorpho adapter) are kept alongside their parent adapter.
+  const search = filters.search.trim().toLowerCase();
+
+  // Map target index -> whether it should be shown
+  const showTarget = new Map<number, boolean>();
+  for (const r of rows) {
+    if (r.kind !== 'target') continue;
+    const t = targetsWithCaps[r.targetIdx];
+    if (!t) { showTarget.set(r.targetIdx, false); continue; }
+
+    const entryVal = editing ? inputValues[r.targetIdx] ?? '' : '';
+    const isEdited = entryVal.trim() !== '';
+    const isIdleRow = r.isIdle;
+    const cap = t.absoluteCapRaw;
+
+    let show = true;
+    if (search && !r.searchHaystack.includes(search)) show = false;
+    if (filters.hideZero && t.currentAssets === BigInt(0)) show = false;
+    if (filters.onlyIdle && !isIdleRow) show = false;
+    if (filters.hideIdle && isIdleRow) show = false;
+    if (filters.onlyWithCapacity) {
+      if (cap == null || cap <= t.currentAssets) show = false;
+    }
+    if (editing && filters.onlyEdited && !isEdited) show = false;
+    showTarget.set(r.targetIdx, show);
+  }
+
+  // Build filtered+sorted list of target indices, then emit their rows (+ children)
+  const targetIndices = rows
+    .filter((r): r is TargetRow => r.kind === 'target')
+    .filter((r) => showTarget.get(r.targetIdx))
+    .map((r) => r.targetIdx);
+
+  const sortedTargetIndices = [...targetIndices].sort((a, b) => {
+    const ta = targetsWithCaps[a];
+    const tb = targetsWithCaps[b];
+    const ra = rows.find((r) => r.kind === 'target' && r.targetIdx === a) as TargetRow | undefined;
+    const rb = rows.find((r) => r.kind === 'target' && r.targetIdx === b) as TargetRow | undefined;
+    if (!ta || !tb || !ra || !rb) return 0;
+
+    switch (filters.sort) {
+      case 'allocated-asc':
+        return Number(ta.currentAssets) - Number(tb.currentAssets);
+      case 'supplyApy-desc':
+        return (rb.supplyApy ?? -Infinity) - (ra.supplyApy ?? -Infinity);
+      case 'utilization-desc':
+        return 0; // targets don't expose utilization
+      case 'capacity-desc': {
+        const capA = ta.absoluteCapRaw != null ? Number(ta.absoluteCapRaw - ta.currentAssets) : -Infinity;
+        const capB = tb.absoluteCapRaw != null ? Number(tb.absoluteCapRaw - tb.currentAssets) : -Infinity;
+        return capB - capA;
+      }
+      case 'name-asc':
+        return ra.market.localeCompare(rb.market);
+      case 'allocated-desc':
+      default:
+        return Number(tb.currentAssets) - Number(ta.currentAssets);
+    }
+  });
+
+  // Emit rows in the new order: each target, followed by its child display rows (if MetaMorpho).
+  const rowsToRender: RowType[] = [];
+  const rowIdxToTargetChildren = new Map<number, DisplayRow[]>();
+  let currentIdx: number | null = null;
+  for (const r of rows) {
+    if (r.kind === 'target') {
+      currentIdx = r.targetIdx;
+      rowIdxToTargetChildren.set(currentIdx, []);
+    } else if (currentIdx != null) {
+      rowIdxToTargetChildren.get(currentIdx)!.push(r);
+    }
+  }
+  for (const idx of sortedTargetIndices) {
+    const tr = rows.find((r) => r.kind === 'target' && r.targetIdx === idx) as TargetRow | undefined;
+    if (!tr) continue;
+    rowsToRender.push(tr);
+    for (const child of rowIdxToTargetChildren.get(idx) ?? []) rowsToRender.push(child);
+  }
+
+  const plannedSum = resolvedAllocations?.sumAssets ?? BigInt(0);
+  const remainingRaw = editing ? totalRawAssets - plannedSum : BigInt(0);
+
   return (
     <Card>
       <CardHeader>
@@ -420,31 +655,44 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
           <div>
             <CardTitle>Allocations</CardTitle>
             <CardDescription>
-              Total: {formatCompactUSD(totalUsd)} ({formatTokenAmount(totalRawAssets, vaultDecimals, 2)} {vaultSymbol})
+              Total: {formatCompactUSD(totalUsd)} ({formatRawTokenAmount(totalRawAssets, vaultDecimals, 2)} {vaultSymbol})
             </CardDescription>
           </div>
-          {!editing ? (
-            <Button variant="outline" size="sm" onClick={startEditing} className="flex items-center gap-1.5">
-              <Pencil className="h-3.5 w-3.5" /> Rebalance
-            </Button>
-          ) : (
-            <div className="flex items-center gap-2">
-              <div className="flex gap-0.5 rounded-md border p-0.5">
-                <button
-                  onClick={() => { setInputMode('percentage'); setInputValues(targets.map(() => '')); }}
-                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${inputMode === 'percentage' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                >%</button>
-                <button
-                  onClick={() => { setInputMode('tokens'); setInputValues(targets.map(() => '')); }}
-                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${inputMode === 'tokens' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                >{vaultSymbol || 'Tokens'}</button>
+          <div className="flex flex-wrap items-center gap-2">
+            <AllocationFilters value={filters} onChange={setFilters} editing={editing} showIdleToggles={false} />
+            {!editing ? (
+              <Button variant="outline" size="sm" onClick={startEditing} className="flex items-center gap-1.5">
+                <Pencil className="h-3.5 w-3.5" /> Rebalance
+              </Button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <div className="flex gap-0.5 rounded-md border p-0.5">
+                  <button
+                    onClick={() => { setInputMode('percentage'); setInputValues(targetsWithCaps.map(() => '')); }}
+                    className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${inputMode === 'percentage' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  >%</button>
+                  <button
+                    onClick={() => { setInputMode('tokens'); setInputValues(targetsWithCaps.map(() => '')); }}
+                    className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${inputMode === 'tokens' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  >{vaultSymbol || 'Tokens'}</button>
+                </div>
+                <Button variant="ghost" size="sm" onClick={cancelEditing}>Cancel</Button>
               </div>
-              <Button variant="ghost" size="sm" onClick={cancelEditing}>Cancel</Button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent>
+        {editing && (
+          <RemainingBanner
+            totalRaw={totalRawAssets}
+            plannedRaw={plannedSum}
+            remainingRaw={remainingRaw}
+            decimals={vaultDecimals}
+            symbol={vaultSymbol}
+          />
+        )}
+
         <div className="overflow-x-auto rounded-md border">
           <Table>
             <TableHeader>
@@ -455,15 +703,19 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
                 <TableHead className="text-right">Borrow APY</TableHead>
                 <TableHead className="text-right">Supply APY</TableHead>
                 <TableHead className="text-right">Allocated</TableHead>
+                <TableHead className="text-right">Cap</TableHead>
                 <TableHead className="text-right">%</TableHead>
                 {editing && <TableHead className="text-right w-40">New Allocation</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((r, i) => {
+              {rowsToRender.map((r, i) => {
                 if (r.kind === 'target') {
-                  const t = targets[r.targetIdx];
+                  const t = targetsWithCaps[r.targetIdx];
                   const currentPct = totalRawAssets > BigInt(0) ? Number(t.currentAssets * BigInt(10000) / totalRawAssets) / 100 : 0;
+                  const capRemaining = t.absoluteCapRaw != null
+                    ? (t.absoluteCapRaw > t.currentAssets ? t.absoluteCapRaw - t.currentAssets : BigInt(0))
+                    : null;
 
                   return (
                     <TableRow key={`target-${r.targetIdx}`} className="bg-muted/50">
@@ -489,11 +741,30 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
                         <div className="flex flex-col items-end gap-0.5">
                           <span>
                             {r.allocAssets != null
-                              ? `${formatTokenAmount(BigInt(r.allocAssets), r.allocDecimals, 2)} ${r.allocSymbol ?? ''}`.trim()
+                              ? `${formatRawTokenAmount(BigInt(r.allocAssets), r.allocDecimals, 2)} ${r.allocSymbol ?? ''}`.trim()
                               : '—'}
                           </span>
                           <span className="text-muted-foreground text-xs">{formatCompactUSD(r.allocated)}</span>
                         </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {t.absoluteCapRaw == null ? (
+                          <span className="text-muted-foreground text-xs">—</span>
+                        ) : (
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span className="text-xs">
+                              {formatRawTokenAmount(t.absoluteCapRaw, t.decimals, 2)}
+                            </span>
+                            <span className="text-muted-foreground text-[11px]">
+                              {capRemaining != null
+                                ? `+${formatRawTokenAmount(capRemaining, t.decimals, 2)} free`
+                                : ''}
+                              {t.relativeCapWad != null && t.relativeCapWad < BigInt('1000000000000000000')
+                                ? ` · rel ${(Number(t.relativeCapWad) / 1e16).toFixed(2)}%`
+                                : ''}
+                            </span>
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="text-right">{`${r.pct.toFixed(2)}%`}</TableCell>
                       {editing && (
@@ -516,7 +787,6 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
                   );
                 }
 
-                // Display row (sub-market under MetaMorpho)
                 return (
                   <TableRow key={`display-${i}`}>
                     <TableCell className="pl-8">
@@ -540,17 +810,27 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
                       <div className="flex flex-col items-end gap-0.5">
                         <span>
                           {r.allocAssets != null
-                            ? `${formatTokenAmount(BigInt(r.allocAssets), r.allocDecimals, 2)} ${r.allocSymbol ?? ''}`.trim()
+                            ? `${formatRawTokenAmount(BigInt(r.allocAssets), r.allocDecimals, 2)} ${r.allocSymbol ?? ''}`.trim()
                             : '—'}
                         </span>
                         <span className="text-muted-foreground text-xs">{formatCompactUSD(r.allocated)}</span>
                       </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <span className="text-muted-foreground text-xs">—</span>
                     </TableCell>
                     <TableCell className="text-right">{`${r.pct.toFixed(2)}%`}</TableCell>
                     {editing && <TableCell />}
                   </TableRow>
                 );
               })}
+              {rowsToRender.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={editing ? 9 : 8} className="text-center py-6 text-xs text-muted-foreground">
+                    No targets match your filters.
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </div>
@@ -568,7 +848,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
               <div className="flex items-start gap-2 rounded-md bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 p-3">
                 <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
                 <p className="text-xs text-green-700 dark:text-green-300">
-                  Balanced (dust auto-adjusted). Ready to submit.
+                  Balanced and within caps. Deallocations run before allocations via multicall.
                 </p>
               </div>
             )}
@@ -608,5 +888,46 @@ export function VaultV2Allocations({ vaultAddress, preloadedRisk }: VaultV2Alloc
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function RemainingBanner({
+  totalRaw,
+  plannedRaw,
+  remainingRaw,
+  decimals,
+  symbol,
+}: {
+  totalRaw: bigint;
+  plannedRaw: bigint;
+  remainingRaw: bigint;
+  decimals: number;
+  symbol: string;
+}) {
+  const isBalanced = remainingRaw === BigInt(0);
+  const overshoot = remainingRaw < BigInt(0);
+  const absRemaining = overshoot ? -remainingRaw : remainingRaw;
+
+  const tone = isBalanced
+    ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
+    : overshoot
+    ? 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-800 dark:text-red-200'
+    : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200';
+
+  const label = isBalanced
+    ? 'Balanced — every asset is accounted for.'
+    : overshoot
+    ? `Over-allocated by ${formatRawTokenAmount(absRemaining, decimals, 4)} ${symbol}. Reduce a target.`
+    : `Unallocated: ${formatRawTokenAmount(absRemaining, decimals, 4)} ${symbol}. The largest target will absorb dust during dust-adjustment.`;
+
+  return (
+    <div className={`mb-3 rounded-md border p-3 text-xs ${tone}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span>{label}</span>
+        <span className="font-mono">
+          planned {formatRawTokenAmount(plannedRaw, decimals, 2)} / {formatRawTokenAmount(totalRaw, decimals, 2)} {symbol}
+        </span>
+      </div>
+    </div>
   );
 }

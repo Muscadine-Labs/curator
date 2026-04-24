@@ -192,7 +192,11 @@ export default function V2VaultPage() {
 
           {/* Allocations Tab */}
           <TabsContent value="allocations">
-            <VaultV2Allocations vaultAddress={vault.address} preloadedData={governance} />
+            <VaultV2Allocations
+              vaultAddress={vault.address}
+              preloadedData={governance}
+              preloadedRisk={risk}
+            />
           </TabsContent>
 
           {/* Caps Tab */}
