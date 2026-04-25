@@ -1,7 +1,7 @@
 // Simplified vault config - only stores addresses
 // All other data (name, symbol, asset, performance fee, etc.) is fetched from GraphQL
 
-export type VaultCategory = 'prime' | 'vineyard' | 'v1';
+export type VaultCategory = 'prime' | 'vineyard' | 'v1' | 'test';
 
 export interface VaultAddressConfig {
   address: string;
@@ -39,7 +39,7 @@ const vaultAddresses: VaultAddressConfig[] = [
       process.env.NEXT_PUBLIC_VAULT_CBBTC_V2_TEST ||
       '0xB15a51F46a53CF7dBB378A459A552F342bC54815',
     chainId: BASE_CHAIN_ID,
-    listCategory: 'prime',
+    listCategory: 'test',
     excludeFromBusinessViews: true,
   },
   // V1 Vaults
@@ -65,6 +65,11 @@ export const getVaultByAddress = (address: string): VaultAddressConfig | undefin
 /** Vaults included in overview, protocol stats, monthly statements, and the public vault list API */
 export const getVaultAddressesForBusinessViews = (): VaultAddressConfig[] => {
   return vaultAddresses.filter((v) => !v.excludeFromBusinessViews);
+};
+
+/** All vault addresses including test vaults (for sidebar display). */
+export const getAllVaultAddresses = (): VaultAddressConfig[] => {
+  return vaultAddresses;
 };
 
 // Categorize vaults by name pattern (works with GraphQL data); optional address uses listCategory from config
@@ -95,5 +100,5 @@ export const shouldUseV2Query = (
   vaultAddress?: string | null
 ): boolean => {
   const category = getVaultCategory(vaultName, vaultAddress);
-  return category === 'prime' || category === 'vineyard';
+  return category === 'prime' || category === 'vineyard' || category === 'test';
 };

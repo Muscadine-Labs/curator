@@ -11,7 +11,6 @@ import {
 import {
   useAccount,
   useChainId,
-  usePublicClient,
   useReadContract,
   useSwitchChain,
   useWaitForTransactionReceipt,
@@ -39,17 +38,19 @@ import { Badge } from '@/components/ui/badge';
 import {
   CCTP_CHAINS,
   ERC20_ABI,
-  MESSAGE_TRANSMITTER_ABI,
-  TOKEN_MESSENGER_ABI,
+  FINALITY_THRESHOLD,
+  MESSAGE_TRANSMITTER_V2_ABI,
+  TOKEN_MESSENGER_V2_ABI,
   USDC_DECIMALS,
   getCctpChainById,
   isChainDisabled,
   type CctpChain,
+  type TransferSpeed,
 } from '@/lib/cctp/constants';
 import {
   addressToBytes32,
-  extractMessageFromReceipt,
-  fetchAttestation,
+  fetchAttestationV2,
+  fetchTransferFee,
 } from '@/lib/cctp/attestation';
 
 type Step = 'form' | 'approve' | 'burn' | 'attest' | 'claim' | 'done';
@@ -58,13 +59,13 @@ interface PersistedTransfer {
   sourceChainId: number;
   destChainId: number;
   recipient: Address;
-  amountRaw: string; // stringified bigint
+  amountRaw: string;
   burnTxHash?: Hex;
   message?: Hex;
-  messageHash?: Hex;
   attestation?: Hex;
   claimTxHash?: Hex;
   step: Step;
+  transferSpeed: TransferSpeed;
 }
 
 const STORAGE_KEY = 'cctp:pendingTransfer';
@@ -90,8 +91,8 @@ export default function CctpPage() {
   return (
     <AuthGuard>
       <AppShell
-        title="USDC Cross-Chain Transfer (CCTP)"
-        description="Burn native USDC on one chain, mint it on another. Powered by Circle's Cross-Chain Transfer Protocol (free — only gas)."
+        title="USDC Cross-Chain Transfer (CCTP V2)"
+        description="Burn native USDC on one chain, mint it on another. Powered by Circle's Cross-Chain Transfer Protocol V2 with Fast Transfer support."
       >
         <CctpInner />
       </AppShell>
@@ -103,6 +104,8 @@ function CctpInner() {
   const { address, isConnected } = useAccount();
   const currentChainId = useChainId();
 
+  const [transferSpeed, setTransferSpeed] = useState<TransferSpeed>('fast');
+
   const [sourceChainId, setSourceChainId] = useState<number>(CCTP_CHAINS[4].chainId); // Base
   const [destChainId, setDestChainId] = useState<number>(CCTP_CHAINS[0].chainId); // Ethereum
   const [recipient, setRecipient] = useState<string>('');
@@ -111,7 +114,6 @@ function CctpInner() {
   const [step, setStep] = useState<Step>('form');
   const [burnTxHash, setBurnTxHash] = useState<Hex | undefined>(undefined);
   const [message, setMessage] = useState<Hex | undefined>(undefined);
-  const [messageHash, setMessageHash] = useState<Hex | undefined>(undefined);
   const [attestation, setAttestation] = useState<Hex | undefined>(undefined);
   const [claimTxHash, setClaimTxHash] = useState<Hex | undefined>(undefined);
 
@@ -119,7 +121,6 @@ function CctpInner() {
     if (address && !recipient) setRecipient(address);
   }, [address, recipient]);
 
-  // Rehydrate a pending transfer on mount so a user who refreshed mid-flow can resume.
   useEffect(() => {
     const saved = loadPersisted();
     if (!saved) return;
@@ -129,9 +130,9 @@ function CctpInner() {
     setAmount(formatUnits(BigInt(saved.amountRaw), USDC_DECIMALS));
     if (saved.burnTxHash) setBurnTxHash(saved.burnTxHash);
     if (saved.message) setMessage(saved.message);
-    if (saved.messageHash) setMessageHash(saved.messageHash);
     if (saved.attestation) setAttestation(saved.attestation);
     if (saved.claimTxHash) setClaimTxHash(saved.claimTxHash);
+    setTransferSpeed(saved.transferSpeed ?? 'fast');
     setStep(saved.step);
   }, []);
 
@@ -139,11 +140,19 @@ function CctpInner() {
   const destChain = useMemo(() => getCctpChainById(destChainId)!, [destChainId]);
 
   const disabledReason = sourceChain.disabledReason ?? destChain.disabledReason ?? null;
+
   const chainsSupported =
     !isChainDisabled(sourceChain) &&
     !isChainDisabled(destChain) &&
     Boolean(sourceChain.usdc && sourceChain.tokenMessenger && sourceChain.messageTransmitter) &&
     Boolean(destChain.messageTransmitter);
+
+  const { data: feeEstimate } = useQuery({
+    queryKey: ['cctp-fee', sourceChain.domain, destChain.domain],
+    queryFn: () => fetchTransferFee(sourceChain.domain, destChain.domain),
+    enabled: step === 'form' && chainsSupported,
+    staleTime: 60_000,
+  });
 
   const amountRaw = useMemo(() => {
     if (!amount) return 0n;
@@ -156,7 +165,6 @@ function CctpInner() {
 
   const recipientIsValid = recipient !== '' && isAddress(recipient);
 
-  // ------------- Read USDC balance + allowance on the source chain -------------
   const { data: balanceData } = useReadContract({
     address: sourceChain.usdc,
     abi: ERC20_ABI,
@@ -186,7 +194,6 @@ function CctpInner() {
   });
   const allowance = (allowanceData as bigint | undefined) ?? 0n;
 
-  // ------------- Write helpers (approve / burn / claim) -------------
   const {
     writeContract,
     data: pendingWriteHash,
@@ -197,51 +204,39 @@ function CctpInner() {
 
   const { switchChainAsync, isPending: isSwitching } = useSwitchChain();
 
-  // ------------- Receipt watchers -------------
   const { data: writeReceipt, isLoading: isConfirmingWrite } =
     useWaitForTransactionReceipt({
       hash: pendingWriteHash,
       chainId: step === 'claim' ? destChainId : sourceChainId,
     });
 
-  const sourcePublicClient = usePublicClient({ chainId: sourceChainId });
-
-  // After the burn tx confirms, extract the CCTP message + hash.
+  // After the burn tx confirms, advance to attestation polling.
   useEffect(() => {
     if (step !== 'burn') return;
     if (!writeReceipt) return;
-    if (!sourceChain.messageTransmitter) return;
     if (!burnTxHash) setBurnTxHash(pendingWriteHash as Hex);
-    const extracted = extractMessageFromReceipt(
-      writeReceipt,
-      sourceChain.messageTransmitter
-    );
-    if (extracted) {
-      setMessage(extracted.message);
-      setMessageHash(extracted.messageHash);
-      setStep('attest');
-      persist({
-        sourceChainId,
-        destChainId,
-        recipient: recipient as Address,
-        amountRaw: amountRaw.toString(),
-        burnTxHash: (pendingWriteHash as Hex) ?? burnTxHash,
-        message: extracted.message,
-        messageHash: extracted.messageHash,
-        step: 'attest',
-      });
-      resetWrite();
-    }
+
+    setStep('attest');
+    persist({
+      sourceChainId,
+      destChainId,
+      recipient: recipient as Address,
+      amountRaw: amountRaw.toString(),
+      burnTxHash: (pendingWriteHash as Hex) ?? burnTxHash,
+      step: 'attest',
+      transferSpeed,
+    });
+    resetWrite();
   }, [
     writeReceipt,
     step,
     burnTxHash,
     pendingWriteHash,
-    sourceChain.messageTransmitter,
     sourceChainId,
     destChainId,
     recipient,
     amountRaw,
+    transferSpeed,
     resetWrite,
   ]);
 
@@ -264,21 +259,28 @@ function CctpInner() {
     resetWrite();
   }, [writeReceipt, step, pendingWriteHash, resetWrite]);
 
-  // ------------- Poll Circle attestation -------------
+  // V2 attestation polling (uses sourceDomain + txHash)
+  const activeBurnTxHash = burnTxHash ?? pendingWriteHash;
   const { data: attestationResult } = useQuery({
-    queryKey: ['cctp-attestation', messageHash],
+    queryKey: ['cctp-attestation-v2', sourceChain.domain, activeBurnTxHash],
     queryFn: async () => {
-      if (!messageHash) return null;
-      return fetchAttestation(messageHash);
+      if (!activeBurnTxHash) return null;
+      return fetchAttestationV2(sourceChain.domain, activeBurnTxHash as Hex);
     },
-    enabled: step === 'attest' && Boolean(messageHash),
-    refetchInterval: 10_000,
+    enabled: step === 'attest' && Boolean(activeBurnTxHash),
+    refetchInterval: transferSpeed === 'fast' ? 3_000 : 10_000,
   });
 
+  // Advance on attestation complete
   useEffect(() => {
     if (step !== 'attest') return;
     if (!attestationResult) return;
-    if (attestationResult.status === 'complete' && attestationResult.attestation) {
+    if (
+      attestationResult.status === 'complete' &&
+      attestationResult.message &&
+      attestationResult.attestation
+    ) {
+      setMessage(attestationResult.message);
       setAttestation(attestationResult.attestation);
       setStep('claim');
       persist({
@@ -287,10 +289,10 @@ function CctpInner() {
         recipient: recipient as Address,
         amountRaw: amountRaw.toString(),
         burnTxHash,
-        message,
-        messageHash,
+        message: attestationResult.message,
         attestation: attestationResult.attestation,
         step: 'claim',
+        transferSpeed,
       });
     }
   }, [
@@ -301,11 +303,9 @@ function CctpInner() {
     recipient,
     amountRaw,
     burnTxHash,
-    message,
-    messageHash,
+    transferSpeed,
   ]);
 
-  // ------------- Actions -------------
   const ensureChain = useCallback(
     async (targetChainId: number) => {
       if (currentChainId === targetChainId) return true;
@@ -318,6 +318,40 @@ function CctpInner() {
     },
     [currentChainId, switchChainAsync]
   );
+
+  const fireBurn = useCallback(() => {
+    if (!sourceChain.tokenMessenger || !sourceChain.usdc) return;
+
+    const maxFee = transferSpeed === 'fast'
+      ? (feeEstimate?.fee ?? 100000n)
+      : 0n;
+
+    writeContract({
+      address: sourceChain.tokenMessenger,
+      abi: TOKEN_MESSENGER_V2_ABI,
+      functionName: 'depositForBurn',
+      args: [
+        amountRaw,
+        destChain.domain,
+        addressToBytes32(recipient as Address),
+        sourceChain.usdc,
+        '0x0000000000000000000000000000000000000000000000000000000000000000' as Hex,
+        maxFee,
+        FINALITY_THRESHOLD[transferSpeed],
+      ],
+      chainId: sourceChainId,
+    });
+  }, [
+    sourceChain.tokenMessenger,
+    sourceChain.usdc,
+    transferSpeed,
+    feeEstimate,
+    writeContract,
+    amountRaw,
+    destChain.domain,
+    recipient,
+    sourceChainId,
+  ]);
 
   const startTransfer = useCallback(async () => {
     if (!address) return;
@@ -342,24 +376,14 @@ function CctpInner() {
       return;
     }
     setStep('burn');
-    writeContract({
-      address: sourceChain.tokenMessenger,
-      abi: TOKEN_MESSENGER_ABI,
-      functionName: 'depositForBurn',
-      args: [
-        amountRaw,
-        destChain.domain,
-        addressToBytes32(recipient as Address),
-        sourceChain.usdc,
-      ],
-      chainId: sourceChainId,
-    });
+    fireBurn();
     persist({
       sourceChainId,
       destChainId,
       recipient: recipient as Address,
       amountRaw: amountRaw.toString(),
       step: 'burn',
+      transferSpeed,
     });
   }, [
     address,
@@ -372,42 +396,33 @@ function CctpInner() {
     ensureChain,
     writeContract,
     sourceChain,
-    destChain,
     recipient,
     chainsSupported,
+    fireBurn,
+    transferSpeed,
   ]);
 
   const doBurn = useCallback(async () => {
     if (!sourceChain.tokenMessenger || !sourceChain.usdc) return;
     if (!(await ensureChain(sourceChainId))) return;
-    writeContract({
-      address: sourceChain.tokenMessenger,
-      abi: TOKEN_MESSENGER_ABI,
-      functionName: 'depositForBurn',
-      args: [
-        amountRaw,
-        destChain.domain,
-        addressToBytes32(recipient as Address),
-        sourceChain.usdc,
-      ],
-      chainId: sourceChainId,
-    });
+    fireBurn();
     persist({
       sourceChainId,
       destChainId,
       recipient: recipient as Address,
       amountRaw: amountRaw.toString(),
       step: 'burn',
+      transferSpeed,
     });
   }, [
     ensureChain,
     sourceChainId,
     destChainId,
-    writeContract,
     sourceChain,
-    destChain,
     amountRaw,
     recipient,
+    fireBurn,
+    transferSpeed,
   ]);
 
   const doClaim = useCallback(async () => {
@@ -416,55 +431,44 @@ function CctpInner() {
     if (!(await ensureChain(destChainId))) return;
     writeContract({
       address: destChain.messageTransmitter,
-      abi: MESSAGE_TRANSMITTER_ABI,
+      abi: MESSAGE_TRANSMITTER_V2_ABI,
       functionName: 'receiveMessage',
       args: [message, attestation],
       chainId: destChainId,
     });
-  }, [message, attestation, ensureChain, destChainId, destChain, writeContract]);
+  }, [message, attestation, ensureChain, destChainId, destChain.messageTransmitter, writeContract]);
 
-  // Manually re-extract message from receipt (e.g. if a user landed on this page after burn and needs to resume)
   const [fetchingReceipt, setFetchingReceipt] = useState(false);
   const recoverFromBurnTx = useCallback(async () => {
-    if (!burnTxHash || !sourcePublicClient) return;
-    if (!sourceChain.messageTransmitter) return;
+    if (!burnTxHash) return;
     setFetchingReceipt(true);
     try {
-      const receipt = await sourcePublicClient.getTransactionReceipt({ hash: burnTxHash });
-      const extracted = extractMessageFromReceipt(receipt, sourceChain.messageTransmitter);
-      if (extracted) {
-        setMessage(extracted.message);
-        setMessageHash(extracted.messageHash);
-        setStep('attest');
-        persist({
-          sourceChainId,
-          destChainId,
-          recipient: recipient as Address,
-          amountRaw: amountRaw.toString(),
-          burnTxHash,
-          message: extracted.message,
-          messageHash: extracted.messageHash,
-          step: 'attest',
-        });
-      }
+      setStep('attest');
+      persist({
+        sourceChainId,
+        destChainId,
+        recipient: recipient as Address,
+        amountRaw: amountRaw.toString(),
+        burnTxHash,
+        step: 'attest',
+        transferSpeed,
+      });
     } finally {
       setFetchingReceipt(false);
     }
   }, [
     burnTxHash,
-    sourcePublicClient,
-    sourceChain.messageTransmitter,
     sourceChainId,
     destChainId,
     recipient,
     amountRaw,
+    transferSpeed,
   ]);
 
   const resetAll = useCallback(() => {
     setStep('form');
     setBurnTxHash(undefined);
     setMessage(undefined);
-    setMessageHash(undefined);
     setAttestation(undefined);
     setClaimTxHash(undefined);
     resetWrite();
@@ -476,7 +480,6 @@ function CctpInner() {
     setDestChainId(sourceChainId);
   }, [sourceChainId, destChainId]);
 
-  // ------------- Render -------------
   if (!isConnected) {
     return (
       <div className="space-y-4">
@@ -538,6 +541,47 @@ function CctpInner() {
               onChange={setDestChainId}
               exclude={sourceChainId}
             />
+          </div>
+
+          {/* Transfer speed selector */}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground">Speed:</span>
+              <div className="inline-flex rounded-md border border-input bg-muted/40">
+                <button
+                  type="button"
+                  onClick={() => step === 'form' && setTransferSpeed('fast')}
+                  disabled={step !== 'form'}
+                  className={`px-3 py-1 text-xs font-medium transition rounded-l-md ${
+                    transferSpeed === 'fast'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Fast (~seconds)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => step === 'form' && setTransferSpeed('standard')}
+                  disabled={step !== 'form'}
+                  className={`px-3 py-1 text-xs font-medium transition rounded-r-md ${
+                    transferSpeed === 'standard'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Standard (~minutes)
+                </button>
+              </div>
+            </div>
+            {feeEstimate && feeEstimate.fee > 0n && transferSpeed === 'fast' && (
+              <span className="text-xs text-muted-foreground">
+                Est. fee: {formatUnits(feeEstimate.fee, USDC_DECIMALS)} USDC
+              </span>
+            )}
+            {transferSpeed === 'standard' && (
+              <span className="text-xs text-muted-foreground">No fee (gas only)</span>
+            )}
           </div>
 
           {disabledReason && (
@@ -665,8 +709,14 @@ function CctpInner() {
               state={stateForStep('attest', step)}
               action={
                 step === 'attest' ? (
-                  messageHash ? (
-                    <Pending label="Polling Circle (~10–20 min)" />
+                  activeBurnTxHash ? (
+                    <Pending
+                      label={
+                        transferSpeed === 'fast'
+                          ? 'Polling Circle (~5–20 sec)'
+                          : 'Polling Circle (~1–15 min)'
+                      }
+                    />
                   ) : burnTxHash ? (
                     <Button
                       size="sm"
@@ -676,11 +726,11 @@ function CctpInner() {
                     >
                       {fetchingReceipt ? (
                         <span className="flex items-center gap-2">
-                          <Loader2 className="h-3 w-3 animate-spin" /> Reading receipt
+                          <Loader2 className="h-3 w-3 animate-spin" /> Recovering…
                         </span>
                       ) : (
                         <span className="flex items-center gap-2">
-                          <RefreshCcw className="h-3 w-3" /> Retry receipt read
+                          <RefreshCcw className="h-3 w-3" /> Retry
                         </span>
                       )}
                     </Button>
@@ -732,42 +782,57 @@ function CctpInner() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">About CCTP</CardTitle>
+          <CardTitle className="text-base">About CCTP V2</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-xs text-muted-foreground">
           <p>
             CCTP is Circle&apos;s official cross-chain USDC protocol. USDC is burned on the source
             chain and an equal amount of native USDC is minted on the destination chain — no bridge
-            wrapping, no external liquidity, no bridge fees. You only pay source + destination gas.
+            wrapping, no external liquidity.
           </p>
+
+          <div>
+            <p className="mb-1 font-medium text-foreground">CCTP V2 Features</p>
+            <ul className="list-disc space-y-1 pl-5">
+              <li>
+                Uses <code className="rounded bg-muted px-1">TokenMessengerV2</code> +{' '}
+                <code className="rounded bg-muted px-1">MessageTransmitterV2</code> contracts
+                (same CREATE2 address on every EVM chain).
+              </li>
+              <li>
+                <strong>Fast Transfer</strong> — attestation in ~seconds with a variable fee.
+              </li>
+              <li>
+                <strong>Standard Transfer</strong> — attestation in ~minutes, gas only (no fee).
+              </li>
+              <li>
+                Single API call to fetch message + attestation using the transaction hash.
+              </li>
+            </ul>
+          </div>
 
           <div>
             <p className="mb-1 font-medium text-foreground">Transfer steps</p>
             <ol className="list-decimal space-y-1 pl-5">
               <li>
-                <strong>Approve.</strong> One-time ERC-20 approval of USDC on the source chain so
-                the CCTP <code className="rounded bg-muted px-1">TokenMessenger</code> can spend
-                the amount you&apos;re transferring. Skipped automatically if your allowance is
-                already large enough.
+                <strong>Approve.</strong> ERC-20 approval of USDC so TokenMessengerV2 can
+                burn the transfer amount. Skipped if allowance is large enough.
               </li>
               <li>
                 <strong>Burn.</strong> Call{' '}
-                <code className="rounded bg-muted px-1">depositForBurn</code> on the source
-                TokenMessenger. USDC is burned on the source chain and a{' '}
-                <code className="rounded bg-muted px-1">MessageSent</code> event is emitted with
-                the CCTP message describing the transfer.
+                <code className="rounded bg-muted px-1">depositForBurn</code> on
+                TokenMessengerV2. USDC is burned on the source chain.
               </li>
               <li>
-                <strong>Circle attestation.</strong> Circle watches for the burn, waits for the
-                source chain to finalize, and signs an attestation over the message hash.
-                Typically <strong>10–20 minutes</strong> for standard transfers. This app polls
-                Circle&apos;s Iris API every 10 seconds while you wait.
+                <strong>Circle attestation.</strong> Circle signs the transfer.
+                {transferSpeed === 'fast'
+                  ? ' Fast Transfer: ~5–20 seconds.'
+                  : ' Standard Transfer: ~1–15 minutes.'}
               </li>
               <li>
                 <strong>Claim (mint).</strong> Call{' '}
-                <code className="rounded bg-muted px-1">receiveMessage(message, attestation)</code>{' '}
-                on the destination MessageTransmitter. Circle&apos;s contracts verify the
-                signature and mint native USDC to the recipient address.
+                <code className="rounded bg-muted px-1">receiveMessage</code> on
+                MessageTransmitterV2. Native USDC is minted to the recipient.
               </li>
             </ol>
             <p className="mt-2">
@@ -779,9 +844,8 @@ function CctpInner() {
           <div>
             <p className="mb-1 font-medium text-foreground">Supported networks</p>
             <p>
-              Fully wired up (V1 burn-and-mint): Ethereum, Base, Arbitrum, Optimism, Polygon,
-              Avalanche. Listed for reference but not yet usable here: HyperEVM (CCTP V2 only) and
-              Solana (non-EVM — requires a Solana wallet). See{' '}
+              Ethereum, Base, Arbitrum, Optimism, Polygon, Avalanche, HyperEVM.
+              Not yet supported: Solana (non-EVM). See{' '}
               <a
                 href="https://developers.circle.com/cctp/concepts/supported-chains-and-domains"
                 target="_blank"
@@ -794,14 +858,16 @@ function CctpInner() {
             </p>
           </div>
 
-          <a
-            href="https://developers.circle.com/stablecoins/docs/cctp-getting-started"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-primary hover:underline"
-          >
-            Circle CCTP docs <ExternalLink className="h-3 w-3" />
-          </a>
+          <div className="flex gap-3">
+            <a
+              href="https://developers.circle.com/cctp/references/contract-interfaces"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              CCTP V2 docs <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -902,23 +968,21 @@ function ChainSelect({
           value={value}
           onChange={(e) => onChange(Number(e.target.value))}
         >
-          {CCTP_CHAINS.map((c) => (
-            <option key={c.chainId} value={c.chainId} disabled={c.chainId === exclude}>
-              {c.name}
-              {isChainDisabled(c) ? ' (not yet supported)' : ''}
-            </option>
-          ))}
+          {CCTP_CHAINS.map((c) => {
+            const disabled = c.chainId === exclude || isChainDisabled(c);
+            return (
+              <option key={c.chainId} value={c.chainId} disabled={disabled}>
+                {c.name}
+                {isChainDisabled(c) ? ' (not supported)' : ''}
+              </option>
+            );
+          })}
         </select>
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
         <Badge variant="secondary" className="font-mono text-[10px]">
           Domain {selected?.domain}
         </Badge>
-        {selected && (
-          <Badge variant="outline" className="font-mono text-[10px]">
-            CCTP {selected.cctpVersion.toUpperCase()}
-          </Badge>
-        )}
         {selectedDisabled && (
           <Badge
             variant="outline"

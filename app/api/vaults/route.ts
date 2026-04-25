@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getVaultAddressesForBusinessViews } from '@/lib/config/vaults';
+import { getVaultAddressesForBusinessViews, getAllVaultAddresses } from '@/lib/config/vaults';
 import { BASE_CHAIN_ID, BPS_PER_ONE, getScanUrlForChain, GRAPHQL_FIRST_LIMIT } from '@/lib/constants';
 import { handleApiError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
@@ -31,8 +31,11 @@ export async function GET(request: Request) {
   }
 
   try {
-    // Business-facing vault list only (curator / test vaults stay out of overview)
-    const addresses = getVaultAddressesForBusinessViews().map((v) => getAddress(v.address));
+    // Check if the caller wants all vaults (including test) for sidebar display
+    const url = new URL(request.url);
+    const includeAll = url.searchParams.get('includeAll') === 'true';
+    const vaultConfigs = includeAll ? getAllVaultAddresses() : getVaultAddressesForBusinessViews();
+    const addresses = vaultConfigs.map((v) => getAddress(v.address));
     const configuredAddressSet = new Set(addresses.map((a) => a.toLowerCase()));
 
     // Fetch monthly statement by vault in parallel for revenue data
@@ -193,7 +196,7 @@ export async function GET(request: Request) {
     }
 
     const addressToChainId = Object.fromEntries(
-      getVaultAddressesForBusinessViews().map((v) => [v.address.toLowerCase(), v.chainId])
+      vaultConfigs.map((v) => [v.address.toLowerCase(), v.chainId])
     );
 
     const getChainId = (addr: string) =>

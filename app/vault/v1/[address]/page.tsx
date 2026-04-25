@@ -21,6 +21,7 @@ import { VaultCapsV1 } from '@/components/morpho/VaultCapsV1';
 import { VaultQueuesV1 } from '@/components/morpho/VaultQueuesV1';
 import { VaultHolders } from '@/components/morpho/VaultHolders';
 import { VaultTransactions } from '@/components/morpho/VaultTransactions';
+import { AllocationHistory } from '@/components/morpho/AllocationHistory';
 
 export default function VaultDetailPage() {
   const params = useParams();
@@ -197,6 +198,12 @@ export default function VaultDetailPage() {
 
           <TabsContent value="allocation" className="space-y-4">
             <AllocationV1 vaultAddress={vaultAddress} />
+            <AllocationHistory
+              vaultAddress={vault.address}
+              chainId={vault.chainId}
+              assetDecimals={vault.assetDecimals}
+              assetSymbol={vault.asset}
+            />
           </TabsContent>
 
           <TabsContent value="caps" className="space-y-4">

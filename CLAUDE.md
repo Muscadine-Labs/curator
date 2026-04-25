@@ -387,125 +387,80 @@ npm run build
 ## 13. CCTP (Circle Cross-Chain Transfer) Page
 
 `app/curator/cctp/page.tsx` provides a step-by-step USDC bridge using Circle's
-**CCTP V1**. No third-party bridge, no extra fees — users pay only source and
-destination chain gas. Circle's attestation service is free.
+**CCTP V2**. No third-party bridge, no wrapping. Supports Fast Transfer
+(~seconds) and Standard Transfer (~minutes).
 
-### 13.1 Supported chains
+### 13.1 Architecture
 
-`lib/cctp/constants.ts :: CCTP_CHAINS` lists every chain that appears in
-Circle's registry, but tags which ones are actually wired up end-to-end in
-this app.
+| Aspect | CCTP V2 |
+|---|---|
+| Contracts | `TokenMessengerV2` + `MessageTransmitterV2` (same CREATE2 address on all EVM chains) |
+| `depositForBurn` params | 7: `amount, destinationDomain, mintRecipient, burnToken, destinationCaller, maxFee, minFinalityThreshold` |
+| Attestation | `GET /v2/messages/{sourceDomainId}?transactionHash={hash}` — returns message + attestation in one call |
+| Transfer speed | Fast (`minFinalityThreshold=1000`, ~seconds) or Standard (`2000`, ~minutes) |
+| Fees | Standard: gas only. Fast: variable fee via `/v2/burn/USDC/fees/{src}/{dst}` |
 
-Each entry is typed:
+### 13.2 Supported chains
 
-```ts
-interface CctpChain {
-  chainId: number;          // EVM chainId, or 0 for non-EVM (Solana)
-  name: string;
-  scanUrl: string;
-  domain: number;           // Circle CCTP domain id
-  isEvm: boolean;
-  cctpVersion: 'v1' | 'v2' | 'v1+v2';
-  disabledReason?: string;  // when set, UI renders the chain read-only
-  usdc?: Address;
-  tokenMessenger?: Address;
-  messageTransmitter?: Address;
-}
-```
+`lib/cctp/constants.ts :: CCTP_CHAINS` lists every chain. All EVM chains use
+the same V2 CREATE2 contract addresses.
 
-Fully wired up (CCTP V1 burn-and-mint, enabled for transfers):
+Enabled:
+- Ethereum (0), Avalanche (1), Optimism (2), Arbitrum (3), Base (6), Polygon (7), HyperEVM (19)
 
-- Ethereum (domain 0), Avalanche (1), Optimism (2), Arbitrum (3), Base (6),
-  Polygon (7).
+Disabled:
+- Solana (5) — non-EVM, requires Solana wallet
 
-Listed for reference only (rendered with a warning badge + `disabledReason`):
+V2 contracts (same on every chain):
+- `TokenMessengerV2`: `0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d`
+- `MessageTransmitterV2`: `0x81D40F21F12A8F0E3252Bccb954D722d4c464B64`
 
-- **HyperEVM** (domain 19) — CCTP **V2-only**. The V2 `depositForBurn` shape
-  and fee-quote flow aren't implemented yet. Addresses are recorded so the
-  chain selector surfaces the correct metadata, but the burn/claim buttons
-  short-circuit.
-- **Solana** (domain 5) — non-EVM. Requires a Solana wallet adapter +
-  program-level tooling; the EVM-only flow here can't produce or verify a
-  Solana transfer.
-
-The UI (`app/curator/cctp/page.tsx`) uses `isChainDisabled()` to guard every
-`useReadContract`, `useWriteContract`, and state transition, and renders an
-`AlertTriangle` banner explaining which side is disabled. `ChainSelect` shows
-`(not yet supported)` next to disabled options and labels each chain with its
-CCTP version.
-
-See the full Circle registry at
-<https://developers.circle.com/cctp/concepts/supported-chains-and-domains>.
-When Circle adds more chains, update `CCTP_CHAINS` first; only flip
-`disabledReason` off once the contract addresses are verified and (for EVM) the
-chain is also added to `lib/wallet/config.ts`.
-
-To keep wagmi wallet sessions working on the enabled chains, `lib/wallet/config.ts`
-registers `base, mainnet, optimism, polygon, arbitrum, avalanche` as
-wagmi-supported chains.
-
-### 13.2 Flow
+### 13.3 Flow
 
 ```
-[User]            [Source chain]                 [Circle]           [Dest chain]
-  │                     │                            │                    │
-  │  1. approve USDC ──▶ TokenMessenger              │                    │
-  │                     │                            │                    │
-  │  2. depositForBurn ─▶ TokenMessenger             │                    │
-  │                     │ emits MessageSent(message) │                    │
-  │                     │                            │                    │
-  │  3. keccak256(message) = messageHash             │                    │
-  │     GET /attestations/{messageHash} ────────────▶                    │
-  │                     │                 poll q~10s │                    │
-  │                     │           returns { status: complete,          │
-  │                     │                      attestation }              │
-  │                     │                            │                    │
-  │  4. receiveMessage(message, attestation) ─────────────────────────▶ MessageTransmitter
-  │                                                                      │  mints native USDC
-  │                                                                      ▼  to recipient
+[User]            [Source chain]                   [Circle Iris API]      [Dest chain]
+  │                     │                                │                    │
+  │  1. approve USDC ──▶ TokenMessengerV2               │                    │
+  │                     │                                │                    │
+  │  2. depositForBurn ─▶ TokenMessengerV2              │                    │
+  │     (7 params: + destinationCaller, maxFee,         │                    │
+  │      minFinalityThreshold)                          │                    │
+  │                     │                                │                    │
+  │  3. GET /v2/messages/{domain}?txHash={hash} ────────▶                   │
+  │                     │            poll q~3s (fast)    │                    │
+  │                     │            or q~10s (standard) │                    │
+  │                     │     returns { message, attestation }               │
+  │                     │                                │                    │
+  │  4. receiveMessage(message, attestation) ─────────────────────────────▶ MessageTransmitterV2
+  │                                                                          │  mints USDC
 ```
 
-The page implements this as a 4-step state machine: `approve → burn → attest →
-claim`, with each step owning its own button and tx hash. If the user refreshes
-or closes the tab mid-flow, the in-progress transfer is written to
-`localStorage` under `cctp:pendingTransfer` and rehydrated on mount, so they
-can resume without losing their message.
+### 13.4 UI features
 
-### 13.3 Key utilities
+- **Speed selector** — Fast (~seconds, may incur a fee) or Standard (~minutes,
+  gas only).
+- **Fee display** — queries the fee endpoint and shows the estimated fee for
+  Fast Transfer.
+- **Chain selector** — disabled chains show "(not supported)".
+- **Persisted state** — `localStorage` saves speed + transfer state so it
+  survives page refresh.
 
-- `addressToBytes32(addr)` — converts a 20-byte EVM address to the bytes32
-  `mintRecipient` required by `depositForBurn`.
-- `extractMessageFromReceipt(receipt, messageTransmitter)` — parses the
-  `MessageSent(bytes message)` log from the burn tx and returns both the raw
-  message and its `keccak256` (the Circle lookup key).
-- `fetchAttestation(messageHash)` — polls `iris-api.circle.com/attestations/{hash}`;
-  normalizes 404 into `pending_confirmations`.
+### 13.5 Key utilities
 
-### 13.4 "About CCTP" copy
+- `addressToBytes32(addr)` — 20-byte address → bytes32 `mintRecipient`.
+- `fetchAttestationV2(sourceDomain, txHash)` — single-call message +
+  attestation via `/v2/messages/{domain}?transactionHash={hash}`.
+- `fetchTransferFee(srcDomain, dstDomain)` — fee estimate.
 
-The page footer card explains the four on-chain steps (approve → burn → Circle
-attestation → claim) and explicitly calls out which chains in the selector are
-reference-only. When you change the transfer state machine, keep that section
-in sync with the actual step implementations.
+### 13.6 Notes when extending
 
-### 13.5 Notes when extending
-
-- If Circle adds a new domain, add it to `CCTP_CHAINS` **and** to
-  `lib/wallet/config.ts` (chains + transports), or the wagmi write/read hooks
-  won't find the chain. (CCTP V2 domains have a different set — keep V1 and
-  V2 separate if you introduce V2.)
-- To enable HyperEVM: implement the CCTP V2 `depositForBurn` variant (fee
-  quote, finality threshold, hook data), register HyperEVM in `wagmi` config,
-  then remove its `disabledReason`.
+- If Circle adds a new chain, add it to `CCTP_CHAINS` with
+  `tokenMessenger` and `messageTransmitter` addresses **and** to
+  `lib/wallet/config.ts` (chains + transports).
+- `depositForBurnWithHook` (V2 hooks feature) isn't wired up yet. The current
+  implementation passes empty `destinationCaller` and no hook data.
 - To enable Solana: bring in `@solana/web3.js` + Circle's Solana CCTP program
-  client, wire a separate wallet adapter, and either build a second transfer
-  flow or abstract the current one over a chain kind.
-- `depositForBurnWithCaller` (CCTP V1 "handler" variant) and CCTP V2's
-  `depositForBurn` (hook-based) aren't supported here yet. The current
-  implementation intentionally uses plain V1 `depositForBurn` for maximum
-  chain coverage.
-- Attestation time is typically 10–20 minutes on mainnet (L1 finality). The
-  UI communicates this and the tx is safe to leave in the background.
+  client, wire a Solana wallet adapter.
 
 ---
 
