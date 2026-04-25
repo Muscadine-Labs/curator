@@ -1,49 +1,34 @@
 /**
  * @jest-environment node
  *
- * Tests for `lib/cctp/constants.ts`.
+ * Tests for `lib/cctp/constants.ts` (V2 only).
  *
  * Goals:
  * - Domain ids match Circle's official registry.
- * - Every "enabled" chain has a complete contract triple (USDC,
- *   TokenMessenger, MessageTransmitter) so the transfer flow can run.
+ * - Every "enabled" chain has V2 contracts (TokenMessenger, MessageTransmitter, USDC).
  * - Disabled chains expose a `disabledReason` that the UI surfaces.
- * - Lookup helpers (`getCctpChainById`, `getCctpChainByDomain`,
- *   `isChainDisabled`) behave as expected.
+ * - Lookup helpers behave as expected.
  */
 
 import { type Address } from 'viem';
 
-/**
- * Format-only address validity (not EIP-55 checksum). Some of the addresses
- * in the registry came from Circle docs in mixed case that doesn't satisfy
- * viem's strict checksum, but they're still valid 20-byte hex addresses
- * that the contracts accept.
- */
 function isHexAddress(value: string | undefined): value is Address {
   return typeof value === 'string' && /^0x[0-9a-fA-F]{40}$/.test(value);
 }
+
 import {
   CCTP_CHAINS,
   USDC_DECIMALS,
-  CIRCLE_ATTESTATION_API,
   CIRCLE_API_V2_BASE,
   ERC20_ABI,
   FINALITY_THRESHOLD,
-  TOKEN_MESSENGER_ABI,
   TOKEN_MESSENGER_V2_ABI,
-  MESSAGE_TRANSMITTER_ABI,
   MESSAGE_TRANSMITTER_V2_ABI,
   getCctpChainById,
   getCctpChainByDomain,
   isChainDisabled,
-  isV2Only,
-  chainSupportsVersion,
-  getTokenMessenger,
-  getMessageTransmitter,
 } from '../constants';
 
-// Source of truth: https://developers.circle.com/cctp/concepts/supported-chains-and-domains
 const EXPECTED_DOMAINS: Record<string, number> = {
   Ethereum: 0,
   Avalanche: 1,
@@ -82,22 +67,16 @@ describe('CCTP_CHAINS registry', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  test('every enabled EVM chain has USDC + at least one version of TokenMessenger + MessageTransmitter', () => {
+  test('every enabled EVM chain has USDC + TokenMessenger + MessageTransmitter', () => {
     const enabledEvm = CCTP_CHAINS.filter((c) => c.isEvm && !isChainDisabled(c));
     expect(enabledEvm.length).toBeGreaterThan(0);
     for (const c of enabledEvm) {
       expect(c.usdc).toBeDefined();
       expect(isHexAddress(c.usdc)).toBe(true);
-
-      // Must have at least one version's contracts
-      const hasV1 = c.tokenMessenger && c.messageTransmitter;
-      const hasV2 = c.tokenMessengerV2 && c.messageTransmitterV2;
-      expect(hasV1 || hasV2).toBeTruthy();
-
-      if (c.tokenMessenger) expect(isHexAddress(c.tokenMessenger)).toBe(true);
-      if (c.messageTransmitter) expect(isHexAddress(c.messageTransmitter)).toBe(true);
-      if (c.tokenMessengerV2) expect(isHexAddress(c.tokenMessengerV2)).toBe(true);
-      if (c.messageTransmitterV2) expect(isHexAddress(c.messageTransmitterV2)).toBe(true);
+      expect(c.tokenMessenger).toBeDefined();
+      expect(isHexAddress(c.tokenMessenger)).toBe(true);
+      expect(c.messageTransmitter).toBeDefined();
+      expect(isHexAddress(c.messageTransmitter)).toBe(true);
     }
   });
 
@@ -118,38 +97,24 @@ describe('CCTP_CHAINS registry', () => {
     expect(evmCount).toBe(CCTP_CHAINS.length - 1);
   });
 
-  test('HyperEVM is V2-only and not disabled', () => {
+  test('HyperEVM is enabled and has V2 contracts', () => {
     const hyper = CCTP_CHAINS.find((c) => c.name === 'HyperEVM');
-    expect(hyper?.cctpVersion).toBe('v2');
-    expect(isV2Only(hyper!)).toBe(true);
+    expect(hyper).toBeDefined();
     expect(isChainDisabled(hyper!)).toBe(false);
-  });
-
-  test('every EVM chain with V2 support has V2 contract addresses', () => {
-    const v2Chains = CCTP_CHAINS.filter((c) => c.isEvm && chainSupportsVersion(c, 'v2'));
-    expect(v2Chains.length).toBeGreaterThan(0);
-    for (const c of v2Chains) {
-      expect(c.tokenMessengerV2).toBeDefined();
-      expect(c.messageTransmitterV2).toBeDefined();
-      expect(isHexAddress(c.tokenMessengerV2)).toBe(true);
-      expect(isHexAddress(c.messageTransmitterV2)).toBe(true);
-    }
+    expect(hyper!.tokenMessenger).toBeDefined();
+    expect(hyper!.messageTransmitter).toBeDefined();
   });
 
   test('V2 contracts have the same CREATE2 address on all EVM chains', () => {
-    const v2Chains = CCTP_CHAINS.filter((c) => c.isEvm && c.tokenMessengerV2);
-    const messengerAddrs = new Set(v2Chains.map((c) => c.tokenMessengerV2?.toLowerCase()));
-    const transmitterAddrs = new Set(v2Chains.map((c) => c.messageTransmitterV2?.toLowerCase()));
+    const evmChains = CCTP_CHAINS.filter((c) => c.isEvm && c.tokenMessenger);
+    const messengerAddrs = new Set(evmChains.map((c) => c.tokenMessenger?.toLowerCase()));
+    const transmitterAddrs = new Set(evmChains.map((c) => c.messageTransmitter?.toLowerCase()));
     expect(messengerAddrs.size).toBe(1);
     expect(transmitterAddrs.size).toBe(1);
   });
 
   test('USDC_DECIMALS is the standard 6', () => {
     expect(USDC_DECIMALS).toBe(6);
-  });
-
-  test('CIRCLE_ATTESTATION_API points at iris-api', () => {
-    expect(CIRCLE_ATTESTATION_API.startsWith('https://iris-api.circle.com')).toBe(true);
   });
 
   test('CIRCLE_API_V2_BASE points at iris-api', () => {
@@ -161,16 +126,9 @@ describe('CCTP_CHAINS registry', () => {
     expect(FINALITY_THRESHOLD.standard).toBe(2000);
   });
 
-  test('V1 ABI exports include the functions/events the app calls', () => {
+  test('ERC20 ABI exports include the functions the app calls', () => {
     const erc20Names = ERC20_ABI.map((e) => e.name);
     expect(erc20Names).toEqual(expect.arrayContaining(['allowance', 'approve', 'balanceOf', 'decimals']));
-
-    const messengerNames = TOKEN_MESSENGER_ABI.map((e) => e.name);
-    expect(messengerNames).toContain('depositForBurn');
-
-    const mtNames = MESSAGE_TRANSMITTER_ABI.map((e) => e.name);
-    expect(mtNames).toContain('receiveMessage');
-    expect(mtNames).toContain('MessageSent');
   });
 
   test('V2 ABI exports include the V2 depositForBurn with 7 params', () => {
@@ -212,36 +170,5 @@ describe('lookup helpers', () => {
     expect(isChainDisabled(enabled)).toBe(false);
     const solana = CCTP_CHAINS.find((c) => c.name === 'Solana')!;
     expect(isChainDisabled(solana)).toBe(true);
-  });
-
-  test('isV2Only returns true only for HyperEVM', () => {
-    expect(isV2Only(getCctpChainById(999)!)).toBe(true);
-    expect(isV2Only(getCctpChainById(8453)!)).toBe(false);
-  });
-
-  test('chainSupportsVersion correctly identifies version support', () => {
-    const base = getCctpChainById(8453)!;
-    expect(chainSupportsVersion(base, 'v1')).toBe(true);
-    expect(chainSupportsVersion(base, 'v2')).toBe(true);
-
-    const hyper = getCctpChainById(999)!;
-    expect(chainSupportsVersion(hyper, 'v1')).toBe(false);
-    expect(chainSupportsVersion(hyper, 'v2')).toBe(true);
-  });
-
-  test('getTokenMessenger returns correct address for each version', () => {
-    const base = getCctpChainById(8453)!;
-    expect(getTokenMessenger(base, 'v1')).toBe(base.tokenMessenger);
-    expect(getTokenMessenger(base, 'v2')).toBe(base.tokenMessengerV2);
-
-    const hyper = getCctpChainById(999)!;
-    expect(getTokenMessenger(hyper, 'v1')).toBeUndefined();
-    expect(getTokenMessenger(hyper, 'v2')).toBeDefined();
-  });
-
-  test('getMessageTransmitter returns correct address for each version', () => {
-    const eth = getCctpChainById(1)!;
-    expect(getMessageTransmitter(eth, 'v1')).toBe(eth.messageTransmitter);
-    expect(getMessageTransmitter(eth, 'v2')).toBe(eth.messageTransmitterV2);
   });
 });

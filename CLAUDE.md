@@ -387,48 +387,36 @@ npm run build
 ## 13. CCTP (Circle Cross-Chain Transfer) Page
 
 `app/curator/cctp/page.tsx` provides a step-by-step USDC bridge using Circle's
-**CCTP V2** (default) with a toggle to fall back to **CCTP V1 (Legacy)**.
-No third-party bridge, no wrapping. V2 supports Fast Transfer (~seconds)
-and Standard Transfer (~minutes). V1 provides Standard only.
+**CCTP V2**. No third-party bridge, no wrapping. Supports Fast Transfer
+(~seconds) and Standard Transfer (~minutes).
 
-### 13.1 V1 / V2 architecture
+### 13.1 Architecture
 
-| Aspect | V1 (Legacy) | V2 (Default) |
-|---|---|---|
-| Contracts | `TokenMessenger` + `MessageTransmitter` (different per chain) | `TokenMessengerV2` + `MessageTransmitterV2` (same CREATE2 address on all EVM chains) |
-| `depositForBurn` params | 4: `amount, destinationDomain, mintRecipient, burnToken` | 7: `+ destinationCaller, maxFee, minFinalityThreshold` |
-| Attestation | Extract `MessageSent` from receipt → `keccak256(message)` → `GET /attestations/{hash}` | `GET /v2/messages/{sourceDomainId}?transactionHash={hash}` — returns message + attestation in one call |
-| Transfer speed | Standard only (~10–20 min) | Fast (`minFinalityThreshold=1000`, ~seconds) or Standard (`2000`, ~minutes) |
-| Fees | Gas only | Standard: gas only. Fast: variable fee via `/v2/burn/USDC/fees/{src}/{dst}` |
-| Deprecation | Phase-out begins July 2026 | Canonical version going forward |
+| Aspect | CCTP V2 |
+|---|---|
+| Contracts | `TokenMessengerV2` + `MessageTransmitterV2` (same CREATE2 address on all EVM chains) |
+| `depositForBurn` params | 7: `amount, destinationDomain, mintRecipient, burnToken, destinationCaller, maxFee, minFinalityThreshold` |
+| Attestation | `GET /v2/messages/{sourceDomainId}?transactionHash={hash}` — returns message + attestation in one call |
+| Transfer speed | Fast (`minFinalityThreshold=1000`, ~seconds) or Standard (`2000`, ~minutes) |
+| Fees | Standard: gas only. Fast: variable fee via `/v2/burn/USDC/fees/{src}/{dst}` |
 
 ### 13.2 Supported chains
 
-`lib/cctp/constants.ts :: CCTP_CHAINS` lists every chain with its version
-support. Each entry now carries both V1 and V2 contract addresses.
+`lib/cctp/constants.ts :: CCTP_CHAINS` lists every chain. All EVM chains use
+the same V2 CREATE2 contract addresses.
 
-V1 + V2 (both modes available):
-- Ethereum (0), Avalanche (1), Optimism (2), Arbitrum (3), Base (6), Polygon (7)
-
-V2-only (auto-switches to V2 when selected):
-- HyperEVM (19) — fully supported in V2 mode
+Enabled:
+- Ethereum (0), Avalanche (1), Optimism (2), Arbitrum (3), Base (6), Polygon (7), HyperEVM (19)
 
 Disabled:
 - Solana (5) — non-EVM, requires Solana wallet
 
-V2 contracts use the same CREATE2 address on every chain:
+V2 contracts (same on every chain):
 - `TokenMessengerV2`: `0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d`
 - `MessageTransmitterV2`: `0x81D40F21F12A8F0E3252Bccb954D722d4c464B64`
 
-Helper functions:
-- `getTokenMessenger(chain, version)` / `getMessageTransmitter(chain, version)`
-  — return the correct address for the selected protocol version
-- `chainSupportsVersion(chain, version)` — checks if a chain has that version
-- `isV2Only(chain)` — true when V1 contracts are not deployed
-
 ### 13.3 Flow
 
-V2 flow (default):
 ```
 [User]            [Source chain]                   [Circle Iris API]      [Dest chain]
   │                     │                                │                    │
@@ -447,47 +435,32 @@ V2 flow (default):
   │                                                                          │  mints USDC
 ```
 
-V1 flow (legacy toggle):
-```
-  │  2. depositForBurn ─▶ TokenMessenger (4 params)
-  │  3. extract MessageSent → keccak256 → GET /attestations/{hash}
-  │  4. receiveMessage ──▶ MessageTransmitter
-```
-
 ### 13.4 UI features
 
-- **V1/V2 toggle** — top of the form card. V2 is default. V1 shows a
-  deprecation warning. Locked during an in-progress transfer.
-- **Speed selector** (V2 only) — Fast (~seconds, may incur a fee) or
-  Standard (~minutes, gas only).
-- **Fee display** (V2 only) — queries the fee endpoint and shows the
-  estimated fee for Fast Transfer.
-- **Version-aware chain selector** — chains that don't support the active
-  version show "(no V1)" or "(no V2)" and trigger a warning banner.
-- **Auto-V2 switch** — if either chain is V2-only, the toggle auto-switches.
-- **Persisted state** — `localStorage` saves version + speed with the
-  pending transfer so it survives page refresh.
+- **Speed selector** — Fast (~seconds, may incur a fee) or Standard (~minutes,
+  gas only).
+- **Fee display** — queries the fee endpoint and shows the estimated fee for
+  Fast Transfer.
+- **Chain selector** — disabled chains show "(not supported)".
+- **Persisted state** — `localStorage` saves speed + transfer state so it
+  survives page refresh.
 
 ### 13.5 Key utilities
 
 - `addressToBytes32(addr)` — 20-byte address → bytes32 `mintRecipient`.
-- `extractMessageFromReceipt(receipt, mt)` — V1: parses `MessageSent` log.
-- `fetchAttestation(messageHash)` — V1: polls `/attestations/{hash}`.
-- `fetchAttestationV2(sourceDomain, txHash)` — V2: single-call message +
+- `fetchAttestationV2(sourceDomain, txHash)` — single-call message +
   attestation via `/v2/messages/{domain}?transactionHash={hash}`.
-- `fetchTransferFee(srcDomain, dstDomain)` — V2: fee estimate.
+- `fetchTransferFee(srcDomain, dstDomain)` — fee estimate.
 
 ### 13.6 Notes when extending
 
-- If Circle adds a new chain, add it to `CCTP_CHAINS` with V2 addresses
-  (`tokenMessengerV2`, `messageTransmitterV2`) **and** to
+- If Circle adds a new chain, add it to `CCTP_CHAINS` with
+  `tokenMessenger` and `messageTransmitter` addresses **and** to
   `lib/wallet/config.ts` (chains + transports).
 - `depositForBurnWithHook` (V2 hooks feature) isn't wired up yet. The current
-  V2 implementation passes empty `destinationCaller` and no hook data.
+  implementation passes empty `destinationCaller` and no hook data.
 - To enable Solana: bring in `@solana/web3.js` + Circle's Solana CCTP program
   client, wire a Solana wallet adapter.
-- V1 will be fully deprecated after July 2026. Plan to remove the V1 toggle
-  and code paths after the deprecation period ends.
 
 ---
 
