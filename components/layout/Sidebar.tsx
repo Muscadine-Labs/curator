@@ -15,7 +15,7 @@ const navBase = [
   { label: 'Overview', href: '/', icon: Shield },
 ];
 
-type VaultSection = { type: 'vineyard' | 'prime' | 'v1'; label: string; vaults: VaultWithData[] };
+type VaultSection = { type: 'vineyard' | 'prime' | 'v1' | 'test'; label: string; vaults: VaultWithData[] };
 
 function getSectionsForNetwork(vaults: VaultWithData[], chainId: number): VaultSection[] {
   const byChain = vaults.filter((v) => v.chainId === chainId);
@@ -23,9 +23,11 @@ function getSectionsForNetwork(vaults: VaultWithData[], chainId: number): VaultS
   const prime = byChain.filter((v) => getVaultCategory(v.name, v.address) === 'prime');
   const vineyard = byChain.filter((v) => getVaultCategory(v.name, v.address) === 'vineyard');
   const v1 = byChain.filter((v) => getVaultCategory(v.name, v.address) === 'v1');
+  const test = byChain.filter((v) => getVaultCategory(v.name, v.address) === 'test');
   if (vineyard.length > 0) sections.push({ type: 'vineyard', label: 'V2 Vineyard Vaults', vaults: vineyard });
   if (prime.length > 0) sections.push({ type: 'prime', label: 'V2 Prime Vaults', vaults: prime });
   if (v1.length > 0) sections.push({ type: 'v1', label: 'V1 Vaults', vaults: v1 });
+  if (test.length > 0) sections.push({ type: 'test', label: 'V2 Test Vaults', vaults: test });
   return sections;
 }
 
@@ -36,7 +38,7 @@ type SidebarProps = {
 export function Sidebar({ onClose }: SidebarProps) {
   const pathname = usePathname();
   const { role } = useCuratorAuth();
-  const { data: vaults = [], isLoading } = useVaultList();
+  const { data: vaults = [], isLoading } = useVaultList({ includeAll: true });
   const [expandedNetworks, setExpandedNetworks] = useState<Set<number>>(() =>
     new Set(SIDEBAR_NETWORKS.map((n) => n.chainId))
   );
@@ -150,6 +152,7 @@ export function Sidebar({ onClose }: SidebarProps) {
                               section.type === 'v1'
                                 ? isActive(`/vault/v1/${vault.address}`)
                                 : isActive(`/vault/${useV2Route ? 'v2' : 'v1'}/${vault.address}`);
+                            const isTestVault = section.type === 'test';
 
                             return (
                               <Link
@@ -164,7 +167,9 @@ export function Sidebar({ onClose }: SidebarProps) {
                               >
                                 <span
                                   className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-                                    section.type === 'v1'
+                                    isTestVault
+                                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300'
+                                      : section.type === 'v1'
                                       ? 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
                                       : 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
                                   }`}

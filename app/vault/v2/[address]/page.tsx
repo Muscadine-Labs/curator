@@ -12,6 +12,7 @@ import { VaultRiskV2 } from '@/components/morpho/VaultRiskV2';
 import { VaultV2Roles } from '@/components/morpho/VaultV2Roles';
 import { VaultV2Adapters } from '@/components/morpho/VaultV2Adapters';
 import { VaultV2Allocations } from '@/components/morpho/VaultV2Allocations';
+import { AllocationHistory } from '@/components/morpho/AllocationHistory';
 import { VaultV2Caps } from '@/components/morpho/VaultV2Caps';
 import { VaultV2Timelocks } from '@/components/morpho/VaultV2Timelocks';
 import { VaultV2Parameters } from '@/components/morpho/VaultV2Parameters';
@@ -209,11 +210,17 @@ export default function V2VaultPage() {
           </TabsContent>
 
           {/* Allocations Tab */}
-          <TabsContent value="allocations">
+          <TabsContent value="allocations" className="space-y-6">
             <VaultV2Allocations
               vaultAddress={vault.address}
               preloadedData={governance}
               preloadedRisk={risk}
+            />
+            <AllocationHistory
+              vaultAddress={vault.address}
+              chainId={vault.chainId}
+              assetDecimals={vault.assetDecimals}
+              assetSymbol={vault.asset}
             />
           </TabsContent>
 
