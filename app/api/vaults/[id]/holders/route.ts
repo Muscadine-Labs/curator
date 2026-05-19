@@ -179,8 +179,8 @@ export async function GET(
         .filter((x): x is NonNullable<typeof x> => x !== null && Boolean(x.user?.address))
         .map((h) => ({
           address: String(h.user!.address),
-          shares: h.shares ?? null,
-          assets: h.assets ?? null,
+          shares: h.shares != null ? String(h.shares) : null,
+          assets: h.assets != null ? String(h.assets) : null,
           assetsUsd: h.assetsUsd ?? null,
         }));
     } else {

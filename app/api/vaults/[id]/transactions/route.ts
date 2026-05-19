@@ -58,10 +58,25 @@ const V1_TRANSACTIONS_QUERY = gql`
 `;
 
 const V2_TRANSACTIONS_QUERY = gql`
-  query V2VaultTransactions($first: Int!, $skip: Int!, $vaultAddress: [String!]!, $chainIds: [Int!]) {
+  query V2VaultTransactions(
+    $address: String!
+    $chainId: Int!
+    $first: Int!
+    $skip: Int!
+    $vaultAddress: [String!]!
+    $chainIds: [Int!]
+  ) {
+    vaultV2ByAddress(address: $address, chainId: $chainId) {
+      asset {
+        symbol
+        decimals
+      }
+    }
     vaultV2transactions(
       first: $first
       skip: $skip
+      orderBy: Time
+      orderDirection: Desc
       where: { vaultAddress_in: $vaultAddress, chainId_in: $chainIds }
     ) {
       items {
@@ -70,6 +85,24 @@ const V2_TRANSACTIONS_QUERY = gql`
         timestamp
         type
         shares
+        data {
+          __typename
+          ... on VaultV2DepositData {
+            assets
+            onBehalf
+            sender
+          }
+          ... on VaultV2WithdrawData {
+            assets
+            onBehalf
+            receiver
+            sender
+          }
+          ... on VaultV2TransferData {
+            from
+            to
+          }
+        }
       }
     }
   }
@@ -88,7 +121,31 @@ type V1GraphResponse = {
   } | null;
 };
 
+type V2TxData =
+  | {
+      __typename: 'VaultV2DepositData';
+      assets?: string | number | null;
+      onBehalf?: string | null;
+      sender?: string | null;
+    }
+  | {
+      __typename: 'VaultV2WithdrawData';
+      assets?: string | number | null;
+      onBehalf?: string | null;
+      receiver?: string | null;
+      sender?: string | null;
+    }
+  | {
+      __typename: 'VaultV2TransferData';
+      from?: string | null;
+      to?: string | null;
+    }
+  | null;
+
 type V2GraphResponse = {
+  vaultV2ByAddress?: {
+    asset?: { symbol?: string | null; decimals?: number | null } | null;
+  } | null;
   vaultV2transactions?: {
     items?: Array<{
       txHash?: string | null;
@@ -96,9 +153,33 @@ type V2GraphResponse = {
       timestamp?: number | string | null;
       type?: string | null;
       shares?: string | null;
+      data?: V2TxData;
     } | null> | null;
   } | null;
 };
+
+function mapV2TransactionData(data: V2TxData): { user: string | null; assets: string | null } {
+  if (!data?.__typename) return { user: null, assets: null };
+  switch (data.__typename) {
+    case 'VaultV2DepositData':
+      return {
+        user: data.onBehalf ?? data.sender ?? null,
+        assets: data.assets != null ? String(data.assets) : null,
+      };
+    case 'VaultV2WithdrawData':
+      return {
+        user: data.onBehalf ?? data.receiver ?? data.sender ?? null,
+        assets: data.assets != null ? String(data.assets) : null,
+      };
+    case 'VaultV2TransferData':
+      return {
+        user: data.to ?? data.from ?? null,
+        assets: null,
+      };
+    default:
+      return { user: null, assets: null };
+  }
+}
 
 function parseFirst(value: string | null, fallback: number, max: number): number {
   const n = value ? Number(value) : fallback;
@@ -141,27 +222,36 @@ export async function GET(
     const chainIds = [vaultConfig.chainId ?? BASE_CHAIN_ID];
 
     let transactions: VaultTransaction[] = [];
+    let assetSymbol: string | null = null;
+    let assetDecimals: number | null = null;
 
     if (isV2) {
       const data = await morphoGraphQLClient.request<V2GraphResponse>(V2_TRANSACTIONS_QUERY, {
+        address: vaultAddress,
+        chainId: chainIds[0],
         first,
         skip,
         vaultAddress: [vaultAddress.toLowerCase()],
         chainIds,
       });
+      assetSymbol = data.vaultV2ByAddress?.asset?.symbol ?? null;
+      assetDecimals = data.vaultV2ByAddress?.asset?.decimals ?? null;
       const items = data.vaultV2transactions?.items ?? [];
       transactions = items
         .filter((x): x is NonNullable<typeof x> => x !== null && Boolean(x.txHash))
-        .map((tx) => ({
-          hash: String(tx.txHash),
-          blockNumber: tx.blockNumber != null ? Number(tx.blockNumber) : null,
-          timestamp: tx.timestamp != null ? Number(tx.timestamp) : null,
-          type: tx.type ?? 'Unknown',
-          user: null,
-          shares: tx.shares ?? null,
-          assets: null,
-          assetsUsd: null,
-        }));
+        .map((tx) => {
+          const { user, assets } = mapV2TransactionData(tx.data ?? null);
+          return {
+            hash: String(tx.txHash),
+            blockNumber: tx.blockNumber != null ? Number(tx.blockNumber) : null,
+            timestamp: tx.timestamp != null ? Number(tx.timestamp) : null,
+            type: tx.type ?? 'Unknown',
+            user,
+            shares: tx.shares ?? null,
+            assets,
+            assetsUsd: null,
+          };
+        });
     } else {
       const data = await morphoGraphQLClient.request<V1GraphResponse>(V1_TRANSACTIONS_QUERY, {
         first,
@@ -187,7 +277,10 @@ export async function GET(
     const response: VaultTransactionsResponse = {
       vaultAddress,
       version: isV2 ? 'v2' : 'v1',
-      asset: { symbol: null, decimals: null },
+      asset: {
+        symbol: assetSymbol,
+        decimals: assetDecimals,
+      },
       transactions,
     };
 

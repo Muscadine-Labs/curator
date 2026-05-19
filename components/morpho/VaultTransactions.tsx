@@ -108,8 +108,8 @@ export function VaultTransactions({
     setPage(0);
   }, [filter]);
 
-  const decimals = assetDecimals ?? 18;
-  const symbol = assetSymbol ?? '';
+  const decimals = data?.asset.decimals ?? assetDecimals ?? 18;
+  const symbol = data?.asset.symbol ?? assetSymbol ?? '';
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages - 1);
