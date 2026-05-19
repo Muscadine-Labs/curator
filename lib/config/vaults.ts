@@ -6,6 +6,8 @@ export type VaultCategory = 'prime' | 'vineyard' | 'v1' | 'test';
 export interface VaultAddressConfig {
   address: string;
   chainId: number;
+  /** Morpho API schema version — required for address-only routing (holders, transactions) */
+  morphoVersion: 'v1' | 'v2';
   /** Overrides name-based UI routing when the Morpho vault name lacks "Prime" / "Vineyard" */
   listCategory?: VaultCategory;
   /** When true, hidden from overview, protocol stats, monthly statements, and GET /api/vaults (direct /vault/... still works) */
@@ -25,20 +27,27 @@ const vaultAddresses: VaultAddressConfig[] = [
   {
     address: process.env.NEXT_PUBLIC_VAULT_USDC_V2 || '0x89712980Cb434eF5aE4AB29349419eb976B0b496',
     chainId: BASE_CHAIN_ID,
+    morphoVersion: 'v2',
+    listCategory: 'prime',
   },
   {
     address: process.env.NEXT_PUBLIC_VAULT_WETH_V2 || '0xd6dcad2f7da91fbb27bda471540d9770c97a5a43',
     chainId: BASE_CHAIN_ID,
+    morphoVersion: 'v2',
+    listCategory: 'prime',
   },
   {
     address: process.env.NEXT_PUBLIC_VAULT_CBBTC_V2 || '0x99dcd0d75822ba398f13b2a8852b07c7e137ec70',
     chainId: BASE_CHAIN_ID,
+    morphoVersion: 'v2',
+    listCategory: 'prime',
   },
   {
     address:
       process.env.NEXT_PUBLIC_VAULT_CBBTC_V2_TEST ||
       '0xB15a51F46a53CF7dBB378A459A552F342bC54815',
     chainId: BASE_CHAIN_ID,
+    morphoVersion: 'v2',
     listCategory: 'test',
     excludeFromBusinessViews: true,
   },
@@ -46,14 +55,17 @@ const vaultAddresses: VaultAddressConfig[] = [
   {
     address: process.env.NEXT_PUBLIC_VAULT_USDC || '0xf7e26Fa48A568b8b0038e104DfD8ABdf0f99074F',
     chainId: BASE_CHAIN_ID,
+    morphoVersion: 'v1',
   },
   {
     address: process.env.NEXT_PUBLIC_VAULT_CBBTC || '0xAeCc8113a7bD0CFAF7000EA7A31afFD4691ff3E9',
     chainId: BASE_CHAIN_ID,
+    morphoVersion: 'v1',
   },
   {
     address: process.env.NEXT_PUBLIC_VAULT_WETH || '0x21e0d366272798da3A977FEBA699FCB91959d120',
     chainId: BASE_CHAIN_ID,
+    morphoVersion: 'v1',
   },
 ];
 
@@ -80,9 +92,11 @@ export const getVaultCategory = (
   if (vaultAddress) {
     const cfg = getVaultByAddress(vaultAddress);
     if (cfg?.listCategory) return cfg.listCategory;
+    if (cfg?.morphoVersion === 'v2') return 'prime';
+    if (cfg?.morphoVersion === 'v1') return 'v1';
   }
   if (!vaultName) {
-    return 'v1'; // Default to v1 if name is missing
+    return 'v1';
   }
   const name = vaultName.toLowerCase();
   if (name.includes('prime')) {
@@ -95,10 +109,20 @@ export const getVaultCategory = (
 };
 
 // Determine if vault should use v2 GraphQL query (Prime and Vineyard are both v2)
+/** Resolve Morpho API version from config (address) or vault name heuristics. */
+export const getVaultMorphoVersion = (
+  vaultName: string | null | undefined,
+  vaultAddress?: string | null
+): 'v1' | 'v2' => {
+  if (vaultAddress) {
+    const cfg = getVaultByAddress(vaultAddress);
+    if (cfg?.morphoVersion) return cfg.morphoVersion;
+  }
+  const category = getVaultCategory(vaultName, vaultAddress);
+  return category === 'prime' || category === 'vineyard' || category === 'test' ? 'v2' : 'v1';
+};
+
 export const shouldUseV2Query = (
   vaultName: string | null | undefined,
   vaultAddress?: string | null
-): boolean => {
-  const category = getVaultCategory(vaultName, vaultAddress);
-  return category === 'prime' || category === 'vineyard' || category === 'test';
-};
+): boolean => getVaultMorphoVersion(vaultName, vaultAddress) === 'v2';
