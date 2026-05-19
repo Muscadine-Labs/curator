@@ -13,6 +13,10 @@ export type ReallocationEvent = {
   blockNumber: number | null;
   type: string;
   assets: string | null;
+  /** Signed asset delta for this allocation id (V2). */
+  change: string | null;
+  adapterAddress: string | null;
+  allocationIds: string[];
   market: {
     uniqueKey: string | null;
     loanAssetSymbol: string | null;
@@ -65,22 +69,29 @@ const V1_REALLOCATIONS_QUERY = gql`
 `;
 
 const V2_REALLOCATIONS_QUERY = gql`
-  query V2VaultReallocations($first: Int!, $skip: Int!, $vaultAddress: [String!]!, $chainIds: [Int!]) {
-    vaultV2transactions(
+  query V2VaultReallocations(
+    $vaultAddress: String!
+    $chainId: Int!
+    $first: Int!
+    $skip: Int!
+  ) {
+    vaultV2AllocationTransactions(
+      vaultAddress: $vaultAddress
+      chainId: $chainId
       first: $first
       skip: $skip
-      where: {
-        vaultAddress_in: $vaultAddress
-        chainId_in: $chainIds
-        type_in: ["VaultV2Allocate", "VaultV2Deallocate", "VaultV2Reallocate"]
-      }
+      orderBy: Timestamp
+      orderDirection: Desc
     ) {
       items {
         txHash
         blockNumber
         timestamp
         type
-        shares
+        assets
+        change
+        adapter
+        ids
       }
     }
   }
@@ -105,13 +116,16 @@ type V1GraphResponse = {
 };
 
 type V2GraphResponse = {
-  vaultV2transactions?: {
+  vaultV2AllocationTransactions?: {
     items?: Array<{
       txHash?: string | null;
       blockNumber?: number | string | null;
       timestamp?: number | string | null;
       type?: string | null;
-      shares?: string | null;
+      assets?: string | number | null;
+      change?: string | number | null;
+      adapter?: string | null;
+      ids?: string[] | null;
     } | null> | null;
   } | null;
 };
@@ -169,24 +183,37 @@ export async function GET(
     let events: ReallocationEvent[] = [];
 
     if (isV2) {
-      const chainIds = [vaultConfig.chainId ?? BASE_CHAIN_ID];
+      const chainId = vaultConfig.chainId ?? BASE_CHAIN_ID;
       const data = await morphoGraphQLClient.request<V2GraphResponse>(V2_REALLOCATIONS_QUERY, {
+        vaultAddress,
+        chainId,
         first,
         skip,
-        vaultAddress: [vaultAddress.toLowerCase()],
-        chainIds,
       });
-      const items = data.vaultV2transactions?.items ?? [];
+      const items = data.vaultV2AllocationTransactions?.items ?? [];
       events = items
         .filter((x): x is NonNullable<typeof x> => x !== null && Boolean(x.txHash))
-        .map((tx) => ({
-          hash: String(tx.txHash),
-          timestamp: tx.timestamp != null ? Number(tx.timestamp) : null,
-          blockNumber: tx.blockNumber != null ? Number(tx.blockNumber) : null,
-          type: tx.type ?? 'Unknown',
-          assets: tx.shares ?? null,
-          market: null,
-        }));
+        .map((tx) => {
+          const allocationIds = (tx.ids ?? []).filter(Boolean) as string[];
+          return {
+            hash: String(tx.txHash),
+            timestamp: tx.timestamp != null ? Number(tx.timestamp) : null,
+            blockNumber: tx.blockNumber != null ? Number(tx.blockNumber) : null,
+            type: tx.type ?? 'Unknown',
+            assets: tx.assets != null ? String(tx.assets) : null,
+            change: tx.change != null ? String(tx.change) : null,
+            adapterAddress: tx.adapter ?? null,
+            allocationIds,
+            market: allocationIds[0]
+              ? {
+                  uniqueKey: allocationIds[0],
+                  loanAssetSymbol: null,
+                  collateralAssetSymbol: null,
+                  lltv: null,
+                }
+              : null,
+          };
+        });
     } else {
       const data = await morphoGraphQLClient.request<V1GraphResponse>(V1_REALLOCATIONS_QUERY, {
         first,
@@ -202,6 +229,9 @@ export async function GET(
           blockNumber: tx.blockNumber != null ? Number(tx.blockNumber) : null,
           type: tx.type ?? 'Unknown',
           assets: tx.assets ?? null,
+          change: null,
+          adapterAddress: null,
+          allocationIds: [],
           market: tx.market
             ? {
                 uniqueKey: tx.market.uniqueKey ?? null,

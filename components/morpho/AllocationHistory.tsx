@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useVaultReallocations } from '@/lib/hooks/useVaultReallocations';
-import { formatRelativeTime, formatLtv, formatRawTokenAmount } from '@/lib/format/number';
+import { formatRelativeTime, formatLtv, formatRawTokenAmount, formatAddress } from '@/lib/format/number';
 import { getScanUrlForChain } from '@/lib/constants';
 import type { ReallocationGroup, ReallocationEvent } from '@/app/api/vaults/[id]/reallocations/route';
 
@@ -123,6 +123,21 @@ function GroupRow({
   );
 }
 
+function allocationTargetLabel(event: ReallocationEvent): string | null {
+  const loan = event.market?.loanAssetSymbol;
+  const collateral = event.market?.collateralAssetSymbol;
+  if (loan || collateral) {
+    return `${collateral ?? '?'} / ${loan ?? '?'}`;
+  }
+  if (event.allocationIds.length > 0) {
+    return `Cap ${formatAddress(event.allocationIds[0], 6, 4)}`;
+  }
+  if (event.adapterAddress) {
+    return `Adapter ${formatAddress(event.adapterAddress, 6, 4)}`;
+  }
+  return null;
+}
+
 function EventRow({
   event,
   assetDecimals,
@@ -132,9 +147,7 @@ function EventRow({
   assetDecimals: number;
   assetSymbol: string;
 }) {
-  const marketLabel = event.market
-    ? `${event.market.collateralAssetSymbol ?? '?'} / ${event.market.loanAssetSymbol ?? '?'}`
-    : null;
+  const marketLabel = allocationTargetLabel(event);
   const lltv = event.market?.lltv ? formatLtv(event.market.lltv) : null;
 
   return (
