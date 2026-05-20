@@ -229,7 +229,7 @@ export function VaultOverviewPanel({
                 displayDecimals={displayDecimals}
               />
               <LiquidityBreakdownCell
-                label="Withdrawable"
+                label="Liquidity"
                 usd={analytics?.liquidityUsd}
                 underlying={analytics?.liquidityUnderlying}
                 assetSymbol={vaultAsset}
@@ -248,8 +248,8 @@ export function VaultOverviewPanel({
             </div>
             {analytics?.deployedPercent != null && (
               <p className="mt-3 text-[11px] text-muted-foreground">
-                ~{analytics.deployedPercent.toFixed(1)}% of TVL is deployed to strategies; the remainder is idle or
-                subject to adapter liquidity.
+                ~{analytics.deployedPercent.toFixed(1)}% of TVL is deployed to strategies. Liquidity is
+                Morpho&apos;s withdrawable estimate; idle is cash held in the vault.
               </p>
             )}
           </CardContent>

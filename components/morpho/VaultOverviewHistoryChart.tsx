@@ -63,9 +63,7 @@ export function VaultOverviewHistoryChart({
   const [range, setRange] = useState<TimeRange>('month');
   const [amountUnit, setAmountUnit] = useState<AmountUnit>('token');
 
-  const liquidityUnavailable = data
-    ? !data.liquidityHistoricalAvailable
-    : version === 'v1';
+  const liquidityUnavailable = data ? !data.liquidityHistoricalAvailable : true;
 
   const chainDecimals = data
     ? resolveAssetDecimals(data.assetSymbol, data.assetDecimals)
@@ -199,17 +197,16 @@ export function VaultOverviewHistoryChart({
         </div>
         {data && (
           <p className="text-[11px] text-muted-foreground">
-            {data.version === 'v2'
-              ? 'V2: Liquidity is the amount users can withdraw (TVL minus idle), not idle vault cash.'
-              : 'V1: supplied history in USD or tokens. Liquidity history is spot-only in the breakdown above.'}
+            Liquidity is the withdrawable amount (from Morpho). Historical liquidity is not
+            indexed — use the breakdown card for the current value.
           </p>
         )}
       </CardHeader>
       <CardContent className="pt-0">
         {showLiquidityNote ? (
           <div className="flex h-52 items-center justify-center px-4 text-center text-sm text-muted-foreground">
-            Morpho does not index historical liquidity for V1 vaults. See the liquidity
-            breakdown above for the current withdrawable balance.
+            Morpho does not index historical liquidity. See the breakdown above for the
+            current withdrawable amount.
           </div>
         ) : chartPoints.length === 0 ? (
           <div className="flex h-52 items-center justify-center text-sm text-muted-foreground">

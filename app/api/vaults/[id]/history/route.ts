@@ -23,7 +23,7 @@ export type VaultHistoryResponse = {
   version: 'v1' | 'v2';
   assetSymbol: string;
   assetDecimals: number;
-  /** Morpho indexes historical liquidity for V2 only (TVL − idle = withdrawable, not idle). */
+  /** False — Morpho does not expose historical liquidity (withdrawable) timeseries. */
   liquidityHistoricalAvailable: boolean;
   series: ReturnType<typeof buildV1HistorySeries>;
 };
@@ -95,7 +95,7 @@ export async function GET(
           data.vault.asset?.symbol,
           data.vault.asset?.decimals
         ),
-        liquidityHistoricalAvailable: true,
+        liquidityHistoricalAvailable: false,
         series: buildV2HistorySeries(data.vault.historicalState),
       };
 
