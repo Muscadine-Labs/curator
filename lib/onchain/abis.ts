@@ -403,7 +403,14 @@ export const vaultV2Abi = [
     type: "function",
     name: "timelock",
     stateMutability: "view",
-    inputs: [],
+    inputs: [{ name: "selector", type: "bytes4" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "executableAt",
+    stateMutability: "view",
+    inputs: [{ name: "data", type: "bytes" }],
     outputs: [{ name: "", type: "uint256" }],
   },
   {
@@ -489,6 +496,17 @@ export const vaultV2Abi = [
     stateMutability: "view",
     inputs: [{ name: "account", type: "address" }],
     outputs: [{ name: "", type: "bool" }],
+  },
+
+  // ===== Events =====
+  {
+    type: "event",
+    name: "Submit",
+    inputs: [
+      { name: "selector", type: "bytes4", indexed: true },
+      { name: "data", type: "bytes", indexed: false },
+      { name: "executableAt", type: "uint256", indexed: false },
+    ],
   },
 
   // ===== Write Functions =====

@@ -364,6 +364,9 @@ npm run build
 | V1 data hook                     | `lib/hooks/useVaultV1Complete.ts`                        |
 | V2 data hook                     | `lib/hooks/useVaultV2Complete.ts`                        |
 | V2 caps API                      | `app/api/vaults/v2/[id]/governance/route.ts`             |
+| Vault overview analytics         | `components/morpho/VaultOverviewPanel.tsx`, `lib/morpho/vault-analytics.ts` |
+| V1 parameters API                | `app/api/vaults/v1/[id]/parameters/route.ts`             |
+| V2 cap helpers                   | `lib/morpho/cap-utils.ts`, `lib/morpho/vault-v2-governance-map.ts` |
 | V2 risk API                      | `app/api/vaults/v2/[id]/risk/route.ts`                   |
 | V1 market risk API               | `app/api/vaults/v1/[id]/market-risk/route.ts`            |
 | Vault list API                   | `app/api/vaults/route.ts`, `app/api/vaults/[id]/route.ts`|
@@ -469,9 +472,8 @@ V2 contracts (same on every chain):
 `knip` was run on 2026-04-24 to audit imports. Summary:
 
 - **No unused files** — all source files are referenced.
-- **Unused direct deps** — `@reown/appkit-controllers` appears in
-  `package.json` but isn't directly imported; it's a transitive peer of
-  `@rainbow-me/rainbowkit` and should stay pinned.
+- **Unused direct deps** — none flagged at last knip run after Reown AppKit
+  migration (wallet stack is `@reown/appkit` + `@reown/appkit-adapter-wagmi`).
 - **Unused test/lint devDeps** — `@testing-library/*`, `@eslint/compat`,
   `@eslint/eslintrc`, `@jest/globals`, `fake-indexeddb`, `eslint-config-next`
   are flagged by knip because they're used via config files, not `import`.
@@ -589,6 +591,7 @@ CCTP, formatting, and chart date filtering.
 | `lib/cctp/__tests__/constants.test.ts`                     | Domain ids match Circle's registry; every enabled EVM chain has the full contract triple; disabled chains expose a `disabledReason`. |
 | `lib/cctp/__tests__/attestation.test.ts`                   | `addressToBytes32`, `extractMessageFromReceipt`, `fetchAttestation` (with `fetch` mocked for 200/404/500 paths). |
 | `lib/format/__tests__/number.test.ts`                      | `formatRawTokenAmount` regression test for the V1 holders "0.000" bug + every other `format*` helper. |
+| `lib/morpho/__tests__/cap-utils.test.ts`                   | Morpho V2 cap type detection (`Adapter`/`MarketV1`) and cap utilization math. |
 | `lib/utils/__tests__/date-filter.test.ts`                  | `filterDataByRange` honours the launch cutoff and the 7d/30d/all selectors. |
 
 ### 16.2 Conventions

@@ -1,8 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { headers } from "next/headers";
 import { Analytics } from "@vercel/analytics/next";
 import "@/lib/wallet/polyfill-indexeddb";
-import "@rainbow-me/rainbowkit/styles.css";
 import "./globals.css";
 import { Providers } from "./providers";
 import { logEnvValidation } from "@/lib/utils/env-validation";
@@ -39,12 +39,14 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   const themeScript = `(function(){var t=localStorage.getItem('curator-theme');var d=document.documentElement;if(t==='dark')d.classList.add('dark');else if(t==='light')d.classList.remove('dark');else d.classList.toggle('dark',window.matchMedia('(prefers-color-scheme: dark)').matches);})();`;
+  const headersList = await headers();
+  const cookies = headersList.get('cookie');
 
   return (
     <html lang="en" suppressHydrationWarning>
@@ -52,7 +54,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-        <Providers>
+        <Providers cookies={cookies}>
           {children}
         </Providers>
         <Analytics />

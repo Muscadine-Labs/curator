@@ -12,9 +12,19 @@ export interface VaultRolesData {
   owner: Address | null;
   curator: Address | null;
   guardian: Address | null;
+  /** On-chain timelock contract address (fallback reads only). */
   timelock: Address | null;
+  /** Morpho API: governance delay in seconds (V1). */
+  timelockDurationSeconds: number | null;
   pendingGuardian: Address | null;
   allocators: Address[];
+}
+
+function parseTimelockDuration(raw: string | number | null | undefined): number | null {
+  if (raw == null) return null;
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(n) || n >= 1e15) return null;
+  return n;
 }
 
 /**
@@ -70,8 +80,9 @@ export function useVaultRoles(vaultAddress: Address | null | undefined, chainId:
             owner: (data.vault.state?.owner as Address) || null,
             curator: (data.vault.state?.curator as Address) || null,
             guardian: (data.vault.state?.guardian as Address) || null,
-            timelock: (data.vault.state?.timelock as Address) || null,
-            pendingGuardian: null, // GraphQL doesn't have pending guardian, fallback to on-chain if needed
+            timelock: null,
+            timelockDurationSeconds: parseTimelockDuration(data.vault.state?.timelock),
+            pendingGuardian: null,
             allocators,
           };
         }
@@ -107,6 +118,7 @@ export function useVaultRoles(vaultAddress: Address | null | undefined, chainId:
         curator: roles.curator,
         guardian: roles.guardian,
         timelock: roles.timelock,
+        timelockDurationSeconds: null,
         pendingGuardian,
         allocators,
       };

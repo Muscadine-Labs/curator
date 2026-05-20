@@ -1,40 +1,27 @@
-'use client';
-
-import { getDefaultConfig } from '@rainbow-me/rainbowkit';
-import {
-  baseAccount,
-  metaMaskWallet,
-  rabbyWallet,
-  rainbowWallet,
-  safeWallet,
-  walletConnectWallet,
-} from '@rainbow-me/rainbowkit/wallets';
 import { http } from 'wagmi';
-import { arbitrum, avalanche, base, mainnet, optimism, polygon } from 'viem/chains';
+import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
+import type { AppKitNetwork } from '@reown/appkit/networks';
+import {
+  arbitrum,
+  avalanche,
+  base,
+  hyperEvm,
+  mainnet,
+  optimism,
+  polygon,
+} from '@reown/appkit/networks';
 
-// Create wagmi config with RainbowKit
-// Allow build-time to proceed without env vars (they'll be required at runtime in production)
-// Use 'demo' as fallback during build/development, but should be set in production runtime
-const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'demo';
+export const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'demo';
 
-// Base and Rabby as defaults, then other popular wallets
-const wallets = [
-  {
-    groupName: 'Popular',
-    wallets: [
-      baseAccount,
-      rabbyWallet,
-      safeWallet,
-      rainbowWallet,
-      metaMaskWallet,
-      walletConnectWallet,
-    ],
-  },
-];
-
-// Supported chains: Base (default), Ethereum, Optimism, Polygon, Arbitrum, Avalanche
-// Arbitrum + Avalanche are included so CCTP (Circle Cross-Chain Transfer) works on them.
-const chains = [base, mainnet, optimism, polygon, arbitrum, avalanche] as const;
+export const networks = [
+  base,
+  mainnet,
+  optimism,
+  polygon,
+  arbitrum,
+  avalanche,
+  hyperEvm,
+] as [AppKitNetwork, ...AppKitNetwork[]];
 
 function getRpcUrl(chainId: number): string {
   const alchemyKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY;
@@ -46,19 +33,18 @@ function getRpcUrl(chainId: number): string {
     [optimism.id]: `https://opt-mainnet.g.alchemy.com/v2/${key}`,
     [polygon.id]: `https://polygon-mainnet.g.alchemy.com/v2/${key}`,
     [arbitrum.id]: `https://arb-mainnet.g.alchemy.com/v2/${key}`,
-    // Alchemy doesn't support Avalanche C-Chain publicly here — fall back to Ava Labs
     [avalanche.id]: 'https://api.avax.network/ext/bc/C/rpc',
+    [hyperEvm.id]: 'https://rpc.hyperliquid.xyz/evm',
   };
 
   return rpcMap[chainId] || rpcMap[base.id];
 }
 
-const config = getDefaultConfig({
-  appName: 'Muscadine Curator',
+// Match Reown's next-wagmi-app-router example: ssr only, no cookieStorage override.
+export const wagmiAdapter = new WagmiAdapter({
   projectId,
-  chains,
+  networks,
   ssr: true,
-  wallets,
   transports: {
     [base.id]: http(getRpcUrl(base.id)),
     [mainnet.id]: http(getRpcUrl(mainnet.id)),
@@ -66,9 +52,18 @@ const config = getDefaultConfig({
     [polygon.id]: http(getRpcUrl(polygon.id)),
     [arbitrum.id]: http(getRpcUrl(arbitrum.id)),
     [avalanche.id]: http(getRpcUrl(avalanche.id)),
+    [hyperEvm.id]: http(getRpcUrl(hyperEvm.id)),
   },
-  // Disable multi-injected probing so only the active/stored connector is used on reconnect
-  multiInjectedProviderDiscovery: false,
 });
 
-export { config };
+export const config = wagmiAdapter.wagmiConfig;
+
+const appUrl =
+  process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') || 'http://localhost:3000';
+
+export const appKitMetadata = {
+  name: 'Muscadine Curator',
+  description: 'Explore Muscadine vaults and track performance',
+  url: appUrl,
+  icons: [`${appUrl}/muscadinelogo.jpg`],
+};

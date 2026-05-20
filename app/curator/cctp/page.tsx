@@ -26,7 +26,7 @@ import {
   Loader2,
   RefreshCcw,
 } from 'lucide-react';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { ConnectWalletButton } from '@/components/ConnectWalletButton';
 
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/AuthGuard';
@@ -489,7 +489,7 @@ function CctpInner() {
               <p className="text-sm text-muted-foreground">
                 Connect your wallet to start a cross-chain USDC transfer.
               </p>
-              <ConnectButton />
+              <ConnectWalletButton />
             </div>
           </CardContent>
         </Card>

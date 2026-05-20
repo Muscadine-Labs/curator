@@ -1,0 +1,280 @@
+import { gql } from 'graphql-request';
+
+/** Shared Morpho Blue API queries for Vault V2 parameters and pending timelocked actions. */
+
+export const VAULT_V2_PARAMETERS_QUERY = gql`
+  query VaultV2Parameters($address: String!, $chainId: Int!) {
+    vault: vaultV2ByAddress(address: $address, chainId: $chainId) {
+      address
+      name
+      symbol
+      performanceFee
+      managementFee
+      maxRate
+      performanceFeeRecipient
+      managementFeeRecipient
+      timelocks {
+        selector
+        functionName
+        duration
+      }
+    }
+  }
+`;
+
+export const VAULT_V2_PENDING_QUERY = gql`
+  query VaultV2Pending($address: String!, $chainId: Int!, $first: Int!) {
+    vault: vaultV2ByAddress(address: $address, chainId: $chainId) {
+      address
+      pendingConfigs(first: $first) {
+        items {
+          data
+          functionName
+          txHash
+          validAt
+          decodedData {
+            __typename
+            ... on VaultV2AbdicatePendingData {
+              functionName
+              selector
+            }
+            ... on VaultV2AdapterPendingData {
+              adapterAddress
+            }
+            ... on VaultV2IncreaseCapPendingData {
+              cap
+              config {
+                id
+                idData
+                type
+              }
+            }
+            ... on VaultV2SetAdapterRegistryPendingData {
+              adapterRegistry
+            }
+            ... on VaultV2SetForceDeallocatePenaltyPendingData {
+              adapterAddress
+              forceDeallocatePenalty
+            }
+            ... on VaultV2SetIsAllocatorPendingData {
+              isAllocator
+              account {
+                address
+              }
+            }
+            ... on VaultV2SetManagementFeePendingData {
+              managementFee
+            }
+            ... on VaultV2SetManagementFeeRecipientPendingData {
+              managementFeeRecipient
+            }
+            ... on VaultV2SetPerformanceFeePendingData {
+              performanceFee
+            }
+            ... on VaultV2SetPerformanceFeeRecipientPendingData {
+              performanceFeeRecipient
+            }
+            ... on VaultV2SetReceiveAssetsGatePendingData {
+              receiveAssetsGate
+            }
+            ... on VaultV2SetReceiveSharesGatePendingData {
+              receiveSharesGate
+            }
+            ... on VaultV2SetSendAssetsGatePendingData {
+              sendAssetsGate
+            }
+            ... on VaultV2SetSendSharesGatePendingData {
+              sendSharesGate
+            }
+            ... on VaultV2TimelockPendingData {
+              functionName
+              selector
+              timelock
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+/** Morpho API returns fees as unitless fractions (e.g. 0.05 = 5%). */
+export function morphoFeeToPercent(fee: number | null | undefined): number | null {
+  if (fee == null || Number.isNaN(fee)) return null;
+  return fee * 100;
+}
+
+export function formatMorphoFeePercent(fee: number | null | undefined): string {
+  const pct = morphoFeeToPercent(fee);
+  if (pct == null) return 'N/A';
+  return `${pct.toFixed(2)}%`;
+}
+
+/** WAD-scaled bigint fee from Morpho pending decoded fields. */
+export function wadBigIntToPercent(wad: string | number | bigint): string {
+  try {
+    const scaled = BigInt(wad);
+    const percent = Number(scaled) / 1e16;
+    return `${percent.toFixed(2)}%`;
+  } catch {
+    return String(wad);
+  }
+}
+
+export function formatRelativeCapWad(relativeCap: string): string {
+  try {
+    const scaled = BigInt(relativeCap);
+    const percent = Number(scaled) / 1e16;
+    return `${percent.toFixed(2)}%`;
+  } catch {
+    return relativeCap;
+  }
+}
+
+export type VaultV2PendingDecoded =
+  | { type: 'Abdicate'; functionName: string; selector: string }
+  | { type: 'Adapter'; adapterAddress: string }
+  | { type: 'IncreaseCap'; cap: string; capType: string; capId: string }
+  | { type: 'SetAdapterRegistry'; adapterRegistry: string }
+  | { type: 'SetForceDeallocatePenalty'; adapterAddress: string; forceDeallocatePenalty: string }
+  | { type: 'SetIsAllocator'; account: string; isAllocator: boolean }
+  | { type: 'SetManagementFee'; managementFee: string }
+  | { type: 'SetManagementFeeRecipient'; managementFeeRecipient: string }
+  | { type: 'SetPerformanceFee'; performanceFee: string }
+  | { type: 'SetPerformanceFeeRecipient'; performanceFeeRecipient: string }
+  | { type: 'SetReceiveAssetsGate'; receiveAssetsGate: string }
+  | { type: 'SetReceiveSharesGate'; receiveSharesGate: string }
+  | { type: 'SetSendAssetsGate'; sendAssetsGate: string }
+  | { type: 'SetSendSharesGate'; sendSharesGate: string }
+  | { type: 'Timelock'; functionName: string; selector: string; timelock: string }
+  | { type: 'Unknown' };
+
+export function mapPendingDecoded(
+  decoded: { __typename?: string | null } & Record<string, unknown> | null | undefined
+): VaultV2PendingDecoded {
+  if (!decoded?.__typename) return { type: 'Unknown' };
+
+  switch (decoded.__typename) {
+    case 'VaultV2AbdicatePendingData':
+      return {
+        type: 'Abdicate',
+        functionName: String(decoded.functionName ?? ''),
+        selector: String(decoded.selector ?? ''),
+      };
+    case 'VaultV2AdapterPendingData':
+      return {
+        type: 'Adapter',
+        adapterAddress: String(decoded.adapterAddress ?? ''),
+      };
+    case 'VaultV2IncreaseCapPendingData':
+      return {
+        type: 'IncreaseCap',
+        cap: String(decoded.cap ?? '0'),
+        capType: String((decoded.config as { type?: string })?.type ?? 'Unknown'),
+        capId: String((decoded.config as { id?: string })?.id ?? ''),
+      };
+    case 'VaultV2SetAdapterRegistryPendingData':
+      return {
+        type: 'SetAdapterRegistry',
+        adapterRegistry: String(decoded.adapterRegistry ?? ''),
+      };
+    case 'VaultV2SetForceDeallocatePenaltyPendingData':
+      return {
+        type: 'SetForceDeallocatePenalty',
+        adapterAddress: String(decoded.adapterAddress ?? ''),
+        forceDeallocatePenalty: String(decoded.forceDeallocatePenalty ?? '0'),
+      };
+    case 'VaultV2SetIsAllocatorPendingData':
+      return {
+        type: 'SetIsAllocator',
+        account: String((decoded.account as { address?: string })?.address ?? ''),
+        isAllocator: Boolean(decoded.isAllocator),
+      };
+    case 'VaultV2SetManagementFeePendingData':
+      return {
+        type: 'SetManagementFee',
+        managementFee: String(decoded.managementFee ?? '0'),
+      };
+    case 'VaultV2SetManagementFeeRecipientPendingData':
+      return {
+        type: 'SetManagementFeeRecipient',
+        managementFeeRecipient: String(decoded.managementFeeRecipient ?? ''),
+      };
+    case 'VaultV2SetPerformanceFeePendingData':
+      return {
+        type: 'SetPerformanceFee',
+        performanceFee: String(decoded.performanceFee ?? '0'),
+      };
+    case 'VaultV2SetPerformanceFeeRecipientPendingData':
+      return {
+        type: 'SetPerformanceFeeRecipient',
+        performanceFeeRecipient: String(decoded.performanceFeeRecipient ?? ''),
+      };
+    case 'VaultV2SetReceiveAssetsGatePendingData':
+      return {
+        type: 'SetReceiveAssetsGate',
+        receiveAssetsGate: String(decoded.receiveAssetsGate ?? ''),
+      };
+    case 'VaultV2SetReceiveSharesGatePendingData':
+      return {
+        type: 'SetReceiveSharesGate',
+        receiveSharesGate: String(decoded.receiveSharesGate ?? ''),
+      };
+    case 'VaultV2SetSendAssetsGatePendingData':
+      return {
+        type: 'SetSendAssetsGate',
+        sendAssetsGate: String(decoded.sendAssetsGate ?? ''),
+      };
+    case 'VaultV2SetSendSharesGatePendingData':
+      return {
+        type: 'SetSendSharesGate',
+        sendSharesGate: String(decoded.sendSharesGate ?? ''),
+      };
+    case 'VaultV2TimelockPendingData':
+      return {
+        type: 'Timelock',
+        functionName: String(decoded.functionName ?? ''),
+        selector: String(decoded.selector ?? ''),
+        timelock: String(decoded.timelock ?? '0'),
+      };
+    default:
+      return { type: 'Unknown' };
+  }
+}
+
+export function describePendingDecoded(decoded: VaultV2PendingDecoded): string {
+  switch (decoded.type) {
+    case 'Abdicate':
+      return `Abdicate timelock on ${decoded.functionName}`;
+    case 'Adapter':
+      return `Adapter ${decoded.adapterAddress}`;
+    case 'IncreaseCap':
+      return `${decoded.capType} cap → ${formatRelativeCapWad(decoded.cap)}`;
+    case 'SetAdapterRegistry':
+      return `Registry ${decoded.adapterRegistry}`;
+    case 'SetForceDeallocatePenalty':
+      return `Penalty on ${decoded.adapterAddress}`;
+    case 'SetIsAllocator':
+      return `${decoded.isAllocator ? 'Grant' : 'Revoke'} allocator ${decoded.account}`;
+    case 'SetManagementFee':
+      return `Management fee → ${wadBigIntToPercent(decoded.managementFee)}`;
+    case 'SetManagementFeeRecipient':
+      return `Mgmt recipient → ${decoded.managementFeeRecipient}`;
+    case 'SetPerformanceFee':
+      return `Performance fee → ${wadBigIntToPercent(decoded.performanceFee)}`;
+    case 'SetPerformanceFeeRecipient':
+      return `Perf recipient → ${decoded.performanceFeeRecipient}`;
+    case 'SetReceiveAssetsGate':
+      return `Receive assets gate → ${decoded.receiveAssetsGate}`;
+    case 'SetReceiveSharesGate':
+      return `Receive shares gate → ${decoded.receiveSharesGate}`;
+    case 'SetSendAssetsGate':
+      return `Send assets gate → ${decoded.sendAssetsGate}`;
+    case 'SetSendSharesGate':
+      return `Send shares gate → ${decoded.sendSharesGate}`;
+    case 'Timelock':
+      return `Timelock ${decoded.functionName} → ${Number(decoded.timelock)}s`;
+    default:
+      return 'Pending change';
+  }
+}

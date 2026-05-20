@@ -48,7 +48,18 @@ export interface VaultDetail extends VaultWithData {
   apyBase: number | null;
   apyBoosted: number | null;
   feesYtd: number | null;
-  utilization: number;
+  utilization: number | null;
+  analytics?: {
+    totalAssetsUnderlying: string | null;
+    liquidityUsd: number | null;
+    liquidityUnderlying: string | null;
+    idleAssetsUsd: number | null;
+    idleAssetsUnderlying: string | null;
+    idlePercent: number | null;
+    deployedPercent: number | null;
+    managementFeePercent: number | null;
+    capUtilizationPercent: number | null;
+  };
   revenueAllTime: number | null;
   feesAllTime: number | null;
   apyBreakdown?: {

@@ -143,9 +143,10 @@ function AdapterRow({
           </div>
           <AddressBadge address={adapter.address} truncate={false} />
           {adapter.metaMorpho?.address && (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Underlying vault: <AddressBadge address={adapter.metaMorpho.address} truncate={false} />
-            </p>
+            <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+              <span>Underlying vault:</span>
+              <AddressBadge address={adapter.metaMorpho.address} truncate={false} />
+            </div>
           )}
         </div>
         <div className="space-y-1 text-right">

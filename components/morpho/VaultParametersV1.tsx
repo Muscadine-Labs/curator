@@ -7,9 +7,8 @@ import { Input } from '@/components/ui/input';
 import { useVault } from '@/lib/hooks/useProtocolStats';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
 import { ExternalLink } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
 import { getScanUrlForChain } from '@/lib/constants';
-import { multicallRead } from '@/lib/onchain/client';
+import { useVaultV1Parameters } from '@/lib/hooks/useVaultV1Parameters';
 import { TransactionButton } from '@/components/TransactionButton';
 import { InlineEdit } from '@/components/morpho/InlineEdit';
 import { v1WriteConfigs } from '@/lib/onchain/vault-writes';
@@ -17,26 +16,6 @@ import { isAddress, type Address } from 'viem';
 
 interface VaultParametersV1Props {
   vaultAddress: string;
-}
-
-const VAULT_PARAMS_ABI = [
-  { name: 'publicAllocatorAdmin', type: 'function' as const, stateMutability: 'view' as const, inputs: [] as const, outputs: [{ name: '', type: 'address' }] as const },
-  { name: 'publicAllocatorFeeBps', type: 'function' as const, stateMutability: 'view' as const, inputs: [] as const, outputs: [{ name: '', type: 'uint256' }] as const },
-  { name: 'timelockDuration', type: 'function' as const, stateMutability: 'view' as const, inputs: [] as const, outputs: [{ name: '', type: 'uint256' }] as const },
-] as const;
-
-async function fetchVaultParamsOnChain(vaultAddress: Address) {
-  const [publicAllocatorAdmin, publicAllocatorFeeBps, timelockDuration] = await multicallRead<Address | bigint>([
-    { address: vaultAddress, abi: VAULT_PARAMS_ABI, functionName: 'publicAllocatorAdmin' },
-    { address: vaultAddress, abi: VAULT_PARAMS_ABI, functionName: 'publicAllocatorFeeBps' },
-    { address: vaultAddress, abi: VAULT_PARAMS_ABI, functionName: 'timelockDuration' },
-  ]);
-
-  return {
-    publicAllocatorAdmin: publicAllocatorAdmin as Address | null,
-    publicAllocatorFeeBps: publicAllocatorFeeBps != null ? Number(publicAllocatorFeeBps) : null,
-    timelockDuration: timelockDuration != null ? Number(timelockDuration) : null,
-  };
 }
 
 function formatTimelockDuration(seconds: number | null): string {
@@ -52,11 +31,7 @@ function formatTimelockDuration(seconds: number | null): string {
 export function VaultParametersV1({ vaultAddress }: VaultParametersV1Props) {
   const { data: vault, isLoading: isVaultLoading } = useVault(vaultAddress);
 
-  const { data: onChainParams, isLoading: isOnChainLoading } = useQuery({
-    queryKey: ['vault-parameters-onchain', vaultAddress],
-    queryFn: () => fetchVaultParamsOnChain(vaultAddress as Address),
-    enabled: !!vaultAddress,
-  });
+  const { data: apiParams, isLoading: isParamsLoading } = useVaultV1Parameters(vaultAddress);
 
   if (!vault) {
     if (isVaultLoading) {
@@ -91,7 +66,9 @@ export function VaultParametersV1({ vaultAddress }: VaultParametersV1Props) {
     vault.parameters?.performanceFeePercent ??
     (vault.parameters?.performanceFeeBps ? vault.parameters.performanceFeeBps / 100 : null);
   const timelockSeconds =
-    typeof vault.roles?.timelock === 'number' ? vault.roles.timelock : (onChainParams?.timelockDuration ?? null);
+    typeof vault.roles?.timelock === 'number'
+      ? vault.roles.timelock
+      : (apiParams?.timelockDurationSeconds ?? null);
 
   return (
     <Card>
@@ -118,25 +95,25 @@ export function VaultParametersV1({ vaultAddress }: VaultParametersV1Props) {
           <ReadOnlyTile
             label="Public Allocator Admin"
             value={
-              isOnChainLoading
+              isParamsLoading
                 ? undefined
-                : onChainParams?.publicAllocatorAdmin || null
+                : apiParams?.publicAllocatorAdmin || null
             }
             address
             chainId={vault.chainId}
-            isLoading={isOnChainLoading}
+            isLoading={isParamsLoading}
           />
 
           <ReadOnlyTile
             label="Public Allocator Fee"
             value={
-              isOnChainLoading
+              isParamsLoading
                 ? undefined
-                : onChainParams?.publicAllocatorFeeBps != null
-                  ? `${(onChainParams.publicAllocatorFeeBps / 100).toFixed(2)}%`
+                : apiParams?.publicAllocatorFeeBps != null
+                  ? `${(apiParams.publicAllocatorFeeBps / 100).toFixed(2)}%`
                   : null
             }
-            isLoading={isOnChainLoading}
+            isLoading={isParamsLoading}
           />
 
           <EditableTile

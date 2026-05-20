@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { ConnectWalletButton } from '@/components/ConnectWalletButton';
+import { NetworkSwitcher } from '@/components/NetworkSwitcher';
 import { useAccount } from 'wagmi';
 import { ThemeSwitcher } from '@/components/ThemeSwitcher';
 import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
@@ -92,8 +93,9 @@ export function SignInSheet({ open, onClose }: SignInSheetProps) {
                 {isConnected ? 'Wallet' : 'Connect wallet'}
               </p>
               {isConnected && <p className="text-xs text-emerald-600 dark:text-emerald-400">Connected</p>}
-              <div className="w-full [&_button]:max-w-full">
-                <ConnectButton />
+              <div className="flex w-full flex-col gap-2 [&_button]:max-w-full">
+                <ConnectWalletButton />
+                {isConnected && <NetworkSwitcher />}
               </div>
             </div>
 

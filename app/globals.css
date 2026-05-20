@@ -196,8 +196,8 @@ select {
   gap: 2px;
 }
 [data-slot='tabs-trigger'] {
-  font-size: 12.5px;
-  padding: 4px 10px;
+  font-size: 12px;
+  padding: 3px 8px;
 }
 
 /* Sidebar — compact nav, portal feel. */

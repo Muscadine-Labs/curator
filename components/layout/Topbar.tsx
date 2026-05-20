@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Menu } from 'lucide-react';
+import { NetworkSwitcher } from '@/components/NetworkSwitcher';
 import { SignInSheet } from '@/components/SignInSheet';
 import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
 import { Button } from '@/components/ui/button';
@@ -31,6 +32,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
           <div className="text-xs font-medium text-slate-600 dark:text-slate-400 sm:text-sm">Muscadine Curator</div>
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
+          <NetworkSwitcher />
           <Button
             variant={isAuthenticated ? 'outline' : 'default'}
             size="sm"
