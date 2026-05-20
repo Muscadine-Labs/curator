@@ -1,5 +1,5 @@
 /**
- * Polyfill indexedDB in Node (SSR/static generation) so wagmi/RainbowKit/Reown
+ * Polyfill indexedDB in Node (SSR/static generation) so wagmi/Reown AppKit
  * don't throw. Must run before any wallet-related imports.
  */
 import { createRequire } from 'module';

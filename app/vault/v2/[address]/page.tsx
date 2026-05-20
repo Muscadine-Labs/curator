@@ -7,7 +7,7 @@ import { getScanUrlForChain, getScanNameForChain } from '@/lib/constants';
 import { useVaultV2Complete } from '@/lib/hooks/useVaultV2Complete';
 import { getVaultCategory } from '@/lib/config/vaults';
 import { AppShell } from '@/components/layout/AppShell';
-import { KpiCard } from '@/components/KpiCard';
+import { VaultOverviewPanel } from '@/components/morpho/VaultOverviewPanel';
 import { VaultRiskV2 } from '@/components/morpho/VaultRiskV2';
 import { VaultV2Roles } from '@/components/morpho/VaultV2Roles';
 import { VaultV2Adapters } from '@/components/morpho/VaultV2Adapters';
@@ -16,6 +16,7 @@ import { AllocationHistory } from '@/components/morpho/AllocationHistory';
 import { VaultV2Caps } from '@/components/morpho/VaultV2Caps';
 import { VaultV2Timelocks } from '@/components/morpho/VaultV2Timelocks';
 import { VaultV2Parameters } from '@/components/morpho/VaultV2Parameters';
+import { VaultV2Pending } from '@/components/morpho/VaultV2Pending';
 import { VaultHolders } from '@/components/morpho/VaultHolders';
 import { VaultTransactions } from '@/components/morpho/VaultTransactions';
 import { Button } from '@/components/ui/button';
@@ -29,7 +30,8 @@ export default function V2VaultPage() {
   const address = params.address as string;
   // Load all data in parallel - hooks will fetch independently
   // Only block on vault data loading (needed for basic info)
-  const { vault, risk, governance, vaultIsLoading, isError, error } = useVaultV2Complete(address);
+  const { vault, risk, governance, parameters, pending, vaultIsLoading, isError, error } =
+    useVaultV2Complete(address);
 
   // Only block on vault data loading (needed for basic info)
   // Other data (risk, governance) will load in parallel via their own hooks
@@ -115,9 +117,8 @@ export default function V2VaultPage() {
         </div>
       }
     >
-      <div className="space-y-6">
-        {/* V2 Tabs: Overview, Risk Management */}
-        <Tabs defaultValue="overview" className="space-y-4">
+      <div className="space-y-4">
+        <Tabs defaultValue="overview" className="space-y-3">
           <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide sm:overflow-visible">
             <TabsList className="inline-flex w-auto min-w-full sm:min-w-0 sm:w-full justify-start gap-1">
               <TabsTrigger value="overview" className="sm:flex-1 flex-shrink-0 min-w-fit">Overview</TabsTrigger>
@@ -131,53 +132,20 @@ export default function V2VaultPage() {
               <TabsTrigger value="caps" className="sm:flex-1 flex-shrink-0 min-w-fit">Caps</TabsTrigger>
               <TabsTrigger value="parameters" className="sm:flex-1 flex-shrink-0 min-w-fit">Parameters</TabsTrigger>
               <TabsTrigger value="timelocks" className="sm:flex-1 flex-shrink-0 min-w-fit">Timelocks</TabsTrigger>
+              <TabsTrigger value="pending" className="sm:flex-1 flex-shrink-0 min-w-fit">Pending</TabsTrigger>
             </TabsList>
           </div>
 
           {/* Overview Tab */}
-          <TabsContent value="overview" className="space-y-6">
-            {/* Header: Name, Ticker, Asset */}
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex flex-col gap-3">
-                  <div>
-                    <a
-                      href={morphoUiUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xl sm:text-2xl font-semibold text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors break-words"
-                    >
-                      {vaultName}
-                    </a>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="outline" className="text-sm">
-                      {vaultSymbol}
-                    </Badge>
-                    <Badge variant="outline" className="text-sm">
-                      {vaultAsset}
-                    </Badge>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+          <TabsContent value="overview" className="space-y-4">
+            <VaultOverviewPanel
+              vault={vault}
+              morphoUiUrl={morphoUiUrl}
+              vaultName={vaultName}
+              vaultSymbol={vaultSymbol}
+              vaultAsset={vaultAsset}
+            />
 
-            {/* Metrics Grid */}
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <KpiCard title="TVL" value={vault.tvl} subtitle="Total Value Locked" format="usd" />
-              <KpiCard title="APY" value={vault.apy} subtitle="Current yield rate" format="percentage" />
-              <KpiCard title="Depositors" value={vault.depositors} subtitle="Total depositors" format="number" />
-              <KpiCard 
-                title="Performance Fee" 
-                value={vault.parameters?.performanceFeePercent ?? (vault.parameters?.performanceFeeBps ? vault.parameters.performanceFeeBps / 100 : null)} 
-                subtitle="Curator fee rate" 
-                format="percentage" 
-              />
-              <KpiCard title="Revenue (All Time)" value={vault.revenueAllTime} subtitle="Total revenue to protocol" format="usd" />
-              <KpiCard title="Fees (All Time)" value="Coming Soon" subtitle="Total fees collected to token holders" format="raw" />
-            </div>
-
-            {/* Holders — placed under Fee/Revenue */}
             <VaultHolders
               vaultAddress={vault.address}
               chainId={vault.chainId}
@@ -231,12 +199,21 @@ export default function V2VaultPage() {
 
           {/* Parameters Tab */}
           <TabsContent value="parameters">
-            <VaultV2Parameters vaultAddress={vault.address} />
+            <VaultV2Parameters vaultAddress={vault.address} preloadedData={parameters} />
           </TabsContent>
 
           {/* Timelocks Tab */}
           <TabsContent value="timelocks">
             <VaultV2Timelocks vaultAddress={vault.address} preloadedData={governance} />
+          </TabsContent>
+
+          {/* Pending Tab */}
+          <TabsContent value="pending">
+            <VaultV2Pending
+              vaultAddress={vault.address}
+              chainId={vault.chainId}
+              preloadedData={pending}
+            />
           </TabsContent>
         </Tabs>
       </div>

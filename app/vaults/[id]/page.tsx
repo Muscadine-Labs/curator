@@ -198,7 +198,15 @@ export default function VaultDetailPage() {
             </div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <KpiCard title="Fees YTD" value={vault.feesYtd} subtitle="Year to date" format="usd" />
-              <KpiCard title="Utilization" value={vault.utilization * 100} subtitle="Capital utilization" format="percentage" />
+              <KpiCard
+                title="Utilization"
+                value={
+                  vault.analytics?.capUtilizationPercent ??
+                  (vault.utilization != null ? vault.utilization * 100 : null)
+                }
+                subtitle="Capital utilization"
+                format="percentage"
+              />
             </div>
           </TabsContent>
 

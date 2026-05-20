@@ -193,14 +193,59 @@ contract semantics. Getting those semantics wrong is the #1 source of reverts.
 All GET-style API routes return JSON consumed by React Query. Query keys:
 
 - `['vault', address]`
+- `['vault-history', address]`
 - `['vault-v1-market-risk', address]`
 - `['vault-v2-risk', address]`
 - `['vault-v2-governance', address]`
+- `['vault-v1-parameters', address]`, `['vault-v2-parameters', address]`
 - `['vault-caps', address]`, `['vault-queues', address]`, `['vault-roles', address]`
 - `['markets']`, `['morpho-markets']`, `['protocol-stats']`
 
 Hooks live in `lib/hooks/` and should be the only entry points for reading
 vault data from components.
+
+### 4.4 Vault overview, liquidity, and history (Morpho GraphQL)
+
+**Overview** — `VaultOverviewPanel` + `GET /api/vaults/[id]` (`app/api/vaults/[id]/route.ts`).
+
+- **TVL** — V1: `vault.state.totalAssetsUsd`; V2: `vaultV2.totalAssetsUsd`.
+- **Liquidity (withdrawable)** — Morpho-computed amount users can actually redeem.
+  - V1: `vault.liquidity { usd, underlying }` (vault root, not `state`).
+  - V2: `vaultV2.liquidityUsd` / `liquidity` (raw underlying units).
+  - **Not** `TVL − idle`, and **not** `VaultV2History.realAssetsUsd` (that series is
+    deployed assets ≈ TVL − idle, which diverges from `liquidityUsd` when idle or
+    adapter liquidity constraints differ).
+- **Idle** — V2 only: `idleAssets` / `idleAssetsUsd` (cash in the vault contract).
+- Analytics object from `lib/morpho/vault-analytics.ts` (`buildVaultAnalytics`).
+
+**History chart** — `VaultOverviewHistoryChart` + `GET /api/vaults/[id]/history`
+(`lib/morpho/vault-history.ts`, `useVaultHistory`).
+
+| Metric | V1 `VaultHistory` | V2 `VaultV2History` |
+| ------ | ----------------- | ------------------- |
+| Tokens supplied | `totalAssets` / `totalAssetsUsd` | same |
+| APY | `netApy` (×100 for %) | `avgNetApy` (×100 for %) |
+| Liquidity | **not indexed** | **not indexed** |
+
+- Response flag `liquidityHistoricalAvailable` is always `false`. Do **not** synthesize
+  liquidity from TVL, idle, or `realAssetsUsd`.
+- Chart metric **Liquidity** stays in the UI but is disabled with a note; spot value
+  is in the breakdown card above.
+- Filters: `MetricModeFilter`, `UsdTokenModeFilter` (USD / Tokens on supplied only),
+  `TimeRangeFilter`.
+
+**Other Morpho API fixes (do not regress):**
+
+- V1 detail query: `warnings` on **vault root**, not `state` (GraphQL validation error).
+- V2 governance caps: GraphQL `type` is `Adapter` / `MarketV1`, not lowercase
+  `adapter` / `market` — see `lib/morpho/cap-utils.ts`.
+- V1 on-chain parameters: `GET /api/vaults/v1/[id]/parameters` (server multicall),
+  not wallet RPC in the browser.
+- Allocation tables: optional **USD / Tokens** toggle via `AllocationFilters.amountUnit`
+  and `lib/format/allocation-display.ts`; decimals from `lib/format/asset-decimals.ts`
+  (USDC 6, WETH 18, cbBTC 8).
+- Allocation column **Liquidity** = per-market `liquidityAssetsUsd` (Blue market depth),
+  not vault-level withdrawable liquidity.
 
 ---
 
@@ -244,6 +289,10 @@ All helpers live in `lib/format/number.ts`:
   precision when required.
 - `formatCompactNumber`, `formatPercent`, `formatBigIntValue`,
   `formatRelativeCap` — existing helpers for compact KPI displays.
+- `lib/format/asset-decimals.ts` — `resolveAssetDecimals`, `getTokenDisplayDecimals`
+  for known symbols (USDC 6, WETH 18, cbBTC/BTC 8).
+- `lib/format/allocation-display.ts` — `formatAllocationAmount`, `formatCapRawAmount`
+  for USD vs raw token display on allocation tables.
 
 Rules:
 
@@ -322,6 +371,23 @@ components.
 - Address missing from `lib/config/vaults.ts` or from env `NEXT_PUBLIC_VAULT_*`.
 - API route `/api/vaults/[id]` returns 404 if the vault isn't tracked.
 
+### Vault liquidity vs idle vs deployed (Morpho API)
+
+- **Vault liquidity** = Morpho `liquidityUsd` / `liquidity` (withdrawable). Never
+  derive as `TVL − idle` for display or history.
+- **Idle** = unallocated vault balance (`idleAssetsUsd` on V2).
+- **`realAssetsUsd` in `VaultV2History`** ≈ deployed (TVL − idle), not withdrawable.
+- **Historical liquidity** is not on `VaultHistory` or `VaultV2History`; only spot
+  fields on `vaultByAddress` / `vaultV2ByAddress`.
+
+### V1 vault page fails to load / empty GraphQL
+
+- Ensure `warnings` is queried on the vault object, not nested under `state`.
+
+### V2 cap validation always fails
+
+- Match caps with `isAdapterCap` / `isMarketCap` in `cap-utils.ts` (`Adapter`, `MarketV1`).
+
 ---
 
 ## 11. Development Workflow
@@ -364,6 +430,13 @@ npm run build
 | V1 data hook                     | `lib/hooks/useVaultV1Complete.ts`                        |
 | V2 data hook                     | `lib/hooks/useVaultV2Complete.ts`                        |
 | V2 caps API                      | `app/api/vaults/v2/[id]/governance/route.ts`             |
+| Vault overview + history chart   | `components/morpho/VaultOverviewPanel.tsx`, `VaultOverviewHistoryChart.tsx` |
+| Vault history BFF                | `app/api/vaults/[id]/history/route.ts`, `lib/morpho/vault-history.ts` |
+| Vault overview analytics         | `lib/morpho/vault-analytics.ts`                          |
+| Chart metric / unit filters      | `components/charts/MetricModeFilter.tsx`, `UsdTokenModeFilter.tsx` |
+| Asset decimals + allocation fmt  | `lib/format/asset-decimals.ts`, `allocation-display.ts` |
+| V1 parameters API                | `app/api/vaults/v1/[id]/parameters/route.ts`             |
+| V2 cap helpers                   | `lib/morpho/cap-utils.ts`, `lib/morpho/vault-v2-governance-map.ts` |
 | V2 risk API                      | `app/api/vaults/v2/[id]/risk/route.ts`                   |
 | V1 market risk API               | `app/api/vaults/v1/[id]/market-risk/route.ts`            |
 | Vault list API                   | `app/api/vaults/route.ts`, `app/api/vaults/[id]/route.ts`|
@@ -469,9 +542,8 @@ V2 contracts (same on every chain):
 `knip` was run on 2026-04-24 to audit imports. Summary:
 
 - **No unused files** — all source files are referenced.
-- **Unused direct deps** — `@reown/appkit-controllers` appears in
-  `package.json` but isn't directly imported; it's a transitive peer of
-  `@rainbow-me/rainbowkit` and should stay pinned.
+- **Unused direct deps** — none flagged at last knip run after Reown AppKit
+  migration (wallet stack is `@reown/appkit` + `@reown/appkit-adapter-wagmi`).
 - **Unused test/lint devDeps** — `@testing-library/*`, `@eslint/compat`,
   `@eslint/eslintrc`, `@jest/globals`, `fake-indexeddb`, `eslint-config-next`
   are flagged by knip because they're used via config files, not `import`.
@@ -589,6 +661,7 @@ CCTP, formatting, and chart date filtering.
 | `lib/cctp/__tests__/constants.test.ts`                     | Domain ids match Circle's registry; every enabled EVM chain has the full contract triple; disabled chains expose a `disabledReason`. |
 | `lib/cctp/__tests__/attestation.test.ts`                   | `addressToBytes32`, `extractMessageFromReceipt`, `fetchAttestation` (with `fetch` mocked for 200/404/500 paths). |
 | `lib/format/__tests__/number.test.ts`                      | `formatRawTokenAmount` regression test for the V1 holders "0.000" bug + every other `format*` helper. |
+| `lib/morpho/__tests__/cap-utils.test.ts`                   | Morpho V2 cap type detection (`Adapter`/`MarketV1`) and cap utilization math. |
 | `lib/utils/__tests__/date-filter.test.ts`                  | `filterDataByRange` honours the launch cutoff and the 7d/30d/all selectors. |
 
 ### 16.2 Conventions
@@ -605,6 +678,6 @@ CCTP, formatting, and chart date filtering.
 
 ---
 
-_Last updated: 2026-04-25. When you change reallocation logic, caps,
-formatting, the CCTP flow, global density, or add a new vault interaction,
-update Sections 3, 5, 6, 13, 15, and 16 accordingly._
+_Last updated: 2026-05-20. When you change reallocation logic, caps, Morpho API
+mapping, vault overview/history, formatting, the CCTP flow, global density, or add
+a new vault interaction, update Sections 3–6, 10, 13, 15, and 16 accordingly._

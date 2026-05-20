@@ -14,6 +14,7 @@ interface KpiCardProps {
   isLoading?: boolean;
   format?: 'usd' | 'usd_full' | 'number' | 'percentage' | 'raw';
   compact?: boolean;
+  className?: string;
 }
 
 export function KpiCard({
@@ -24,6 +25,7 @@ export function KpiCard({
   isLoading = false,
   format = 'usd',
   compact = false,
+  className,
 }: KpiCardProps) {
   const formatValue = (val: number | string | null) => {
     if (val === null || val === undefined) return 'N/A';
@@ -44,7 +46,7 @@ export function KpiCard({
 
   if (isLoading) {
     return (
-      <Card className={compact ? 'py-3 gap-2' : undefined}>
+      <Card className={cn(compact ? 'py-3 gap-2 h-full' : 'h-full', className)}>
         <CardHeader
           className={cn(
             'flex flex-row items-center justify-between space-y-0',
@@ -55,7 +57,7 @@ export function KpiCard({
             <Skeleton className={compact ? 'h-3 w-20' : 'h-4 w-24'} />
           </CardTitle>
         </CardHeader>
-        <CardContent className={compact ? 'px-4' : undefined}>
+        <CardContent className={compact ? 'px-4 pt-0 flex-1' : 'flex-1'}>
           <div className={compact ? 'text-lg font-bold' : 'text-2xl font-bold'}>
             <Skeleton className={compact ? 'h-6 w-16' : 'h-8 w-20'} />
           </div>
@@ -70,10 +72,10 @@ export function KpiCard({
   }
 
   return (
-    <Card className={compact ? 'py-3 gap-2' : undefined}>
+    <Card className={cn(compact ? 'py-3 gap-2 h-full flex flex-col' : 'h-full flex flex-col', className)}>
       <CardHeader
         className={cn(
-          'flex flex-row items-center justify-between space-y-0',
+          'flex flex-row items-center justify-between space-y-0 shrink-0',
           compact ? 'pb-1 px-4' : 'pb-2'
         )}
       >
@@ -92,12 +94,12 @@ export function KpiCard({
           </div>
         )}
       </CardHeader>
-      <CardContent className={compact ? 'px-4 pt-0' : undefined}>
-        <div className={compact ? 'text-lg font-bold' : 'text-2xl font-bold'}>
+      <CardContent className={cn('flex flex-1 flex-col justify-center', compact ? 'px-4 pt-0' : undefined)}>
+        <div className={cn(compact ? 'text-lg font-bold tabular-nums' : 'text-2xl font-bold tabular-nums')}>
           {formatValue(value)}
         </div>
         {subtitle && (
-          <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{subtitle}</p>
         )}
       </CardContent>
     </Card>

@@ -1,7 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
+import { ConnectWalletButton } from '@/components/ConnectWalletButton';
+import { NetworkSwitcher } from '@/components/NetworkSwitcher';
+import { useAccount } from 'wagmi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ThemeSwitcher } from '@/components/ThemeSwitcher';
@@ -11,6 +14,7 @@ type AuthGuardProps = {
 };
 
 export function AuthGuard({ children }: AuthGuardProps) {
+  const { isConnected } = useAccount();
   const { isReady, isAuthenticated, role, login } = useCuratorAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -81,6 +85,15 @@ export function AuthGuard({ children }: AuthGuardProps) {
               {loading ? 'Signing in…' : 'Sign in'}
             </Button>
           </form>
+          <div className="space-y-2 border-t border-slate-200 pt-4 dark:border-slate-700">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              Wallet
+            </p>
+            <div className="flex flex-col gap-2">
+              <ConnectWalletButton />
+              {isConnected && <NetworkSwitcher />}
+            </div>
+          </div>
           <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
             <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
               Appearance

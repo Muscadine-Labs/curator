@@ -3,6 +3,7 @@ import { useVaultRoles } from './useVaultRoles';
 import { useVaultCaps } from './useVaultCaps';
 import { useVaultQueues } from './useVaultQueues';
 import { useVaultV1MarketRisk } from './useVaultV1MarketRisk';
+import { useVaultV1Pending } from './useVaultV1Pending';
 import type { Address } from 'viem';
 
 export function useVaultV1Complete(vaultAddress: string | null | undefined) {
@@ -11,6 +12,7 @@ export function useVaultV1Complete(vaultAddress: string | null | undefined) {
   const caps = useVaultCaps(vaultAddress);
   const queues = useVaultQueues(vaultAddress);
   const marketRisk = useVaultV1MarketRisk(vaultAddress);
+  const pending = useVaultV1Pending(vaultAddress);
 
   // Return vault loading state separately so pages can block only on vault data
   // Other data will load in parallel and components handle their own loading states
@@ -24,8 +26,11 @@ export function useVaultV1Complete(vaultAddress: string | null | undefined) {
     caps: caps.data,
     queues: queues.data,
     marketRisk: marketRisk.data,
+    pending: pending.data,
     isLoading,
-    vaultIsLoading: vault.isLoading, // Separate vault loading state
+    vaultIsLoading: vault.isLoading,
+    vaultIsError: vault.isError,
+    vaultError: vault.error,
     isError,
     error,
   };

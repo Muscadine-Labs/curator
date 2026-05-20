@@ -31,7 +31,7 @@ export function AddressBadge({
   };
 
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
+    <span className={`inline-flex items-center gap-2 ${className ?? ''}`}>
       <Badge variant="secondary" className="font-mono text-xs">
         {truncate ? formatAddress(address) : address}
       </Badge>
@@ -57,6 +57,6 @@ export function AddressBadge({
           <ExternalLink className="h-3 w-3" />
         </Button>
       )}
-    </div>
+    </span>
   );
 }

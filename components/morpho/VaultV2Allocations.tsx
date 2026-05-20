@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback, type ReactNode } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -29,13 +29,22 @@ import {
 } from 'viem';
 import {
   formatCompactUSD,
+  formatFullUSD,
   formatPercentage,
   formatLtv,
   formatTokenAmount,
   formatRawTokenAmount,
 } from '@/lib/format/number';
+import {
+  getTokenDisplayDecimals,
+  resolveAssetDecimals,
+} from '@/lib/format/asset-decimals';
+import { UsdTokenModeFilter } from '@/components/charts/UsdTokenModeFilter';
+import type { AllocationAmountUnit } from '@/components/morpho/AllocationFilters';
+import { formatAllocationAmount, formatCapRawAmount } from '@/lib/format/allocation-display';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
 import type { VaultV2GovernanceResponse, CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
+import { isAdapterCap, isMarketCap } from '@/lib/morpho/cap-utils';
 import {
   AllocationFilters,
   DEFAULT_FILTER_STATE,
@@ -48,6 +57,45 @@ interface VaultV2AllocationsProps {
   preloadedData?: VaultV2GovernanceResponse | null;
   /** Preloaded risk data (adapters+markets+allocations). Optional. */
   preloadedRisk?: V2VaultRiskResponse | null;
+}
+
+const MORPHO_APP_BASE = 'https://app.morpho.org/base';
+
+function morphoMarketHref(uniqueKey: string | null | undefined): string | null {
+  if (!uniqueKey) return null;
+  return `${MORPHO_APP_BASE}/market/${uniqueKey}`;
+}
+
+function morphoVaultHref(address: string | null | undefined): string | null {
+  if (!address) return null;
+  return `${MORPHO_APP_BASE}/vault/${address.toLowerCase()}`;
+}
+
+function MorphoAllocationLink({
+  href,
+  className,
+  children,
+}: {
+  href: string | null | undefined;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  if (!href) {
+    return <span className={className}>{children}</span>;
+  }
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={
+        className ??
+        'font-medium hover:text-blue-600 dark:hover:text-blue-400 underline decoration-1 underline-offset-2'
+      }
+    >
+      {children}
+    </a>
+  );
 }
 
 function formatOrDash(value: number | null | undefined): string {
@@ -120,6 +168,7 @@ function parseBigIntOrNull(s: string | number | null | undefined): bigint | null
 type DisplayRow = {
   kind: 'display';
   market: string;
+  morphoHref: string | null;
   lltv: string | number | null;
   utilization: number | null;
   liquidity: number | null;
@@ -137,6 +186,7 @@ type TargetRow = {
   kind: 'target';
   targetIdx: number;
   market: string;
+  morphoHref: string | null;
   isIdle: boolean;
   supplyApy: number | null;
   liquidity: number | null;
@@ -161,11 +211,11 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
     const map = new Map<string, CapInfo>();
     for (const cap of governance?.caps ?? []) {
       // Build idHash for each cap based on its kind.
-      if (cap.adapterAddress && cap.type === 'adapter') {
+      if (isAdapterCap(cap) && cap.adapterAddress) {
         const h = keccak256(encodeAdapterCapData(cap.adapterAddress));
         map.set(h.toLowerCase(), cap);
       }
-      if (cap.marketKey && cap.type === 'market') {
+      if (isMarketCap(cap) && cap.marketKey) {
         // MarketV1CapData id = keccak256(MarketParams tuple) — cannot rebuild
         // without full market params. We instead key by marketKey for lookup.
         map.set(cap.marketKey.toLowerCase(), cap);
@@ -181,7 +231,8 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
       if (byHash) return byHash;
       if (t.isMetaMorpho) {
         const byAdapter = (governance?.caps ?? []).find(
-          (c) => c.adapterAddress?.toLowerCase() === t.adapterAddress.toLowerCase() && c.type === 'adapter'
+          (c) =>
+            c.adapterAddress?.toLowerCase() === t.adapterAddress.toLowerCase() && isAdapterCap(c)
         );
         if (byAdapter) return byAdapter;
       } else if (marketKey) {
@@ -193,7 +244,8 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
     [capByIdHash, governance?.caps]
   );
 
-  const { rows, totalUsd, targets, totalRawAssets, vaultDecimals, vaultSymbol } = useMemo(() => {
+  const { rows, totalUsd, targets, totalRawAssets, vaultDecimals, vaultDisplayDecimals, vaultSymbol } =
+    useMemo(() => {
     if (!risk?.adapters) {
       return {
         rows: [] as RowType[],
@@ -201,13 +253,15 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
         targets: [] as AllocTarget[],
         totalRawAssets: BigInt(0),
         vaultDecimals: 18,
+        vaultDisplayDecimals: 6,
         vaultSymbol: '',
       };
     }
 
     const totalUsd = risk.totalAdapterAssetsUsd ?? 0;
     const va = risk.vaultAsset;
-    const dec = va?.decimals ?? 18;
+    const dec = resolveAssetDecimals(va?.symbol, va?.decimals);
+    const displayDec = getTokenDisplayDecimals(va?.symbol, dec);
     const sym = va?.symbol ?? '';
     const adapterList = (risk.adapters ?? []).slice().sort((a, b) => (b.allocationUsd ?? 0) - (a.allocationUsd ?? 0));
 
@@ -261,6 +315,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
           kind: 'target',
           targetIdx: tIdx,
           market: adapter.adapterLabel || 'MetaMorpho Adapter',
+          morphoHref: morphoVaultHref(adapter.underlyingVaultAddress),
           isIdle: markets.length === 0,
           supplyApy: adapterSupplyApy,
           liquidity: adapterLiquidity,
@@ -278,6 +333,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
           rows.push({
             kind: 'display',
             market: col && loan ? `${col}/${loan}` : loan || col || 'Market',
+            morphoHref: morphoMarketHref(m.market?.uniqueKey),
             lltv: m.market?.lltv ?? null,
             utilization: m.market?.state?.utilization ?? null,
             liquidity: m.market?.state?.liquidityAssetsUsd ?? null,
@@ -328,6 +384,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
             kind: 'target',
             targetIdx: tIdx,
             market: label,
+            morphoHref: morphoMarketHref(m.market?.uniqueKey),
             isIdle: !m.market?.lltv,
             supplyApy: m.market?.state?.supplyApy ?? null,
             liquidity: m.market?.state?.liquidityAssetsUsd ?? null,
@@ -342,7 +399,15 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
       }
     }
 
-    return { rows, totalUsd, targets, totalRawAssets: totalRaw, vaultDecimals: dec, vaultSymbol: sym };
+    return {
+      rows,
+      totalUsd,
+      targets,
+      totalRawAssets: totalRaw,
+      vaultDecimals: dec,
+      vaultDisplayDecimals: displayDec,
+      vaultSymbol: sym,
+    };
   }, [risk]);
 
   // Attach caps to each target now that `targets` and `capByIdHash` are known.
@@ -450,7 +515,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
       if (t.absoluteCapRaw != null && r.assets > t.absoluteCapRaw) {
         return {
           valid: false as const,
-          error: `${t.label}: allocation exceeds absolute cap (${formatRawTokenAmount(t.absoluteCapRaw, t.decimals, 2)} ${t.symbol}).`,
+          error: `${t.label}: allocation exceeds absolute cap (${formatRawTokenAmount(t.absoluteCapRaw, resolveAssetDecimals(t.symbol, t.decimals), getTokenDisplayDecimals(t.symbol, t.decimals))} ${t.symbol}).`,
           results: [] as Result[],
           sumAssets: BigInt(0),
         };
@@ -655,10 +720,17 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
           <div>
             <CardTitle>Allocations</CardTitle>
             <CardDescription>
-              Total: {formatCompactUSD(totalUsd)} ({formatRawTokenAmount(totalRawAssets, vaultDecimals, 2)} {vaultSymbol})
+              Total:{' '}
+              {filters.amountUnit === 'usd'
+                ? formatFullUSD(totalUsd, 2)
+                : `${formatRawTokenAmount(totalRawAssets, vaultDecimals, vaultDisplayDecimals)} ${vaultSymbol}`}
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <UsdTokenModeFilter
+              value={filters.amountUnit}
+              onChange={(amountUnit) => setFilters((f) => ({ ...f, amountUnit }))}
+            />
             <AllocationFilters value={filters} onChange={setFilters} editing={editing} showIdleToggles={false} />
             {!editing ? (
               <Button variant="outline" size="sm" onClick={startEditing} className="flex items-center gap-1.5">
@@ -689,7 +761,9 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
             plannedRaw={plannedSum}
             remainingRaw={remainingRaw}
             decimals={vaultDecimals}
+            displayDecimals={vaultDisplayDecimals}
             symbol={vaultSymbol}
+            amountUnit={filters.amountUnit}
           />
         )}
 
@@ -722,7 +796,12 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
                       <TableCell>
                         <div className="flex flex-col gap-0.5">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-semibold">{r.market}</span>
+                            <MorphoAllocationLink
+                              href={r.morphoHref}
+                              className="font-semibold hover:text-blue-600 dark:hover:text-blue-400 underline decoration-1 underline-offset-2"
+                            >
+                              {r.market}
+                            </MorphoAllocationLink>
                             {r.isIdle && <Badge variant="outline" className="text-xs">Idle</Badge>}
                             {t.isMetaMorpho && <Badge variant="outline" className="text-xs">MetaMorpho</Badge>}
                           </div>
@@ -746,14 +825,17 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
                           {filters.displayMode === 'percent' ? (
                             <span>{`${r.pct.toFixed(2)}%`}</span>
                           ) : (
-                            <div className="flex flex-col items-end gap-0.5">
-                              <span>
-                                {r.allocAssets != null
-                                  ? `${formatRawTokenAmount(BigInt(r.allocAssets), r.allocDecimals, 2)} ${r.allocSymbol ?? ''}`.trim()
-                                  : '—'}
-                              </span>
-                              <span className="text-muted-foreground text-xs">{formatCompactUSD(r.allocated)}</span>
-                            </div>
+                            <span className="tabular-nums text-xs">
+                              {r.allocAssets != null
+                                ? formatAllocationAmount(
+                                    filters.amountUnit,
+                                    r.allocated,
+                                    BigInt(r.allocAssets),
+                                    r.allocSymbol ?? t.symbol,
+                                    r.allocDecimals
+                                  )
+                                : '—'}
+                            </span>
                           )}
                         </TableCell>
                       )}
@@ -766,13 +848,11 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
                               {`${(Number((t.absoluteCapRaw * BigInt(10000)) / totalRawAssets) / 100).toFixed(2)}%`}
                             </span>
                           ) : (
-                            <div className="flex flex-col items-end gap-0.5">
-                              <span className="text-xs">
-                                {formatRawTokenAmount(t.absoluteCapRaw, t.decimals, 2)}
-                              </span>
+                            <div className="flex flex-col items-end gap-0.5 text-xs tabular-nums">
+                              <span>{formatCapRawAmount(t.absoluteCapRaw, t.symbol, t.decimals)}</span>
                               <span className="text-muted-foreground text-[11px]">
-                                {capRemaining != null
-                                  ? `+${formatRawTokenAmount(capRemaining, t.decimals, 2)} free`
+                                {capRemaining != null && filters.amountUnit === 'token'
+                                  ? `+${formatCapRawAmount(capRemaining, t.symbol, t.decimals)} free`
                                   : ''}
                                 {t.relativeCapWad != null && t.relativeCapWad < BigInt('1000000000000000000')
                                   ? ` · rel ${(Number(t.relativeCapWad) / 1e16).toFixed(2)}%`
@@ -788,7 +868,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
                           <div className="flex items-center justify-end gap-1">
                             <Input
                               type="text"
-                              placeholder={inputMode === 'percentage' ? currentPct.toFixed(2) : formatTokenAmount(t.currentAssets, t.decimals, 4)}
+                              placeholder={inputMode === 'percentage' ? currentPct.toFixed(2) : formatTokenAmount(t.currentAssets, t.decimals, Math.min(4, getTokenDisplayDecimals(t.symbol, t.decimals)))}
                               value={inputValues[r.targetIdx] ?? ''}
                               onChange={(e) => updateInput(r.targetIdx, e.target.value)}
                               className="text-right text-sm w-28 h-8"
@@ -808,7 +888,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
                     <TableCell className="pl-8">
                       <div className="flex flex-col gap-0.5">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-medium">{r.market}</span>
+                          <MorphoAllocationLink href={r.morphoHref}>{r.market}</MorphoAllocationLink>
                           {formatLtv(r.lltv) === '—' && <Badge variant="outline" className="text-xs">Idle</Badge>}
                         </div>
                         <span className="text-muted-foreground text-xs">
@@ -835,14 +915,17 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
                         {filters.displayMode === 'percent' ? (
                           <span>{`${r.pct.toFixed(2)}%`}</span>
                         ) : (
-                          <div className="flex flex-col items-end gap-0.5">
-                            <span>
-                              {r.allocAssets != null
-                                ? `${formatRawTokenAmount(BigInt(r.allocAssets), r.allocDecimals, 2)} ${r.allocSymbol ?? ''}`.trim()
-                                : '—'}
-                            </span>
-                            <span className="text-muted-foreground text-xs">{formatCompactUSD(r.allocated)}</span>
-                          </div>
+                          <span className="tabular-nums text-xs">
+                            {r.allocAssets != null
+                              ? formatAllocationAmount(
+                                  filters.amountUnit,
+                                  r.allocated,
+                                  BigInt(r.allocAssets),
+                                  r.allocSymbol ?? vaultSymbol,
+                                  r.allocDecimals
+                                )
+                              : '—'}
+                          </span>
                         )}
                       </TableCell>
                     )}
@@ -941,13 +1024,17 @@ function RemainingBanner({
   plannedRaw,
   remainingRaw,
   decimals,
+  displayDecimals,
   symbol,
+  amountUnit,
 }: {
   totalRaw: bigint;
   plannedRaw: bigint;
   remainingRaw: bigint;
   decimals: number;
+  displayDecimals: number;
   symbol: string;
+  amountUnit: AllocationAmountUnit;
 }) {
   const isBalanced = remainingRaw === BigInt(0);
   const overshoot = remainingRaw < BigInt(0);
@@ -962,15 +1049,20 @@ function RemainingBanner({
   const label = isBalanced
     ? 'Balanced — every asset is accounted for.'
     : overshoot
-    ? `Over-allocated by ${formatRawTokenAmount(absRemaining, decimals, 4)} ${symbol}. Reduce a target.`
-    : `Unallocated: ${formatRawTokenAmount(absRemaining, decimals, 4)} ${symbol}. The largest target will absorb dust during dust-adjustment.`;
+    ? `Over-allocated by ${formatRawTokenAmount(absRemaining, decimals, Math.min(4, displayDecimals))} ${symbol}. Reduce a target.`
+    : `Unallocated: ${formatRawTokenAmount(absRemaining, decimals, Math.min(4, displayDecimals))} ${symbol}. The largest target will absorb dust during dust-adjustment.`;
+
+  const fmt = (v: bigint) =>
+    amountUnit === 'usd'
+      ? '—'
+      : formatRawTokenAmount(v, decimals, displayDecimals);
 
   return (
     <div className={`mb-3 rounded-md border p-3 text-xs ${tone}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span>{label}</span>
-        <span className="font-mono">
-          planned {formatRawTokenAmount(plannedRaw, decimals, 2)} / {formatRawTokenAmount(totalRaw, decimals, 2)} {symbol}
+        <span className="font-mono tabular-nums">
+          planned {fmt(plannedRaw)} / {fmt(totalRaw)} {amountUnit === 'token' ? symbol : ''}
         </span>
       </div>
     </div>

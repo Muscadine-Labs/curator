@@ -32,7 +32,7 @@ Next.js dashboard for Muscadine vaults on Morpho. Built on Base network.
 
 ### Required
 
-- `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` - Get from https://cloud.walletconnect.com
+- `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` - Get from https://dashboard.reown.com
 - `NEXT_PUBLIC_ALCHEMY_API_KEY` - Get from https://www.alchemy.com/
 - `ALCHEMY_API_KEY` OR `COINBASE_CDP_API_KEY` - Server-side RPC (one required)
 
@@ -53,7 +53,7 @@ All other variables have defaults. See `.env.example` for full list.
 - Next.js 15 (App Router)
 - TypeScript
 - Tailwind CSS + shadcn/ui
-- Wagmi + RainbowKit (wallet)
+- Wagmi + Reown AppKit (wallet)
 - Viem (blockchain)
 - React Query (data fetching)
 

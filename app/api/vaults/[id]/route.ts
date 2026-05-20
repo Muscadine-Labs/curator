@@ -7,6 +7,9 @@ import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
 import { gql } from 'graphql-request';
 import { getAddress, isAddress } from 'viem';
 import { logger } from '@/lib/utils/logger';
+import { buildVaultAnalytics } from '@/lib/morpho/vault-analytics';
+import { mapCap } from '@/lib/morpho/vault-v2-governance-map';
+import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
 // Types imported from SDK but not directly used in this file
 // import type { Vault, VaultPosition, Maybe } from '@morpho-org/blue-api-sdk';
 
@@ -162,6 +165,8 @@ export async function GET(
           }
           allocators { address }
           asset { address symbol decimals yield { apr } }
+          liquidity { usd underlying }
+          warnings { type level }
           state {
             owner
             curator
@@ -270,11 +275,33 @@ export async function GET(
           totalAssets
           totalAssetsUsd
           totalSupply
+          idleAssets
+          idleAssetsUsd
+          liquidity
+          liquidityUsd
           performanceFee
           managementFee
           maxApy
           avgApy
           avgNetApy
+          warnings { type level }
+          caps {
+            items {
+              type
+              absoluteCap
+              relativeCap
+              allocation
+              data {
+                __typename
+                ... on AdapterCapData { adapterAddress }
+                ... on MarketV1CapData {
+                  adapterAddress
+                  market { uniqueKey }
+                }
+                ... on CollateralCapData { collateralAddress }
+              }
+            }
+          }
           rewards {
             asset { address chain { id } }
             supplyApr
@@ -412,6 +439,7 @@ export async function GET(
       name?: string | null;
       symbol?: string | null;
       whitelisted?: boolean | null;
+      warnings?: Array<{ type?: string; level?: string }>;
       metadata?: {
         description?: string | null;
         forumLink?: string | null;
@@ -425,10 +453,16 @@ export async function GET(
         decimals?: number;
         yield?: { apr?: number | null } | null;
       } | null;
+      liquidity?: { usd?: number | null; underlying?: string | number | null } | number | string | null;
       // V2 vault fields (direct on vault)
       totalAssetsUsd?: number | null;
+      idleAssets?: string | number | null;
+      idleAssetsUsd?: number | null;
+      totalAssets?: string | number | null;
+      liquidityUsd?: number | null;
       performanceFee?: number | null;
       managementFee?: number | null;
+      caps?: { items?: Array<Parameters<typeof mapCap>[0] | null> | null } | null;
       maxApy?: number | null;
       avgApy?: number | null;
       avgNetApy?: number | null;
@@ -561,15 +595,71 @@ export async function GET(
       ? (mv?.avgNetApy != null ? mv.avgNetApy * 100 : null)
       : (mv?.state?.netApy != null ? mv.state.netApy * 100 : null);
     
-    // V2 caps structure is different, skip utilization for now
-    // V1 uses allocation
+    const v2Caps: CapInfo[] = isV2
+      ? (mv?.caps?.items?.map(mapCap).filter((c): c is CapInfo => c !== null) ?? [])
+      : [];
+
+    const v1Utilization =
+      mv?.state?.allocation?.reduce((sum, a) => {
+        const cap = a.supplyCap ? Number(a.supplyCap) : 0;
+        const assets = a.supplyAssets ? Number(a.supplyAssets) : 0;
+        return cap > 0 ? sum + (assets / cap) : sum;
+      }, 0) ?? null;
+
     const utilization = isV2
-      ? 0 // V2 caps structure needs to be investigated separately
-      : (mv?.state?.allocation?.reduce((sum, a) => {
-          const cap = a.supplyCap ? (typeof a.supplyCap === 'bigint' ? Number(a.supplyCap) : Number(a.supplyCap)) : 0;
-          const assets = a.supplyAssets ? (typeof a.supplyAssets === 'bigint' ? Number(a.supplyAssets) : Number(a.supplyAssets)) : 0;
-          return cap > 0 ? sum + (assets / cap) : sum;
-        }, 0) ?? 0);
+      ? (v2Caps.length > 0
+          ? (() => {
+              const pct = buildVaultAnalytics({ tvlUsd: tvlUsd, caps: v2Caps }).capUtilizationPercent;
+              return pct;
+            })()
+          : null)
+      : v1Utilization;
+
+    const liquidityUsd = isV2
+      ? (mv?.liquidityUsd ?? null)
+      : (mv?.liquidity &&
+          typeof mv.liquidity === 'object' &&
+          'usd' in mv.liquidity
+          ? (mv.liquidity.usd ?? null)
+          : null);
+
+    const liquidityUnderlying = isV2
+      ? (mv?.liquidity != null && typeof mv.liquidity !== 'object'
+          ? String(mv.liquidity)
+          : null)
+      : (mv?.liquidity &&
+          typeof mv.liquidity === 'object' &&
+          mv.liquidity.underlying != null
+          ? String(mv.liquidity.underlying)
+          : null);
+
+    const idleAssetsUsd = isV2 ? (mv?.idleAssetsUsd ?? null) : null;
+
+    const totalAssetsUnderlying = isV2
+      ? (mv?.totalAssets != null ? String(mv.totalAssets) : null)
+      : (mv?.state?.totalAssets != null ? String(mv.state.totalAssets) : null);
+
+    const idleAssetsUnderlying = isV2
+      ? (mv?.idleAssets != null ? String(mv.idleAssets) : null)
+      : null;
+
+    const warnings = (mv?.warnings ?? [])
+      .filter((w): w is { type: string; level: string } => Boolean(w?.type && w?.level))
+      .map((w) => ({
+        type: w.type,
+        level: w.level.toUpperCase() as 'YELLOW' | 'RED',
+      }));
+
+    const analytics = buildVaultAnalytics({
+      tvlUsd,
+      totalAssetsUnderlying,
+      liquidityUsd,
+      liquidityUnderlying,
+      idleAssetsUsd,
+      idleAssetsUnderlying,
+      managementFee: isV2 ? (mv?.managementFee ?? null) : null,
+      caps: isV2 ? v2Caps : undefined,
+    });
     
     // Get performance fee from Morpho API (decimal like 0.05 = 5%)
     const performanceFeeBps = isV2
@@ -588,7 +678,8 @@ export async function GET(
       apyBase: apyBasePct,
       apyBoosted: apyBoostedPct,
       feesYtd: revenue.feesYtd,
-      utilization: utilization,
+      utilization,
+      analytics,
       depositors,
       revenueAllTime: revenue.revenueAllTime,
       feesAllTime: null,
@@ -699,7 +790,7 @@ export async function GET(
         supplyQueueIndex: isV2 ? null : (Array.isArray(mv?.state?.allocationQueues) && mv.state.allocationQueues.length > 0 ? mv.state.allocationQueues[0].supplyQueueIndex ?? null : null),
         withdrawQueueIndex: isV2 ? null : (Array.isArray(mv?.state?.allocationQueues) && mv.state.allocationQueues.length > 0 ? mv.state.allocationQueues[0].withdrawQueueIndex ?? null : null),
       },
-      warnings: [],
+      warnings,
       metadata: mv?.metadata || {},
       historicalData: {
         apy: mv?.historicalState?.apy || [],
@@ -711,7 +802,14 @@ export async function GET(
         owner: isV2 ? (mv?.owner?.address ?? null) : (mv?.state?.owner ?? null),
         curator: isV2 ? (mv?.curator?.address ?? null) : (mv?.state?.curator ?? null),
         guardian: isV2 ? null : (mv?.state?.guardian ?? null),
-        timelock: isV2 ? null : (mv?.state?.timelock ?? null),
+        timelock: isV2
+          ? null
+          : (() => {
+              const raw = mv?.state?.timelock;
+              if (raw == null) return null;
+              const n = typeof raw === 'number' ? raw : Number(raw);
+              return Number.isFinite(n) ? n : null;
+            })(),
       },
       transactions: txs.map((t) => ({
         blockNumber: t.blockNumber,

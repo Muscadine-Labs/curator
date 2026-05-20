@@ -34,6 +34,8 @@ interface AllocationColumnState {
  */
 type AllocationDisplayMode = 'amount' | 'percent';
 
+export type AllocationAmountUnit = 'usd' | 'token';
+
 export interface AllocationFilterState {
   search: string;
   hideZero: boolean;
@@ -44,6 +46,8 @@ export interface AllocationFilterState {
   sort: SortKey;
   columns: AllocationColumnState;
   displayMode: AllocationDisplayMode;
+  /** When displayMode is `amount`, show USD or native token amounts. */
+  amountUnit: AllocationAmountUnit;
 }
 
 const DEFAULT_COLUMN_STATE: AllocationColumnState = {
@@ -65,6 +69,7 @@ export const DEFAULT_FILTER_STATE: AllocationFilterState = {
   sort: 'allocated-desc',
   columns: DEFAULT_COLUMN_STATE,
   displayMode: 'amount',
+  amountUnit: 'token',
 };
 
 interface AllocationFiltersProps {
@@ -121,7 +126,8 @@ export function AllocationFilters({ value, onChange, editing = false, showIdleTo
     (value.onlyEdited ? 1 : 0) +
     (value.sort !== DEFAULT_FILTER_STATE.sort ? 1 : 0) +
     (hiddenColumnCount > 0 ? 1 : 0) +
-    (value.displayMode !== DEFAULT_FILTER_STATE.displayMode ? 1 : 0);
+    (value.displayMode !== DEFAULT_FILTER_STATE.displayMode ? 1 : 0) +
+    (value.amountUnit !== DEFAULT_FILTER_STATE.amountUnit ? 1 : 0);
 
   const clearAll = () => onChange(DEFAULT_FILTER_STATE);
 
@@ -231,6 +237,36 @@ export function AllocationFilters({ value, onChange, editing = false, showIdleTo
                     onChange={(v) => updateColumn(c.key, v)}
                   />
                 ))}
+              </div>
+            </div>
+
+            <div className="pt-1 border-t">
+              <label className="text-xs text-muted-foreground mb-1 block">Amount unit</label>
+              <div className="mb-2 flex gap-0.5 rounded-md border p-0.5">
+                <button
+                  type="button"
+                  onClick={() => update({ amountUnit: 'token' })}
+                  className={cn(
+                    'flex-1 px-2 py-1 rounded text-xs font-medium transition-colors',
+                    value.amountUnit === 'token'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  Tokens
+                </button>
+                <button
+                  type="button"
+                  onClick={() => update({ amountUnit: 'usd' })}
+                  className={cn(
+                    'flex-1 px-2 py-1 rounded text-xs font-medium transition-colors',
+                    value.amountUnit === 'usd'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  USD
+                </button>
               </div>
             </div>
 

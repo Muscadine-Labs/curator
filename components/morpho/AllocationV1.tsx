@@ -16,11 +16,22 @@ import {
 import { useVault } from '@/lib/hooks/useProtocolStats';
 import {
   formatCompactUSD,
+  formatFullUSD,
   formatPercentage,
   formatLtv,
   formatTokenAmount,
   formatRawTokenAmount,
 } from '@/lib/format/number';
+import {
+  getTokenDisplayDecimals,
+  resolveAssetDecimals,
+} from '@/lib/format/asset-decimals';
+import { UsdTokenModeFilter } from '@/components/charts/UsdTokenModeFilter';
+import type { AllocationAmountUnit } from '@/components/morpho/AllocationFilters';
+import {
+  formatAllocationAmount,
+  formatCapRawAmount,
+} from '@/lib/format/allocation-display';
 import { cn } from '@/lib/utils';
 import { Pencil, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -115,16 +126,17 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
     return total;
   }, [allocations]);
 
-  const decimals = vault?.assetDecimals ?? 18;
-
   const assetSymbol = useMemo(() => {
     const first = allocations.values().next();
     return (first.done ? null : first.value?.loanAssetSymbol) ?? vault?.asset ?? '';
   }, [allocations, vault?.asset]);
 
+  const vaultDecimals = resolveAssetDecimals(vault?.asset ?? assetSymbol, vault?.assetDecimals);
+  const vaultDisplayDecimals = getTokenDisplayDecimals(vault?.asset ?? assetSymbol, vaultDecimals);
+
   useEffect(() => {
     if (!vault?.allocation || allocations.size > 0) return;
-    const dec = vault?.assetDecimals ?? 18;
+    const dec = resolveAssetDecimals(vault?.asset, vault?.assetDecimals);
     const init = new Map<string, MarketAllocationInput>();
     vault.allocation.forEach((alloc) => {
       if (!alloc.marketKey) return;
@@ -220,7 +232,7 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
         targets.push({ key: e.marketKey, assets: raw, current: alloc.currentAssets });
       } else {
         try {
-          const raw = parseUnits(e.newValue, decimals);
+          const raw = parseUnits(e.newValue, vaultDecimals);
           if (raw < BigInt(0)) {
             errorMsg = `Negative amount for ${alloc.marketName}`;
             break;
@@ -259,7 +271,7 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
       if (t.assets > alloc.supplyCapRaw) {
         return {
           valid: false as const,
-          error: `${alloc.marketName}: allocation exceeds supply cap (${formatRawTokenAmount(alloc.supplyCapRaw, alloc.decimals, 2)} ${alloc.loanAssetSymbol ?? ''})`,
+          error: `${alloc.marketName}: allocation exceeds supply cap (${formatRawTokenAmount(alloc.supplyCapRaw, resolveAssetDecimals(alloc.loanAssetSymbol, alloc.decimals), getTokenDisplayDecimals(alloc.loanAssetSymbol, alloc.decimals))} ${alloc.loanAssetSymbol ?? ''})`,
           targets: [] as Target[],
           sumAssets: BigInt(0),
         };
@@ -272,7 +284,7 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
     }
 
     return { valid: true as const, error: null, targets, sumAssets: sum };
-  }, [editing, entries, inputMode, allocations, totalRawAssets, decimals]);
+  }, [editing, entries, inputMode, allocations, totalRawAssets, vaultDecimals]);
 
   const handleReallocate = useCallback(() => {
     if (!resolvedAllocations?.valid) return;
@@ -405,10 +417,17 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
           <div>
             <CardTitle>Allocation</CardTitle>
             <CardDescription>
-              Total: {formatCompactUSD(totalAssetsUsd)} ({formatRawTokenAmount(totalRawAssets, decimals, 2)} {assetSymbol})
+              Total:{' '}
+              {filters.amountUnit === 'usd'
+                ? formatFullUSD(totalAssetsUsd, 2)
+                : `${formatRawTokenAmount(totalRawAssets, vaultDecimals, vaultDisplayDecimals)} ${assetSymbol}`}
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <UsdTokenModeFilter
+              value={filters.amountUnit}
+              onChange={(amountUnit) => setFilters((f) => ({ ...f, amountUnit }))}
+            />
             <AllocationFilters value={filters} onChange={setFilters} editing={editing} />
             {!editing ? (
               <Button variant="outline" size="sm" onClick={startEditing} className="flex items-center gap-1.5">
@@ -438,8 +457,10 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
             totalRaw={totalRawAssets}
             plannedRaw={plannedSum}
             remainingRaw={remainingRaw}
-            decimals={decimals}
+            decimals={vaultDecimals}
+            displayDecimals={vaultDisplayDecimals}
             symbol={assetSymbol}
+            amountUnit={filters.amountUnit}
           />
         )}
 
@@ -515,12 +536,15 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
                         {filters.displayMode === 'percent' ? (
                           <span>{totalAssetsUsd > 0 ? `${pct.toFixed(2)}%` : '—'}</span>
                         ) : (
-                          <div className="flex flex-col items-end gap-0.5">
-                            <span>
-                              {formatRawTokenAmount(alloc.currentAssets, alloc.decimals, 2)} {alloc.loanAssetSymbol || ''}
-                            </span>
-                            <span className="text-muted-foreground text-xs">{formatCompactUSD(alloc.currentAssetsUsd)}</span>
-                          </div>
+                          <span className="tabular-nums">
+                            {formatAllocationAmount(
+                              filters.amountUnit,
+                              alloc.currentAssetsUsd,
+                              alloc.currentAssets,
+                              alloc.loanAssetSymbol || assetSymbol,
+                              alloc.decimals
+                            )}
+                          </span>
                         )}
                       </TableCell>
                     )}
@@ -533,15 +557,19 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
                             {`${(Number((alloc.supplyCapRaw * BigInt(10000)) / totalRawAssets) / 100).toFixed(2)}%`}
                           </span>
                         ) : (
-                          <div className="flex flex-col items-end gap-0.5">
-                            <span className="text-xs">
-                              {formatRawTokenAmount(alloc.supplyCapRaw, alloc.decimals, 2)}
+                          <div className="flex flex-col items-end gap-0.5 text-xs tabular-nums">
+                            <span>
+                              {formatCapRawAmount(
+                                alloc.supplyCapRaw,
+                                alloc.loanAssetSymbol || assetSymbol,
+                                alloc.decimals
+                              )}
                             </span>
-                            <span className="text-muted-foreground text-[11px]">
-                              {capRemaining != null
-                                ? `+${formatRawTokenAmount(capRemaining, alloc.decimals, 2)} free`
-                                : ''}
-                            </span>
+                            {capRemaining != null && filters.amountUnit === 'token' && (
+                              <span className="text-muted-foreground text-[11px]">
+                                {`+${formatRawTokenAmount(capRemaining, resolveAssetDecimals(alloc.loanAssetSymbol, alloc.decimals), getTokenDisplayDecimals(alloc.loanAssetSymbol, alloc.decimals))} free`}
+                              </span>
+                            )}
                           </div>
                         )}
                       </TableCell>
@@ -555,7 +583,7 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
                           <div className="flex items-center justify-end gap-1">
                             <Input
                               type="text"
-                              placeholder={inputMode === 'percentage' ? rawPct.toFixed(2) : formatTokenAmount(alloc.currentAssets, decimals, 4)}
+                              placeholder={inputMode === 'percentage' ? rawPct.toFixed(2) : formatTokenAmount(alloc.currentAssets, vaultDecimals, Math.min(4, vaultDisplayDecimals))}
                               value={entry.newValue}
                               onChange={(e) => updateEntry(entry.marketKey, e.target.value)}
                               className="text-right text-sm w-28 h-8"
@@ -659,13 +687,17 @@ function RemainingBanner({
   plannedRaw,
   remainingRaw,
   decimals,
+  displayDecimals,
   symbol,
+  amountUnit,
 }: {
   totalRaw: bigint;
   plannedRaw: bigint;
   remainingRaw: bigint;
   decimals: number;
+  displayDecimals: number;
   symbol: string;
+  amountUnit: AllocationAmountUnit;
 }) {
   const isBalanced = remainingRaw === BigInt(0);
   const overshoot = remainingRaw < BigInt(0);
@@ -680,15 +712,20 @@ function RemainingBanner({
   const label = isBalanced
     ? 'Balanced — all funds are allocated.'
     : overshoot
-    ? `Over-allocated by ${formatRawTokenAmount(absRemaining, decimals, 4)} ${symbol}. Reduce one of the targets.`
-    : `Unallocated: ${formatRawTokenAmount(absRemaining, decimals, 4)} ${symbol}. The biggest increase will absorb this on-chain via the uint256.max catcher.`;
+    ? `Over-allocated by ${formatRawTokenAmount(absRemaining, decimals, Math.min(4, displayDecimals))} ${symbol}. Reduce one of the targets.`
+    : `Unallocated: ${formatRawTokenAmount(absRemaining, decimals, Math.min(4, displayDecimals))} ${symbol}. The biggest increase will absorb this on-chain via the uint256.max catcher.`;
+
+  const fmt = (v: bigint) =>
+    amountUnit === 'usd'
+      ? '—'
+      : formatRawTokenAmount(v, decimals, displayDecimals);
 
   return (
     <div className={`mb-3 rounded-md border p-3 text-xs ${tone}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span>{label}</span>
-        <span className="font-mono">
-          planned {formatRawTokenAmount(plannedRaw, decimals, 2)} / {formatRawTokenAmount(totalRaw, decimals, 2)} {symbol}
+        <span className="font-mono tabular-nums">
+          planned {fmt(plannedRaw)} / {fmt(totalRaw)} {amountUnit === 'token' ? symbol : ''}
         </span>
       </div>
     </div>
