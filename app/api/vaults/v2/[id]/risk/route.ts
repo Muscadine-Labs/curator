@@ -46,6 +46,7 @@ type GraphVaultResponse = {
   vault?: {
     address?: string | null;
     totalAssetsUsd?: number | null;
+    idleAssets?: string | number | null;
     idleAssetsUsd?: number | null;
     liquidityUsd?: number | null;
     asset?: { symbol?: string; decimals?: number } | null;
@@ -63,6 +64,14 @@ export type V2MarketRiskData = {
   oracleTimestampData?: OracleTimestampData | null;
 };
 
+export type V2UnderlyingVaultStats = {
+  netApy: number | null;
+  totalAssetsUsd: number | null;
+  totalAssets: string | null;
+  liquidityUsd: number | null;
+  liquidityUnderlying: string | null;
+};
+
 export type V2AdapterRiskData = {
   adapterAddress: string;
   adapterType: AdapterType;
@@ -73,11 +82,14 @@ export type V2AdapterRiskData = {
   riskGrade: MarketRiskGrade;
   markets: V2MarketRiskData[];
   underlyingVaultAddress?: string | null;
+  underlyingVaultStats?: V2UnderlyingVaultStats | null;
 };
 
 export type V2VaultRiskResponse = {
   vaultAddress: string;
   totalAdapterAssetsUsd: number;
+  idleAssets: string | null;
+  idleAssetsUsd: number | null;
   vaultRiskScore: number;
   vaultRiskGrade: MarketRiskGrade;
   vaultAsset: { symbol: string; decimals: number } | null;
@@ -89,6 +101,7 @@ const VAULT_V2_RISK_QUERY = gql`
     vault: vaultV2ByAddress(address: $address, chainId: $chainId) {
       address
       totalAssetsUsd
+      idleAssets
       idleAssetsUsd
       liquidityUsd
       asset { symbol decimals }
@@ -247,7 +260,7 @@ async function computeAdapterRisk(
       : null;
 
   if (adapter.__typename === 'MetaMorphoAdapter' && adapter.metaMorpho?.address) {
-    const { markets } = await fetchV1VaultMarkets(adapter.metaMorpho.address, chainId);
+    const { markets, vaultStats } = await fetchV1VaultMarkets(adapter.metaMorpho.address, chainId);
     const marketRisks = await Promise.all(
       markets.map((m) => buildMarketRisk(m, m.vaultSupplyAssetsUsd ?? 0, m.vaultSupplyAssets ?? null))
     );
@@ -262,8 +275,16 @@ async function computeAdapterRisk(
       allocationAssets: adapter.assets ?? null,
       riskScore: weightedScore,
       riskGrade: grade,
-      markets: marketRisks,
+      // V1 vault only — underlying Blue markets are not listed in V2 risk UI.
+      markets: [],
       underlyingVaultAddress: adapter.metaMorpho.address,
+      underlyingVaultStats: {
+        netApy: vaultStats.netApy,
+        totalAssetsUsd: vaultStats.totalAssetsUsd,
+        totalAssets: vaultStats.totalAssets,
+        liquidityUsd: vaultStats.liquidityUsd,
+        liquidityUnderlying: vaultStats.liquidityUnderlying,
+      },
     };
   }
 
@@ -406,6 +427,11 @@ export async function GET(
     const response: V2VaultRiskResponse = {
       vaultAddress: address,
       totalAdapterAssetsUsd,
+      idleAssets:
+        data.vault.idleAssets != null && data.vault.idleAssets !== undefined
+          ? String(data.vault.idleAssets)
+          : null,
+      idleAssetsUsd: data.vault.idleAssetsUsd ?? null,
       vaultRiskScore,
       vaultRiskGrade: getGradeFromScore(vaultRiskScore),
       vaultAsset,

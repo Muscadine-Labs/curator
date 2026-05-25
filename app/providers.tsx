@@ -1,45 +1,25 @@
 'use client';
 
+import '@rainbow-me/rainbowkit/styles.css';
+
 import { useEffect, useState, type ReactNode } from 'react';
-import { WagmiProvider, cookieToInitialState, type Config } from 'wagmi';
+import { WagmiProvider, cookieToInitialState } from 'wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
-import { createAppKit, useAppKitTheme } from '@reown/appkit/react';
-import {
-  appKitMetadata,
-  networks,
-  projectId,
-  wagmiAdapter,
-} from '@/lib/wallet/config';
+import { darkTheme, lightTheme, RainbowKitProvider } from '@rainbow-me/rainbowkit';
+import { base } from 'wagmi/chains';
+import { config } from '@/lib/wallet/config';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { CuratorAuthProvider } from '@/lib/auth/CuratorAuthContext';
 import { AuthGuard } from '@/components/AuthGuard';
 import { ThemeProvider } from '@/lib/theme/ThemeContext';
 import { RevenueSourceProvider } from '@/lib/RevenueSourceContext';
-import { base } from '@reown/appkit/networks';
 
 const ReactQueryDevtools = dynamic(
   () => import('@tanstack/react-query-devtools').then((mod) => mod.ReactQueryDevtools),
   { ssr: false }
 );
-
-createAppKit({
-  adapters: [wagmiAdapter],
-  projectId,
-  networks,
-  defaultNetwork: base,
-  metadata: appKitMetadata,
-  // Rabby and other browser extensions register via EIP-6963 (not WalletConnect QR).
-  enableEIP6963: true,
-  enableInjected: true,
-  enableNetworkSwitch: true,
-  features: {
-    analytics: false,
-    email: false,
-    socials: false,
-  },
-});
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -56,21 +36,28 @@ function resolveDark(theme: 'light' | 'dark' | 'system'): boolean {
   return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
-function AppKitThemeSync() {
+function RainbowKitThemeProvider({ children }: { children: ReactNode }) {
   const { theme } = useTheme();
-  const { setThemeMode } = useAppKitTheme();
+  const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
-    const update = () => setThemeMode(resolveDark(theme) ? 'dark' : 'light');
+    const update = () => setIsDark(resolveDark(theme));
     update();
     if (theme === 'system') {
       const mq = window.matchMedia('(prefers-color-scheme: dark)');
       mq.addEventListener('change', update);
       return () => mq.removeEventListener('change', update);
     }
-  }, [theme, setThemeMode]);
+  }, [theme]);
 
-  return null;
+  return (
+    <RainbowKitProvider
+      theme={isDark ? darkTheme() : lightTheme()}
+      initialChain={base}
+    >
+      {children}
+    </RainbowKitProvider>
+  );
 }
 
 export function Providers({
@@ -80,27 +67,24 @@ export function Providers({
   children: ReactNode;
   cookies: string | null;
 }) {
-  const initialState = cookieToInitialState(wagmiAdapter.wagmiConfig as Config, cookies);
+  const initialState = cookieToInitialState(config, cookies);
 
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <WagmiProvider
-          config={wagmiAdapter.wagmiConfig}
-          initialState={initialState}
-          reconnectOnMount
-        >
-          <AppKitThemeSync />
-          <CuratorAuthProvider>
-            <AuthGuard>
-              <RevenueSourceProvider>
-                <ErrorBoundary>{children}</ErrorBoundary>
-              </RevenueSourceProvider>
-            </AuthGuard>
-          </CuratorAuthProvider>
-          {process.env.NODE_ENV === 'development' && (
-            <ReactQueryDevtools initialIsOpen={false} />
-          )}
+        <WagmiProvider config={config} initialState={initialState} reconnectOnMount>
+          <RainbowKitThemeProvider>
+            <CuratorAuthProvider>
+              <AuthGuard>
+                <RevenueSourceProvider>
+                  <ErrorBoundary>{children}</ErrorBoundary>
+                </RevenueSourceProvider>
+              </AuthGuard>
+            </CuratorAuthProvider>
+            {process.env.NODE_ENV === 'development' && (
+              <ReactQueryDevtools initialIsOpen={false} />
+            )}
+          </RainbowKitThemeProvider>
         </WagmiProvider>
       </ThemeProvider>
     </QueryClientProvider>

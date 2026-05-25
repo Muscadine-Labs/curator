@@ -6,10 +6,11 @@
  */
 const CUTOFF_DATE = new Date('2025-06-01');
 
-export type TimeRange = 'all' | 'month' | 'week';
+export type TimeRange = 'all' | '90d' | 'month' | 'week';
 
 export const TIME_RANGE_OPTIONS: ReadonlyArray<{ value: TimeRange; label: string }> = [
   { value: 'all', label: 'All Time' },
+  { value: '90d', label: '90D' },
   { value: 'month', label: '30D' },
   { value: 'week', label: '7D' },
 ];
@@ -20,6 +21,7 @@ function rangeStart(range: TimeRange): Date {
   const d = new Date(now);
   if (range === 'week') d.setDate(now.getDate() - 7);
   else if (range === 'month') d.setDate(now.getDate() - 30);
+  else if (range === '90d') d.setDate(now.getDate() - 90);
   const bound = d < CUTOFF_DATE ? CUTOFF_DATE : d;
   return bound;
 }

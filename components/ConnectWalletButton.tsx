@@ -1,12 +1,16 @@
 'use client';
 
-import { AppKitButton } from '@reown/appkit/react';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 
 type ConnectWalletButtonProps = {
   className?: string;
 };
 
-/** Reown AppKit connect / account button (replaces RainbowKit ConnectButton). */
+/** RainbowKit wallet + network controls for the top bar. */
 export function ConnectWalletButton({ className }: ConnectWalletButtonProps) {
-  return <AppKitButton className={className} />;
+  return (
+    <div className={className}>
+      <ConnectButton showBalance={false} chainStatus="icon" accountStatus="address" />
+    </div>
+  );
 }

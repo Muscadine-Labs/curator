@@ -50,6 +50,17 @@ import {
   DEFAULT_FILTER_STATE,
   type AllocationFilterState,
 } from '@/components/morpho/AllocationFilters';
+import {
+  applyPlanningDust,
+  pickLargestAssetsIndex,
+  resolveDustRecipientIndex,
+  type DustRecipientChoice,
+} from '@/lib/onchain/allocation-dust';
+import { DustRecipientSelect } from '@/components/morpho/DustRecipientSelect';
+import {
+  morphoMarketHref,
+  morphoVaultHref,
+} from '@/lib/morpho/morpho-app-links';
 
 interface VaultV2AllocationsProps {
   vaultAddress: string;
@@ -59,18 +70,6 @@ interface VaultV2AllocationsProps {
   preloadedRisk?: V2VaultRiskResponse | null;
 }
 
-const MORPHO_APP_BASE = 'https://app.morpho.org/base';
-
-function morphoMarketHref(uniqueKey: string | null | undefined): string | null {
-  if (!uniqueKey) return null;
-  return `${MORPHO_APP_BASE}/market/${uniqueKey}`;
-}
-
-function morphoVaultHref(address: string | null | undefined): string | null {
-  if (!address) return null;
-  return `${MORPHO_APP_BASE}/vault/${address.toLowerCase()}`;
-}
-
 function MorphoAllocationLink({
   href,
   className,
@@ -78,7 +77,7 @@ function MorphoAllocationLink({
 }: {
   href: string | null | undefined;
   className?: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   if (!href) {
     return <span className={className}>{children}</span>;
@@ -96,6 +95,29 @@ function MorphoAllocationLink({
       {children}
     </a>
   );
+}
+
+function formatLiquidityCell(
+  row: TargetRow,
+  amountUnit: AllocationAmountUnit,
+  symbol: string,
+  decimals: number
+): string {
+  if (amountUnit === 'token' && row.liquidityAssets != null) {
+    try {
+      return `${formatRawTokenAmount(
+        BigInt(row.liquidityAssets),
+        decimals,
+        getTokenDisplayDecimals(symbol, decimals)
+      )} ${symbol}`;
+    } catch {
+      /* fall through to USD */
+    }
+  }
+  if (row.liquidity != null && Number.isFinite(row.liquidity)) {
+    return formatCompactUSD(row.liquidity);
+  }
+  return '—';
 }
 
 function formatOrDash(value: number | null | undefined): string {
@@ -123,6 +145,8 @@ interface AllocTarget {
   decimals: number;
   symbol: string;
   isMetaMorpho: boolean;
+  /** Vault cash not deployed to a strategy adapter — rebalanced via adapter dealloc/alloc. */
+  isVaultIdle?: boolean;
   /** Absolute cap in raw token units (null when unknown). */
   absoluteCapRaw: bigint | null;
   /** Relative cap as WAD (1e18 = 100%). Null when unknown. */
@@ -164,32 +188,24 @@ function parseBigIntOrNull(s: string | number | null | undefined): bigint | null
   }
 }
 
-/** Display-only row (sub-markets under an adapter). */
-type DisplayRow = {
-  kind: 'display';
-  market: string;
-  morphoHref: string | null;
-  lltv: string | number | null;
-  utilization: number | null;
-  liquidity: number | null;
-  borrowApy: number | null;
-  supplyApy: number | null;
-  allocated: number;
-  pct: number;
-  allocAssets: string | null;
-  allocDecimals: number;
-  allocSymbol: string | null;
-};
-
-/** Adapter-level row that maps 1-to-1 with an AllocTarget. */
+/** Idle cash held in the vault contract (not routed through an adapter). */
 type TargetRow = {
   kind: 'target';
   targetIdx: number;
   market: string;
   morphoHref: string | null;
   isIdle: boolean;
+  isMorphoBlue: boolean;
   supplyApy: number | null;
+  borrowApy: number | null;
+  utilization: number | null;
+  /** Market or underlying-vault liquidity in USD. */
   liquidity: number | null;
+  /** Underlying-vault withdrawable liquidity in raw token units. */
+  liquidityAssets: string | null;
+  /** Underlying MetaMorpho vault TVL (not V2 allocation). */
+  tvlUsd: number | null;
+  tvlAssets: string | null;
   allocated: number;
   pct: number;
   allocAssets: string | null;
@@ -199,7 +215,7 @@ type TargetRow = {
   searchHaystack: string;
 };
 
-type RowType = TargetRow | DisplayRow;
+type RowType = TargetRow;
 
 export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk }: VaultV2AllocationsProps) {
   const { data: fetchedRisk, isLoading, error } = useVaultV2Risk(vaultAddress);
@@ -227,6 +243,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
   /** Lookup caps for a target. Prefers exact idHash, then falls back by address/marketKey. */
   const capsForTarget = useCallback(
     (t: AllocTarget, marketKey?: string): CapInfo | null => {
+      if (t.isVaultIdle) return null;
       const byHash = capByIdHash.get(t.capIdHash.toLowerCase());
       if (byHash) return byHash;
       if (t.isMetaMorpho) {
@@ -246,7 +263,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
 
   const { rows, totalUsd, targets, totalRawAssets, vaultDecimals, vaultDisplayDecimals, vaultSymbol } =
     useMemo(() => {
-    if (!risk?.adapters) {
+    if (!risk) {
       return {
         rows: [] as RowType[],
         totalUsd: 0,
@@ -258,7 +275,17 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
       };
     }
 
-    const totalUsd = risk.totalAdapterAssetsUsd ?? 0;
+    const idleUsd = risk.idleAssetsUsd ?? 0;
+    let idleRaw = BigInt(0);
+    if (risk.idleAssets) {
+      try {
+        idleRaw = BigInt(risk.idleAssets);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const totalUsd = (risk.totalAdapterAssetsUsd ?? 0) + idleUsd;
     const va = risk.vaultAsset;
     const dec = resolveAssetDecimals(va?.symbol, va?.decimals);
     const displayDec = getTokenDisplayDecimals(va?.symbol, dec);
@@ -270,22 +297,13 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
     let totalRaw = BigInt(0);
 
     for (const adapter of adapterList) {
-      const markets = adapter.markets ?? [];
       const isMetaMorpho = adapter.adapterType === 'MetaMorphoAdapter';
 
       if (isMetaMorpho) {
         const adapterPct = totalUsd > 0 ? ((adapter.allocationUsd ?? 0) / totalUsd) * 100 : 0;
-        let adapterSupplyApy: number | null = null;
-        let adapterLiquidity: number | null = null;
-        if (markets.length > 0) {
-          const ta = markets.reduce((s, m) => s + (m.allocationUsd ?? 0), 0);
-          if (ta > 0) adapterSupplyApy = markets.reduce((s, m) => s + ((m.market?.state?.supplyApy ?? 0) * (m.allocationUsd ?? 0)), 0) / ta;
-          const sumLiq = markets.reduce((s, m) => s + (m.market?.state?.liquidityAssetsUsd ?? 0), 0);
-          if (Number.isFinite(sumLiq)) adapterLiquidity = sumLiq;
-        }
         const allocAssets = adapter.allocationAssets ?? null;
-        const allocDec = markets[0]?.market?.loanAsset?.decimals ?? dec;
-        const allocSym = markets[0]?.market?.loanAsset?.symbol ?? sym;
+        const allocDec = dec;
+        const allocSym = sym;
 
         const tIdx = targets.length;
         let rawAssets = BigInt(0);
@@ -311,43 +329,33 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
           relativeCapWad: null,
         });
 
+        const underlying = adapter.underlyingVaultStats;
+
         rows.push({
           kind: 'target',
           targetIdx: tIdx,
           market: adapter.adapterLabel || 'MetaMorpho Adapter',
           morphoHref: morphoVaultHref(adapter.underlyingVaultAddress),
-          isIdle: markets.length === 0,
-          supplyApy: adapterSupplyApy,
-          liquidity: adapterLiquidity,
+          isIdle: false,
+          isMorphoBlue: false,
+          supplyApy: underlying?.netApy ?? null,
+          borrowApy: null,
+          utilization: null,
+          liquidity: underlying?.liquidityUsd ?? null,
+          liquidityAssets: underlying?.liquidityUnderlying ?? null,
+          tvlUsd: underlying?.totalAssetsUsd ?? null,
+          tvlAssets: underlying?.totalAssets ?? null,
           allocated: adapter.allocationUsd ?? 0,
           pct: adapterPct,
           allocAssets,
           allocDecimals: allocDec,
           allocSymbol: allocSym,
-          searchHaystack: `${adapter.adapterLabel ?? ''} ${allocSym ?? ''}`.toLowerCase(),
+          searchHaystack: `${adapter.adapterLabel ?? ''} ${allocSym ?? ''} metamorpho`.toLowerCase(),
         });
-
-        for (const m of markets.slice().sort((a, b) => (b.allocationUsd ?? 0) - (a.allocationUsd ?? 0))) {
-          const col = m.market?.collateralAsset?.symbol;
-          const loan = m.market?.loanAsset?.symbol;
-          rows.push({
-            kind: 'display',
-            market: col && loan ? `${col}/${loan}` : loan || col || 'Market',
-            morphoHref: morphoMarketHref(m.market?.uniqueKey),
-            lltv: m.market?.lltv ?? null,
-            utilization: m.market?.state?.utilization ?? null,
-            liquidity: m.market?.state?.liquidityAssetsUsd ?? null,
-            borrowApy: m.market?.state?.borrowApy ?? null,
-            supplyApy: m.market?.state?.supplyApy ?? null,
-            allocated: m.allocationUsd ?? 0,
-            pct: totalUsd > 0 ? ((m.allocationUsd ?? 0) / totalUsd) * 100 : 0,
-            allocAssets: m.allocationAssets ?? null,
-            allocDecimals: m.market?.loanAsset?.decimals ?? 18,
-            allocSymbol: m.market?.loanAsset?.symbol ?? null,
-          });
-        }
       } else {
-        const sortedMarkets = markets.slice().sort((a, b) => (b.allocationUsd ?? 0) - (a.allocationUsd ?? 0));
+        const sortedMarkets = (adapter.markets ?? [])
+          .slice()
+          .sort((a, b) => (b.allocationUsd ?? 0) - (a.allocationUsd ?? 0));
         for (const m of sortedMarkets) {
           const col = m.market?.collateralAsset?.symbol;
           const loan = m.market?.loanAsset?.symbol;
@@ -386,18 +394,66 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
             market: label,
             morphoHref: morphoMarketHref(m.market?.uniqueKey),
             isIdle: !m.market?.lltv,
+            isMorphoBlue: true,
             supplyApy: m.market?.state?.supplyApy ?? null,
+            borrowApy: m.market?.state?.borrowApy ?? null,
+            utilization: m.market?.state?.utilization ?? null,
             liquidity: m.market?.state?.liquidityAssetsUsd ?? null,
+            liquidityAssets: null,
+            tvlUsd: null,
+            tvlAssets: null,
             allocated: m.allocationUsd ?? 0,
             pct: mktPct,
             allocAssets,
             allocDecimals: allocDec,
             allocSymbol: allocSym,
-            searchHaystack: `${label} ${allocSym ?? ''}`.toLowerCase(),
+            searchHaystack: `${label} ${allocSym ?? ''} morpho blue`.toLowerCase(),
           });
         }
       }
     }
+
+    const idlePct = totalUsd > 0 ? (idleUsd / totalUsd) * 100 : 0;
+    const idleTIdx = targets.length;
+    totalRaw += idleRaw;
+
+    targets.push({
+      label: 'Idle',
+      adapterAddress: '0x0000000000000000000000000000000000000000',
+      adapterType: 'Idle',
+      data: '0x' as Hex,
+      capIdHash: '0x0000000000000000000000000000000000000000000000000000000000000000' as Hex,
+      currentAssets: idleRaw,
+      currentUsd: idleUsd,
+      decimals: dec,
+      symbol: sym,
+      isMetaMorpho: false,
+      isVaultIdle: true,
+      absoluteCapRaw: null,
+      relativeCapWad: null,
+    });
+
+    rows.push({
+      kind: 'target',
+      targetIdx: idleTIdx,
+      market: 'Idle',
+      morphoHref: null,
+      isIdle: true,
+      isMorphoBlue: false,
+      supplyApy: null,
+      borrowApy: null,
+      utilization: null,
+      liquidity: null,
+      liquidityAssets: null,
+      tvlUsd: null,
+      tvlAssets: null,
+      allocated: idleUsd,
+      pct: idlePct,
+      allocAssets: risk.idleAssets ?? null,
+      allocDecimals: dec,
+      allocSymbol: sym,
+      searchHaystack: 'idle',
+    });
 
     return {
       rows,
@@ -413,8 +469,11 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
   // Attach caps to each target now that `targets` and `capByIdHash` are known.
   const targetsWithCaps: AllocTarget[] = useMemo(() => {
     return targets.map((t) => {
+      if (t.isVaultIdle) {
+        return { ...t, absoluteCapRaw: null, relativeCapWad: null };
+      }
       const marketKey =
-        !t.isMetaMorpho
+        !t.isMetaMorpho && !t.isVaultIdle
           ? (risk?.adapters ?? [])
               .flatMap((a) => a.markets ?? [])
               .find((m) => {
@@ -436,10 +495,21 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
   const [inputMode, setInputMode] = useState<InputMode>('percentage');
   const [inputValues, setInputValues] = useState<string[]>([]);
   const [filters, setFilters] = useState<AllocationFilterState>(DEFAULT_FILTER_STATE);
+  const [dustRecipientKey, setDustRecipientKey] = useState<DustRecipientChoice>('auto');
   const multicallWrite = useVaultWrite();
+
+  const dustOptions = useMemo(
+    () =>
+      targetsWithCaps.map((t, idx) => ({
+        id: String(idx),
+        label: t.isVaultIdle ? 'Idle' : t.label,
+      })),
+    [targetsWithCaps]
+  );
 
   const startEditing = useCallback(() => {
     setInputValues(targetsWithCaps.map(() => ''));
+    setDustRecipientKey('auto');
     setEditing(true);
   }, [targetsWithCaps]);
 
@@ -491,25 +561,80 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
       }
     }
 
-    if (errorMsg) return { valid: false as const, error: errorMsg, results: [] as Result[], sumAssets: BigInt(0) };
+    if (errorMsg) {
+      return {
+        valid: false as const,
+        error: errorMsg,
+        results: [] as Result[],
+        sumAssets: BigInt(0),
+        dustDiff: BigInt(0),
+        dustRecipientIdx: null as number | null,
+      };
+    }
     if (results.length !== targetsWithCaps.length) {
-      return { valid: false as const, error: 'Missing entries', results: [] as Result[], sumAssets: BigInt(0) };
+      return {
+        valid: false as const,
+        error: 'Missing entries',
+        results: [] as Result[],
+        sumAssets: BigInt(0),
+        dustDiff: BigInt(0),
+        dustRecipientIdx: null as number | null,
+      };
     }
 
-    let sum = results.reduce((s, r) => s + r.assets, BigInt(0));
-    const diff = totalRawAssets - sum;
-    if (diff !== BigInt(0) && results.length > 0) {
-      const largest = results.reduce((best, r) => r.assets > best.assets ? r : best, results[0]);
-      largest.assets += diff;
-      sum = totalRawAssets;
+    const pickAutoIndex = (items: ReadonlyArray<Result>) => {
+      const nonIdle = items.filter((r) => !r.target.isVaultIdle);
+      const pool = nonIdle.length > 0 ? nonIdle : items;
+      const idxInPool = pickLargestAssetsIndex(pool, (r) => r.assets);
+      const picked = pool[idxInPool];
+      return items.indexOf(picked);
+    };
+
+    const recipientIdx = resolveDustRecipientIndex(
+      results,
+      dustRecipientKey,
+      (_r, idx) => String(idx),
+      pickAutoIndex
+    );
+
+    const dustResult = applyPlanningDust(
+      results,
+      totalRawAssets,
+      recipientIdx,
+      (r) => r.assets,
+      (r, assets) => ({ ...r, assets })
+    );
+
+    if (dustResult.error) {
+      return {
+        valid: false as const,
+        error: dustResult.error,
+        results: [] as Result[],
+        sumAssets: BigInt(0),
+        dustDiff: BigInt(0),
+        dustRecipientIdx: null as number | null,
+      };
     }
 
-    if (results.some((r) => r.assets < BigInt(0))) {
-      return { valid: false as const, error: 'Allocation would go negative after dust adjustment', results: [] as Result[], sumAssets: BigInt(0) };
+    let adjustedResults = dustResult.items;
+    let sum = dustResult.sum;
+    const dustDiff = dustResult.diff;
+    const dustRecipientIdx = recipientIdx;
+
+    if (adjustedResults.some((r) => r.assets < BigInt(0))) {
+      return {
+        valid: false as const,
+        error: 'Allocation would go negative after dust adjustment',
+        results: [] as Result[],
+        sumAssets: BigInt(0),
+        dustDiff: BigInt(0),
+        dustRecipientIdx: null as number | null,
+      };
     }
 
-    // Cap validation
-    for (const r of results) {
+    // Cap validation (strategy adapters only — idle has no on-chain cap)
+    for (const r of adjustedResults) {
+      if (r.target.isVaultIdle) continue;
       if (r.assets <= r.current) continue;
       const t = r.target;
       if (t.absoluteCapRaw != null && r.assets > t.absoluteCapRaw) {
@@ -535,13 +660,27 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
       }
     }
 
-    const anyChanged = results.some((r) => r.assets !== r.current);
+    const anyChanged = adjustedResults.some((r) => r.assets !== r.current);
     if (!anyChanged) {
-      return { valid: false as const, error: null, results: [] as Result[], sumAssets: sum };
+      return {
+        valid: false as const,
+        error: null,
+        results: adjustedResults,
+        sumAssets: sum,
+        dustDiff,
+        dustRecipientIdx,
+      };
     }
 
-    return { valid: true as const, error: null, results, sumAssets: sum };
-  }, [editing, inputValues, targetsWithCaps, inputMode, totalRawAssets]);
+    return {
+      valid: true as const,
+      error: null,
+      results: adjustedResults,
+      sumAssets: sum,
+      dustDiff,
+      dustRecipientIdx,
+    };
+  }, [editing, inputValues, targetsWithCaps, inputMode, totalRawAssets, dustRecipientKey]);
 
   const handleRebalance = useCallback(() => {
     if (!resolvedAllocations?.valid) return;
@@ -550,6 +689,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
     const allocCalls: Hex[] = [];
 
     for (const r of resolvedAllocations.results) {
+      if (r.target.isVaultIdle) continue;
       if (r.assets === r.current) continue;
       if (r.assets < r.current) {
         const delta = r.current - r.assets;
@@ -630,45 +770,40 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
   }
 
   // --- Filtering & sorting -------------------------------------------------
-  // We only filter TARGET rows (adapters / markets). Display rows (sub-markets
-  // below a MetaMorpho adapter) are kept alongside their parent adapter.
   const search = filters.search.trim().toLowerCase();
 
   // Map target index -> whether it should be shown
   const showTarget = new Map<number, boolean>();
   for (const r of rows) {
-    if (r.kind !== 'target') continue;
     const t = targetsWithCaps[r.targetIdx];
     if (!t) { showTarget.set(r.targetIdx, false); continue; }
 
     const entryVal = editing ? inputValues[r.targetIdx] ?? '' : '';
     const isEdited = entryVal.trim() !== '';
-    const isIdleRow = r.isIdle;
+    const isIdleRow = Boolean(t.isVaultIdle);
     const cap = t.absoluteCapRaw;
 
     let show = true;
+    if (filters.onlyIdle && !isIdleRow) show = false;
     if (search && !r.searchHaystack.includes(search)) show = false;
     if (filters.hideZero && t.currentAssets === BigInt(0)) show = false;
-    if (filters.onlyIdle && !isIdleRow) show = false;
     if (filters.hideIdle && isIdleRow) show = false;
     if (filters.onlyWithCapacity) {
-      if (cap == null || cap <= t.currentAssets) show = false;
+      if (t.isVaultIdle || cap == null || cap <= t.currentAssets) show = false;
     }
     if (editing && filters.onlyEdited && !isEdited) show = false;
     showTarget.set(r.targetIdx, show);
   }
 
-  // Build filtered+sorted list of target indices, then emit their rows (+ children)
   const targetIndices = rows
-    .filter((r): r is TargetRow => r.kind === 'target')
     .filter((r) => showTarget.get(r.targetIdx))
     .map((r) => r.targetIdx);
 
   const sortedTargetIndices = [...targetIndices].sort((a, b) => {
     const ta = targetsWithCaps[a];
     const tb = targetsWithCaps[b];
-    const ra = rows.find((r) => r.kind === 'target' && r.targetIdx === a) as TargetRow | undefined;
-    const rb = rows.find((r) => r.kind === 'target' && r.targetIdx === b) as TargetRow | undefined;
+    const ra = rows.find((r) => r.targetIdx === a);
+    const rb = rows.find((r) => r.targetIdx === b);
     if (!ta || !tb || !ra || !rb) return 0;
 
     switch (filters.sort) {
@@ -677,7 +812,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
       case 'supplyApy-desc':
         return (rb.supplyApy ?? -Infinity) - (ra.supplyApy ?? -Infinity);
       case 'utilization-desc':
-        return 0; // targets don't expose utilization
+        return (rb.utilization ?? -Infinity) - (ra.utilization ?? -Infinity);
       case 'capacity-desc': {
         const capA = ta.absoluteCapRaw != null ? Number(ta.absoluteCapRaw - ta.currentAssets) : -Infinity;
         const capB = tb.absoluteCapRaw != null ? Number(tb.absoluteCapRaw - tb.currentAssets) : -Infinity;
@@ -691,27 +826,18 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
     }
   });
 
-  // Emit rows in the new order: each target, followed by its child display rows (if MetaMorpho).
   const rowsToRender: RowType[] = [];
-  const rowIdxToTargetChildren = new Map<number, DisplayRow[]>();
-  let currentIdx: number | null = null;
-  for (const r of rows) {
-    if (r.kind === 'target') {
-      currentIdx = r.targetIdx;
-      rowIdxToTargetChildren.set(currentIdx, []);
-    } else if (currentIdx != null) {
-      rowIdxToTargetChildren.get(currentIdx)!.push(r);
-    }
-  }
   for (const idx of sortedTargetIndices) {
-    const tr = rows.find((r) => r.kind === 'target' && r.targetIdx === idx) as TargetRow | undefined;
-    if (!tr) continue;
-    rowsToRender.push(tr);
-    for (const child of rowIdxToTargetChildren.get(idx) ?? []) rowsToRender.push(child);
+    const tr = rows.find((r) => r.targetIdx === idx);
+    if (tr) rowsToRender.push(tr);
   }
 
   const plannedSum = resolvedAllocations?.sumAssets ?? BigInt(0);
   const remainingRaw = editing ? totalRawAssets - plannedSum : BigInt(0);
+  const dustRecipientLabel =
+    resolvedAllocations?.dustRecipientIdx != null
+      ? targetsWithCaps[resolvedAllocations.dustRecipientIdx]?.label ?? null
+      : null;
 
   return (
     <Card>
@@ -731,7 +857,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
               value={filters.amountUnit}
               onChange={(amountUnit) => setFilters((f) => ({ ...f, amountUnit }))}
             />
-            <AllocationFilters value={filters} onChange={setFilters} editing={editing} showIdleToggles={false} />
+            <AllocationFilters value={filters} onChange={setFilters} editing={editing} />
             {!editing ? (
               <Button variant="outline" size="sm" onClick={startEditing} className="flex items-center gap-1.5">
                 <Pencil className="h-3.5 w-3.5" /> Rebalance
@@ -756,15 +882,25 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
       </CardHeader>
       <CardContent>
         {editing && (
-          <RemainingBanner
-            totalRaw={totalRawAssets}
-            plannedRaw={plannedSum}
-            remainingRaw={remainingRaw}
-            decimals={vaultDecimals}
-            displayDecimals={vaultDisplayDecimals}
-            symbol={vaultSymbol}
-            amountUnit={filters.amountUnit}
-          />
+          <div className="mb-3 space-y-2">
+            <RemainingBanner
+              totalRaw={totalRawAssets}
+              plannedRaw={plannedSum}
+              remainingRaw={remainingRaw}
+              decimals={vaultDecimals}
+              displayDecimals={vaultDisplayDecimals}
+              symbol={vaultSymbol}
+              amountUnit={filters.amountUnit}
+              dustDiff={resolvedAllocations?.dustDiff ?? BigInt(0)}
+              dustRecipientLabel={dustRecipientLabel}
+              dustIsAuto={dustRecipientKey === 'auto'}
+            />
+            <DustRecipientSelect
+              value={dustRecipientKey}
+              onChange={setDustRecipientKey}
+              options={dustOptions}
+            />
+          </div>
         )}
 
         <div className="overflow-x-auto rounded-md border">
@@ -783,40 +919,108 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rowsToRender.map((r, i) => {
-                if (r.kind === 'target') {
-                  const t = targetsWithCaps[r.targetIdx];
-                  const currentPct = totalRawAssets > BigInt(0) ? Number(t.currentAssets * BigInt(10000) / totalRawAssets) / 100 : 0;
-                  const capRemaining = t.absoluteCapRaw != null
-                    ? (t.absoluteCapRaw > t.currentAssets ? t.absoluteCapRaw - t.currentAssets : BigInt(0))
+              {rowsToRender.map((r) => {
+                const t = targetsWithCaps[r.targetIdx];
+                const currentPct =
+                  totalRawAssets > BigInt(0)
+                    ? Number(t.currentAssets * BigInt(10000) / totalRawAssets) / 100
+                    : 0;
+                const capRemaining =
+                  t.absoluteCapRaw != null
+                    ? t.absoluteCapRaw > t.currentAssets
+                      ? t.absoluteCapRaw - t.currentAssets
+                      : BigInt(0)
                     : null;
 
-                  return (
-                    <TableRow key={`target-${r.targetIdx}`} className="bg-muted/50">
-                      <TableCell>
-                        <div className="flex flex-col gap-0.5">
-                          <div className="flex flex-wrap items-center gap-2">
+                const isDustRecipient =
+                  editing &&
+                  resolvedAllocations?.dustRecipientIdx != null &&
+                  r.targetIdx === resolvedAllocations.dustRecipientIdx;
+
+                return (
+                  <TableRow
+                    key={`target-${r.targetIdx}`}
+                    className={t.isVaultIdle ? 'bg-slate-50/80 dark:bg-slate-900/40' : 'bg-muted/50'}
+                  >
+                    <TableCell>
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {t.isVaultIdle ? (
+                            <span className="font-semibold">{r.market}</span>
+                          ) : (
                             <MorphoAllocationLink
                               href={r.morphoHref}
                               className="font-semibold hover:text-blue-600 dark:hover:text-blue-400 underline decoration-1 underline-offset-2"
                             >
                               {r.market}
                             </MorphoAllocationLink>
-                            {r.isIdle && <Badge variant="outline" className="text-xs">Idle</Badge>}
-                            {t.isMetaMorpho && <Badge variant="outline" className="text-xs">MetaMorpho</Badge>}
-                          </div>
-                          <span className="text-muted-foreground text-xs">
-                            {t.isMetaMorpho ? 'Wrapped Vault' : 'Direct Market'}
-                          </span>
+                          )}
+                          {t.isVaultIdle && (
+                            <Badge variant="outline" className="text-xs">
+                              Idle Adapter
+                            </Badge>
+                          )}
+                          {t.isMetaMorpho && (
+                            <Badge variant="outline" className="text-xs">
+                              MetaMorpho
+                            </Badge>
+                          )}
+                          {r.isMorphoBlue && (
+                            <Badge variant="outline" className="text-xs">
+                              Morpho Blue
+                            </Badge>
+                          )}
+                          {isDustRecipient && (
+                            <Badge variant="secondary" className="text-xs">
+                              Dust
+                            </Badge>
+                          )}
                         </div>
-                      </TableCell>
-                      {filters.columns.utilization && <TableCell className="text-right">—</TableCell>}
-                      {filters.columns.liquidity && (
+                        <span className="text-muted-foreground text-xs">
+                          {t.isVaultIdle
+                            ? 'Vault cash — increase by deallocating from strategy adapters'
+                            : t.isMetaMorpho
+                              ? 'Wrapped Vault'
+                              : r.isMorphoBlue
+                                ? 'Morpho Blue Market'
+                                : 'Market'}
+                        </span>
+                        {t.isMetaMorpho && (r.tvlUsd != null || r.tvlAssets != null) && (
+                          <span className="text-muted-foreground text-xs tabular-nums">
+                            TVL:{' '}
+                            {r.tvlUsd != null && Number.isFinite(r.tvlUsd)
+                              ? formatFullUSD(r.tvlUsd, 2)
+                              : '—'}
+                            {r.tvlAssets != null && (
+                              <>
+                                {' · '}
+                                {formatRawTokenAmount(
+                                  BigInt(r.tvlAssets),
+                                  t.decimals,
+                                  getTokenDisplayDecimals(t.symbol, t.decimals)
+                                )}{' '}
+                                {t.symbol}
+                              </>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+                      {filters.columns.utilization && (
                         <TableCell className="text-right">
-                          {r.liquidity != null && Number.isFinite(r.liquidity) ? formatCompactUSD(r.liquidity) : '—'}
+                          {formatOrDash(scalePercent(r.utilization))}
                         </TableCell>
                       )}
-                      {filters.columns.borrowApy && <TableCell className="text-right">—</TableCell>}
+                      {filters.columns.liquidity && (
+                        <TableCell className="text-right tabular-nums text-xs">
+                          {formatLiquidityCell(r, filters.amountUnit, t.symbol, t.decimals)}
+                        </TableCell>
+                      )}
+                      {filters.columns.borrowApy && (
+                        <TableCell className="text-right">
+                          {formatOrDash(scalePercent(r.borrowApy))}
+                        </TableCell>
+                      )}
                       {filters.columns.supplyApy && (
                         <TableCell className="text-right">{formatOrDash(scalePercent(r.supplyApy))}</TableCell>
                       )}
@@ -881,63 +1085,6 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
                       )}
                     </TableRow>
                   );
-                }
-
-                return (
-                  <TableRow key={`display-${i}`}>
-                    <TableCell className="pl-8">
-                      <div className="flex flex-col gap-0.5">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <MorphoAllocationLink href={r.morphoHref}>{r.market}</MorphoAllocationLink>
-                          {formatLtv(r.lltv) === '—' && <Badge variant="outline" className="text-xs">Idle</Badge>}
-                        </div>
-                        <span className="text-muted-foreground text-xs">
-                          {formatLtv(r.lltv) === '—' ? 'Idle' : `LTV ${formatLtv(r.lltv)}`}
-                        </span>
-                      </div>
-                    </TableCell>
-                    {filters.columns.utilization && (
-                      <TableCell className="text-right">{formatOrDash(scalePercent(r.utilization))}</TableCell>
-                    )}
-                    {filters.columns.liquidity && (
-                      <TableCell className="text-right">
-                        {r.liquidity != null && Number.isFinite(r.liquidity) ? formatCompactUSD(r.liquidity) : '—'}
-                      </TableCell>
-                    )}
-                    {filters.columns.borrowApy && (
-                      <TableCell className="text-right">{formatOrDash(scalePercent(r.borrowApy))}</TableCell>
-                    )}
-                    {filters.columns.supplyApy && (
-                      <TableCell className="text-right">{formatOrDash(scalePercent(r.supplyApy))}</TableCell>
-                    )}
-                    {filters.columns.allocated && (
-                      <TableCell className="text-right">
-                        {filters.displayMode === 'percent' ? (
-                          <span>{`${r.pct.toFixed(2)}%`}</span>
-                        ) : (
-                          <span className="tabular-nums text-xs">
-                            {r.allocAssets != null
-                              ? formatAllocationAmount(
-                                  filters.amountUnit,
-                                  r.allocated,
-                                  BigInt(r.allocAssets),
-                                  r.allocSymbol ?? vaultSymbol,
-                                  r.allocDecimals
-                                )
-                              : '—'}
-                          </span>
-                        )}
-                      </TableCell>
-                    )}
-                    {filters.columns.cap && (
-                      <TableCell className="text-right">
-                        <span className="text-muted-foreground text-xs">—</span>
-                      </TableCell>
-                    )}
-                    <TableCell className="text-right">{`${r.pct.toFixed(2)}%`}</TableCell>
-                    {editing && <TableCell />}
-                  </TableRow>
-                );
               })}
               {rowsToRender.length === 0 && (
                 <TableRow>
@@ -1027,6 +1174,9 @@ function RemainingBanner({
   displayDecimals,
   symbol,
   amountUnit,
+  dustDiff = BigInt(0),
+  dustRecipientLabel,
+  dustIsAuto = true,
 }: {
   totalRaw: bigint;
   plannedRaw: bigint;
@@ -1035,10 +1185,16 @@ function RemainingBanner({
   displayDecimals: number;
   symbol: string;
   amountUnit: AllocationAmountUnit;
+  dustDiff?: bigint;
+  dustRecipientLabel?: string | null;
+  dustIsAuto?: boolean;
 }) {
   const isBalanced = remainingRaw === BigInt(0);
   const overshoot = remainingRaw < BigInt(0);
   const absRemaining = overshoot ? -remainingRaw : remainingRaw;
+  const dustApplied = dustDiff !== BigInt(0);
+  const dustTarget =
+    dustIsAuto ? 'largest non-idle target' : dustRecipientLabel ?? 'selected target';
 
   const tone = isBalanced
     ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
@@ -1047,10 +1203,12 @@ function RemainingBanner({
     : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200';
 
   const label = isBalanced
-    ? 'Balanced — every asset is accounted for.'
+    ? dustApplied
+      ? `Balanced — ${formatRawTokenAmount(dustDiff, decimals, Math.min(4, displayDecimals))} ${symbol} rounding applied to ${dustTarget}.`
+      : 'Balanced — every asset is accounted for.'
     : overshoot
     ? `Over-allocated by ${formatRawTokenAmount(absRemaining, decimals, Math.min(4, displayDecimals))} ${symbol}. Reduce a target.`
-    : `Unallocated: ${formatRawTokenAmount(absRemaining, decimals, Math.min(4, displayDecimals))} ${symbol}. The largest target will absorb dust during dust-adjustment.`;
+    : `Unallocated: ${formatRawTokenAmount(absRemaining, decimals, Math.min(4, displayDecimals))} ${symbol}. Remainder will go to ${dustTarget}.`;
 
   const fmt = (v: bigint) =>
     amountUnit === 'usd'

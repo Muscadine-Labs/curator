@@ -94,6 +94,8 @@ export default function VaultDetailPage() {
     ? `https://app.morpho.org/base/vault/${vault.address.toLowerCase()}`
     : '#';
 
+  const hasPendingChanges = (pending?.pending.length ?? 0) > 0;
+
   return (
     <AppShell
       title="Vault Details"
@@ -126,7 +128,9 @@ export default function VaultDetailPage() {
               <TabsTrigger value="parameters" className="sm:flex-1 flex-shrink-0 min-w-fit">Parameters</TabsTrigger>
               <TabsTrigger value="queues" className="sm:flex-1 flex-shrink-0 min-w-fit">Queues</TabsTrigger>
               <TabsTrigger value="emergency" className="sm:flex-1 flex-shrink-0 min-w-fit">Emergency</TabsTrigger>
-              <TabsTrigger value="pending" className="sm:flex-1 flex-shrink-0 min-w-fit">Pending</TabsTrigger>
+              {hasPendingChanges && (
+                <TabsTrigger value="pending" className="sm:flex-1 flex-shrink-0 min-w-fit">Pending</TabsTrigger>
+              )}
             </TabsList>
           </div>
 
@@ -219,13 +223,15 @@ export default function VaultDetailPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="pending">
-            <VaultV1Pending
-              vaultAddress={vault.address}
-              chainId={vault.chainId}
-              preloadedData={pending}
-            />
-          </TabsContent>
+          {hasPendingChanges && (
+            <TabsContent value="pending">
+              <VaultV1Pending
+                vaultAddress={vault.address}
+                chainId={vault.chainId}
+                preloadedData={pending}
+              />
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </AppShell>
