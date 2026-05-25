@@ -207,7 +207,12 @@ export default function V2VaultPage() {
 
           {/* Caps Tab */}
           <TabsContent value="caps">
-            <VaultV2Caps vaultAddress={vault.address} preloadedData={governance} />
+            <VaultV2Caps
+              vaultAddress={vault.address}
+              preloadedData={governance}
+              assetSymbol={vault.asset}
+              assetDecimals={vault.assetDecimals}
+            />
           </TabsContent>
 
           {/* Parameters Tab */}

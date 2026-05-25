@@ -24,7 +24,10 @@ interface AllocationColumnState {
   borrowApy: boolean;
   supplyApy: boolean;
   allocated: boolean;
-  cap: boolean;
+  /** Absolute / effective cap (raw token cap). */
+  effectiveCap: boolean;
+  /** Relative cap as % of vault (WAD). */
+  percentCap: boolean;
 }
 
 /**
@@ -53,10 +56,11 @@ export interface AllocationFilterState {
 const DEFAULT_COLUMN_STATE: AllocationColumnState = {
   utilization: true,
   liquidity: true,
-  borrowApy: true,
+  borrowApy: false,
   supplyApy: true,
   allocated: true,
-  cap: true,
+  effectiveCap: false,
+  percentCap: false,
 };
 
 export const DEFAULT_FILTER_STATE: AllocationFilterState = {
@@ -93,8 +97,9 @@ const COLUMN_OPTIONS: { key: keyof AllocationColumnState; label: string }[] = [
   { key: 'liquidity', label: 'Liquidity' },
   { key: 'borrowApy', label: 'Borrow APY' },
   { key: 'supplyApy', label: 'Supply APY' },
-  { key: 'allocated', label: 'Allocated' },
-  { key: 'cap', label: 'Cap' },
+  { key: 'allocated', label: 'Allocated (extra col)' },
+  { key: 'effectiveCap', label: 'Effective cap' },
+  { key: 'percentCap', label: 'Percent cap' },
 ];
 
 export function AllocationFilters({ value, onChange, editing = false, showIdleToggles = true }: AllocationFiltersProps) {

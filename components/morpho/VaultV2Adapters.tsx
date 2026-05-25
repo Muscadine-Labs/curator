@@ -12,7 +12,7 @@ import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
 import { TransactionButton } from '@/components/TransactionButton';
 import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
-import { formatUSD, formatNumber, formatRawTokenAmount } from '@/lib/format/number';
+import { formatUSD, formatRawTokenAmount } from '@/lib/format/number';
 import {
   getTokenDisplayDecimals,
   resolveAssetDecimals,
@@ -121,6 +121,8 @@ export function VaultV2Adapters({
                 adapter={adapter}
                 label={label}
                 isLiquidity={isLiquidity}
+                assetSymbol={assetSymbol}
+                assetDecimals={assetDecimals}
               />
             );
           })
@@ -181,14 +183,37 @@ function AdapterRow({
   adapter,
   label,
   isLiquidity,
+  assetSymbol,
+  assetDecimals,
 }: {
   vaultAddress: string;
   adapter: AdapterInfo;
   label: string;
   isLiquidity: boolean;
+  assetSymbol?: string | null;
+  assetDecimals?: number | null;
 }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const write = useVaultWrite();
+  const chainDecimals = resolveAssetDecimals(assetSymbol ?? undefined, assetDecimals ?? undefined);
+  const displayDecimals = getTokenDisplayDecimals(assetSymbol ?? undefined, chainDecimals);
+
+  const rawAssets =
+    adapter.assets != null && Number.isFinite(adapter.assets)
+      ? (() => {
+          try {
+            return BigInt(Math.floor(adapter.assets));
+          } catch {
+            return null;
+          }
+        })()
+      : null;
+
+  const allocatedLabel =
+    rawAssets != null
+      ? `${formatRawTokenAmount(rawAssets, chainDecimals, displayDecimals)}${assetSymbol ? ` ${assetSymbol}` : ''}`
+      : 'N/A';
+
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -215,14 +240,9 @@ function AdapterRow({
         </div>
         <div className="space-y-1 text-right">
           <p className="text-sm text-slate-500 dark:text-slate-400">Allocated</p>
-          <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-            {adapter.assetsUsd !== null && adapter.assetsUsd !== undefined
-              ? formatUSD(adapter.assetsUsd, 2)
-              : 'N/A'}
+          <p className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+            {allocatedLabel}
           </p>
-          {adapter.assets !== null && adapter.assets !== undefined && (
-            <p className="text-xs text-slate-500 dark:text-slate-400">Raw: {formatNumber(adapter.assets)} units</p>
-          )}
           <div className="flex justify-end pt-2">
             {confirmRemove ? (
               <div className="flex items-center gap-1">

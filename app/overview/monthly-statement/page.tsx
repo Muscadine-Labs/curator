@@ -13,23 +13,26 @@ import { getAddress } from 'viem';
 import Link from 'next/link';
 import { Info } from 'lucide-react';
 
+interface TreasuryAssetBreakdown {
+  USDC: { tokens: number; usd: number };
+  cbBTC: { tokens: number; usd: number };
+  WETH: { tokens: number; usd: number };
+}
+
 interface MonthlyStatementData {
   month: string;
-  assets: {
-    USDC: {
-      tokens: number;
-      usd: number;
-    };
-    cbBTC: {
-      tokens: number;
-      usd: number;
-    };
-    WETH: {
-      tokens: number;
-      usd: number;
-    };
-  };
+  assets: TreasuryAssetBreakdown;
+  vaultFees: TreasuryAssetBreakdown;
+  miscellaneous: TreasuryAssetBreakdown;
   total: {
+    tokens: number;
+    usd: number;
+  };
+  vaultFeesTotal: {
+    tokens: number;
+    usd: number;
+  };
+  miscellaneousTotal: {
     tokens: number;
     usd: number;
   };
@@ -67,7 +70,7 @@ interface DefiLlamaStatementResponse {
 }
 
 type YearFilter = '2025' | '2026' | 'all';
-type ViewMode = 'total' | 'byToken' | 'byVault';
+type ViewMode = 'byRevenue' | 'total' | 'byToken' | 'byVault';
 type CurrencyMode = 'usd' | 'token';
 type TabMode = 'treasury' | 'defillama';
 type DefiLlamaViewMode = 'month' | 'quarter' | 'year';
@@ -86,7 +89,7 @@ const VAULT_NAMES: Record<string, string> = {
 export default function MonthlyStatementPage() {
   const [activeTab, setActiveTab] = useState<TabMode>('treasury');
   const [yearFilter, setYearFilter] = useState<YearFilter>('all');
-  const [viewMode, setViewMode] = useState<ViewMode>('byToken');
+  const [viewMode, setViewMode] = useState<ViewMode>('byRevenue');
   const [currencyMode, setCurrencyMode] = useState<CurrencyMode>('usd');
   const [treasuryPeriodMode, setTreasuryPeriodMode] = useState<TreasuryPeriodMode>('month');
   const [defiLlamaViewMode, setDefiLlamaViewMode] = useState<DefiLlamaViewMode>('month');
@@ -265,6 +268,7 @@ export default function MonthlyStatementPage() {
   ];
 
   const viewModeOptions: { value: ViewMode; label: string }[] = [
+    { value: 'byRevenue', label: 'By Revenue' },
     { value: 'total', label: 'Total' },
     { value: 'byToken', label: 'By Token' },
     { value: 'byVault', label: 'By Vault' },
@@ -296,7 +300,7 @@ export default function MonthlyStatementPage() {
   };
 
   const getViewModeLabel = (value: ViewMode) => {
-    return viewModeOptions.find(opt => opt.value === value)?.label || 'By Token';
+    return viewModeOptions.find(opt => opt.value === value)?.label || 'By Revenue';
   };
 
   const getTreasuryPeriodModeLabel = (value: TreasuryPeriodMode) => {
@@ -344,6 +348,15 @@ export default function MonthlyStatementPage() {
   };
 
   // Aggregate treasury statements by period (month, quarter, year)
+  const mergeAssetBreakdown = (
+    a: TreasuryAssetBreakdown,
+    b: TreasuryAssetBreakdown
+  ): TreasuryAssetBreakdown => ({
+    USDC: { tokens: a.USDC.tokens + b.USDC.tokens, usd: a.USDC.usd + b.USDC.usd },
+    cbBTC: { tokens: a.cbBTC.tokens + b.cbBTC.tokens, usd: a.cbBTC.usd + b.cbBTC.usd },
+    WETH: { tokens: a.WETH.tokens + b.WETH.tokens, usd: a.WETH.usd + b.WETH.usd },
+  });
+
   const aggregatedStatements = useMemo(() => {
     if (treasuryPeriodMode === 'month') {
       // For month mode, check if each month is complete
@@ -371,25 +384,25 @@ export default function MonthlyStatementPage() {
       const periodIsComplete = isPeriodComplete(periodKey, treasuryPeriodMode);
       
       if (existing) {
+        const assets = mergeAssetBreakdown(existing.assets, statement.assets);
+        const vaultFees = mergeAssetBreakdown(existing.vaultFees, statement.vaultFees);
+        const miscellaneous = mergeAssetBreakdown(existing.miscellaneous, statement.miscellaneous);
         aggregated.set(periodKey, {
           month: periodKey,
-          assets: {
-            USDC: {
-              tokens: existing.assets.USDC.tokens + statement.assets.USDC.tokens,
-              usd: existing.assets.USDC.usd + statement.assets.USDC.usd,
-            },
-            cbBTC: {
-              tokens: existing.assets.cbBTC.tokens + statement.assets.cbBTC.tokens,
-              usd: existing.assets.cbBTC.usd + statement.assets.cbBTC.usd,
-            },
-            WETH: {
-              tokens: existing.assets.WETH.tokens + statement.assets.WETH.tokens,
-              usd: existing.assets.WETH.usd + statement.assets.WETH.usd,
-            },
-          },
+          assets,
+          vaultFees,
+          miscellaneous,
           total: {
             tokens: existing.total.tokens + statement.total.tokens,
             usd: existing.total.usd + statement.total.usd,
+          },
+          vaultFeesTotal: {
+            tokens: existing.vaultFeesTotal.tokens + statement.vaultFeesTotal.tokens,
+            usd: existing.vaultFeesTotal.usd + statement.vaultFeesTotal.usd,
+          },
+          miscellaneousTotal: {
+            tokens: existing.miscellaneousTotal.tokens + statement.miscellaneousTotal.tokens,
+            usd: existing.miscellaneousTotal.usd + statement.miscellaneousTotal.usd,
           },
           isComplete: periodIsComplete,
         });
@@ -411,7 +424,9 @@ export default function MonthlyStatementPage() {
   }, [filteredStatements, treasuryPeriodMode]);
 
   const statements = aggregatedStatements;
-  const grandTotalUSD = statements.reduce((sum, s) => sum + s.assets.USDC.usd + s.assets.cbBTC.usd + s.assets.WETH.usd, 0);
+  const grandTotalUSD = statements.reduce((sum, s) => sum + s.total.usd, 0);
+  const grandVaultFeesUSD = statements.reduce((sum, s) => sum + s.vaultFeesTotal.usd, 0);
+  const grandMiscUSD = statements.reduce((sum, s) => sum + s.miscellaneousTotal.usd, 0);
 
   // Aggregate vault data by period if needed
   const aggregatedVaultData = useMemo(() => {
@@ -643,7 +658,7 @@ export default function MonthlyStatementPage() {
       description={
         activeTab === 'treasury' ? (
         <>
-          Monthly revenue breakdown by asset from November 1st, 2025 onwards to our{' '}
+          Monthly revenue from November 1st, 2025 for our{' '}
           <Link
             href="https://debank.com/profile/0x057fd8b961eb664baa647a5c7a6e9728faba266a"
             target="_blank"
@@ -652,7 +667,7 @@ export default function MonthlyStatementPage() {
           >
             Treasury wallet
           </Link>
-          .<br />
+          . Vault fees exclude capital deposited or transferred into vault positions (shown as Miscellaneous Revenue).<br />
           <span className="text-sm text-slate-600 dark:text-slate-400">
             Revenue flows periodically when vaults have activity.
           </span>
@@ -903,7 +918,8 @@ export default function MonthlyStatementPage() {
                   <div className="flex items-center justify-center h-64 text-red-600 dark:text-red-400">
                     Failed to load monthly statement data
                   </div>
-                ) : (viewMode === 'total' && statements.length === 0) || 
+                ) : (viewMode === 'byRevenue' && statements.length === 0) ||
+                    (viewMode === 'total' && statements.length === 0) || 
                     (viewMode === 'byToken' && statements.length === 0) ||
                     (viewMode === 'byVault' && vaultMonths.length === 0) ? (
                   <div className="flex items-center justify-center h-64 text-slate-500 dark:text-slate-400">
@@ -911,6 +927,52 @@ export default function MonthlyStatementPage() {
                   </div>
                 ) : (
                 <div className="overflow-x-auto">
+                  {viewMode === 'byRevenue' && (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-[200px]">Month</TableHead>
+                          <TableHead className="text-right">From Vaults (USD)</TableHead>
+                          <TableHead className="text-right">Miscellaneous Income (USD)</TableHead>
+                          <TableHead className="text-right font-semibold">Total (USD)</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                      {statements.map((statement) => (
+                        <TableRow key={statement.month}>
+                          <TableCell className="font-medium">
+                            {formatMonth(statement.month, treasuryPeriodMode)}
+                            {!isPeriodComplete(statement.month, treasuryPeriodMode) && (
+                              <span className="ml-2 text-amber-500">*</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatCompactUSD(statement.vaultFeesTotal.usd)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatCompactUSD(statement.miscellaneousTotal.usd)}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold">
+                            {formatCompactUSD(statement.total.usd)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                        <TableRow className="bg-slate-50 dark:bg-slate-800 font-semibold">
+                          <TableCell className="font-semibold">Total</TableCell>
+                          <TableCell className="text-right font-semibold">
+                            {formatCompactUSD(grandVaultFeesUSD)}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold">
+                            {formatCompactUSD(grandMiscUSD)}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold">
+                            {formatCompactUSD(grandTotalUSD)}
+                          </TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  )}
+
                   {viewMode === 'total' && (
                     <Table>
                       <TableHeader>
@@ -972,13 +1034,13 @@ export default function MonthlyStatementPage() {
                             )}
                           </TableCell>
                           <TableCell className="text-right">
-                            {formatAmount(statement.assets.USDC, 'USDC')}
+                            {formatAmount(statement.vaultFees.USDC, 'USDC')}
                           </TableCell>
                           <TableCell className="text-right">
-                            {formatAmount(statement.assets.cbBTC, 'cbBTC')}
+                            {formatAmount(statement.vaultFees.cbBTC, 'cbBTC')}
                           </TableCell>
                           <TableCell className="text-right">
-                            {formatAmount(statement.assets.WETH, 'WETH')}
+                            {formatAmount(statement.vaultFees.WETH, 'WETH')}
                           </TableCell>
                           <TableCell className="text-right font-semibold">
                             {formatCompactUSD(statement.total.usd)}
@@ -989,20 +1051,20 @@ export default function MonthlyStatementPage() {
                         <TableCell className="font-semibold">Total</TableCell>
                         <TableCell className="text-right font-semibold">
                             {currencyMode === 'usd' 
-                              ? formatCompactUSD(statements.reduce((sum, s) => sum + s.assets.USDC.usd, 0))
-                              : formatTokenAmount(statements.reduce((sum, s) => sum + s.assets.USDC.tokens, 0), 'USDC')
+                              ? formatCompactUSD(statements.reduce((sum, s) => sum + s.vaultFees.USDC.usd, 0))
+                              : formatTokenAmount(statements.reduce((sum, s) => sum + s.vaultFees.USDC.tokens, 0), 'USDC')
                           }
                         </TableCell>
                         <TableCell className="text-right font-semibold">
                             {currencyMode === 'usd' 
-                              ? formatCompactUSD(statements.reduce((sum, s) => sum + s.assets.cbBTC.usd, 0))
-                              : formatTokenAmount(statements.reduce((sum, s) => sum + s.assets.cbBTC.tokens, 0), 'cbBTC')
+                              ? formatCompactUSD(statements.reduce((sum, s) => sum + s.vaultFees.cbBTC.usd, 0))
+                              : formatTokenAmount(statements.reduce((sum, s) => sum + s.vaultFees.cbBTC.tokens, 0), 'cbBTC')
                           }
                         </TableCell>
                         <TableCell className="text-right font-semibold">
                             {currencyMode === 'usd' 
-                              ? formatCompactUSD(statements.reduce((sum, s) => sum + s.assets.WETH.usd, 0))
-                              : formatTokenAmount(statements.reduce((sum, s) => sum + s.assets.WETH.tokens, 0), 'WETH')
+                              ? formatCompactUSD(statements.reduce((sum, s) => sum + s.vaultFees.WETH.usd, 0))
+                              : formatTokenAmount(statements.reduce((sum, s) => sum + s.vaultFees.WETH.tokens, 0), 'WETH')
                           }
                         </TableCell>
                         <TableCell className="text-right font-semibold">

@@ -11,27 +11,32 @@ import { useRevenueSource, type RevenueSource } from '@/lib/RevenueSourceContext
 
 // Lazy load chart components to reduce initial bundle size
 const ChartTvl = dynamic(() => import('@/components/ChartTvl').then(mod => ({ default: mod.ChartTvl })), {
-  loading: () => <div className="h-96 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />,
+  loading: () => <div className="h-72 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />,
   ssr: false,
 });
 
 const ChartInflows = dynamic(() => import('@/components/ChartInflows').then(mod => ({ default: mod.ChartInflows })), {
-  loading: () => <div className="h-96 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />,
+  loading: () => <div className="h-72 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />,
   ssr: false,
 });
 
 const ChartFees = dynamic(() => import('@/components/ChartFees').then(mod => ({ default: mod.ChartFees })), {
-  loading: () => <div className="h-96 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />,
+  loading: () => <div className="h-72 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />,
   ssr: false,
 });
 
 const ChartRevenue = dynamic(() => import('@/components/ChartRevenue').then(mod => ({ default: mod.ChartRevenue })), {
-  loading: () => <div className="h-96 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />,
+  loading: () => <div className="h-72 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />,
   ssr: false,
 });
 
 interface MonthlyStatementResponse {
-  statements: Array<{ month: string; total: { usd: number } }>;
+  statements: Array<{
+    month: string;
+    total: { usd: number };
+    vaultFeesTotal?: { usd: number };
+    miscellaneousTotal?: { usd: number };
+  }>;
   daily?: Array<{ date: string; value: number }>;
 }
 
@@ -68,6 +73,30 @@ export default function Home() {
     });
   }, [treasuryRevenueDaily]);
 
+  const treasuryRevenueTotals = useMemo(() => {
+    const statements = monthlyData?.statements ?? [];
+    const fromVaults = statements.reduce((sum, s) => sum + (s.vaultFeesTotal?.usd ?? 0), 0);
+    const miscellaneous = statements.reduce((sum, s) => sum + (s.miscellaneousTotal?.usd ?? 0), 0);
+    const total =
+      treasuryRevenueCumulative.length > 0
+        ? treasuryRevenueCumulative[treasuryRevenueCumulative.length - 1].value
+        : fromVaults + miscellaneous;
+    return { total, fromVaults, miscellaneous };
+  }, [monthlyData?.statements, treasuryRevenueCumulative]);
+
+  const revenueTotal =
+    revenueSource === 'treasury'
+      ? treasuryRevenueTotals.total
+      : (stats?.totalFeesGenerated ?? 0);
+  const revenueFromVaults =
+    revenueSource === 'treasury'
+      ? treasuryRevenueTotals.fromVaults
+      : (stats?.totalFeesGenerated ?? 0);
+  const revenueMiscellaneous =
+    revenueSource === 'treasury' ? treasuryRevenueTotals.miscellaneous : 0;
+  const isRevenueLoading =
+    revenueSource === 'treasury' ? isTreasuryLoading : isLoading;
+
   return (
     <AppShell
       title={
@@ -85,62 +114,76 @@ export default function Home() {
         <select
           value={revenueSource}
           onChange={(e) => setRevenueSource(e.target.value as RevenueSource)}
-          className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          className="h-8 rounded-md border border-input bg-background px-2 py-0 text-xs ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
         >
           <option value="defillama">DefiLlama</option>
           <option value="treasury">Treasury Wallet</option>
         </select>
       }
     >
-      <div className="space-y-10">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          <KpiCard
-            title="Total Deposited"
-            value={stats?.totalDeposited || 0}
-            subtitle="Across all vaults"
-            isLoading={isLoading}
-            format="usd"
-            compact
-          />
-          <KpiCard
-            title="Total Fees Generated"
-            value={stats?.totalInterestGenerated || 0}
-            subtitle="Total fees collected to token holders"
-            isLoading={isLoading}
-            format="usd"
-            compact
-          />
-          <KpiCard
-            title="Total Revenue Generated"
-            value={
-              revenueSource === 'treasury'
-                ? (treasuryRevenueCumulative?.length ? treasuryRevenueCumulative[treasuryRevenueCumulative.length - 1].value : 0)
-                : (stats?.totalFeesGenerated ?? 0)
-            }
-            subtitle="Total revenue to protocol"
-            isLoading={revenueSource === 'treasury' ? isTreasuryLoading : isLoading}
-            format="usd"
-            compact
-          />
-          <KpiCard
-            title="Active Vaults"
-            value={stats?.activeVaults || 0}
-            subtitle="Currently active"
-            isLoading={isLoading}
-            format="number"
-            compact
-          />
-          <KpiCard
-            title="Users"
-            value={stats?.users || 0}
-            subtitle="Total depositors"
-            isLoading={isLoading}
-            format="number"
-            compact
-          />
+      <div className="space-y-6">
+        <div className="rounded-lg border bg-card/40 p-3 space-y-2.5">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-4">
+            <p className="col-span-full text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Protocol
+            </p>
+            <KpiCard title="TVL" value={stats?.totalDeposited || 0} isLoading={isLoading} format="usd_full" compact className="border-0 bg-muted/40 shadow-none py-2" />
+            <KpiCard
+              title="Total Fees"
+              value={stats?.totalInterestGenerated || 0}
+              isLoading={isLoading}
+              format="usd_full"
+              compact
+              className="border-0 bg-muted/40 shadow-none py-2"
+            />
+            <KpiCard title="Users" value={stats?.users || 0} isLoading={isLoading} format="number" compact className="border-0 bg-muted/40 shadow-none py-2" />
+            <KpiCard
+              title="Active Vaults"
+              value={stats?.activeVaults || 0}
+              isLoading={isLoading}
+              format="number"
+              compact
+              className="border-0 bg-muted/40 shadow-none py-2"
+            />
+          </div>
+
+          <div className="border-t border-border/60" />
+
+          <div className="grid grid-cols-3 gap-2">
+            <p className="col-span-full text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Revenue
+              <span className="ml-1.5 font-normal normal-case tracking-normal text-muted-foreground/80">
+                · {revenueSource === 'treasury' ? 'Treasury' : 'DefiLlama'}
+              </span>
+            </p>
+            <KpiCard
+              title="Total Revenue"
+              value={revenueTotal}
+              isLoading={isRevenueLoading}
+              format="usd"
+              compact
+              className="border-0 bg-muted/40 shadow-none py-2"
+            />
+            <KpiCard
+              title="From Vaults"
+              value={revenueFromVaults}
+              isLoading={isRevenueLoading}
+              format="usd"
+              compact
+              className="border-0 bg-muted/40 shadow-none py-2"
+            />
+            <KpiCard
+              title="Miscellaneous"
+              value={revenueMiscellaneous}
+              isLoading={isRevenueLoading}
+              format="usd"
+              compact
+              className="border-0 bg-muted/40 shadow-none py-2"
+            />
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <ChartTvl
             totalData={stats?.tvlTrend}
             vaultData={stats?.tvlByVault}

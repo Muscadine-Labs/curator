@@ -2,17 +2,8 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { useVault } from '@/lib/hooks/useProtocolStats';
 import {
   formatCompactUSD,
@@ -26,13 +17,11 @@ import {
   getTokenDisplayDecimals,
   resolveAssetDecimals,
 } from '@/lib/format/asset-decimals';
-import { UsdTokenModeFilter } from '@/components/charts/UsdTokenModeFilter';
 import type { AllocationAmountUnit } from '@/components/morpho/AllocationFilters';
 import {
   formatAllocationAmount,
   formatCapRawAmount,
 } from '@/lib/format/allocation-display';
-import { cn } from '@/lib/utils';
 import { Pencil, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
@@ -57,6 +46,18 @@ import {
   DEFAULT_FILTER_STATE,
   type AllocationFilterState,
 } from '@/components/morpho/AllocationFilters';
+import {
+  AllocationExtraColumn,
+  AllocationListHeader,
+  AllocationListRow,
+  AllocationListSection,
+  AllocationListShell,
+  AllocationPill,
+  formatListAllocationAmount,
+  formatMarketPairLabel,
+  formatLltvPill,
+  getActiveExtraColumns,
+} from '@/components/morpho/AllocationListView';
 
 interface AllocationV1Props {
   vaultAddress: string;
@@ -159,7 +160,7 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
 
       const col = alloc.collateralAssetSymbol;
       const loan = alloc.loanAssetSymbol;
-      const name = col && loan ? `${col}/${loan}` : loan || col || 'Unknown Market';
+      const name = formatMarketPairLabel(col, loan);
 
       init.set(alloc.marketKey, {
         uniqueKey: alloc.marketKey,
@@ -276,6 +277,7 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
     }
 
     // Apply rounding dust to the selected recipient (default: largest target).
+    const inputSum = targets.reduce((s, t) => s + t.assets, BigInt(0));
     const recipientIdx = resolveDustRecipientIndex(
       targets,
       dustRecipientKey,
@@ -300,7 +302,6 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
       };
     }
     targets = dustResult.items;
-    let sum = dustResult.sum;
     const dustDiff = dustResult.diff;
     const dustRecipientMarketKey = targets[recipientIdx]?.key ?? null;
 
@@ -338,7 +339,8 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
         valid: false as const,
         error: null,
         targets,
-        sumAssets: sum,
+        inputSum,
+        sumAssets: inputSum,
         dustDiff,
         dustRecipientKey: dustRecipientMarketKey,
       };
@@ -348,7 +350,8 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
       valid: true as const,
       error: null,
       targets,
-      sumAssets: sum,
+      inputSum,
+      sumAssets: inputSum,
       dustDiff,
       dustRecipientKey: dustRecipientMarketKey,
     };
@@ -477,7 +480,7 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
     v != null && Number.isFinite(v) ? formatPercentage(v, 2) : '—';
 
   // Live “remaining to allocate” helper.
-  const plannedSum = resolvedAllocations?.sumAssets ?? BigInt(0);
+  const plannedSum = resolvedAllocations?.inputSum ?? BigInt(0);
   const remainingRaw = editing ? totalRawAssets - plannedSum : BigInt(0);
 
   const dustOptions = useMemo(
@@ -494,6 +497,147 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
     return allocations.get(resolvedAllocations.dustRecipientKey)?.marketName ?? null;
   }, [resolvedAllocations?.dustRecipientKey, allocations]);
 
+  const extraColumnLabels = getActiveExtraColumns(filters.columns).map((c) => c.label);
+
+  const v1IdleRows = sortedAllocations.filter(
+    (alloc) => alloc.isIdle || formatLtv(alloc.lltv) === '—'
+  );
+  const v1BlueRows = sortedAllocations.filter(
+    (alloc) => !(alloc.isIdle || formatLtv(alloc.lltv) === '—')
+  );
+  const v1Sections = [
+    { key: 'idle', title: 'Idle', rows: v1IdleRows },
+    { key: 'blue', title: 'Morpho Blue Market', rows: v1BlueRows },
+  ].filter((section) => section.rows.length > 0);
+
+  const renderV1Row = (alloc: MarketAllocationInput) => {
+    const pct = totalAssetsUsd > 0 ? (alloc.currentAssetsUsd / totalAssetsUsd) * 100 : 0;
+    const rawPct =
+      totalRawAssets > BigInt(0)
+        ? Number(alloc.currentAssets * BigInt(10000) / totalRawAssets) / 100
+        : 0;
+    const entry = entryByKey.get(alloc.uniqueKey);
+    const rowIsIdle = alloc.isIdle || formatLtv(alloc.lltv) === '—';
+    const lltvPill = rowIsIdle ? null : formatLltvPill(alloc.lltv);
+    const displayName = rowIsIdle ? 'Idle' : alloc.marketName;
+    const sym = alloc.loanAssetSymbol || assetSymbol;
+
+    const mainAmount =
+      filters.displayMode === 'percent'
+        ? `${pct.toFixed(2)}%`
+        : filters.amountUnit === 'usd'
+          ? formatFullUSD(alloc.currentAssetsUsd, 2)
+          : formatListAllocationAmount(alloc.currentAssets, sym, alloc.decimals);
+
+    const percentCapValue =
+      alloc.supplyCapRaw != null && totalRawAssets > BigInt(0)
+        ? `${(Number((alloc.supplyCapRaw * BigInt(10000)) / totalRawAssets) / 100).toFixed(2)}%`
+        : '—';
+
+    return (
+      <AllocationListRow
+        key={alloc.uniqueKey}
+        className={rowIsIdle ? 'bg-muted/30' : undefined}
+        name={
+          rowIsIdle ? (
+            displayName
+          ) : (
+            <a
+              href={`https://app.morpho.org/base/market/${alloc.uniqueKey}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-foreground hover:text-foreground"
+            >
+              {displayName}
+            </a>
+          )
+        }
+        tags={lltvPill ? <AllocationPill>{lltvPill}</AllocationPill> : undefined}
+        amount={mainAmount}
+        extraCells={
+          <>
+            {filters.columns.utilization && (
+              <AllocationExtraColumn label="Util." value={fmt(alloc.utilization)} />
+            )}
+            {filters.columns.liquidity && (
+              <AllocationExtraColumn
+                label="Liquidity"
+                value={
+                  alloc.liquidityAssetsUsd != null && Number.isFinite(alloc.liquidityAssetsUsd)
+                    ? formatCompactUSD(alloc.liquidityAssetsUsd)
+                    : '—'
+                }
+              />
+            )}
+            {filters.columns.borrowApy && (
+              <AllocationExtraColumn label="Borrow" value={fmt(alloc.borrowApy)} />
+            )}
+            {filters.columns.supplyApy && (
+              <AllocationExtraColumn label="Supply" value={fmt(alloc.supplyApy)} />
+            )}
+            {filters.columns.allocated && (
+              <AllocationExtraColumn
+                label="Allocated"
+                value={
+                  filters.displayMode === 'percent'
+                    ? totalAssetsUsd > 0
+                      ? `${pct.toFixed(2)}%`
+                      : '—'
+                    : formatAllocationAmount(
+                        filters.amountUnit,
+                        alloc.currentAssetsUsd,
+                        alloc.currentAssets,
+                        sym,
+                        alloc.decimals
+                      )
+                }
+              />
+            )}
+            {filters.columns.effectiveCap && (
+              <AllocationExtraColumn
+                label="Eff. cap"
+                value={
+                  alloc.supplyCapRaw == null
+                    ? '—'
+                    : filters.displayMode === 'percent' && totalRawAssets > BigInt(0)
+                      ? percentCapValue
+                      : formatCapRawAmount(alloc.supplyCapRaw, sym, alloc.decimals)
+                }
+              />
+            )}
+            {filters.columns.percentCap && (
+              <AllocationExtraColumn label="% cap" value={percentCapValue} />
+            )}
+          </>
+        }
+        editingCell={
+          editing && entry ? (
+            <div className="flex min-w-[7rem] items-center justify-end gap-1">
+              <Input
+                type="text"
+                placeholder={
+                  inputMode === 'percentage'
+                    ? rawPct.toFixed(2)
+                    : formatTokenAmount(
+                        alloc.currentAssets,
+                        vaultDecimals,
+                        Math.min(4, vaultDisplayDecimals)
+                      )
+                }
+                value={entry.newValue}
+                onChange={(e) => updateEntry(entry.marketKey, e.target.value)}
+                className="h-8 w-28 text-right text-sm"
+              />
+              <span className="w-6 text-left text-xs text-muted-foreground">
+                {inputMode === 'percentage' ? '%' : assetSymbol}
+              </span>
+            </div>
+          ) : undefined
+        }
+      />
+    );
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -508,10 +652,6 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <UsdTokenModeFilter
-              value={filters.amountUnit}
-              onChange={(amountUnit) => setFilters((f) => ({ ...f, amountUnit }))}
-            />
             <AllocationFilters value={filters} onChange={setFilters} editing={editing} />
             {!editing ? (
               <Button variant="outline" size="sm" onClick={startEditing} className="flex items-center gap-1.5">
@@ -558,175 +698,20 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
           </div>
         )}
 
-        <div className="overflow-x-auto rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Market</TableHead>
-                {filters.columns.utilization && <TableHead className="text-right">Utilization</TableHead>}
-                {filters.columns.liquidity && <TableHead className="text-right">Liquidity</TableHead>}
-                {filters.columns.borrowApy && <TableHead className="text-right">Borrow APY</TableHead>}
-                {filters.columns.supplyApy && <TableHead className="text-right">Supply APY</TableHead>}
-                {filters.columns.allocated && <TableHead className="text-right">Allocated</TableHead>}
-                {filters.columns.cap && <TableHead className="text-right">Cap</TableHead>}
-                <TableHead className="text-right">%</TableHead>
-                {editing && <TableHead className="text-right w-40">New Allocation</TableHead>}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {sortedAllocations.map((alloc) => {
-                const pct = totalAssetsUsd > 0 ? (alloc.currentAssetsUsd / totalAssetsUsd) * 100 : 0;
-                const rawPct = totalRawAssets > BigInt(0)
-                  ? Number(alloc.currentAssets * BigInt(10000) / totalRawAssets) / 100
-                  : 0;
-                const entry = entryByKey.get(alloc.uniqueKey);
-
-                const capRemaining = alloc.supplyCapRaw != null
-                  ? (alloc.supplyCapRaw > alloc.currentAssets
-                      ? alloc.supplyCapRaw - alloc.currentAssets
-                      : BigInt(0))
-                  : null;
-
-                const isDustRecipient =
-                  editing &&
-                  resolvedAllocations?.dustRecipientKey != null &&
-                  alloc.uniqueKey === resolvedAllocations.dustRecipientKey;
-
-                return (
-                  <TableRow key={alloc.uniqueKey} className={cn(alloc.isIdle && 'opacity-75')}>
-                    <TableCell>
-                      <div className="flex flex-col gap-0.5">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <a
-                            href={`https://app.morpho.org/base/market/${alloc.uniqueKey}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-medium hover:text-blue-600 dark:hover:text-blue-400 underline decoration-1 underline-offset-2"
-                          >
-                            {alloc.marketName}
-                          </a>
-                          {(alloc.isIdle || formatLtv(alloc.lltv) === '—') && (
-                            <Badge variant="outline" className="text-xs">Idle</Badge>
-                          )}
-                          {isDustRecipient && (
-                            <Badge variant="secondary" className="text-xs">
-                              Dust
-                            </Badge>
-                          )}
-                        </div>
-                        <span className="text-muted-foreground text-xs">
-                          {formatLtv(alloc.lltv) === '—' ? 'Idle' : `LTV ${formatLtv(alloc.lltv)}`}
-                        </span>
-                      </div>
-                    </TableCell>
-                    {filters.columns.utilization && (
-                      <TableCell className="text-right">{fmt(alloc.utilization)}</TableCell>
-                    )}
-                    {filters.columns.liquidity && (
-                      <TableCell className="text-right">
-                        {alloc.liquidityAssetsUsd != null && Number.isFinite(alloc.liquidityAssetsUsd)
-                          ? formatCompactUSD(alloc.liquidityAssetsUsd)
-                          : '—'}
-                      </TableCell>
-                    )}
-                    {filters.columns.borrowApy && (
-                      <TableCell className="text-right">{fmt(alloc.borrowApy)}</TableCell>
-                    )}
-                    {filters.columns.supplyApy && (
-                      <TableCell className="text-right">{fmt(alloc.supplyApy)}</TableCell>
-                    )}
-                    {filters.columns.allocated && (
-                      <TableCell className="text-right">
-                        {filters.displayMode === 'percent' ? (
-                          <span>{totalAssetsUsd > 0 ? `${pct.toFixed(2)}%` : '—'}</span>
-                        ) : (
-                          <span className="tabular-nums">
-                            {formatAllocationAmount(
-                              filters.amountUnit,
-                              alloc.currentAssetsUsd,
-                              alloc.currentAssets,
-                              alloc.loanAssetSymbol || assetSymbol,
-                              alloc.decimals
-                            )}
-                          </span>
-                        )}
-                      </TableCell>
-                    )}
-                    {filters.columns.cap && (
-                      <TableCell className="text-right">
-                        {alloc.supplyCapRaw == null ? (
-                          <span className="text-muted-foreground text-xs">—</span>
-                        ) : filters.displayMode === 'percent' && totalRawAssets > BigInt(0) ? (
-                          <span className="text-xs">
-                            {`${(Number((alloc.supplyCapRaw * BigInt(10000)) / totalRawAssets) / 100).toFixed(2)}%`}
-                          </span>
-                        ) : (
-                          <div className="flex flex-col items-end gap-0.5 text-xs tabular-nums">
-                            <span>
-                              {formatCapRawAmount(
-                                alloc.supplyCapRaw,
-                                alloc.loanAssetSymbol || assetSymbol,
-                                alloc.decimals
-                              )}
-                            </span>
-                            {capRemaining != null && filters.amountUnit === 'token' && (
-                              <span className="text-muted-foreground text-[11px]">
-                                {`+${formatRawTokenAmount(capRemaining, resolveAssetDecimals(alloc.loanAssetSymbol, alloc.decimals), getTokenDisplayDecimals(alloc.loanAssetSymbol, alloc.decimals))} free`}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </TableCell>
-                    )}
-                    <TableCell className="text-right">
-                      {totalAssetsUsd > 0 ? `${pct.toFixed(2)}%` : '—'}
-                    </TableCell>
-                    {editing && (
-                      <TableCell className="text-right">
-                        {entry ? (
-                          <div className="flex items-center justify-end gap-1">
-                            <Input
-                              type="text"
-                              placeholder={inputMode === 'percentage' ? rawPct.toFixed(2) : formatTokenAmount(alloc.currentAssets, vaultDecimals, Math.min(4, vaultDisplayDecimals))}
-                              value={entry.newValue}
-                              onChange={(e) => updateEntry(entry.marketKey, e.target.value)}
-                              className="text-right text-sm w-28 h-8"
-                            />
-                            <span className="text-xs text-muted-foreground w-6 text-left">
-                              {inputMode === 'percentage' ? '%' : assetSymbol}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground text-xs">—</span>
-                        )}
-                      </TableCell>
-                    )}
-                  </TableRow>
-                );
-              })}
-              {sortedAllocations.length === 0 && (
-                <TableRow>
-                  <TableCell
-                    colSpan={
-                      1 +
-                      (filters.columns.utilization ? 1 : 0) +
-                      (filters.columns.liquidity ? 1 : 0) +
-                      (filters.columns.borrowApy ? 1 : 0) +
-                      (filters.columns.supplyApy ? 1 : 0) +
-                      (filters.columns.allocated ? 1 : 0) +
-                      (filters.columns.cap ? 1 : 0) +
-                      1 +
-                      (editing ? 1 : 0)
-                    }
-                    className="text-center py-6 text-xs text-muted-foreground"
-                  >
-                    No markets match your filters.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
+        <AllocationListShell>
+          <AllocationListHeader columnLabels={extraColumnLabels} editing={editing} />
+          {sortedAllocations.length === 0 ? (
+            <div className="px-4 py-8 text-center text-xs text-muted-foreground">
+              No markets match your filters.
+            </div>
+          ) : (
+            v1Sections.map((section) => (
+              <AllocationListSection key={section.key} title={section.title}>
+                {section.rows.map((alloc) => renderV1Row(alloc))}
+              </AllocationListSection>
+            ))
+          )}
+        </AllocationListShell>
 
         {editing && (
           <div className="mt-4 space-y-3">

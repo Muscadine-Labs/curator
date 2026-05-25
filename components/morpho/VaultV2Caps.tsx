@@ -11,13 +11,20 @@ import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
 import { TransactionButton } from '@/components/TransactionButton';
 import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
-import { formatNumber } from '@/lib/format/number';
+import { formatRawTokenAmount } from '@/lib/format/number';
+import {
+  getTokenDisplayDecimals,
+  resolveAssetDecimals,
+} from '@/lib/format/asset-decimals';
 import type { CapInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governance/route';
 import type { Address, Hex } from 'viem';
+import { parseUnits } from 'viem';
 
 interface VaultV2CapsProps {
   vaultAddress: string;
   preloadedData?: VaultV2GovernanceResponse | null;
+  assetSymbol?: string | null;
+  assetDecimals?: number | null;
 }
 
 function formatRelativeCap(relativeCap: string): string {
@@ -30,15 +37,28 @@ function formatRelativeCap(relativeCap: string): string {
   }
 }
 
-function formatBigIntValue(value: string): string {
+function formatCapTokenAmount(
+  value: string,
+  symbol: string | null | undefined,
+  apiDecimals: number | null | undefined
+): string {
   try {
-    return formatNumber(BigInt(value));
+    const raw = BigInt(value);
+    const chainDecimals = resolveAssetDecimals(symbol ?? undefined, apiDecimals ?? undefined);
+    const displayDecimals = getTokenDisplayDecimals(symbol ?? undefined, chainDecimals);
+    const formatted = formatRawTokenAmount(raw, chainDecimals, displayDecimals);
+    return symbol ? `${formatted} ${symbol}` : formatted;
   } catch {
     return value;
   }
 }
 
-export function VaultV2Caps({ vaultAddress, preloadedData }: VaultV2CapsProps) {
+export function VaultV2Caps({
+  vaultAddress,
+  preloadedData,
+  assetSymbol,
+  assetDecimals,
+}: VaultV2CapsProps) {
   const { data: fetchedData, isLoading, error } = useVaultV2Governance(vaultAddress);
   const data = preloadedData ?? fetchedData;
 
@@ -93,7 +113,13 @@ export function VaultV2Caps({ vaultAddress, preloadedData }: VaultV2CapsProps) {
       <CardContent className="space-y-3">
         <div className="grid grid-cols-1 gap-2">
           {data.caps.map((cap, idx) => (
-            <CapRow key={`${cap.adapterAddress ?? cap.marketKey ?? cap.collateralAddress ?? 'idx'}-${idx}`} vaultAddress={vaultAddress} cap={cap} />
+            <CapRow
+              key={`${cap.adapterAddress ?? cap.marketKey ?? cap.collateralAddress ?? 'idx'}-${idx}`}
+              vaultAddress={vaultAddress}
+              cap={cap}
+              assetSymbol={assetSymbol}
+              assetDecimals={assetDecimals}
+            />
           ))}
         </div>
       </CardContent>
@@ -101,7 +127,17 @@ export function VaultV2Caps({ vaultAddress, preloadedData }: VaultV2CapsProps) {
   );
 }
 
-function CapRow({ vaultAddress, cap }: { vaultAddress: string; cap: CapInfo }) {
+function CapRow({
+  vaultAddress,
+  cap,
+  assetSymbol,
+  assetDecimals,
+}: {
+  vaultAddress: string;
+  cap: CapInfo;
+  assetSymbol?: string | null;
+  assetDecimals?: number | null;
+}) {
   const [open, setOpen] = useState(false);
   const targetLabel = cap.adapterAddress ?? cap.marketKey ?? cap.collateralAddress ?? 'Global Cap';
 
@@ -122,7 +158,9 @@ function CapRow({ vaultAddress, cap }: { vaultAddress: string; cap: CapInfo }) {
         </div>
         <div>
           <p className="text-xs uppercase text-slate-500 dark:text-slate-400">Absolute</p>
-          <p className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{formatBigIntValue(cap.absoluteCap)}</p>
+          <p className="mt-1 font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+            {formatCapTokenAmount(cap.absoluteCap, assetSymbol, assetDecimals)}
+          </p>
         </div>
         <div>
           <p className="text-xs uppercase text-slate-500 dark:text-slate-400">Relative</p>
@@ -131,7 +169,9 @@ function CapRow({ vaultAddress, cap }: { vaultAddress: string; cap: CapInfo }) {
         <div className="flex items-center justify-between gap-2">
           <div>
             <p className="text-xs uppercase text-slate-500 dark:text-slate-400">Allocation</p>
-            <p className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{formatBigIntValue(cap.allocation)}</p>
+            <p className="mt-1 font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+              {formatCapTokenAmount(cap.allocation, assetSymbol, assetDecimals)}
+            </p>
           </div>
           <Button
             size="icon"
@@ -145,7 +185,13 @@ function CapRow({ vaultAddress, cap }: { vaultAddress: string; cap: CapInfo }) {
       </div>
       {open && (
         <div className="mt-3 rounded-md border border-dashed border-slate-300 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-800/40">
-          <CapEditForm vaultAddress={vaultAddress} cap={cap} onClose={() => setOpen(false)} />
+          <CapEditForm
+            vaultAddress={vaultAddress}
+            cap={cap}
+            assetSymbol={assetSymbol}
+            assetDecimals={assetDecimals}
+            onClose={() => setOpen(false)}
+          />
         </div>
       )}
     </div>
@@ -154,13 +200,25 @@ function CapRow({ vaultAddress, cap }: { vaultAddress: string; cap: CapInfo }) {
 
 type CapAction = 'increaseAbsolute' | 'decreaseAbsolute' | 'increaseRelative' | 'decreaseRelative';
 
-function CapEditForm({ vaultAddress, cap }: { vaultAddress: string; cap: CapInfo; onClose: () => void }) {
+function CapEditForm({
+  vaultAddress,
+  cap,
+  assetSymbol,
+  assetDecimals,
+}: {
+  vaultAddress: string;
+  cap: CapInfo;
+  assetSymbol?: string | null;
+  assetDecimals?: number | null;
+  onClose: () => void;
+}) {
   const [action, setAction] = useState<CapAction>('increaseAbsolute');
   const [idData, setIdData] = useState('');
   const [value, setValue] = useState('');
   const write = useVaultWrite();
 
   const isRelative = action === 'increaseRelative' || action === 'decreaseRelative';
+  const chainDecimals = resolveAssetDecimals(assetSymbol ?? undefined, assetDecimals ?? undefined);
 
   return (
     <div className="space-y-3">
@@ -194,11 +252,13 @@ function CapEditForm({ vaultAddress, cap }: { vaultAddress: string; cap: CapInfo
       </div>
       <div className="space-y-1">
         <label className="text-[11px] text-slate-500">
-          {isRelative ? 'New Relative Cap (%)' : 'New Absolute Cap (raw uint256)'}
+          {isRelative
+            ? 'New Relative Cap (%)'
+            : `New Absolute Cap${assetSymbol ? ` (${assetSymbol})` : ''}`}
         </label>
         <Input
           type="text"
-          placeholder={isRelative ? 'e.g. 50 for 50%' : 'e.g. 1000000000000000000'}
+          placeholder={isRelative ? 'e.g. 50 for 50%' : 'e.g. 1000000'}
           value={value}
           onChange={(e) => setValue(e.target.value)}
         />
@@ -215,7 +275,14 @@ function CapEditForm({ vaultAddress, cap }: { vaultAddress: string; cap: CapInfo
         }
         onClick={() => {
           if (!idData || !value) return;
-          const parsed = isRelative ? BigInt(Math.floor(parseFloat(value) * 1e16)) : BigInt(value);
+          let parsed: bigint;
+          try {
+            parsed = isRelative
+              ? BigInt(Math.floor(parseFloat(value) * 1e16))
+              : parseUnits(value, chainDecimals);
+          } catch {
+            return;
+          }
           const configs = {
             increaseAbsolute: v2WriteConfigs.increaseAbsoluteCap,
             decreaseAbsolute: v2WriteConfigs.decreaseAbsoluteCap,

@@ -4,6 +4,18 @@ import { BASE_CHAIN_ID } from '@/lib/constants';
 import { handleApiError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
 import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
+import {
+  STATEMENT_START_DATE,
+  TREASURY_ADDRESS,
+  VAULT_ASSET_MAP,
+  VAULT_VERSION_MAP,
+  emptyTreasuryAssetBreakdown,
+  fetchTreasuryMiscellaneousByMonth,
+  subtractTreasuryBreakdowns,
+  sumTreasuryBreakdownUsd,
+  type TreasuryAssetBreakdown,
+  type TreasuryAssetKey,
+} from '@/lib/morpho/treasury-statement';
 import { gql } from 'graphql-request';
 import { getAddress } from 'viem';
 import { logger } from '@/lib/utils/logger';
@@ -12,49 +24,25 @@ import { logger } from '@/lib/utils/logger';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Treasury address that receives fees
-const TREASURY_ADDRESS = '0x057fd8B961Eb664baA647a5C7A6e9728fabA266A';
-
-// Vault address to asset mapping
-const VAULT_ASSET_MAP: Record<string, 'USDC' | 'cbBTC' | 'WETH'> = {
-  '0xf7e26fa48a568b8b0038e104dfd8abdf0f99074f': 'USDC', // V1 USDC
-  '0x89712980cb434ef5ae4ab29349419eb976b0b496': 'USDC', // V2 USDC Prime
-  '0xaecc8113a7bd0cfaf7000ea7a31affd4691ff3e9': 'cbBTC', // V1 cbBTC
-  '0x99dcd0d75822ba398f13b2a8852b07c7e137ec70': 'cbBTC', // V2 cbBTC Prime
-  '0x21e0d366272798da3a977feba699fcb91959d120': 'WETH', // V1 WETH
-  '0xd6dcad2f7da91fbb27bda471540d9770c97a5a43': 'WETH', // V2 WETH Prime
-};
-
-// Vault address to version mapping (V1 or V2)
-const VAULT_VERSION_MAP: Record<string, 'v1' | 'v2'> = {
-  '0xf7e26fa48a568b8b0038e104dfd8abdf0f99074f': 'v1', // V1 USDC
-  '0x89712980cb434ef5ae4ab29349419eb976b0b496': 'v2', // V2 USDC Prime
-  '0xaecc8113a7bd0cfaf7000ea7a31affd4691ff3e9': 'v1', // V1 cbBTC
-  '0x99dcd0d75822ba398f13b2a8852b07c7e137ec70': 'v2', // V2 cbBTC Prime
-  '0x21e0d366272798da3a977feba699fcb91959d120': 'v1', // V1 WETH
-  '0xd6dcad2f7da91fbb27bda471540d9770c97a5a43': 'v2', // V2 WETH Prime
-};
-
-// Start date for monthly statements
-const STATEMENT_START_DATE = new Date('2025-11-01T00:00:00Z');
+// Treasury address and vault maps live in lib/morpho/treasury-statement.ts
 
 interface MonthlyStatementData {
   month: string; // YYYY-MM format
-  assets: {
-    USDC: {
-      tokens: number;
-      usd: number;
-    };
-    cbBTC: {
-      tokens: number;
-      usd: number;
-    };
-    WETH: {
-      tokens: number;
-      usd: number;
-    };
-  };
+  /** Net positive position growth (vault fees + miscellaneous). */
+  assets: TreasuryAssetBreakdown;
+  /** Performance fees / fee accrual (position growth minus capital contributions). */
+  vaultFees: TreasuryAssetBreakdown;
+  /** Deposits and share transfers into treasury vault positions (non-fee capital). */
+  miscellaneous: TreasuryAssetBreakdown;
   total: {
+    tokens: number;
+    usd: number;
+  };
+  vaultFeesTotal: {
+    tokens: number;
+    usd: number;
+  };
+  miscellaneousTotal: {
     tokens: number;
     usd: number;
   };
@@ -532,18 +520,10 @@ export async function GET(request: Request) {
     const daily = getDailyTreasuryRevenue(validPositions);
 
     // Initialize monthly statements (for backward compatibility)
-    const monthlyStatements = new Map<string, {
-      USDC: { tokens: number; usd: number };
-      cbBTC: { tokens: number; usd: number };
-      WETH: { tokens: number; usd: number };
-    }>();
+    const monthlyStatements = new Map<string, TreasuryAssetBreakdown>();
 
     for (const month of allMonths) {
-      monthlyStatements.set(month.key, {
-        USDC: { tokens: 0, usd: 0 },
-        cbBTC: { tokens: 0, usd: 0 },
-        WETH: { tokens: 0, usd: 0 },
-      });
+      monthlyStatements.set(month.key, emptyTreasuryAssetBreakdown());
     }
 
     // Track per-vault monthly differences
@@ -678,6 +658,26 @@ export async function GET(request: Request) {
       ).length,
     });
 
+    const pricePerTokenAt = (asset: TreasuryAssetKey, timestampSec: number): number | null => {
+      for (const pos of validPositions) {
+        if (pos.asset !== asset) continue;
+        const endAssets = getValueAtTimestamp(pos.historicalAssets, timestampSec);
+        const endAssetsUsd = getValueAtTimestamp(pos.historicalAssetsUsd, timestampSec);
+        if (endAssets == null || endAssetsUsd == null || endAssets <= 0) continue;
+        const endTokens = endAssets / Math.pow(10, pos.assetDecimals);
+        if (endTokens <= 0) continue;
+        return endAssetsUsd / endTokens;
+      }
+      return null;
+    };
+
+    const miscellaneousByMonth = await fetchTreasuryMiscellaneousByMonth(
+      addresses,
+      BASE_CHAIN_ID,
+      startTimestampSec,
+      pricePerTokenAt
+    );
+
     // Convert to array format
     const now = new Date();
     now.setHours(23, 59, 59, 999);
@@ -694,15 +694,34 @@ export async function GET(request: Request) {
         lastDayOfMonth.setHours(23, 59, 59, 999);
         const isComplete = now > lastDayOfMonth;
 
+        const miscellaneous = miscellaneousByMonth.get(month) ?? emptyTreasuryAssetBreakdown();
+        const vaultFees = subtractTreasuryBreakdowns(assets, miscellaneous);
+
         const totalTokens = assets.USDC.tokens + assets.cbBTC.tokens + assets.WETH.tokens;
-        const totalUsd = assets.USDC.usd + assets.cbBTC.usd + assets.WETH.usd;
+        const totalUsd = sumTreasuryBreakdownUsd(assets);
+        const vaultFeesTotalTokens =
+          vaultFees.USDC.tokens + vaultFees.cbBTC.tokens + vaultFees.WETH.tokens;
+        const vaultFeesTotalUsd = sumTreasuryBreakdownUsd(vaultFees);
+        const miscellaneousTotalTokens =
+          miscellaneous.USDC.tokens + miscellaneous.cbBTC.tokens + miscellaneous.WETH.tokens;
+        const miscellaneousTotalUsd = sumTreasuryBreakdownUsd(miscellaneous);
 
         return {
           month,
           assets,
+          vaultFees,
+          miscellaneous,
           total: {
             tokens: totalTokens,
             usd: totalUsd,
+          },
+          vaultFeesTotal: {
+            tokens: vaultFeesTotalTokens,
+            usd: vaultFeesTotalUsd,
+          },
+          miscellaneousTotal: {
+            tokens: miscellaneousTotalTokens,
+            usd: miscellaneousTotalUsd,
           },
           isComplete,
         };

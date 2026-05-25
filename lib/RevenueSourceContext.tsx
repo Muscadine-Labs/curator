@@ -10,7 +10,7 @@ const RevenueSourceContext = createContext<{
 } | null>(null);
 
 export function RevenueSourceProvider({ children }: { children: ReactNode }) {
-  const [revenueSource, setRevenueSource] = useState<RevenueSource>('defillama');
+  const [revenueSource, setRevenueSource] = useState<RevenueSource>('treasury');
   return (
     <RevenueSourceContext.Provider value={{ revenueSource, setRevenueSource }}>
       {children}
@@ -21,7 +21,7 @@ export function RevenueSourceProvider({ children }: { children: ReactNode }) {
 export function useRevenueSource() {
   const ctx = useContext(RevenueSourceContext);
   return {
-    revenueSource: ctx?.revenueSource ?? 'defillama',
+    revenueSource: ctx?.revenueSource ?? 'treasury',
     setRevenueSource: ctx?.setRevenueSource ?? (() => {}),
   };
 }

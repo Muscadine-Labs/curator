@@ -162,8 +162,13 @@ contract semantics. Getting those semantics wrong is the #1 source of reverts.
     row included in totals and `%` columns; cap validation is skipped.
   - **Rebalance submit**: never call `allocate`/`deallocate` with idle `idData`.
     Raising the idle target emits **deallocate** calls on lowered adapter targets;
-    lowering idle emits **allocate** calls elsewhere. Dust balancing prefers
-    non-idle rows.
+    lowering idle emits **allocate** calls elsewhere. **Do not** auto-push
+    under-allocation remainder onto the largest strategy target — that inflated
+    a single market by tens of thousands of units. V2 planning uses `inputSum`
+    (sum of entered targets) for the banner; unallocated remainder is implicit
+    **Idle** via deallocations. Auto-dust (`applyPlanningDust`) only runs in
+    **full % rebalance** (every row edited) and only nudges **Idle** for
+    sub-token rounding.
   - **Risk tab** (`VaultRiskV2.tsx`): idle counts toward **Adapters Count**
     (`strategy adapters + 1`) and appears as its own row (“No strategy risk”).
 
@@ -191,9 +196,12 @@ contract semantics. Getting those semantics wrong is the #1 source of reverts.
    - `useVaultV1MarketRisk` → per-market risk
    - `useVaultCaps`, `useVaultQueues`, `useVaultRoles` (governance detail)
 2. `components/morpho/AllocationV1.tsx` receives the preloaded vault and risk.
-   It builds `ResolvedTarget[]` (current assets + planned target + supply cap),
-   then on submit calls `v1WriteConfigs.reallocate(...)` via `useVaultWrite`.
-3. The sidebar/table uses `lib/format/number.ts` helpers
+   It builds market rows, then on submit calls `v1WriteConfigs.reallocate(...)`
+   via `useVaultWrite`. UI uses the shared **list layout**
+   (`AllocationListView.tsx`): two-column “Allocation” header, sections **Idle**
+   then **Morpho Blue Market**, optional metric columns from filters, LLTV
+   pills on Blue rows (`86%` style via `formatLltvPill`).
+3. Number display uses `lib/format/number.ts` helpers
    (`formatRawTokenAmount`, `formatFullUSD`) for precision output.
 
 ### 4.2 V2 (`app/vault/v2/[address]/page.tsx`)
@@ -209,29 +217,32 @@ contract semantics. Getting those semantics wrong is the #1 source of reverts.
    `assetDecimals` from the vault page for token formatting.
 3. **Allocations** — `VaultV2Allocations.tsx` receives `preloadedData`
    (governance) **and** `preloadedRisk`. Caps are resolved by hashing each
-   target's `idData` to look up `CapInfo`. Row types:
-   - **MetaMorphoAdapter** — one row per wrapped V1 vault (not per underlying
-     Blue market). Badge **MetaMorpho**, subtitle “Wrapped Vault”. Metrics from
-     `underlyingVaultStats` on the risk API (`fetchV1VaultMarkets` → `netApy`,
-     `totalAssets`, `totalAssetsUsd`, vault `liquidity { usd, underlying }`):
-     supply APY, TVL (USD + tokens under market name), liquidity (USD or tokens
-     via the allocation table's USD/Tokens toggle).
-   - **MorphoMarketV1Adapter** — one row per Blue market position. Badge
-     **Morpho Blue**, subtitle “Morpho Blue Market”. Utilization, borrow APY,
-     supply APY, and market liquidity USD come from `market.state` on the risk
-     query. APY/utilization GraphQL values are **decimals** (e.g. `0.05` = 5%);
-     the UI multiplies by 100 before `formatPercentage` (same pattern as V1 API
-     scaling in `/api/vaults/[id]`).
+   target's `idData` to look up `CapInfo`. **List layout** (same shell as V1):
+   sections in order **Idle → V1 Vault → Morpho Blue Market** (MetaMorpho rows
+   show a **V1**/**V2** pill from `VAULT_VERSION_MAP` on the underlying vault
+   address). No per-row type labels (section headers carry context). No token
+   icons. Row types:
+   - **MetaMorphoAdapter** — one row per wrapped V1/V2 vault (not per underlying
+     Blue market). Pair label uses `formatMarketPairLabel` (`cbBTC / USDC`).
+     Metrics from `underlyingVaultStats` on the risk API.
+   - **MorphoMarketV1Adapter** — one row per Blue market position. LLTV pill
+     next to name. Utilization, borrow/supply APY, liquidity from `market.state`.
+     APY/utilization GraphQL values are **decimals**; multiply by 100 before
+     `formatPercentage`.
    - **Idle** — vault cash row; no on-chain cap; no direct writes.
-4. **Risk** — `VaultRiskV2.tsx`. MetaMorpho adapters show vault-level risk
+4. **Caps tab** — `VaultV2Caps.tsx`. Pass `assetSymbol` / `assetDecimals` from
+   the vault page. Display **absolute cap** and **allocation** with
+   `formatRawTokenAmount` (not raw uint256). Cap edit form accepts human token
+   amounts for absolute caps (`parseUnits`).
+5. **Risk** — `VaultRiskV2.tsx`. MetaMorpho adapters show vault-level risk
    only (`markets: []` in the risk API response); link to underlying V1 vault
    for market detail. MorphoMarketV1Adapter rows list per-market risk.
-5. **Pending tab** — shown only when `pending.length > 0` (V1 and V2). While
+6. **Pending tab** — shown only when `pending.length > 0` (V1 and V2). While
    loading or when empty, the tab is hidden entirely.
-6. **Emergency tab** (V2 only) — links to Morpho Curator emergency actions:
+7. **Emergency tab** (V2 only) — links to Morpho Curator emergency actions:
    `https://curator.morpho.org/vaults/{chainId}/{vaultAddress}/emergency-actions`
    (V1 uses the legacy `curator-v1.morpho.org/emergency` URL on its Emergency tab).
-7. Submits use `v2WriteConfigs.allocate/deallocate` wrapped in
+8. Submits use `v2WriteConfigs.allocate/deallocate` wrapped in
    `v2WriteConfigs.multicall` when multiple moves are planned.
 
 ### 4.3 Caching
@@ -422,48 +433,107 @@ Adapter count KPI = `adapters.length + 1`. Total allocated display =
 - GraphQL APY/utilization on the risk route are **fractions (0–1)**; multiply by 100
   before `formatPercentage` in allocation/risk UI.
 
+### 4.6 Monthly income statement (treasury wallet)
+
+**UI** — `app/overview/monthly-statement/page.tsx` (tabs: **By Treasury Wallet** /
+**DefiLlama**). Treasury view modes: **By Revenue** (default — From Vaults vs
+Miscellaneous Income), Total, By Token, By Vault. Dashboard overview can toggle
+the same treasury source via `lib/RevenueSourceContext.tsx` (default: treasury).
+
+**Treasury API** — `GET /api/monthly-statement-morphoql`
+(`lib/morpho/treasury-statement.ts` + route handler).
+
+| Field | Meaning |
+| ----- | ------- |
+| `assets` / `total` | Net **positive** growth in treasury vault share balances (month-over-month) |
+| `miscellaneous` | Capital **deposits + incoming share transfers** into treasury positions (tx-indexed) |
+| `vaultFees` | `assets − miscellaneous` — performance fee accrual / residual growth not explained by capital inflows |
+
+**Treasury wallet:** `TREASURY_ADDRESS` in `lib/morpho/treasury-statement.ts`
+(`0x057f…266A`, Base Safe). **Vaults:** six business vaults from
+`getVaultAddressesForBusinessViews()`. **Start date:** `2025-11-01`.
+
+**Gross revenue (position-based):** For each vault position, compare share `assets`
+at end of previous month vs end of current month. Only **positive** token deltas count.
+USD uses end-of-period price on **new tokens only** (same as before).
+
+**Miscellaneous (transaction-based):** Morpho GraphQL tx index, **not** position deltas.
+
+| Vault | Included tx types | Rule |
+| ----- | ----------------- | ---- |
+| V1 MetaMorpho | `MetaMorphoDeposit`, `MetaMorphoTransfer` | `userAddress_in = treasury` |
+| V2 | `Deposit`, `Transfer` | Deposit: `onBehalf` or `sender` = treasury; Transfer: `to` = treasury |
+
+Explicitly **excluded** from miscellaneous: `MetaMorphoFee` (V1), withdrawals, outgoing
+transfers. V2 fee accrual has no dedicated tx type — it remains in `vaultFees` as the
+residual after subtracting misc from position growth.
+
+**DefiLlama tab** — `GET /api/monthly-statement-defillama` (protocol-level fees/revenue;
+unrelated to treasury wallet deposits).
+
+**Do not regress:** Do not treat treasury **deposits/transfers in** as vault performance
+fees. When changing statement logic, keep `vaultFees + miscellaneous ≈ total` per month.
+
 ---
 
 ## 5. Reallocation UX Conventions (current code)
 
-These rules are baked into `AllocationV1.tsx` and `VaultV2Allocations.tsx` and
-should be preserved:
+These rules are baked into `AllocationV1.tsx`, `VaultV2Allocations.tsx`,
+`AllocationListView.tsx`, and `AllocationFilters.tsx` — preserve them:
 
-1. **Edit inputs are human-readable strings** (decimal formatted). They are
-   parsed into raw `bigint` using the asset's `decimals` via
-   `parseUnits`/helpers in `lib/format/number.ts`.
-2. **Cap validation runs client-side** before enabling the submit button.
+### 5.1 List layout (`AllocationListView.tsx`)
+
+- Morpho-style card: header **Allocation | Allocation** (name left, amount right).
+- **Sections** (fixed order on V2): Idle → V1 Vault → Morpho Blue Market.
+  V1 uses Idle → Morpho Blue Market. Section headers replace per-row type labels.
+- **No token icons.** LLTV on Blue rows is a gray pill (`86%`) via
+  `formatLltvPill`, not “LLTV 86%”.
+- Optional metric columns render as compact extra cells when enabled in filters.
+- Edit mode adds a **New** column for target inputs.
+
+### 5.2 Filters (`AllocationFilters.tsx`)
+
+- Single popover for search, idle toggles, sort, **amount unit** (USD / Tokens),
+  display mode (amount / percent), and optional columns.
+- **Do not** add a separate `UsdTokenModeFilter` on allocation pages — amount
+  unit lives only in Filters.
+- **Default optional columns ON:** utilization, liquidity, supply APY, allocated.
+- **Default optional columns OFF:** borrow APY, effective cap, percent cap.
+- Column keys: `effectiveCap` (absolute token cap) and `percentCap` (relative
+  WAD on V2; supply cap as % of vault on V1). Replaced the old single `cap` key.
+
+### 5.3 Planning & submit
+
+1. **Edit inputs are human-readable strings** parsed with `parseUnits` /
+   percentage of `totalRawAssets`.
+2. **Cap validation** runs client-side before enabling submit.
    - V1: `target <= supplyCap` per market
-   - V2: `target <= absoluteCap` and `target * 1e18 / firstTotalAssets <= relativeCap`
-3. **Remaining balance banner** (`RemainingBanner`):
-   - Shows `idle + sum(deltas)` → unallocated / balanced / over-allocated
-   - Uses `formatRawTokenAmount` so commas + decimals render correctly
-4. **Filters** (`components/morpho/AllocationFilters.tsx`):
-   - Search, hide zero, only idle, hide idle, only with capacity, only edited
-   - Sort by current, target, delta, capacity, name
-   - Single source of truth via `AllocationFilterState` passed from parent
-5. **Cap column** is always visible. It shows the absolute cap and the
-   remaining headroom (`cap - current`).
-6. **V1 submit** uses `maxUint256` on the chosen dust recipient's deposit when
-   the plan includes withdrawals (default: largest deposit). Never ship V1
-   reallocation without a catcher when withdrawing.
-7. **Dust recipient** — `DustRecipientSelect` on V1/V2 allocation edit lets the
-   curator pick which row absorbs rounding remainder. V1 maps the same choice to
-   the on-chain catcher via `buildV1ReallocationPlan({ catcherKey })`.
-8. **V2 submit** batches all operations via `multicall` so users sign once.
-   Deallocates precede allocates in the encoded call array when both are present.
-9. **V2 idle row** — editable in the rebalance table but never included in
-   `allocate`/`deallocate` calldata; changing idle targets only moves funds via
-   other adapters. Idle can be chosen as dust recipient (planning only).
-10. **V2 adapter display** — do not nest MetaMorpho underlying Blue markets in
-   Allocations or Risk; one row per wrapped vault. Blue markets get the
-   **Morpho Blue** badge; wrapped vaults get **MetaMorpho**.
-11. Use `formatRawTokenAmount(value, decimals)` **instead of** `Number(value) / 10**n`
-   anywhere we need to display raw BigInts. This preserves precision and locale
-   formatting (commas + dots) and avoids `1.23e-6` style output.
-12. **APY / utilization from Morpho GraphQL** (risk route, raw decimals): multiply
-    by 100 before `formatPercentage`. The V1 vault detail API (`/api/vaults/[id]`)
-    pre-scales allocation fields; V2 allocations read the risk route directly.
+   - V2: `target <= absoluteCap` and relative cap vs `firstTotalAssets`
+3. **Remaining banner** (`RemainingBanner`):
+   - **Planned** = `inputSum` (sum of resolved target inputs), **not** forced to
+     `totalRawAssets` after dust adjustment.
+   - V2 under-allocation: “X will move to Idle after rebalance” (`implicitIdle`).
+   - Uses `formatRawTokenAmount` for token amounts.
+4. **V1 submit** uses `maxUint256` on the chosen dust recipient's deposit when
+   the plan includes withdrawals. `DustRecipientSelect` lets the curator pick
+   the catcher row (default: largest target).
+5. **V2 submit** batches via `multicall`; deallocates before allocates. No
+   `DustRecipientSelect` — remainder is implicit Idle. Never auto-inflate a
+   strategy target to absorb under-allocation.
+6. **V2 idle row** — editable for planning; never in `allocate`/`deallocate`
+   calldata.
+7. Use `formatRawTokenAmount` for all raw bigint display (avoid `1.23e-6`).
+8. **APY / utilization from Morpho GraphQL** (V2 risk route): multiply by 100
+   before `formatPercentage`. V1 vault API pre-scales allocation fields.
+
+### 5.4 Adapters & caps tabs
+
+- **Adapters** (`VaultV2Adapters.tsx`): idle row first, then strategy adapters.
+  **Allocated** shows decimal token amount + symbol only — no USD line, no
+  “Raw: … units”. Pass `assetSymbol` / `assetDecimals` from the vault page.
+- **Caps** (`VaultV2Caps.tsx`): absolute cap and allocation use
+  `formatRawTokenAmount` with vault asset decimals. Relative cap stays as %.
+  Cap edit absolute inputs are human token amounts (`parseUnits`).
 
 ---
 
@@ -550,6 +620,15 @@ components.
 - Confirm no rounding error in human → raw conversion (`parseUnits` with the
   right decimals).
 - Confirm the sum of planned deltas is reasonable vs current idle + supply.
+
+### V2 allocation planning shows full vault total as “planned”
+
+- **Symptom:** User edits one row (e.g. 50 USDC) but banner says
+  `planned 109,475 / 109,475` and “45k rounding applied to largest non-idle target.”
+- **Cause:** Empty rows kept **current** allocations; `applyPlanningDust` forced
+  sum to `totalRawAssets` by inflating the largest strategy target.
+- **Fix:** Banner uses `inputSum`. Do not dust-balance partial edits onto
+  strategy rows; under-allocation is implicit Idle. See §3.2 and §5.3.
 
 ### V2 allocation reverts
 
@@ -659,10 +738,11 @@ npm run build
 | -------------------------------- | -------------------------------------------------------- |
 | V1 allocation UI + reallocate    | `components/morpho/AllocationV1.tsx`                    |
 | V2 allocation UI + allocate/etc. | `components/morpho/VaultV2Allocations.tsx`              |
+| Allocation list shell + sections | `components/morpho/AllocationListView.tsx`               |
 | V2 adapters UI (incl. idle)      | `components/morpho/VaultV2Adapters.tsx`                 |
+| V2 caps UI                       | `components/morpho/VaultV2Caps.tsx`                      |
 | V2 risk UI (incl. idle count)    | `components/morpho/VaultRiskV2.tsx`, `MarketRiskDetailCard.tsx` |
 | Market risk scoring (shared)     | `lib/morpho/compute-v1-market-risk.ts`, `lib/morpho/irm-utils.ts`, `lib/morpho/oracle-utils.ts` |
-| Morpho app deep links            | `lib/morpho/morpho-app-links.ts`                         |
 | Morpho app deep links            | `lib/morpho/morpho-app-links.ts`                         |
 | V2 pending UI                    | `components/morpho/VaultV2Pending.tsx`                    |
 | V1 pending UI                    | `components/morpho/VaultV1Pending.tsx`                    |
@@ -682,6 +762,7 @@ npm run build
 | V2 caps API                      | `app/api/vaults/v2/[id]/governance/route.ts`             |
 | Vault overview + history chart   | `components/morpho/VaultOverviewPanel.tsx`, `VaultOverviewHistoryChart.tsx` |
 | Vault history BFF                | `app/api/vaults/[id]/history/route.ts`, `lib/morpho/vault-history.ts` |
+| Treasury monthly statement       | `app/api/monthly-statement-morphoql/route.ts`, `lib/morpho/treasury-statement.ts`, `app/overview/monthly-statement/page.tsx` |
 | Vault overview analytics         | `lib/morpho/vault-analytics.ts`                          |
 | Chart metric / unit filters      | `components/charts/MetricModeFilter.tsx`, `UsdTokenModeFilter.tsx` |
 | Asset decimals + allocation fmt  | `lib/format/asset-decimals.ts`, `allocation-display.ts` |
@@ -923,7 +1004,8 @@ tests under `lib/onchain/__tests__/vault-writes.test.ts`.
 
 ---
 
-_Last updated: 2026-05-25 (v1.0.3). When you change reallocation logic, caps, Morpho API
-mapping, vault overview/history, risk scoring (§4.5), V2 idle/MetaMorpho/Blue display,
-pending/emergency tabs, wallet stack, formatting, the CCTP flow, global density, or add
-a new vault interaction, update Sections 3–6, 4.5, 9–10, 13, 15, and 16 accordingly._
+_Last updated: 2026-05-25 (v1.0.4). When you change reallocation logic, allocation
+list/filters (§5), caps/adapters display, Morpho API mapping, vault overview/history,
+risk scoring (§4.5), V2 idle/MetaMorpho/Blue display, pending/emergency tabs, wallet
+stack, formatting, the CCTP flow, global density, or add a new vault interaction,
+update Sections 3–6, 4.5, 9–10, 13, 15, and 16 accordingly._
