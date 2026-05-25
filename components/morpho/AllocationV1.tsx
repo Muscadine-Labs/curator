@@ -46,6 +46,13 @@ import {
   type ReallocationTarget,
 } from '@/lib/onchain/reallocation';
 import {
+  applyPlanningDust,
+  pickLargestAssetsIndex,
+  resolveDustRecipientIndex,
+  type DustRecipientChoice,
+} from '@/lib/onchain/allocation-dust';
+import { DustRecipientSelect } from '@/components/morpho/DustRecipientSelect';
+import {
   AllocationFilters,
   DEFAULT_FILTER_STATE,
   type AllocationFilterState,
@@ -114,6 +121,7 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
   const [inputMode, setInputMode] = useState<InputMode>('percentage');
   const [entries, setEntries] = useState<ReallocEntry[]>([]);
   const [filters, setFilters] = useState<AllocationFilterState>(DEFAULT_FILTER_STATE);
+  const [dustRecipientKey, setDustRecipientKey] = useState<DustRecipientChoice>('auto');
   const vaultWrite = useVaultWrite();
 
   const totalAssetsUsd = useMemo(() => {
@@ -187,6 +195,7 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
 
   const startEditing = useCallback(() => {
     seedEntries();
+    setDustRecipientKey('auto');
     setEditing(true);
   }, [seedEntries]);
 
@@ -210,7 +219,7 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
     if (modified.length === 0) return null;
 
     type Target = { key: string; assets: bigint; current: bigint };
-    const targets: Target[] = [];
+    let targets: Target[] = [];
     let errorMsg: string | null = null;
 
     for (const e of entries) {
@@ -245,22 +254,65 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
       }
     }
 
-    if (errorMsg) return { valid: false as const, error: errorMsg, targets: [] as Target[], sumAssets: BigInt(0) };
+    if (errorMsg) {
+      return {
+        valid: false as const,
+        error: errorMsg,
+        targets: [] as Target[],
+        sumAssets: BigInt(0),
+        dustDiff: BigInt(0),
+        dustRecipientKey: null as string | null,
+      };
+    }
     if (targets.length !== entries.length) {
-      return { valid: false as const, error: 'Missing entries', targets: [] as Target[], sumAssets: BigInt(0) };
+      return {
+        valid: false as const,
+        error: 'Missing entries',
+        targets: [] as Target[],
+        sumAssets: BigInt(0),
+        dustDiff: BigInt(0),
+        dustRecipientKey: null as string | null,
+      };
     }
 
-    // Auto-adjust dust: push remainder onto the largest allocation.
-    let sum = targets.reduce((s, t) => s + t.assets, BigInt(0));
-    const diff = totalRawAssets - sum;
-    if (diff !== BigInt(0) && targets.length > 0) {
-      const largest = targets.reduce((best, t) => t.assets > best.assets ? t : best, targets[0]);
-      largest.assets += diff;
-      sum = totalRawAssets;
+    // Apply rounding dust to the selected recipient (default: largest target).
+    const recipientIdx = resolveDustRecipientIndex(
+      targets,
+      dustRecipientKey,
+      (t) => t.key,
+      (items) => pickLargestAssetsIndex(items, (t) => t.assets)
+    );
+    const dustResult = applyPlanningDust(
+      targets,
+      totalRawAssets,
+      recipientIdx,
+      (t) => t.assets,
+      (t, assets) => ({ ...t, assets })
+    );
+    if (dustResult.error) {
+      return {
+        valid: false as const,
+        error: dustResult.error,
+        targets: [] as Target[],
+        sumAssets: BigInt(0),
+        dustDiff: BigInt(0),
+        dustRecipientKey: null as string | null,
+      };
     }
+    targets = dustResult.items;
+    let sum = dustResult.sum;
+    const dustDiff = dustResult.diff;
+    const dustRecipientMarketKey = targets[recipientIdx]?.key ?? null;
 
     if (targets.some((t) => t.assets < BigInt(0))) {
-      return { valid: false as const, error: 'Allocation would go negative after dust adjustment', targets: [] as Target[], sumAssets: BigInt(0) };
+      return {
+        valid: false as const,
+        error: 'Allocation would go negative after dust adjustment',
+        targets: [] as Target[],
+        sumAssets: BigInt(0),
+        dustDiff: BigInt(0),
+        dustRecipientKey: null as string | null,
+      };
     }
 
     // Cap validation
@@ -274,17 +326,33 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
           error: `${alloc.marketName}: allocation exceeds supply cap (${formatRawTokenAmount(alloc.supplyCapRaw, resolveAssetDecimals(alloc.loanAssetSymbol, alloc.decimals), getTokenDisplayDecimals(alloc.loanAssetSymbol, alloc.decimals))} ${alloc.loanAssetSymbol ?? ''})`,
           targets: [] as Target[],
           sumAssets: BigInt(0),
+          dustDiff: BigInt(0),
+          dustRecipientKey: null as string | null,
         };
       }
     }
 
     const anyChanged = targets.some((t) => t.assets !== t.current);
     if (!anyChanged) {
-      return { valid: false as const, error: null, targets: [] as Target[], sumAssets: sum };
+      return {
+        valid: false as const,
+        error: null,
+        targets,
+        sumAssets: sum,
+        dustDiff,
+        dustRecipientKey: dustRecipientMarketKey,
+      };
     }
 
-    return { valid: true as const, error: null, targets, sumAssets: sum };
-  }, [editing, entries, inputMode, allocations, totalRawAssets, vaultDecimals]);
+    return {
+      valid: true as const,
+      error: null,
+      targets,
+      sumAssets: sum,
+      dustDiff,
+      dustRecipientKey: dustRecipientMarketKey,
+    };
+  }, [editing, entries, inputMode, allocations, totalRawAssets, vaultDecimals, dustRecipientKey]);
 
   const handleReallocate = useCallback(() => {
     if (!resolvedAllocations?.valid) return;
@@ -310,10 +378,12 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
       current: t.current,
     }));
 
-    const plan = buildV1ReallocationPlan(targets, getMarketParams);
+    const plan = buildV1ReallocationPlan(targets, getMarketParams, {
+      catcherKey: dustRecipientKey,
+    });
     if (plan.allocations.length === 0) return;
     vaultWrite.write(v1WriteConfigs.reallocate(vaultAddress as Address, plan.allocations));
-  }, [resolvedAllocations, allocations, vaultAddress, vaultWrite]);
+  }, [resolvedAllocations, allocations, vaultAddress, vaultWrite, dustRecipientKey]);
 
   if (isLoading) {
     return (
@@ -410,6 +480,20 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
   const plannedSum = resolvedAllocations?.sumAssets ?? BigInt(0);
   const remainingRaw = editing ? totalRawAssets - plannedSum : BigInt(0);
 
+  const dustOptions = useMemo(
+    () =>
+      Array.from(allocations.values()).map((a) => ({
+        id: a.uniqueKey,
+        label: a.marketName,
+      })),
+    [allocations]
+  );
+
+  const dustRecipientLabel = useMemo(() => {
+    if (!resolvedAllocations?.dustRecipientKey) return null;
+    return allocations.get(resolvedAllocations.dustRecipientKey)?.marketName ?? null;
+  }, [resolvedAllocations?.dustRecipientKey, allocations]);
+
   return (
     <Card>
       <CardHeader>
@@ -453,15 +537,25 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
       </CardHeader>
       <CardContent>
         {editing && (
-          <RemainingBanner
-            totalRaw={totalRawAssets}
-            plannedRaw={plannedSum}
-            remainingRaw={remainingRaw}
-            decimals={vaultDecimals}
-            displayDecimals={vaultDisplayDecimals}
-            symbol={assetSymbol}
-            amountUnit={filters.amountUnit}
-          />
+          <div className="mb-3 space-y-2">
+            <RemainingBanner
+              totalRaw={totalRawAssets}
+              plannedRaw={plannedSum}
+              remainingRaw={remainingRaw}
+              decimals={vaultDecimals}
+              displayDecimals={vaultDisplayDecimals}
+              symbol={assetSymbol}
+              amountUnit={filters.amountUnit}
+              dustDiff={resolvedAllocations?.dustDiff ?? BigInt(0)}
+              dustRecipientLabel={dustRecipientLabel}
+              dustIsAuto={dustRecipientKey === 'auto'}
+            />
+            <DustRecipientSelect
+              value={dustRecipientKey}
+              onChange={setDustRecipientKey}
+              options={dustOptions}
+            />
+          </div>
         )}
 
         <div className="overflow-x-auto rounded-md border">
@@ -493,6 +587,11 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
                       : BigInt(0))
                   : null;
 
+                const isDustRecipient =
+                  editing &&
+                  resolvedAllocations?.dustRecipientKey != null &&
+                  alloc.uniqueKey === resolvedAllocations.dustRecipientKey;
+
                 return (
                   <TableRow key={alloc.uniqueKey} className={cn(alloc.isIdle && 'opacity-75')}>
                     <TableCell>
@@ -508,6 +607,11 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
                           </a>
                           {(alloc.isIdle || formatLtv(alloc.lltv) === '—') && (
                             <Badge variant="outline" className="text-xs">Idle</Badge>
+                          )}
+                          {isDustRecipient && (
+                            <Badge variant="secondary" className="text-xs">
+                              Dust
+                            </Badge>
                           )}
                         </div>
                         <span className="text-muted-foreground text-xs">
@@ -637,9 +741,13 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
               <div className="flex items-start gap-2 rounded-md bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 p-3">
                 <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
                 <p className="text-xs text-green-700 dark:text-green-300">
-                  Ready to submit. The largest increase will use the{' '}
-                  <span className="font-mono">uint256.max</span> catcher so interest accrual
-                  between now and confirmation cannot cause an InconsistentReallocation revert.
+                  Ready to submit. Rounding dust goes to{' '}
+                  {dustRecipientKey === 'auto'
+                    ? 'the largest target'
+                    : dustRecipientLabel ?? 'your selected market'}
+                  ; that deposit also uses the{' '}
+                  <span className="font-mono">uint256.max</span> on-chain catcher when withdrawals
+                  are present.
                 </p>
               </div>
             )}
@@ -690,6 +798,9 @@ function RemainingBanner({
   displayDecimals,
   symbol,
   amountUnit,
+  dustDiff = BigInt(0),
+  dustRecipientLabel,
+  dustIsAuto = true,
 }: {
   totalRaw: bigint;
   plannedRaw: bigint;
@@ -698,10 +809,16 @@ function RemainingBanner({
   displayDecimals: number;
   symbol: string;
   amountUnit: AllocationAmountUnit;
+  dustDiff?: bigint;
+  dustRecipientLabel?: string | null;
+  dustIsAuto?: boolean;
 }) {
   const isBalanced = remainingRaw === BigInt(0);
   const overshoot = remainingRaw < BigInt(0);
   const absRemaining = overshoot ? -remainingRaw : remainingRaw;
+  const dustApplied = dustDiff !== BigInt(0);
+  const dustTarget =
+    dustIsAuto ? 'largest target' : dustRecipientLabel ?? 'selected market';
 
   const tone = isBalanced
     ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
@@ -710,10 +827,12 @@ function RemainingBanner({
     : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200';
 
   const label = isBalanced
-    ? 'Balanced — all funds are allocated.'
+    ? dustApplied
+      ? `Balanced — ${formatRawTokenAmount(dustDiff, decimals, Math.min(4, displayDecimals))} ${symbol} rounding applied to ${dustTarget}.`
+      : 'Balanced — all funds are allocated.'
     : overshoot
     ? `Over-allocated by ${formatRawTokenAmount(absRemaining, decimals, Math.min(4, displayDecimals))} ${symbol}. Reduce one of the targets.`
-    : `Unallocated: ${formatRawTokenAmount(absRemaining, decimals, Math.min(4, displayDecimals))} ${symbol}. The biggest increase will absorb this on-chain via the uint256.max catcher.`;
+    : `Unallocated: ${formatRawTokenAmount(absRemaining, decimals, Math.min(4, displayDecimals))} ${symbol}. Remainder will go to ${dustTarget}.`;
 
   const fmt = (v: bigint) =>
     amountUnit === 'usd'

@@ -2,7 +2,7 @@
 
 import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useAccount } from 'wagmi';
-import { useAppKit } from '@reown/appkit/react';
+import { useConnectModal } from '@rainbow-me/rainbowkit';
 import { Button } from '@/components/ui/button';
 
 interface TransactionButtonProps {
@@ -29,11 +29,16 @@ export function TransactionButton({
   size = 'default',
 }: TransactionButtonProps) {
   const { isConnected } = useAccount();
-  const { open } = useAppKit();
+  const { openConnectModal } = useConnectModal();
 
   if (!isConnected) {
     return (
-      <Button variant="outline" size={size} onClick={() => open()}>
+      <Button
+        variant="outline"
+        size={size}
+        onClick={openConnectModal}
+        disabled={!openConnectModal}
+      >
         Connect Wallet
       </Button>
     );

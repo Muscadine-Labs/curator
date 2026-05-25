@@ -35,6 +35,9 @@
 
 import { maxUint256, type Address } from 'viem';
 import type { MarketAllocation, MarketParams } from './vault-writes';
+import type { DustRecipientChoice } from './allocation-dust';
+
+export type { DustRecipientChoice };
 
 /** Single market target as understood by the reallocation planner. */
 export interface ReallocationTarget {
@@ -57,6 +60,15 @@ interface ReallocationPlan {
   catcherUsed: boolean;
 }
 
+/** Options when building a V1 reallocate calldata plan. */
+export interface V1ReallocationOptions {
+  /**
+   * Market `uniqueKey` that receives `maxUint256` on the last deposit when the
+   * plan includes withdrawals. `'auto'` keeps the largest deposit delta as catcher.
+   */
+  catcherKey?: DustRecipientChoice;
+}
+
 /**
  * Build a V1 `reallocate` plan from a list of target supplies.
  *
@@ -77,8 +89,10 @@ interface ReallocationPlan {
  */
 export function buildV1ReallocationPlan(
   targets: ReadonlyArray<ReallocationTarget>,
-  getMarketParams: (key: string) => MarketParams | null
+  getMarketParams: (key: string) => MarketParams | null,
+  options?: V1ReallocationOptions
 ): ReallocationPlan {
+  const catcherKey = options?.catcherKey ?? 'auto';
   const withdrawalTargets: ReallocationTarget[] = [];
   const depositTargets: ReallocationTarget[] = [];
 
@@ -87,8 +101,13 @@ export function buildV1ReallocationPlan(
     else if (t.assets > t.current) depositTargets.push(t);
   }
 
-  // Sort deposits ascending by delta so the largest is last (catcher).
+  // Sort deposits ascending by delta so the catcher is last. Explicit catcherKey
+  // is forced to the end even when its delta is smaller.
   depositTargets.sort((a, b) => {
+    if (catcherKey !== 'auto') {
+      if (a.key === catcherKey) return 1;
+      if (b.key === catcherKey) return -1;
+    }
     const da = a.assets - a.current;
     const db = b.assets - b.current;
     if (da === db) return 0;
@@ -113,9 +132,16 @@ export function buildV1ReallocationPlan(
 
   const deposits: MarketAllocation[] = [];
   let catcherUsed = false;
+  const explicitCatcherInDeposits =
+    catcherKey !== 'auto' && depositTargets.some((t) => t.key === catcherKey);
+
   for (let i = 0; i < depositTargets.length; i++) {
+    const t = depositTargets[i];
     const isCatcher =
-      i === depositTargets.length - 1 && withdrawalTargets.length > 0;
+      withdrawalTargets.length > 0 &&
+      (explicitCatcherInDeposits
+        ? t.key === catcherKey
+        : i === depositTargets.length - 1);
     const alloc = toAlloc(depositTargets[i], isCatcher ? maxUint256 : undefined);
     if (alloc) {
       deposits.push(alloc);
@@ -138,9 +164,14 @@ export function buildV1ReallocationPlan(
  */
 export function buildV1ReallocationPlanFromMap(
   targets: ReadonlyArray<ReallocationTarget>,
-  marketParamsByKey: ReadonlyMap<string, MarketParams>
+  marketParamsByKey: ReadonlyMap<string, MarketParams>,
+  options?: V1ReallocationOptions
 ): ReallocationPlan {
-  return buildV1ReallocationPlan(targets, (key) => marketParamsByKey.get(key) ?? null);
+  return buildV1ReallocationPlan(
+    targets,
+    (key) => marketParamsByKey.get(key) ?? null,
+    options
+  );
 }
 
 /**

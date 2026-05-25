@@ -19,8 +19,10 @@ type GraphAdapter = {
 };
 
 type GraphVaultGovernanceResponse = {
-  vault?: {
+    vault?: {
     address?: string | null;
+    idleAssets?: string | number | null;
+    idleAssetsUsd?: number | null;
     owner?: { address?: string | null } | null;
     curator?: { address?: string | null } | null;
     allocators?: Array<{ allocator?: { address?: string | null } | null } | null> | null;
@@ -34,6 +36,8 @@ type GraphVaultGovernanceResponse = {
 
 export type VaultV2GovernanceResponse = {
   vaultAddress: string;
+  idleAssets: string | null;
+  idleAssetsUsd: number | null;
   owner: string | null;
   curator: string | null;
   allocators: string[];
@@ -75,6 +79,8 @@ const VAULT_V2_GOVERNANCE_QUERY = gql`
   query VaultV2Governance($address: String!, $chainId: Int!, $adapterLimit: Int!) {
     vault: vaultV2ByAddress(address: $address, chainId: $chainId) {
       address
+      idleAssets
+      idleAssetsUsd
       owner { address }
       curator { address }
       allocators { allocator { address } }
@@ -248,6 +254,11 @@ export async function GET(
 
     const response: VaultV2GovernanceResponse = {
       vaultAddress: address,
+      idleAssets:
+        data.vault.idleAssets != null && data.vault.idleAssets !== undefined
+          ? String(data.vault.idleAssets)
+          : null,
+      idleAssetsUsd: data.vault.idleAssetsUsd ?? null,
       owner: data.vault.owner?.address ?? null,
       curator: data.vault.curator?.address ?? null,
       allocators:

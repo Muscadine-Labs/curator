@@ -14,7 +14,9 @@ const VAULT_V1_MARKETS_QUERY = gql`
         usd
       }
       state {
+        totalAssets
         totalAssetsUsd
+        netApy
         allocation {
           supplyAssets
           supplyAssetsUsd
@@ -126,7 +128,9 @@ export type V1VaultMarketsQueryResponse = {
       usd: number | null;
     } | null;
     state: {
+      totalAssets: string | number | null;
       totalAssetsUsd: number | null;
+      netApy: number | null;
       allocation: Array<{
         supplyAssets: string | null;
         supplyAssetsUsd: number | null;
@@ -177,12 +181,21 @@ export type V1VaultMarketsQueryResponse = {
 /**
  * Fetch markets for a V1 vault
  */
+export type V1VaultSummaryStats = {
+  totalAssetsUsd: number | null;
+  totalAssets: string | null;
+  netApy: number | null;
+  liquidityUsd: number | null;
+  liquidityUnderlying: string | null;
+};
+
 export async function fetchV1VaultMarkets(
   vaultAddress: string,
   chainId: number = BASE_CHAIN_ID
 ): Promise<{
   markets: V1VaultMarketData[];
   vaultLiquidity: number | null;
+  vaultStats: V1VaultSummaryStats;
 }> {
   const data = await morphoGraphQLClient.request<V1VaultMarketsQueryResponse>(
     VAULT_V1_MARKETS_QUERY,
@@ -191,11 +204,21 @@ export async function fetchV1VaultMarkets(
 
   const vaultTotalAssetsUsd = data.vault?.state?.totalAssetsUsd ?? 0;
   const vaultLiquidity = data.vault?.liquidity?.usd ?? null;
+  const vaultStats: V1VaultSummaryStats = {
+    totalAssetsUsd: data.vault?.state?.totalAssetsUsd ?? null,
+    totalAssets:
+      data.vault?.state?.totalAssets != null ? String(data.vault.state.totalAssets) : null,
+    netApy: data.vault?.state?.netApy ?? null,
+    liquidityUsd: data.vault?.liquidity?.usd ?? null,
+    liquidityUnderlying:
+      data.vault?.liquidity?.underlying != null ? String(data.vault.liquidity.underlying) : null,
+  };
 
   if (!data.vault?.state?.allocation) {
     return {
       markets: [],
       vaultLiquidity,
+      vaultStats,
     };
   }
 
@@ -234,5 +257,6 @@ export async function fetchV1VaultMarkets(
   return {
     markets,
     vaultLiquidity,
+    vaultStats,
   };
 }

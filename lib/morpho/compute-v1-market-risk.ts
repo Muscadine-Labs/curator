@@ -14,7 +14,7 @@ import type { Address } from 'viem';
  * 1. Liquidation Headroom (−5% or −2.5% shock) - 25% weight
  *    - 2.5% shock for same/derivative assets (e.g., USDC/USDC, wstETH/ETH)
  *    - 5% shock for different assets
- * 2. Utilization - 25% weight
+ * 2. Utilization - 25% weight (100 at IRM target ≈90%; higher util → lower score)
  * 3. Liquidation Coverage Ratio - 25% weight
  * 4. Oracle Freshness & Reliability - 25% weight
  */
@@ -244,21 +244,37 @@ function computeLiquidationHeadroomScore(market: V1VaultMarketData): number {
 }
 
 /**
+ * Utilization risk score (0–100).
+ *
+ * Target utilization (typically 90% IRM kink) is optimal → 100.
+ * At or below target stays at 100 (not riskier). Above target, score falls
+ * linearly to 0 at 100% utilization.
+ */
+export function scoreUtilizationRatio(
+  utilization: number,
+  targetUtilization: number
+): number {
+  const util = Math.max(0, Math.min(1, utilization));
+  const target = Math.max(0, Math.min(1, targetUtilization));
+
+  if (util <= target) {
+    return 100;
+  }
+
+  const roomAbove = 1 - target;
+  if (roomAbove <= 0) {
+    return 0;
+  }
+
+  const excess = util - target;
+  return Math.max(0, 100 - (excess / roomAbove) * 100);
+}
+
+/**
  * Compute Utilization Score (0-100) - Based on IRM target utilization
- * 
- * Inputs:
- * - state.supplyAssetsUsd
- * - state.borrowAssetsUsd
- * - irmAddress (to fetch target utilization)
- * 
- * Compute:
- * - utilization = borrowUsd / supplyUsd
- * - targetUtilization = IRM kink (default 90% if not available)
- * 
- * Score (continuous):
- * - Best score when utilization is well below target
- * - Score decreases as utilization approaches target
- * - Score decreases faster when utilization exceeds target (riskier)
+ *
+ * Optimal utilization equals the IRM target (default 90%) → score 100.
+ * Higher utilization is riskier (score decreases toward 0 at 100% util).
  */
 async function computeUtilizationScore(
   market: V1VaultMarketData,
@@ -266,56 +282,21 @@ async function computeUtilizationScore(
 ): Promise<number> {
   const state = market.state;
   if (!state) {
-    return 0; // No state data = highest risk
+    return 0;
   }
 
-  // Use USD values from state
   const supplyUsd = state.supplyAssetsUsd ? Number(state.supplyAssetsUsd) : 0;
   const borrowUsd = state.borrowAssetsUsd ? Number(state.borrowAssetsUsd) : 0;
 
-  // Use utilization from state if available, otherwise calculate
   let utilization = state.utilization;
   if (utilization === null || utilization === undefined) {
     if (supplyUsd === 0) {
-      return 0; // No supply = highest risk
+      return 0;
     }
     utilization = borrowUsd / supplyUsd;
   }
 
-  // Clamp utilization to [0, 1]
-  utilization = Math.max(0, Math.min(1, utilization));
-
-  // Score based on distance from target utilization
-  // Utilization below target = better (more headroom)
-  // Utilization above target = worse (riskier)
-  
-  if (utilization <= targetUtilization) {
-    // Below or at target: score based on how far below
-    // 0% utilization = 100 score
-    // targetUtilization = 80 score (good, but not perfect)
-    if (targetUtilization === 0) {
-      return utilization === 0 ? 100 : 0;
-    }
-    const progress = utilization / targetUtilization; // 0 to 1
-    return 100 - (progress * 20); // 100 → 80
-  } else {
-    // Above target: score decreases faster
-    // targetUtilization = 80 score
-    // targetUtilization + 5% = 60 score
-    // targetUtilization + 10% = 40 score
-    // targetUtilization + 15% = 20 score
-    // targetUtilization + 20%+ = 0 score
-    const excess = utilization - targetUtilization;
-    const maxExcess = 0.20; // 20% above target = 0 score
-    
-    if (excess >= maxExcess) {
-      return 0;
-    }
-    
-    // Linear decay from 80 to 0 over 20% excess
-    const progress = excess / maxExcess; // 0 to 1
-    return 80 - (progress * 80); // 80 → 0
-  }
+  return scoreUtilizationRatio(utilization, targetUtilization);
 }
 
 /**

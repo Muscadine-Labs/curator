@@ -1,15 +1,27 @@
+import path from "node:path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  transpilePackages: [
+    "@rainbow-me/rainbowkit",
+    "wagmi",
+    "@wagmi/core",
+    "@wagmi/connectors",
+  ],
   // Use webpack for builds to support alias configuration
   // Turbopack doesn't support false aliases yet
   webpack: (config) => {
+    const valtioRoot = path.dirname(require.resolve("valtio/package.json"));
     // Silence optional deps required by walletconnect/metamask in browser builds
     config.resolve = config.resolve || {};
     config.resolve.alias = {
       ...(config.resolve.alias || {}),
-      'pino-pretty': false,
-      '@react-native-async-storage/async-storage': false,
+      "valtio/vanilla/utils": path.join(valtioRoot, "vanilla/utils.js"),
+      "valtio/vanilla": path.join(valtioRoot, "vanilla.js"),
+      "valtio/react": path.join(valtioRoot, "react.js"),
+      valtio: valtioRoot,
+      "pino-pretty": false,
+      "@react-native-async-storage/async-storage": false,
     };
     return config;
   },

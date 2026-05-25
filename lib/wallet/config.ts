@@ -1,19 +1,43 @@
+import { getDefaultConfig } from '@rainbow-me/rainbowkit';
+import {
+  base as baseWallet,
+  metaMaskWallet,
+  phantomWallet,
+  rabbyWallet,
+  walletConnectWallet,
+} from '@rainbow-me/rainbowkit/wallets';
 import { http } from 'wagmi';
-import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
-import type { AppKitNetwork } from '@reown/appkit/networks';
 import {
   arbitrum,
   avalanche,
   base,
-  hyperEvm,
   mainnet,
   optimism,
   polygon,
-} from '@reown/appkit/networks';
+} from 'wagmi/chains';
+import { defineChain } from 'viem';
 
 export const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'demo';
 
-export const networks = [
+export const hyperEvm = defineChain({
+  id: 999,
+  name: 'HyperEVM',
+  nativeCurrency: { name: 'HYPE', symbol: 'HYPE', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://rpc.hyperliquid.xyz/evm'] },
+  },
+  blockExplorers: {
+    default: { name: 'HyperEVMScan', url: 'https://hyperevmscan.io' },
+  },
+  contracts: {
+    multicall3: {
+      address: '0xcA11bde05977b3631167028862bE2a173976CA11',
+      blockCreated: 13051,
+    },
+  },
+});
+
+export const chains = [
   base,
   mainnet,
   optimism,
@@ -21,7 +45,7 @@ export const networks = [
   arbitrum,
   avalanche,
   hyperEvm,
-] as [AppKitNetwork, ...AppKitNetwork[]];
+] as const;
 
 function getRpcUrl(chainId: number): string {
   const alchemyKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY;
@@ -40,10 +64,28 @@ function getRpcUrl(chainId: number): string {
   return rpcMap[chainId] || rpcMap[base.id];
 }
 
-// Match Reown's next-wagmi-app-router example: ssr only, no cookieStorage override.
-export const wagmiAdapter = new WagmiAdapter({
+const appUrl =
+  process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') || 'http://localhost:3000';
+
+export const config = getDefaultConfig({
+  appName: 'Muscadine Curator',
+  appDescription: 'Explore Muscadine vaults and track performance',
+  appUrl,
+  appIcon: `${appUrl}/muscadinelogo.jpg`,
   projectId,
-  networks,
+  wallets: [
+    {
+      groupName: 'Recommended',
+      wallets: [
+        rabbyWallet,
+        metaMaskWallet,
+        baseWallet,
+        phantomWallet,
+        walletConnectWallet,
+      ],
+    },
+  ],
+  chains: [...chains],
   ssr: true,
   transports: {
     [base.id]: http(getRpcUrl(base.id)),
@@ -55,15 +97,3 @@ export const wagmiAdapter = new WagmiAdapter({
     [hyperEvm.id]: http(getRpcUrl(hyperEvm.id)),
   },
 });
-
-export const config = wagmiAdapter.wagmiConfig;
-
-const appUrl =
-  process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') || 'http://localhost:3000';
-
-export const appKitMetadata = {
-  name: 'Muscadine Curator',
-  description: 'Explore Muscadine vaults and track performance',
-  url: appUrl,
-  icons: [`${appUrl}/muscadinelogo.jpg`],
-};

@@ -1,9 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ConnectWalletButton } from '@/components/ConnectWalletButton';
-import { NetworkSwitcher } from '@/components/NetworkSwitcher';
-import { useAccount } from 'wagmi';
 import { ThemeSwitcher } from '@/components/ThemeSwitcher';
 import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
 import { Button } from '@/components/ui/button';
@@ -16,7 +13,6 @@ type SignInSheetProps = {
 };
 
 export function SignInSheet({ open, onClose }: SignInSheetProps) {
-  const { isConnected } = useAccount();
   const { isAuthenticated, login, logout } = useCuratorAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -79,46 +75,41 @@ export function SignInSheet({ open, onClose }: SignInSheetProps) {
         aria-label={isAuthenticated ? 'Account' : 'Sign in'}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
-          <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">{isAuthenticated ? 'Account' : 'Sign in'}</h2>
-          <Button variant="ghost" size="icon" className="-mr-1 h-11 w-11 touch-manipulation sm:h-8 sm:w-8" onClick={onClose} aria-label="Close">
+          <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+            {isAuthenticated ? 'Account' : 'Sign in'}
+          </h2>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="-mr-1 h-11 w-11 touch-manipulation sm:h-8 sm:w-8"
+            onClick={onClose}
+            aria-label="Close"
+          >
             <X className="h-4 w-4" />
           </Button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           <div className="flex flex-col gap-5">
-            {/* 1. Wallet */}
-            <div className="space-y-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                {isConnected ? 'Wallet' : 'Connect wallet'}
-              </p>
-              {isConnected && <p className="text-xs text-emerald-600 dark:text-emerald-400">Connected</p>}
-              <div className="flex w-full flex-col gap-2 [&_button]:max-w-full">
-                <ConnectWalletButton />
-                {isConnected && <NetworkSwitcher />}
-              </div>
-            </div>
-
-            {/* 2. Session (signed in) or Sign In form */}
             {isAuthenticated ? (
               <div className="space-y-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Session</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  Session
+                </p>
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-11 min-h-[44px] w-full touch-manipulation rounded-lg border-red-200 text-red-700 hover:bg-red-50 hover:border-red-300"
+                  className="h-11 min-h-[44px] w-full touch-manipulation rounded-lg border-red-200 text-red-700 hover:border-red-300 hover:bg-red-50"
                   onClick={handleLogout}
                 >
                   Log out
                 </Button>
-                <div className="pt-2">
-                  <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Appearance</p>
-                  <ThemeSwitcher />
-                </div>
               </div>
             ) : showSignInForm ? (
               <div className="space-y-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Sign In</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  Sign In
+                </p>
                 <form onSubmit={handleSubmit} className="space-y-2">
                   <Input
                     type="text"
@@ -151,26 +142,23 @@ export function SignInSheet({ open, onClose }: SignInSheetProps) {
                     {loading ? 'Checking…' : 'Sign in'}
                   </Button>
                 </form>
-                <div className="pt-2">
-                  <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Appearance</p>
-                  <ThemeSwitcher />
-                </div>
               </div>
             ) : (
-              <div className="space-y-2">
-                <Button
-                  type="button"
-                  className="h-11 min-h-[44px] w-full touch-manipulation rounded-lg"
-                  onClick={() => setShowSignInForm(true)}
-                >
-                  Sign in
-                </Button>
-                <div className="pt-2">
-                  <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Appearance</p>
-                  <ThemeSwitcher />
-                </div>
-              </div>
+              <Button
+                type="button"
+                className="h-11 min-h-[44px] w-full touch-manipulation rounded-lg"
+                onClick={() => setShowSignInForm(true)}
+              >
+                Sign in
+              </Button>
             )}
+
+            <div className="space-y-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                Appearance
+              </p>
+              <ThemeSwitcher />
+            </div>
           </div>
         </div>
       </div>

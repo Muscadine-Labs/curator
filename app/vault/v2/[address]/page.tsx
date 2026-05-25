@@ -94,6 +94,11 @@ export default function V2VaultPage() {
   const morphoUiUrl = vault.address 
     ? `https://app.morpho.org/base/vault/${vault.address.toLowerCase()}`
     : '#';
+
+  const hasPendingChanges = (pending?.pending.length ?? 0) > 0;
+  const emergencyActionsUrl = vault.address
+    ? `https://curator.morpho.org/vaults/${vault.chainId}/${vault.address}/emergency-actions`
+    : '#';
   
   // Safe defaults for missing data
   const vaultName = vault.name ?? 'Unknown Vault';
@@ -132,7 +137,10 @@ export default function V2VaultPage() {
               <TabsTrigger value="caps" className="sm:flex-1 flex-shrink-0 min-w-fit">Caps</TabsTrigger>
               <TabsTrigger value="parameters" className="sm:flex-1 flex-shrink-0 min-w-fit">Parameters</TabsTrigger>
               <TabsTrigger value="timelocks" className="sm:flex-1 flex-shrink-0 min-w-fit">Timelocks</TabsTrigger>
-              <TabsTrigger value="pending" className="sm:flex-1 flex-shrink-0 min-w-fit">Pending</TabsTrigger>
+              <TabsTrigger value="emergency" className="sm:flex-1 flex-shrink-0 min-w-fit">Emergency</TabsTrigger>
+              {hasPendingChanges && (
+                <TabsTrigger value="pending" className="sm:flex-1 flex-shrink-0 min-w-fit">Pending</TabsTrigger>
+              )}
             </TabsList>
           </div>
 
@@ -174,7 +182,12 @@ export default function V2VaultPage() {
 
           {/* Adapters Tab */}
           <TabsContent value="adapters">
-            <VaultV2Adapters vaultAddress={vault.address} preloadedData={governance} />
+            <VaultV2Adapters
+              vaultAddress={vault.address}
+              preloadedData={governance}
+              assetSymbol={vault.asset}
+              assetDecimals={vault.assetDecimals}
+            />
           </TabsContent>
 
           {/* Allocations Tab */}
@@ -207,14 +220,47 @@ export default function V2VaultPage() {
             <VaultV2Timelocks vaultAddress={vault.address} preloadedData={governance} />
           </TabsContent>
 
-          {/* Pending Tab */}
-          <TabsContent value="pending">
-            <VaultV2Pending
-              vaultAddress={vault.address}
-              chainId={vault.chainId}
-              preloadedData={pending}
-            />
+          {/* Emergency Tab */}
+          <TabsContent value="emergency" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Emergency Actions</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  Execute timelocked emergency actions for this vault on Morpho Curator.
+                </p>
+                <div>
+                  <Button variant="outline" asChild>
+                    <a href={emergencyActionsUrl} target="_blank" rel="noopener noreferrer">
+                      Open Emergency Actions
+                    </a>
+                  </Button>
+                </div>
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  <a
+                    href={emergencyActionsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline break-all"
+                  >
+                    {emergencyActionsUrl}
+                  </a>
+                </p>
+              </CardContent>
+            </Card>
           </TabsContent>
+
+          {/* Pending Tab */}
+          {hasPendingChanges && (
+            <TabsContent value="pending">
+              <VaultV2Pending
+                vaultAddress={vault.address}
+                chainId={vault.chainId}
+                preloadedData={pending}
+              />
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </AppShell>

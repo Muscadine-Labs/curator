@@ -21,6 +21,8 @@ import {
 import { UsdTokenModeFilter, type AmountUnit } from '@/components/charts/UsdTokenModeFilter';
 import { filterDataByRange, type TimeRange } from '@/lib/utils/date-filter';
 import {
+  formatCompactNumber,
+  formatCompactUSD,
   formatFullUSD,
   formatPercentage,
   formatRawTokenAmount,
@@ -37,7 +39,6 @@ interface VaultOverviewHistoryChartProps {
 
 const METRIC_TITLES: Record<VaultHistoryMetric, string> = {
   supplied: 'Total tokens supplied',
-  liquidity: 'Liquidity',
   apy: 'Net APY',
 };
 
@@ -54,16 +55,40 @@ function rawPointsToChart(
   });
 }
 
+function computeZoomedYDomain(
+  points: ReadonlyArray<{ value: number }>,
+  paddingRatio = 0.08
+): [number, number] | ['auto', 'auto'] {
+  if (points.length === 0) return ['auto', 'auto'];
+
+  const values = points.map((p) => p.value).filter((v) => Number.isFinite(v));
+  if (values.length === 0) return ['auto', 'auto'];
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+
+  if (min === max) {
+    const pad = Math.max(Math.abs(min) * 0.05, min === 0 ? 1 : 0.01);
+    return [min - pad, max + pad];
+  }
+
+  const span = max - min;
+  const padding = span * paddingRatio;
+  return [min - padding, max + padding];
+}
+
+function formatCompactTokenAxis(rawValue: number, chainDecimals: number): string {
+  const human = rawValue / 10 ** chainDecimals;
+  return formatCompactNumber(human);
+}
+
 export function VaultOverviewHistoryChart({
   vaultAddress,
-  version,
 }: VaultOverviewHistoryChartProps) {
   const { data, isLoading, error } = useVaultHistory(vaultAddress);
   const [metric, setMetric] = useState<VaultHistoryMetric>('supplied');
   const [range, setRange] = useState<TimeRange>('month');
   const [amountUnit, setAmountUnit] = useState<AmountUnit>('token');
-
-  const liquidityUnavailable = data ? !data.liquidityHistoricalAvailable : true;
 
   const chainDecimals = data
     ? resolveAssetDecimals(data.assetSymbol, data.assetDecimals)
@@ -85,41 +110,27 @@ export function VaultOverviewHistoryChart({
 
     const useUsd = amountUnit === 'usd';
 
-    if (metric === 'supplied') {
-      if (useUsd) {
-        return filterDataByRange(data.series.suppliedUsd, range).map((p) => ({
-          date: p.date,
-          value: p.value,
-          raw: String(p.value),
-        }));
-      }
-      return rawPointsToChart(data.series.supplied, range);
+    if (useUsd) {
+      return filterDataByRange(data.series.suppliedUsd, range).map((p) => ({
+        date: p.date,
+        value: p.value,
+        raw: String(p.value),
+      }));
     }
-
-    if (metric === 'liquidity') {
-      if (useUsd) {
-        return filterDataByRange(data.series.liquidityUsd, range).map((p) => ({
-          date: p.date,
-          value: p.value,
-          raw: String(p.value),
-        }));
-      }
-      return rawPointsToChart(data.series.liquidity, range);
-    }
-
-    return [];
+    return rawPointsToChart(data.series.supplied, range);
   }, [data, metric, range, amountUnit]);
 
-  const showUnitToggle = metric === 'supplied' || metric === 'liquidity';
+  const yDomain = useMemo(
+    () => computeZoomedYDomain(chartPoints),
+    [chartPoints]
+  );
+
+  const showUnitToggle = metric === 'supplied';
 
   const yAxisFormatter = (value: number) => {
-    if (metric === 'apy') return formatPercentage(value, 1);
-    if (amountUnit === 'usd') return formatFullUSD(value, 2);
-    try {
-      return formatRawTokenAmount(BigInt(Math.round(value)), chainDecimals, displayDecimals);
-    } catch {
-      return String(value);
-    }
+    if (metric === 'apy') return formatPercentage(value, 0);
+    if (amountUnit === 'usd') return formatCompactUSD(value);
+    return formatCompactTokenAxis(value, chainDecimals);
   };
 
   const formatTooltipValue = (value: number, raw: string) => {
@@ -165,9 +176,6 @@ export function VaultOverviewHistoryChart({
     );
   }
 
-  const showLiquidityNote =
-    metric === 'liquidity' && liquidityUnavailable && chartPoints.length === 0;
-
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -176,39 +184,16 @@ export function VaultOverviewHistoryChart({
             {data ? METRIC_TITLES[metric] : 'History'}
           </CardTitle>
           <div className="flex flex-wrap items-center gap-2">
-            <MetricModeFilter
-              value={metric}
-              onChange={(m) => {
-                setMetric(m);
-                if (m === 'apy') return;
-                if (m === 'liquidity' && liquidityUnavailable) setAmountUnit('usd');
-              }}
-              liquidityDisabled={liquidityUnavailable}
-            />
+            <MetricModeFilter value={metric} onChange={setMetric} />
             {showUnitToggle && (
-              <UsdTokenModeFilter
-                value={amountUnit}
-                onChange={setAmountUnit}
-                disabled={metric === 'liquidity' && liquidityUnavailable}
-              />
+              <UsdTokenModeFilter value={amountUnit} onChange={setAmountUnit} />
             )}
             <TimeRangeFilter value={range} onChange={setRange} />
           </div>
         </div>
-        {data && (
-          <p className="text-[11px] text-muted-foreground">
-            Liquidity is the withdrawable amount (from Morpho). Historical liquidity is not
-            indexed — use the breakdown card for the current value.
-          </p>
-        )}
       </CardHeader>
       <CardContent className="pt-0">
-        {showLiquidityNote ? (
-          <div className="flex h-52 items-center justify-center px-4 text-center text-sm text-muted-foreground">
-            Morpho does not index historical liquidity. See the breakdown above for the
-            current withdrawable amount.
-          </div>
-        ) : chartPoints.length === 0 ? (
+        {chartPoints.length === 0 ? (
           <div className="flex h-52 items-center justify-center text-sm text-muted-foreground">
             No historical data for this range
           </div>
@@ -223,9 +208,10 @@ export function VaultOverviewHistoryChart({
                 minTickGap={24}
               />
               <YAxis
+                domain={yDomain}
                 tickFormatter={(v) => yAxisFormatter(Number(v))}
                 tick={{ fontSize: 11 }}
-                width={amountUnit === 'usd' ? 72 : 88}
+                width={64}
               />
               <Tooltip
                 content={({ active, payload, label }) => {

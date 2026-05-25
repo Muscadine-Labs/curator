@@ -130,7 +130,7 @@ export default function FrontendPage() {
             </Card>
             <Card className="flex flex-col">
               <CardHeader>
-                <CardTitle className="text-center text-base">Wallet Connect Reown</CardTitle>
+                <CardTitle className="text-center text-base">WalletConnect Cloud</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-1 flex-col items-center justify-center">
                 <Button
@@ -140,12 +140,12 @@ export default function FrontendPage() {
                   className="w-full"
                 >
                   <a
-                    href="https://dashboard.reown.com/"
+                    href="https://cloud.walletconnect.com/"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center justify-center gap-2"
                   >
-                    Reown Dashboard
+                    WalletConnect Cloud
                     <ExternalLink className="h-4 w-4" />
                   </a>
                 </Button>

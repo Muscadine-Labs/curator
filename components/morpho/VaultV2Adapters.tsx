@@ -12,16 +12,27 @@ import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
 import { TransactionButton } from '@/components/TransactionButton';
 import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
-import { formatUSD, formatNumber } from '@/lib/format/number';
+import { formatUSD, formatNumber, formatRawTokenAmount } from '@/lib/format/number';
+import {
+  getTokenDisplayDecimals,
+  resolveAssetDecimals,
+} from '@/lib/format/asset-decimals';
 import { isAddress, type Address, type Hex } from 'viem';
 import type { AdapterInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governance/route';
 
 interface VaultV2AdaptersProps {
   vaultAddress: string;
   preloadedData?: VaultV2GovernanceResponse | null;
+  assetSymbol?: string | null;
+  assetDecimals?: number | null;
 }
 
-export function VaultV2Adapters({ vaultAddress, preloadedData }: VaultV2AdaptersProps) {
+export function VaultV2Adapters({
+  vaultAddress,
+  preloadedData,
+  assetSymbol,
+  assetDecimals,
+}: VaultV2AdaptersProps) {
   const { data: fetchedData, isLoading, error } = useVaultV2Governance(vaultAddress);
   const data = preloadedData ?? fetchedData;
 
@@ -85,6 +96,13 @@ export function VaultV2Adapters({ vaultAddress, preloadedData }: VaultV2Adapters
         {addOpen && <AddAdapterForm vaultAddress={vaultAddress} onDone={() => setAddOpen(false)} />}
         {liquidityOpen && <LiquidityAdapterForm vaultAddress={vaultAddress} onDone={() => setLiquidityOpen(false)} />}
 
+        <IdleAdapterRow
+          idleAssets={data.idleAssets}
+          idleAssetsUsd={data.idleAssetsUsd}
+          vaultSymbol={assetSymbol}
+          assetDecimals={assetDecimals}
+        />
+
         {adapters.length === 0 ? (
           <p className="text-sm text-slate-500 dark:text-slate-400">No adapters configured for this vault.</p>
         ) : (
@@ -109,6 +127,52 @@ export function VaultV2Adapters({ vaultAddress, preloadedData }: VaultV2Adapters
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function IdleAdapterRow({
+  idleAssets,
+  idleAssetsUsd,
+  vaultSymbol,
+  assetDecimals,
+}: {
+  idleAssets: string | null;
+  idleAssetsUsd: number | null;
+  vaultSymbol?: string | null;
+  assetDecimals?: number | null;
+}) {
+  const chainDecimals = resolveAssetDecimals(vaultSymbol ?? undefined, assetDecimals ?? undefined);
+  const displayDecimals = getTokenDisplayDecimals(vaultSymbol ?? undefined, chainDecimals);
+
+  return (
+    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50/80 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/50">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-base font-semibold text-slate-900 dark:text-slate-100">Idle</p>
+            <Badge variant="outline" className="text-xs">
+              Idle Adapter
+            </Badge>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Unallocated vault cash. Increase idle by deallocating from strategy adapters on the
+            Allocations tab.
+          </p>
+        </div>
+        <div className="space-y-1 text-right">
+          <p className="text-sm text-slate-500 dark:text-slate-400">Balance</p>
+          <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+            {idleAssetsUsd != null ? formatUSD(idleAssetsUsd, 2) : 'N/A'}
+          </p>
+          {idleAssets != null && (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {formatRawTokenAmount(idleAssets, chainDecimals, displayDecimals)}
+              {vaultSymbol ? ` ${vaultSymbol}` : ''}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
