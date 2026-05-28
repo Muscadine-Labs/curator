@@ -88,36 +88,39 @@ export const VAULT_DECIMALS: Record<TreasuryAssetKey, number> = {
   WETH: 18,
 };
 
+/** Morpho Vault V1 tx index (MetaMorpho) — not the legacy `transactions` query. */
 const V1_MISC_TX_QUERY = gql`
   query TreasuryV1MiscTxs(
     $vaultAddress: String!
-    $userAddress: String!
     $chainId: Int!
     $first: Int!
     $skip: Int!
   ) {
-    transactions(
+    vaultV1Transactions(
       first: $first
       skip: $skip
-      orderBy: Timestamp
+      orderBy: Time
       orderDirection: Desc
       where: {
         vaultAddress_in: [$vaultAddress]
         chainId_in: [$chainId]
-        userAddress_in: [$userAddress]
-        type_in: [MetaMorphoDeposit, MetaMorphoTransfer]
+        type_in: [Deposit, Transfer]
       }
     ) {
       items {
         timestamp
         type
-        user {
-          address
-        }
+        assets
         data {
-          ... on VaultTransactionData {
+          __typename
+          ... on VaultV1DepositData {
             assets
-            assetsUsd
+            onBehalf
+            sender
+          }
+          ... on VaultV1TransferData {
+            from
+            to
           }
         }
       }
@@ -128,7 +131,6 @@ const V1_MISC_TX_QUERY = gql`
 const V2_MISC_TX_QUERY = gql`
   query TreasuryV2MiscTxs(
     $vaultAddress: String!
-    $userAddress: String!
     $chainId: Int!
     $first: Int!
     $skip: Int!
@@ -141,7 +143,7 @@ const V2_MISC_TX_QUERY = gql`
       where: {
         vaultAddress_in: [$vaultAddress]
         chainId_in: [$chainId]
-        userAddress_in: [$userAddress]
+        type_in: [Deposit, Transfer]
       }
     ) {
       items {
@@ -151,6 +153,7 @@ const V2_MISC_TX_QUERY = gql`
         data {
           __typename
           ... on VaultV2DepositData {
+            assets
             onBehalf
             sender
           }
@@ -164,40 +167,40 @@ const V2_MISC_TX_QUERY = gql`
   }
 `;
 
+type V1MiscTxItem = {
+  timestamp?: number | string | null;
+  type?: string | null;
+  assets?: string | number | null;
+  data?:
+    | {
+        __typename?: string;
+        assets?: string | number | null;
+        onBehalf?: string | null;
+        sender?: string | null;
+        from?: string | null;
+        to?: string | null;
+      }
+    | null;
+};
+
+type V2MiscTxItem = V1MiscTxItem;
+
 type V1MiscTxResponse = {
-  transactions?: {
-    items?: Array<{
-      timestamp?: number | string | null;
-      type?: string | null;
-      user?: { address?: string | null } | null;
-      data?: { assets?: string | number | null; assetsUsd?: number | null } | null;
-    } | null> | null;
+  vaultV1Transactions?: {
+    items?: Array<V1MiscTxItem | null> | null;
   } | null;
 };
 
 type V2MiscTxResponse = {
   vaultV2transactions?: {
-    items?: Array<{
-      timestamp?: number | string | null;
-      type?: string | null;
-      assets?: string | number | null;
-      data?:
-        | {
-            __typename?: string;
-            onBehalf?: string | null;
-            sender?: string | null;
-            from?: string | null;
-            to?: string | null;
-          }
-        | null;
-    } | null> | null;
+    items?: Array<V2MiscTxItem | null> | null;
   } | null;
 };
 
 const PAGE_SIZE = 100;
 const MAX_PAGES = 50;
 
-function parseRawAssets(value: string | number | null | undefined): bigint {
+export function parseRawAssets(value: string | number | null | undefined): bigint {
   if (value == null) return BigInt(0);
   try {
     return BigInt(typeof value === 'number' ? Math.floor(value) : value);
@@ -206,19 +209,29 @@ function parseRawAssets(value: string | number | null | undefined): bigint {
   }
 }
 
-function isIncomingV2MiscTx(
-  tx: NonNullable<NonNullable<V2MiscTxResponse['vaultV2transactions']>['items']>[number],
-  treasuryLower: string
-): boolean {
-  if (!tx?.data?.__typename) return false;
-  if (tx.data.__typename === 'VaultV2DepositData') {
-    const onBehalf = tx.data.onBehalf?.toLowerCase();
-    const sender = tx.data.sender?.toLowerCase();
-    return onBehalf === treasuryLower || sender === treasuryLower;
+/** Underlying asset amount for a vault deposit/transfer row. */
+export function extractVaultMiscAssets(tx: V1MiscTxItem): bigint {
+  const root = parseRawAssets(tx.assets);
+  if (root > BigInt(0)) return root;
+  if (tx.data?.__typename === 'VaultV1DepositData' || tx.data?.__typename === 'VaultV2DepositData') {
+    return parseRawAssets(tx.data.assets);
   }
-  if (tx.data.__typename === 'VaultV2TransferData') {
+  return BigInt(0);
+}
+
+/** Capital flowing into the treasury position (deposit or share transfer in). */
+export function isIncomingVaultMiscTx(tx: V1MiscTxItem, treasuryLower: string): boolean {
+  if (!tx.data?.__typename) return false;
+
+  if (tx.data.__typename === 'VaultV1DepositData' || tx.data.__typename === 'VaultV2DepositData') {
+    const onBehalf = tx.data.onBehalf?.toLowerCase();
+    return onBehalf === treasuryLower;
+  }
+
+  if (tx.data.__typename === 'VaultV1TransferData' || tx.data.__typename === 'VaultV2TransferData') {
     return tx.data.to?.toLowerCase() === treasuryLower;
   }
+
   return false;
 }
 
@@ -236,15 +249,59 @@ function addMiscEntry(
   byMonth.set(monthKey, existing);
 }
 
+function resolveMiscUsd(
+  asset: TreasuryAssetKey,
+  tokens: number,
+  timestampSec: number,
+  vaultAddressLower: string,
+  pricePerTokenAt: (
+    asset: TreasuryAssetKey,
+    timestampSec: number,
+    vaultAddressLower: string
+  ) => number | null
+): number {
+  const price = pricePerTokenAt(asset, timestampSec, vaultAddressLower);
+  if (price != null && price > 0) return tokens * price;
+  if (asset === 'USDC') return tokens;
+  return 0;
+}
+
+async function paginateVaultMiscTxs<T extends V1MiscTxResponse | V2MiscTxResponse>(
+  fetchPage: (skip: number) => Promise<T>,
+  selectItems: (result: T) => Array<V1MiscTxItem | null> | null | undefined,
+  startTimestampSec: number
+): Promise<V1MiscTxItem[]> {
+  const all: V1MiscTxItem[] = [];
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const skip = page * PAGE_SIZE;
+    const result = await fetchPage(skip);
+    const items = (selectItems(result) ?? []).filter(
+      (tx): tx is V1MiscTxItem => tx != null
+    );
+    if (items.length === 0) break;
+    all.push(...items);
+    const oldestTs = items.reduce((min, tx) => {
+      const ts = tx.timestamp != null ? Number(tx.timestamp) : Infinity;
+      return Math.min(min, ts);
+    }, Infinity);
+    if (oldestTs < startTimestampSec || items.length < PAGE_SIZE) break;
+  }
+  return all;
+}
+
 /**
  * Capital contributions to treasury vault positions (deposits + share transfers in).
- * Excludes MetaMorphoFee / implicit fee accrual — those stay in vault performance fees.
+ * Excludes fee accrual — those stay in vault performance fees.
  */
 export async function fetchTreasuryMiscellaneousByMonth(
   vaultAddresses: string[],
   chainId: number,
   startTimestampSec: number,
-  pricePerTokenAt: (asset: TreasuryAssetKey, timestampSec: number) => number | null
+  pricePerTokenAt: (
+    asset: TreasuryAssetKey,
+    timestampSec: number,
+    vaultAddressLower: string
+  ) => number | null
 ): Promise<Map<string, TreasuryAssetBreakdown>> {
   const treasuryLower = getAddress(TREASURY_ADDRESS).toLowerCase();
   const byMonth = new Map<string, TreasuryAssetBreakdown>();
@@ -258,84 +315,46 @@ export async function fetchTreasuryMiscellaneousByMonth(
     const decimals = VAULT_DECIMALS[asset];
 
     try {
-      if (version === 'v1') {
-        for (let page = 0; page < MAX_PAGES; page++) {
-          const skip = page * PAGE_SIZE;
-          const result = await morphoGraphQLClient.request<V1MiscTxResponse>(V1_MISC_TX_QUERY, {
-            vaultAddress,
-            userAddress: TREASURY_ADDRESS,
-            chainId,
-            first: PAGE_SIZE,
-            skip,
-          });
+      const items =
+        version === 'v1'
+          ? await paginateVaultMiscTxs<V1MiscTxResponse>(
+              (skip) =>
+                morphoGraphQLClient.request<V1MiscTxResponse>(V1_MISC_TX_QUERY, {
+                  vaultAddress: vaultLower,
+                  chainId,
+                  first: PAGE_SIZE,
+                  skip,
+                }),
+              (result) => result.vaultV1Transactions?.items,
+              startTimestampSec
+            )
+          : await paginateVaultMiscTxs<V2MiscTxResponse>(
+              (skip) =>
+                morphoGraphQLClient.request<V2MiscTxResponse>(V2_MISC_TX_QUERY, {
+                  vaultAddress: vaultLower,
+                  chainId,
+                  first: PAGE_SIZE,
+                  skip,
+                }),
+              (result) => result.vaultV2transactions?.items,
+              startTimestampSec
+            );
 
-          const items = (result.transactions?.items ?? []).filter(
-            (tx): tx is NonNullable<typeof tx> => tx != null
-          );
-          if (items.length === 0) break;
+      for (const tx of items) {
+        const ts = tx.timestamp != null ? Number(tx.timestamp) : 0;
+        if (!ts || ts < startTimestampSec) continue;
+        if (!isIncomingVaultMiscTx(tx, treasuryLower)) continue;
 
-          for (const tx of items) {
-            const ts = tx?.timestamp != null ? Number(tx.timestamp) : 0;
-            if (!ts || ts < startTimestampSec) continue;
-            if (tx?.user?.address?.toLowerCase() !== treasuryLower) continue;
+        const raw = extractVaultMiscAssets(tx);
+        if (raw <= BigInt(0)) continue;
 
-            const raw = parseRawAssets(tx.data?.assets);
-            if (raw <= BigInt(0)) continue;
-
-            const tokens = Number(raw) / Math.pow(10, decimals);
-            const usd =
-              tx.data?.assetsUsd != null && Number.isFinite(tx.data.assetsUsd)
-                ? tx.data.assetsUsd
-                : tokens * (pricePerTokenAt(asset, ts) ?? 0);
-
-            addMiscEntry(byMonth, monthKeyFromTimestamp(ts), asset, tokens, usd);
-          }
-
-          const oldestTs = items.reduce((min, tx) => {
-            const ts = tx?.timestamp != null ? Number(tx.timestamp) : Infinity;
-            return Math.min(min, ts);
-          }, Infinity);
-          if (oldestTs < startTimestampSec || items.length < PAGE_SIZE) break;
-        }
-      } else {
-        for (let page = 0; page < MAX_PAGES; page++) {
-          const skip = page * PAGE_SIZE;
-          const result = await morphoGraphQLClient.request<V2MiscTxResponse>(V2_MISC_TX_QUERY, {
-            vaultAddress,
-            userAddress: TREASURY_ADDRESS,
-            chainId,
-            first: PAGE_SIZE,
-            skip,
-          });
-
-          const items = (result.vaultV2transactions?.items ?? []).filter(
-            (tx): tx is NonNullable<typeof tx> => tx != null
-          );
-          if (items.length === 0) break;
-
-          for (const tx of items) {
-            const ts = tx?.timestamp != null ? Number(tx.timestamp) : 0;
-            if (!ts || ts < startTimestampSec) continue;
-            if (!isIncomingV2MiscTx(tx, treasuryLower)) continue;
-
-            const raw = parseRawAssets(tx.assets);
-            if (raw <= BigInt(0)) continue;
-
-            const tokens = Number(raw) / Math.pow(10, decimals);
-            const usd = tokens * (pricePerTokenAt(asset, ts) ?? 0);
-            addMiscEntry(byMonth, monthKeyFromTimestamp(ts), asset, tokens, usd);
-          }
-
-          const oldestTs = items.reduce((min, tx) => {
-            const ts = tx?.timestamp != null ? Number(tx.timestamp) : Infinity;
-            return Math.min(min, ts);
-          }, Infinity);
-          if (oldestTs < startTimestampSec || items.length < PAGE_SIZE) break;
-        }
+        const tokens = Number(raw) / Math.pow(10, decimals);
+        const usd = resolveMiscUsd(asset, tokens, ts, vaultLower, pricePerTokenAt);
+        addMiscEntry(byMonth, monthKeyFromTimestamp(ts), asset, tokens, usd);
       }
     } catch (error) {
       logger.warn('Failed to fetch treasury miscellaneous transactions', {
-        vaultAddress,
+        vaultAddress: vaultLower,
         version,
         error: error instanceof Error ? error.message : String(error),
       });

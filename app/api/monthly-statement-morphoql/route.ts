@@ -658,8 +658,17 @@ export async function GET(request: Request) {
       ).length,
     });
 
-    const pricePerTokenAt = (asset: TreasuryAssetKey, timestampSec: number): number | null => {
-      for (const pos of validPositions) {
+    const pricePerTokenAt = (
+      asset: TreasuryAssetKey,
+      timestampSec: number,
+      vaultAddressLower: string
+    ): number | null => {
+      const ordered = [...validPositions].sort((a, b) => {
+        const aMatch = a.vaultAddress === vaultAddressLower ? 0 : 1;
+        const bMatch = b.vaultAddress === vaultAddressLower ? 0 : 1;
+        return aMatch - bMatch;
+      });
+      for (const pos of ordered) {
         if (pos.asset !== asset) continue;
         const endAssets = getValueAtTimestamp(pos.historicalAssets, timestampSec);
         const endAssetsUsd = getValueAtTimestamp(pos.historicalAssetsUsd, timestampSec);

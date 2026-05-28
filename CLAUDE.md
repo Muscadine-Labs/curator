@@ -522,8 +522,12 @@ USD uses end-of-period price on **new tokens only** (same as before).
 
 | Vault | Included tx types | Rule |
 | ----- | ----------------- | ---- |
-| V1 MetaMorpho | `MetaMorphoDeposit`, `MetaMorphoTransfer` | `userAddress_in = treasury` |
-| V2 | `Deposit`, `Transfer` | Deposit: `onBehalf` or `sender` = treasury; Transfer: `to` = treasury |
+| V1 | `vaultV1Transactions` — `Deposit`, `Transfer` | Deposit: `onBehalf` = treasury; Transfer: `to` = treasury (`assets` on tx root) |
+| V2 | `vaultV2transactions` — `Deposit`, `Transfer` | Same as V1 (`VaultV2DepositData` / `VaultV2TransferData`) |
+
+Do **not** use legacy `transactions` + `MetaMorphoDeposit` for V1 — it indexes fee events under
+`userAddress_in` and misses share transfers into the treasury. Paginate per vault with `type_in`
+only (no `userAddress_in` filter) so deposits credited to `onBehalf` are included.
 
 Explicitly **excluded** from miscellaneous: `MetaMorphoFee` (V1), withdrawals, outgoing
 transfers. V2 fee accrual has no dedicated tx type — it remains in `vaultFees` as the
@@ -1069,7 +1073,6 @@ wagmi transformed via `transformIgnorePatterns`. Run with `npm test` (or
 | `lib/morpho/__tests__/utilization-risk.test.ts`          | `scoreUtilizationRatio`: 100 at target (90%), flat below, decays above. |
 | `lib/format/__tests__/asset-decimals.test.ts`            | Known symbol decimals (USDC 6, cbBTC 8, WETH 18) and `resolveAssetDecimals` / `getTokenDisplayDecimals`. |
 | `lib/morpho/__tests__/vault-history.test.ts`             | `computeSharePriceUsdSeries`, `normalizeVaultHistoryResponse` / share price mapping. |
-
 When adding write builders in `vault-writes.ts`, add or restore ABI round-trip
 tests under `lib/onchain/__tests__/vault-writes.test.ts`.
 
@@ -1084,7 +1087,7 @@ tests under `lib/onchain/__tests__/vault-writes.test.ts`.
 
 ---
 
-_Last updated: 2026-05-28 (v1.0.5). When you change reallocation logic, allocation
+_Last updated: 2026-05-28 (v1.0.6). When you change reallocation logic, allocation
 list/filters (§5), caps/adapters display, Morpho GraphQL field names (§4.4.1), vault
 list/sidebar (§4.3.1), vault overview/history (share price in §4.4), risk scoring
 (§4.5), V2 idle/MetaMorpho/Blue display, pending/emergency tabs, wallet stack,
