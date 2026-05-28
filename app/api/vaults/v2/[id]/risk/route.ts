@@ -6,7 +6,11 @@ import { getVaultByAddress } from '@/lib/config/vaults';
 import { handleApiError, AppError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
 import { BASE_CHAIN_ID } from '@/lib/constants';
-import { fetchV1VaultMarkets, type V1VaultMarketData } from '@/lib/morpho/query-v1-vault-markets';
+import {
+  asV1VaultMarketData,
+  fetchV1VaultMarkets,
+  type V1VaultMarketData,
+} from '@/lib/morpho/query-v1-vault-markets';
 import {
   computeV1MarketRiskScores,
   isMarketIdle,
@@ -128,7 +132,7 @@ const VAULT_V2_RISK_QUERY = gql`
                 }
                 market {
                   id
-                  uniqueKey
+                  marketId
                   loanAsset { symbol decimals address }
                   collateralAsset { symbol decimals address }
                   oracleAddress
@@ -306,7 +310,7 @@ async function computeAdapterRisk(
     const marketRisks = await Promise.all(
       positions.map((pos) =>
         buildMarketRisk(
-          pos!.market,
+          asV1VaultMarketData(pos!.market),
           pos!.state?.supplyAssetsUsd ?? 0,
           pos!.state?.supplyAssets ?? null
         )

@@ -30,6 +30,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { RatingBadge } from '@/components/morpho/RatingBadge';
 import { formatCompactUSD, formatPercentage } from '@/lib/format/number';
 import { useVaultList } from '@/lib/hooks/useProtocolStats';
+import { marketKeyFromGraphQL } from '@/lib/morpho/morpho-app-links';
 import { AppShell } from '@/components/layout/AppShell';
 
 type MergedMarket = SuppliedMarket & {
@@ -55,9 +56,9 @@ export default function VaultsPage() {
     const morphoById = new Map<string, MorphoMarketMetrics>();
     
     morpho.data.markets.forEach((m) => {
-      // Primary: match by uniqueKey from raw Market object
-      if (m.raw?.uniqueKey) {
-        morphoByUniqueKey.set(m.raw.uniqueKey, m);
+      const key = marketKeyFromGraphQL(m.raw);
+      if (key) {
+        morphoByUniqueKey.set(key, m);
       }
       // Also match by id as fallback
       morphoById.set(m.id, m);

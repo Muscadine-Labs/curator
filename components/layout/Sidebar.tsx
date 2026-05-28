@@ -17,16 +17,25 @@ const navBase = [
 
 type VaultSection = { type: 'vineyard' | 'prime' | 'v1' | 'test'; label: string; vaults: VaultWithData[] };
 
+function vaultSectionType(vault: VaultWithData): VaultSection['type'] {
+  if (vault.listCategory) return vault.listCategory;
+  if (vault.version === 'v1') return 'v1';
+  if (vault.version === 'v2') {
+    return getVaultCategory(vault.name, vault.address);
+  }
+  return getVaultCategory(vault.name, vault.address);
+}
+
 function getSectionsForNetwork(vaults: VaultWithData[], chainId: number): VaultSection[] {
   const byChain = vaults.filter((v) => v.chainId === chainId);
   const sections: VaultSection[] = [];
-  const prime = byChain.filter((v) => getVaultCategory(v.name, v.address) === 'prime');
-  const vineyard = byChain.filter((v) => getVaultCategory(v.name, v.address) === 'vineyard');
-  const v1 = byChain.filter((v) => getVaultCategory(v.name, v.address) === 'v1');
-  const test = byChain.filter((v) => getVaultCategory(v.name, v.address) === 'test');
-  if (vineyard.length > 0) sections.push({ type: 'vineyard', label: 'V2 Vineyard Vaults', vaults: vineyard });
+  const v1 = byChain.filter((v) => vaultSectionType(v) === 'v1');
+  const vineyard = byChain.filter((v) => vaultSectionType(v) === 'vineyard');
+  const prime = byChain.filter((v) => vaultSectionType(v) === 'prime');
+  const test = byChain.filter((v) => vaultSectionType(v) === 'test');
   if (prime.length > 0) sections.push({ type: 'prime', label: 'V2 Prime Vaults', vaults: prime });
   if (v1.length > 0) sections.push({ type: 'v1', label: 'V1 Vaults', vaults: v1 });
+  if (vineyard.length > 0) sections.push({ type: 'vineyard', label: 'V2 Vineyard Vaults', vaults: vineyard });
   if (test.length > 0) sections.push({ type: 'test', label: 'V2 Test Vaults', vaults: test });
   return sections;
 }

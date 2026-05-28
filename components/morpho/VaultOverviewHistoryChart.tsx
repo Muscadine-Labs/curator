@@ -39,6 +39,7 @@ interface VaultOverviewHistoryChartProps {
 
 const METRIC_TITLES: Record<VaultHistoryMetric, string> = {
   supplied: 'Total tokens supplied',
+  sharePrice: 'Price per share',
   apy: 'Net APY',
 };
 
@@ -98,10 +99,22 @@ export function VaultOverviewHistoryChart({
     : 6;
 
   const chartPoints = useMemo(() => {
-    if (!data) return [];
+    if (!data?.series) return [];
+
+    const { series } = data;
 
     if (metric === 'apy') {
-      return filterDataByRange(data.series.apy, range).map((p) => ({
+      return filterDataByRange(series.apy ?? [], range).map((p) => ({
+        date: p.date,
+        value: p.value,
+        raw: String(p.value),
+      }));
+    }
+
+    if (metric === 'sharePrice') {
+      const shareSeries =
+        amountUnit === 'usd' ? series.sharePriceUsd ?? [] : series.sharePrice ?? [];
+      return filterDataByRange(shareSeries, range).map((p) => ({
         date: p.date,
         value: p.value,
         raw: String(p.value),
@@ -111,13 +124,13 @@ export function VaultOverviewHistoryChart({
     const useUsd = amountUnit === 'usd';
 
     if (useUsd) {
-      return filterDataByRange(data.series.suppliedUsd, range).map((p) => ({
+      return filterDataByRange(series.suppliedUsd ?? [], range).map((p) => ({
         date: p.date,
         value: p.value,
         raw: String(p.value),
       }));
     }
-    return rawPointsToChart(data.series.supplied, range);
+    return rawPointsToChart(series.supplied ?? [], range);
   }, [data, metric, range, amountUnit]);
 
   const yDomain = useMemo(
@@ -125,16 +138,24 @@ export function VaultOverviewHistoryChart({
     [chartPoints]
   );
 
-  const showUnitToggle = metric === 'supplied';
+  const showUnitToggle = metric === 'supplied' || metric === 'sharePrice';
 
   const yAxisFormatter = (value: number) => {
     if (metric === 'apy') return formatPercentage(value, 0);
+    if (metric === 'sharePrice') {
+      return amountUnit === 'usd' ? formatCompactUSD(value) : formatCompactNumber(value);
+    }
     if (amountUnit === 'usd') return formatCompactUSD(value);
     return formatCompactTokenAxis(value, chainDecimals);
   };
 
   const formatTooltipValue = (value: number, raw: string) => {
     if (metric === 'apy') return formatPercentage(value, 2);
+    if (metric === 'sharePrice') {
+      if (amountUnit === 'usd') return formatFullUSD(value, 6);
+      const symbol = data?.assetSymbol ?? '';
+      return `${value.toLocaleString('en-US', { maximumFractionDigits: 8 })} ${symbol}`.trim();
+    }
     if (amountUnit === 'usd') return formatFullUSD(value, 2);
     try {
       return `${formatRawTokenAmount(BigInt(raw), chainDecimals, displayDecimals)} ${data?.assetSymbol ?? ''}`.trim();

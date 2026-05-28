@@ -35,6 +35,7 @@ export interface VaultWithData {
   createdAt: string;
   description?: string;
   version?: 'v1' | 'v2';
+  listCategory?: 'prime' | 'vineyard' | 'v1' | 'test' | null;
   tvl: number | null;
   apy: number | null;
   depositors: number;

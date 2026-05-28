@@ -32,10 +32,14 @@ Muscadine for managing and reporting on Morpho-style vaults on Base (chainId
   `ConnectButton` in topbar). Connect modal wallets (in order): **Rabby,
   MetaMask, Base, Phantom, WalletConnect** — no server-side private keys for
   vault writes.
-- **GraphQL**: Morpho Blue API via `lib/morpho/graphql-client.ts`
+- **GraphQL**: Morpho Blue API (`https://api.morpho.org/graphql`) via
+  `graphql-request` in `lib/morpho/graphql-client.ts`. **Vault list, detail,
+  history, risk, and protocol stats BFF routes use this client directly** — not
+  the Morpho SDK runtime.
 - **Onchain SDK**: `@morpho-org/blue-sdk`, `@morpho-org/blue-api-sdk`,
-  `@morpho-org/morpho-ts` — **not** `@morpho-org/morpho-sdk-v2` (typed ABIs in
-  `lib/onchain/abis.ts` + `vault-writes.ts` instead).
+  `@morpho-org/morpho-ts` — used mainly for **TypeScript types** (e.g. markets
+  ratings in `lib/morpho/service.ts`). Typed vault writes use ABIs in
+  `lib/onchain/abis.ts` + `vault-writes.ts`, not `@morpho-org/morpho-sdk-v2`.
 - **Auth**: Custom curator auth (`lib/auth/*`) with signed session tokens
 
 ---
@@ -93,9 +97,14 @@ lib/
 
 A **Morpho vault** is an ERC-4626 wrapper that supplies user deposits into one or
 more Morpho Blue markets. Each market is identified by a 32-byte `Id =
-keccak256(marketParams)`. Allocators (curator/allocator role) periodically
-rebalance idle + market balances. V1 and V2 reach the same goal via _different_
-contract semantics. Getting those semantics wrong is the #1 source of reverts.
+keccak256(marketParams)`. In Morpho GraphQL (2026+), the same 32-byte id is
+exposed as `market.marketId` (legacy field name was `uniqueKey`). App code still
+uses the JSON key `marketKey` in API responses; resolve GraphQL with
+`marketKeyFromGraphQL()` in `lib/morpho/morpho-app-links.ts`.
+
+Allocators (curator/allocator role) periodically rebalance idle + market
+balances. V1 and V2 reach the same goal via _different_ contract semantics.
+Getting those semantics wrong is the #1 source of reverts.
 
 ### 3.1 Morpho V1 (MetaMorpho) — **target-based `reallocate`**
 
@@ -263,6 +272,28 @@ All GET-style API routes return JSON consumed by React Query. Query keys:
 Hooks live in `lib/hooks/` and should be the only entry points for reading
 vault data from components.
 
+### 4.3.1 Vault list API and sidebar
+
+`GET /api/vaults` (`app/api/vaults/route.ts`) fans out V1 (`vaults { … }`) and
+per-address V2 (`vaultV2ByAddress`) Morpho GraphQL queries. Each row is enriched
+from `lib/config/vaults.ts` with:
+
+- `id` — same as vault `address` (for legacy UI keys)
+- `version` — `v1` | `v2` from config `morphoVersion`
+- `listCategory` — optional `prime` | `vineyard` | `v1` | `test`
+
+`?includeAll=true` includes test vaults (`excludeFromBusinessViews`); default list
+is business vaults only.
+
+**Sidebar** (`components/layout/Sidebar.tsx`) uses `useVaultList({ includeAll: true })`.
+Section order under each network (Base only today): **V2 Prime → V1 Vaults → V2
+Vineyard → V2 Test**. Categorization prefers `version` / `listCategory` from the
+API, then `getVaultCategory(name, address)` heuristics. V1 routes:
+`/vault/v1/{address}`; V2 Prime/Vineyard/Test use `/vault/v2/{address}`.
+
+Ethereum appears in `SIDEBAR_NETWORKS` but has no configured vaults — expand
+**Base**, not Ethereum, to see vault links.
+
 ### 4.4 Vault overview, liquidity, and history (Morpho GraphQL)
 
 **Overview** — `VaultOverviewPanel` + `GET /api/vaults/[id]` (`app/api/vaults/[id]/route.ts`).
@@ -284,14 +315,43 @@ vault data from components.
 | ------ | ----------------- | ------------------- |
 | Tokens supplied | `totalAssets` / `totalAssetsUsd` | same |
 | APY | `netApy` (×100 for %) | `avgNetApy` (×100 for %) |
+| Price per share (token) | `sharePriceNumber` (human decimal per share) | `sharePrice` |
+| Price per share (USD) | `sharePriceUsd` | `totalAssetsUsd ÷ totalSupply` (18-decimal shares) |
 | Liquidity | **not indexed** | **not indexed** |
 
 - Response flag `liquidityHistoricalAvailable` is always `false`. Do **not** synthesize
   liquidity from TVL, idle, or `realAssetsUsd`.
 - The history chart **does not offer a Liquidity metric** (removed — no indexed
   timeseries). Spot withdrawable liquidity stays on the overview breakdown card.
-- Filters: `MetricModeFilter`, `UsdTokenModeFilter` (USD / Tokens on supplied only),
-  `TimeRangeFilter`.
+- History metrics (`MetricModeFilter`): **Tokens supplied**, **Price per share**, **APY**.
+- **Price per share** uses `UsdTokenModeFilter`: **Tokens** = underlying per share;
+  **USD** = dollar per share.
+- `useVaultHistory` normalizes responses via `normalizeVaultHistoryResponse()` so
+  stale React Query cache missing new series keys does not crash the chart.
+  Query key includes a version suffix when series shape changes.
+- Filters: `MetricModeFilter`, `UsdTokenModeFilter` (USD / Tokens on supplied and
+  share price), `TimeRangeFilter`.
+- Pure helpers: `lib/morpho/vault-history.ts` (`mapMorphoTimeseries`,
+  `computeSharePriceUsdSeries`, `VAULT_SHARE_DECIMALS = 18`).
+
+### 4.4.1 Morpho GraphQL schema drift (do not regress)
+
+Morpho’s public GraphQL schema changed; invalid fields fail the **whole** query.
+Symptoms: empty `GET /api/vaults`, “Unknown V2 Vault” detail fallbacks, 500s on
+V1 detail.
+
+| Legacy field | Current field | Where |
+| ------------ | ------------- | ----- |
+| `whitelisted` on `Vault` / `VaultV2` | `listed` | List + detail queries; map to UI `status` (`listed` → active) |
+| `uniqueKey` on `Market` | `marketId` | All market GraphQL selections; keep `marketKey` in JSON for UI |
+| `VaultState.avgApy`, `monthlyNetApy`, `weeklyNetApy`, `dailyApy`, `netApyWithoutRewards`, … | Removed — use `apy`, `netApy`, `avgNetApy`, `netApyExcludingRewards` | V1 detail + list |
+| V2 spot `avgApy` on vault | Use `apy`, `avgNetApy`, `maxApy` | V2 detail + list |
+
+**Client-side Morpho queries** (browser `morphoGraphQLClient` in `useVaultCaps`,
+`useVaultQueues`) must use `marketId` as well — not only server routes.
+
+V1 list query must not use removed `VaultState` APY fields (`weeklyNetApy` /
+`monthlyNetApy` caused silent empty V1 rows via `.catch(() => [])`).
 
 **Other Morpho API fixes (do not regress):**
 
@@ -369,7 +429,8 @@ symbol `Unknown`. Return `scores: null`; never feed into weighted averages.
 B+ ≥84, B ≥80, B− ≥77, C+ ≥74, C ≥70, C− ≥65, D ≥60, F &lt;60.
 
 **External links** — `lib/morpho/morpho-app-links.ts`:
-- Blue market → `morphoMarketHref(uniqueKey)` → `app.morpho.org/base/market/…`
+- Blue market → `morphoMarketHref(marketId)` (param name `uniqueKey` in code) →
+  `app.morpho.org/base/market/…`
 - Wrapped V1 vault → `morphoVaultHref(address)` → `app.morpho.org/base/vault/…`
   Used in `MarketRiskDetailCard`, `VaultRiskV2` (MetaMorpho title), and allocation tables.
 
@@ -705,6 +766,21 @@ components.
 
 - Hide the tab when `pending.length === 0` on both V1 and V2 vault pages.
 
+### Vault list empty or only V2 Prime in sidebar
+
+- Check server logs for `GraphQL Error: Cannot query field "whitelisted"` or
+  `"uniqueKey"` — update queries per §4.4.1.
+- V1 batch query uses `.catch(() => ({ items: [] }))`; one invalid field drops
+  **all** V1 vaults from the list without surfacing an error to the UI.
+- Hard-refresh or bump `useVaultList` / `useVaultHistory` query keys after schema fixes.
+- Confirm sidebar network **Base** is expanded (vaults are chainId `8453` only).
+
+### History chart crashes on “Price per share”
+
+- Stale React Query payload may lack `series.sharePrice` / `sharePriceUsd`.
+  `normalizeVaultHistoryResponse()` in `useVaultHistory` backfills `[]`; chart
+  uses `?? []` defensively.
+
 ---
 
 ## 11. Development Workflow
@@ -771,6 +847,9 @@ npm run build
 | V2 risk API                      | `app/api/vaults/v2/[id]/risk/route.ts`                   |
 | V1 market risk API               | `app/api/vaults/v1/[id]/market-risk/route.ts`            |
 | Vault list API                   | `app/api/vaults/route.ts`, `app/api/vaults/[id]/route.ts`|
+| Vault history + share price      | `lib/morpho/vault-history.ts`, `useVaultHistory.ts`, `VaultOverviewHistoryChart.tsx` |
+| Sidebar vault sections           | `components/layout/Sidebar.tsx`, `lib/config/vaults.ts` (`getVaultCategory`) |
+| Market id helpers                | `lib/morpho/morpho-app-links.ts` (`marketKeyFromGraphQL`) |
 | Vault addresses                  | `lib/config/vaults.ts`                                   |
 | CCTP constants (chains/ABIs)     | `lib/cctp/constants.ts`                                  |
 | CCTP attestation helper          | `lib/cctp/attestation.ts`                                |
@@ -989,6 +1068,7 @@ wagmi transformed via `transformIgnorePatterns`. Run with `npm test` (or
 | `lib/onchain/__tests__/reallocation.test.ts`               | `buildV1ReallocationPlan` ordering (withdrawals first, deposits after) and `maxUint256` catcher (default largest deposit + explicit `catcherKey` from dust recipient). |
 | `lib/morpho/__tests__/utilization-risk.test.ts`          | `scoreUtilizationRatio`: 100 at target (90%), flat below, decays above. |
 | `lib/format/__tests__/asset-decimals.test.ts`            | Known symbol decimals (USDC 6, cbBTC 8, WETH 18) and `resolveAssetDecimals` / `getTokenDisplayDecimals`. |
+| `lib/morpho/__tests__/vault-history.test.ts`             | `computeSharePriceUsdSeries`, `normalizeVaultHistoryResponse` / share price mapping. |
 
 When adding write builders in `vault-writes.ts`, add or restore ABI round-trip
 tests under `lib/onchain/__tests__/vault-writes.test.ts`.
@@ -1004,8 +1084,9 @@ tests under `lib/onchain/__tests__/vault-writes.test.ts`.
 
 ---
 
-_Last updated: 2026-05-25 (v1.0.4). When you change reallocation logic, allocation
-list/filters (§5), caps/adapters display, Morpho API mapping, vault overview/history,
-risk scoring (§4.5), V2 idle/MetaMorpho/Blue display, pending/emergency tabs, wallet
-stack, formatting, the CCTP flow, global density, or add a new vault interaction,
-update Sections 3–6, 4.5, 9–10, 13, 15, and 16 accordingly._
+_Last updated: 2026-05-28 (v1.0.5). When you change reallocation logic, allocation
+list/filters (§5), caps/adapters display, Morpho GraphQL field names (§4.4.1), vault
+list/sidebar (§4.3.1), vault overview/history (share price in §4.4), risk scoring
+(§4.5), V2 idle/MetaMorpho/Blue display, pending/emergency tabs, wallet stack,
+formatting, the CCTP flow, global density, or add a new vault interaction, update
+Sections 3–6, 4.3.1, 4.4–4.5, 9–10, 13, 15, and 16 accordingly._

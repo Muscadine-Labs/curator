@@ -19,6 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { RatingBadge } from '@/components/morpho/RatingBadge';
 import { formatCompactUSD, formatPercentage } from '@/lib/format/number';
 import type { MorphoMarketMetrics } from '@/lib/morpho/types';
+import { marketKeyFromGraphQL } from '@/lib/morpho/morpho-app-links';
 import { useVaultRisk } from '@/lib/hooks/useVaultRisk';
 
 export default function VaultDetailPage() {
@@ -35,8 +36,9 @@ export default function VaultDetailPage() {
     const metricsById = new Map<string, MorphoMarketMetrics>();
 
     morpho?.markets?.forEach((market) => {
-      if (market.raw?.uniqueKey) {
-        metricsByUniqueKey.set(market.raw.uniqueKey, market);
+      const key = marketKeyFromGraphQL(market.raw);
+      if (key) {
+        metricsByUniqueKey.set(key, market);
       }
       metricsById.set(market.id, market);
     });

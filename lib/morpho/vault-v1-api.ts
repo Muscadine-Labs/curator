@@ -16,7 +16,7 @@ export const VAULT_V1_PENDING_QUERY = gql`
               ... on VaultSetCapPendingData {
                 supplyCap
                 market {
-                  uniqueKey
+                  marketId
                   loanAsset {
                     address
                   }
@@ -41,7 +41,7 @@ export const VAULT_V1_PENDING_QUERY = gql`
                   address
                 }
                 market {
-                  uniqueKey
+                  marketId
                   loanAsset {
                     symbol
                   }
@@ -81,7 +81,7 @@ export function mapV1PendingDecoded(
   switch (decoded.__typename) {
     case 'VaultSetCapPendingData': {
       const market = decoded.market as {
-        uniqueKey?: string | null;
+        marketId?: string | null;
         loanAsset?: { address?: string | null } | null;
         collateralAsset?: { address?: string | null } | null;
         oracleAddress?: string | null;
@@ -99,7 +99,7 @@ export function mapV1PendingDecoded(
       return {
         type: 'SetCap',
         supplyCap: String(decoded.supplyCap ?? '0'),
-        marketKey: market?.uniqueKey ?? null,
+        marketKey: market?.marketId ?? null,
         marketParams: hasParams
           ? {
               loanToken: market!.loanAsset!.address!,
@@ -123,19 +123,19 @@ export function mapV1PendingDecoded(
       };
     case 'VaultRemoveMarketPendingData': {
       const market = decoded.market as {
-        uniqueKey?: string | null;
+        marketId?: string | null;
         loanAsset?: { symbol?: string | null } | null;
         collateralAsset?: { symbol?: string | null } | null;
       } | null;
       const loan = market?.loanAsset?.symbol;
       const coll = market?.collateralAsset?.symbol;
       const marketLabel =
-        loan && coll ? `${loan}/${coll}` : market?.uniqueKey ? market.uniqueKey.slice(0, 10) + '…' : null;
+        loan && coll ? `${loan}/${coll}` : market?.marketId ? market.marketId.slice(0, 10) + '…' : null;
 
       return {
         type: 'RemoveMarket',
         caller: String((decoded.caller as { address?: string })?.address ?? ''),
-        marketKey: market?.uniqueKey ?? null,
+        marketKey: market?.marketId ?? null,
         marketLabel,
       };
     }

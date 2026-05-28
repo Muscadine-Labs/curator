@@ -48,7 +48,7 @@ export function useVaultCaps(vaultAddress: Address | string | null | undefined, 
                 supplyAssets
                 supplyAssetsUsd
                 market {
-                  uniqueKey
+                  marketId
                   loanAsset {
                     symbol
                     address
@@ -64,7 +64,7 @@ export function useVaultCaps(vaultAddress: Address | string | null | undefined, 
                 supplyQueueIndex
                 withdrawQueueIndex
                 market {
-                  uniqueKey
+                  marketId
                 }
               }
             }
@@ -80,7 +80,7 @@ export function useVaultCaps(vaultAddress: Address | string | null | undefined, 
               supplyAssets?: string | number | null;
               supplyAssetsUsd?: number | null;
               market?: {
-                uniqueKey?: string | null;
+                marketId?: string | null;
                 loanAsset?: {
                   symbol?: string | null;
                   address?: string | null;
@@ -96,7 +96,7 @@ export function useVaultCaps(vaultAddress: Address | string | null | undefined, 
               supplyQueueIndex?: number | null;
               withdrawQueueIndex?: number | null;
               market?: {
-                uniqueKey?: string | null;
+                marketId?: string | null;
               } | null;
             } | null> | null;
           } | null;
@@ -118,8 +118,9 @@ export function useVaultCaps(vaultAddress: Address | string | null | undefined, 
       // Create a map of market keys to queue indices
       const queueMap = new Map<string, { supplyQueueIndex: number | null; withdrawQueueIndex: number | null }>();
       queues.forEach((queue) => {
-        if (queue && queue.market?.uniqueKey) {
-          queueMap.set(queue.market.uniqueKey, {
+        const queueMarketKey = queue?.market?.marketId;
+        if (queue && queueMarketKey) {
+          queueMap.set(queueMarketKey, {
             supplyQueueIndex: queue.supplyQueueIndex ?? null,
             withdrawQueueIndex: queue.withdrawQueueIndex ?? null,
           });
@@ -128,11 +129,11 @@ export function useVaultCaps(vaultAddress: Address | string | null | undefined, 
 
       // Filter out null allocations and those without valid markets
       const validAllocations = allocation.filter(
-        (alloc): alloc is NonNullable<typeof alloc> => alloc !== null && !!alloc.market?.uniqueKey
+        (alloc): alloc is NonNullable<typeof alloc> => alloc !== null && !!alloc.market?.marketId
       );
 
       const markets: MarketCap[] = validAllocations.map((alloc) => {
-        const marketKey = alloc.market!.uniqueKey!;
+        const marketKey = alloc.market!.marketId!;
           const queueInfo = queueMap.get(marketKey) || { supplyQueueIndex: null, withdrawQueueIndex: null };
 
           return {

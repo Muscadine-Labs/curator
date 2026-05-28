@@ -132,7 +132,7 @@ const VAULT_V2_GOVERNANCE_QUERY = gql`
             }
             ... on MarketV1CapData {
               adapterAddress
-              market { uniqueKey }
+              market { marketId }
             }
             ... on CollateralCapData {
               collateralAddress

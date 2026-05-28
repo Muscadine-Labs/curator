@@ -5,7 +5,7 @@ import { LineChart, Check, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-export type VaultHistoryMetric = 'supplied' | 'apy';
+export type VaultHistoryMetric = 'supplied' | 'sharePrice' | 'apy';
 
 interface MetricModeFilterProps {
   value: VaultHistoryMetric;
@@ -14,6 +14,7 @@ interface MetricModeFilterProps {
 
 const OPTIONS: Array<{ value: VaultHistoryMetric; label: string }> = [
   { value: 'supplied', label: 'Tokens supplied' },
+  { value: 'sharePrice', label: 'Price per share' },
   { value: 'apy', label: 'APY' },
 ];
 

@@ -10,7 +10,7 @@ export type GraphCap = {
     | {
         __typename?: 'MarketV1CapData';
         adapterAddress?: string | null;
-        market?: { uniqueKey?: string | null } | null;
+        market?: { marketId?: string | null } | null;
       }
     | { __typename?: 'CollateralCapData'; collateralAddress?: string | null }
     | { __typename?: string | null }
@@ -52,12 +52,12 @@ export function mapCap(graph: GraphCap | null | undefined): CapInfo | null {
     const marketData = graph.data as {
       __typename?: string | null;
       adapterAddress?: string | null;
-      market?: { uniqueKey?: string | null } | null;
+      market?: { marketId?: string | null } | null;
     };
     return {
       ...base,
       adapterAddress: marketData.adapterAddress ?? null,
-      marketKey: marketData.market?.uniqueKey ?? null,
+      marketKey: marketData.market?.marketId ?? null,
     };
   }
 

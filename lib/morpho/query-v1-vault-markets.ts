@@ -22,7 +22,7 @@ const VAULT_V1_MARKETS_QUERY = gql`
           supplyAssetsUsd
           market {
             id
-            uniqueKey
+            marketId
             loanAsset {
               symbol
               decimals
@@ -75,6 +75,16 @@ const VAULT_V1_MARKETS_QUERY = gql`
 /**
  * Type definitions for V1 vault markets query response
  */
+/** Normalize Morpho API `marketId` (formerly `uniqueKey`) for app consumers. */
+export function asV1VaultMarketData(
+  market: Omit<V1VaultMarketData, 'uniqueKey'> & { uniqueKey?: string; marketId?: string }
+): V1VaultMarketData {
+  return {
+    ...(market as V1VaultMarketData),
+    uniqueKey: market.marketId ?? market.uniqueKey ?? market.id,
+  };
+}
+
 export type V1VaultMarketData = {
   id: string;
   uniqueKey: string;
@@ -136,7 +146,7 @@ export type V1VaultMarketsQueryResponse = {
         supplyAssetsUsd: number | null;
         market: {
           id: string;
-          uniqueKey: string;
+          marketId: string;
           loanAsset: {
             symbol: string;
             decimals: number;
@@ -228,7 +238,7 @@ export async function fetchV1VaultMarkets(
 
       const market: V1VaultMarketData = {
         id: alloc.market.id,
-        uniqueKey: alloc.market.uniqueKey,
+        uniqueKey: alloc.market.marketId,
         loanAsset: alloc.market.loanAsset || { symbol: 'Unknown', decimals: 18, address: '' },
         collateralAsset: alloc.market.collateralAsset || { symbol: 'Unknown', decimals: 18, address: '' },
         oracleAddress: alloc.market.oracleAddress,

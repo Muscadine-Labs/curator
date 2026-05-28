@@ -47,7 +47,7 @@ export function useVaultQueues(vaultAddress: Address | string | null | undefined
                 supplyAssets
                 supplyAssetsUsd
                 market {
-                  uniqueKey
+                  marketId
                   loanAsset {
                     symbol
                     address
@@ -63,7 +63,7 @@ export function useVaultQueues(vaultAddress: Address | string | null | undefined
                 supplyQueueIndex
                 withdrawQueueIndex
                 market {
-                  uniqueKey
+                  marketId
                   loanAsset {
                     symbol
                     address
@@ -87,7 +87,7 @@ export function useVaultQueues(vaultAddress: Address | string | null | undefined
               supplyAssets?: string | number | null;
               supplyAssetsUsd?: number | null;
               market?: {
-                uniqueKey?: string | null;
+                marketId?: string | null;
                 loanAsset?: {
                   symbol?: string | null;
                   address?: string | null;
@@ -103,7 +103,7 @@ export function useVaultQueues(vaultAddress: Address | string | null | undefined
               supplyQueueIndex?: number | null;
               withdrawQueueIndex?: number | null;
               market?: {
-                uniqueKey?: string | null;
+                marketId?: string | null;
                 loanAsset?: {
                   symbol?: string | null;
                   address?: string | null;
@@ -131,8 +131,8 @@ export function useVaultQueues(vaultAddress: Address | string | null | undefined
       // Create a map of market keys to allocation data (for supply/assets info)
       const allocationMap = new Map<string, { supplyAssets?: number | null; supplyAssetsUsd?: number | null }>();
       (data.vault.state.allocation || []).forEach((alloc) => {
-        if (alloc && alloc.market?.uniqueKey) {
-          allocationMap.set(alloc.market.uniqueKey, {
+        if (alloc && alloc.market?.marketId) {
+          allocationMap.set(alloc.market.marketId, {
             supplyAssets: alloc.supplyAssets
               ? typeof alloc.supplyAssets === 'string'
                 ? parseFloat(alloc.supplyAssets)
@@ -145,11 +145,11 @@ export function useVaultQueues(vaultAddress: Address | string | null | undefined
 
       // Process supply queue
       const supplyQueue: QueuedMarket[] = (data.vault.state.allocationQueues || [])
-        .filter((queue): queue is NonNullable<typeof queue> => queue !== null && queue.supplyQueueIndex !== null && queue.supplyQueueIndex !== undefined && !!queue.market?.uniqueKey)
+        .filter((queue): queue is NonNullable<typeof queue> => queue !== null && queue.supplyQueueIndex !== null && queue.supplyQueueIndex !== undefined && !!queue.market?.marketId)
         .map((queue) => {
-          const allocation = allocationMap.get(queue.market!.uniqueKey!) || {};
+          const allocation = allocationMap.get(queue.market!.marketId!) || {};
           return {
-            marketKey: queue.market!.uniqueKey!,
+            marketKey: queue.market!.marketId!,
             loanAsset: {
               symbol: queue.market!.loanAsset?.symbol || 'Unknown',
               address: queue.market!.loanAsset?.address || '',
@@ -168,11 +168,11 @@ export function useVaultQueues(vaultAddress: Address | string | null | undefined
 
       // Process withdraw queue
       const withdrawQueue: QueuedMarket[] = (data.vault.state.allocationQueues || [])
-        .filter((queue): queue is NonNullable<typeof queue> => queue !== null && queue.withdrawQueueIndex !== null && queue.withdrawQueueIndex !== undefined && !!queue.market?.uniqueKey)
+        .filter((queue): queue is NonNullable<typeof queue> => queue !== null && queue.withdrawQueueIndex !== null && queue.withdrawQueueIndex !== undefined && !!queue.market?.marketId)
         .map((queue) => {
-          const allocation = allocationMap.get(queue.market!.uniqueKey!) || {};
+          const allocation = allocationMap.get(queue.market!.marketId!) || {};
           return {
-            marketKey: queue.market!.uniqueKey!,
+            marketKey: queue.market!.marketId!,
             loanAsset: {
               symbol: queue.market!.loanAsset?.symbol || 'Unknown',
               address: queue.market!.loanAsset?.address || '',

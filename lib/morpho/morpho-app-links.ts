@@ -2,6 +2,13 @@ import { BASE_CHAIN_ID } from '@/lib/constants';
 
 const MORPHO_APP_ORIGIN = 'https://app.morpho.org';
 
+/** Morpho API market identifier (`marketId` replaced legacy `uniqueKey`). */
+export function marketKeyFromGraphQL(
+  market: { marketId?: string | null; uniqueKey?: string | null; id?: string } | null | undefined
+): string | null {
+  return market?.marketId ?? market?.uniqueKey ?? market?.id ?? null;
+}
+
 /** Morpho app chain slug (Curator vaults are on Base today). */
 function morphoChainSlug(chainId: number): string {
   if (chainId === BASE_CHAIN_ID) return 'base';

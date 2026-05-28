@@ -19,7 +19,14 @@ export type VaultHistorySeries = {
   liquidity: VaultHistoryRawPoint[];
   /** Net / avg net APY as percent (e.g. 4.5 = 4.5%). */
   apy: VaultHistoryChartPoint[];
+  /** Price per vault share in underlying asset units (Morpho human decimal). */
+  sharePrice: VaultHistoryChartPoint[];
+  /** Price per vault share in USD. */
+  sharePriceUsd: VaultHistoryChartPoint[];
 };
+
+/** ERC-4626 vault shares use 18 decimals on Morpho historical `totalSupply`. */
+export const VAULT_SHARE_DECIMALS = 18;
 
 export const VAULT_V1_HISTORY_QUERY = gql`
   query VaultV1History($address: String!, $chainId: Int!, $options: TimeseriesOptions) {
@@ -38,6 +45,14 @@ export const VAULT_V1_HISTORY_QUERY = gql`
           y
         }
         netApy(options: $options) {
+          x
+          y
+        }
+        sharePriceNumber(options: $options) {
+          x
+          y
+        }
+        sharePriceUsd(options: $options) {
           x
           y
         }
@@ -63,6 +78,14 @@ export const VAULT_V2_HISTORY_QUERY = gql`
           y
         }
         avgNetApy(options: $options) {
+          x
+          y
+        }
+        sharePrice(options: $options) {
+          x
+          y
+        }
+        totalSupply(options: $options) {
           x
           y
         }
@@ -125,10 +148,39 @@ export function mapMorphoTimeseriesRaw(
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 }
 
+/** USD per share from `totalAssetsUsd / totalSupply` (V2 has no indexed `sharePriceUsd`). */
+export function computeSharePriceUsdSeries(
+  totalAssetsUsd: VaultHistoryChartPoint[],
+  totalSupplyRaw: VaultHistoryRawPoint[],
+  shareDecimals: number = VAULT_SHARE_DECIMALS
+): VaultHistoryChartPoint[] {
+  if (!totalAssetsUsd.length || !totalSupplyRaw.length) return [];
+
+  const supplyByDate = new Map(totalSupplyRaw.map((p) => [p.date, p.value]));
+  const divisor = 10 ** shareDecimals;
+  const result: VaultHistoryChartPoint[] = [];
+
+  for (const point of totalAssetsUsd) {
+    const supplyRaw = supplyByDate.get(point.date);
+    if (supplyRaw == null) continue;
+    try {
+      const shares = Number(BigInt(supplyRaw)) / divisor;
+      if (!Number.isFinite(shares) || shares <= 0) continue;
+      result.push({ date: point.date, value: point.value / shares });
+    } catch {
+      continue;
+    }
+  }
+
+  return result;
+}
+
 export function buildV1HistorySeries(historicalState?: {
   totalAssets?: MorphoTimeseriesPoint[] | null;
   totalAssetsUsd?: MorphoTimeseriesPoint[] | null;
   netApy?: MorphoTimeseriesPoint[] | null;
+  sharePriceNumber?: MorphoTimeseriesPoint[] | null;
+  sharePriceUsd?: MorphoTimeseriesPoint[] | null;
 } | null): VaultHistorySeries {
   return {
     supplied: mapMorphoTimeseriesRaw(historicalState?.totalAssets),
@@ -136,6 +188,8 @@ export function buildV1HistorySeries(historicalState?: {
     liquidityUsd: [],
     liquidity: [],
     apy: mapMorphoTimeseries(historicalState?.netApy, (y) => y * 100),
+    sharePrice: mapMorphoTimeseries(historicalState?.sharePriceNumber),
+    sharePriceUsd: mapMorphoTimeseries(historicalState?.sharePriceUsd),
   };
 }
 
@@ -143,9 +197,12 @@ export function buildV2HistorySeries(historicalState?: {
   totalAssets?: MorphoTimeseriesPoint[] | null;
   totalAssetsUsd?: MorphoTimeseriesPoint[] | null;
   avgNetApy?: MorphoTimeseriesPoint[] | null;
+  sharePrice?: MorphoTimeseriesPoint[] | null;
+  totalSupply?: MorphoTimeseriesPoint[] | null;
 } | null): VaultHistorySeries {
   const totalAssetsUsd = mapMorphoTimeseries(historicalState?.totalAssetsUsd);
   const totalAssets = mapMorphoTimeseriesRaw(historicalState?.totalAssets);
+  const totalSupply = mapMorphoTimeseriesRaw(historicalState?.totalSupply);
 
   return {
     supplied: totalAssets,
@@ -153,5 +210,7 @@ export function buildV2HistorySeries(historicalState?: {
     liquidityUsd: [],
     liquidity: [],
     apy: mapMorphoTimeseries(historicalState?.avgNetApy, (y) => y * 100),
+    sharePrice: mapMorphoTimeseries(historicalState?.sharePrice),
+    sharePriceUsd: computeSharePriceUsdSeries(totalAssetsUsd, totalSupply),
   };
 }
