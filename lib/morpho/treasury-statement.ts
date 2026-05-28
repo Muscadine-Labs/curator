@@ -94,17 +94,19 @@ const V1_MISC_TX_QUERY = gql`
     $vaultAddress: String!
     $chainId: Int!
     $first: Int!
-    $skip: Int!
+    $startTimestamp: Int!
+    $cursor: VaultV1TransactionCursorInput
   ) {
     vaultV1Transactions(
       first: $first
-      skip: $skip
       orderBy: Time
       orderDirection: Desc
       where: {
         vaultAddress_in: [$vaultAddress]
         chainId_in: [$chainId]
         type_in: [Deposit, Transfer]
+        timestamp_gte: $startTimestamp
+        cursor: $cursor
       }
     ) {
       items {
@@ -122,6 +124,13 @@ const V1_MISC_TX_QUERY = gql`
             from
             to
           }
+        }
+      }
+      pageInfo {
+        count
+        endCursor {
+          txHash
+          logIndex
         }
       }
     }
@@ -185,9 +194,18 @@ type V1MiscTxItem = {
 
 type V2MiscTxItem = V1MiscTxItem;
 
+type VaultV1TransactionCursor = {
+  txHash?: string | null;
+  logIndex?: number | string | null;
+};
+
 type V1MiscTxResponse = {
   vaultV1Transactions?: {
     items?: Array<V1MiscTxItem | null> | null;
+    pageInfo?: {
+      count?: number | null;
+      endCursor?: VaultV1TransactionCursor | null;
+    } | null;
   } | null;
 };
 
@@ -266,26 +284,83 @@ function resolveMiscUsd(
   return 0;
 }
 
-async function paginateVaultMiscTxs<T extends V1MiscTxResponse | V2MiscTxResponse>(
-  fetchPage: (skip: number) => Promise<T>,
-  selectItems: (result: T) => Array<V1MiscTxItem | null> | null | undefined,
+async function paginateV1MiscTxs(
+  vaultAddress: string,
+  chainId: number,
   startTimestampSec: number
 ): Promise<V1MiscTxItem[]> {
   const all: V1MiscTxItem[] = [];
+  let cursor: VaultV1TransactionCursor | null = null;
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const variables: {
+      vaultAddress: string;
+      chainId: number;
+      first: number;
+      startTimestamp: number;
+      cursor?: VaultV1TransactionCursor;
+    } = {
+      vaultAddress,
+      chainId,
+      first: PAGE_SIZE,
+      startTimestamp: startTimestampSec,
+    };
+    if (cursor) variables.cursor = cursor;
+
+    const result: V1MiscTxResponse = await morphoGraphQLClient.request<V1MiscTxResponse>(
+      V1_MISC_TX_QUERY,
+      variables
+    );
+
+    const items = (result.vaultV1Transactions?.items ?? []).filter(
+      (tx: V1MiscTxItem | null): tx is V1MiscTxItem => tx != null
+    );
+    if (items.length === 0) break;
+
+    all.push(...items);
+
+    const endCursor: VaultV1TransactionCursor | null | undefined =
+      result.vaultV1Transactions?.pageInfo?.endCursor;
+    if (!endCursor?.txHash || endCursor.logIndex == null || items.length < PAGE_SIZE) break;
+    cursor = {
+      txHash: endCursor.txHash,
+      logIndex: Number(endCursor.logIndex),
+    };
+  }
+
+  return all;
+}
+
+async function paginateV2MiscTxs(
+  vaultAddress: string,
+  chainId: number,
+  startTimestampSec: number
+): Promise<V1MiscTxItem[]> {
+  const all: V1MiscTxItem[] = [];
+
   for (let page = 0; page < MAX_PAGES; page++) {
     const skip = page * PAGE_SIZE;
-    const result = await fetchPage(skip);
-    const items = (selectItems(result) ?? []).filter(
+    const result = await morphoGraphQLClient.request<V2MiscTxResponse>(V2_MISC_TX_QUERY, {
+      vaultAddress,
+      chainId,
+      first: PAGE_SIZE,
+      skip,
+    });
+
+    const items = (result.vaultV2transactions?.items ?? []).filter(
       (tx): tx is V1MiscTxItem => tx != null
     );
     if (items.length === 0) break;
+
     all.push(...items);
+
     const oldestTs = items.reduce((min, tx) => {
       const ts = tx.timestamp != null ? Number(tx.timestamp) : Infinity;
       return Math.min(min, ts);
     }, Infinity);
     if (oldestTs < startTimestampSec || items.length < PAGE_SIZE) break;
   }
+
   return all;
 }
 
@@ -317,28 +392,8 @@ export async function fetchTreasuryMiscellaneousByMonth(
     try {
       const items =
         version === 'v1'
-          ? await paginateVaultMiscTxs<V1MiscTxResponse>(
-              (skip) =>
-                morphoGraphQLClient.request<V1MiscTxResponse>(V1_MISC_TX_QUERY, {
-                  vaultAddress: vaultLower,
-                  chainId,
-                  first: PAGE_SIZE,
-                  skip,
-                }),
-              (result) => result.vaultV1Transactions?.items,
-              startTimestampSec
-            )
-          : await paginateVaultMiscTxs<V2MiscTxResponse>(
-              (skip) =>
-                morphoGraphQLClient.request<V2MiscTxResponse>(V2_MISC_TX_QUERY, {
-                  vaultAddress: vaultLower,
-                  chainId,
-                  first: PAGE_SIZE,
-                  skip,
-                }),
-              (result) => result.vaultV2transactions?.items,
-              startTimestampSec
-            );
+          ? await paginateV1MiscTxs(vaultLower, chainId, startTimestampSec)
+          : await paginateV2MiscTxs(vaultLower, chainId, startTimestampSec);
 
       for (const tx of items) {
         const ts = tx.timestamp != null ? Number(tx.timestamp) : 0;

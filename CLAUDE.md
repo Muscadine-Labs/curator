@@ -526,8 +526,9 @@ USD uses end-of-period price on **new tokens only** (same as before).
 | V2 | `vaultV2transactions` — `Deposit`, `Transfer` | Same as V1 (`VaultV2DepositData` / `VaultV2TransferData`) |
 
 Do **not** use legacy `transactions` + `MetaMorphoDeposit` for V1 — it indexes fee events under
-`userAddress_in` and misses share transfers into the treasury. Paginate per vault with `type_in`
-only (no `userAddress_in` filter) so deposits credited to `onBehalf` are included.
+`userAddress_in` and misses share transfers into the treasury. Use `vaultV1Transactions` with
+`type_in: [Deposit, Transfer]`, `timestamp_gte`, and **cursor** pagination (`endCursor` →
+`txHash` + `logIndex`). V1 does **not** support `skip`.
 
 Explicitly **excluded** from miscellaneous: `MetaMorphoFee` (V1), withdrawals, outgoing
 transfers. V2 fee accrual has no dedicated tx type — it remains in `vaultFees` as the
@@ -1087,7 +1088,7 @@ tests under `lib/onchain/__tests__/vault-writes.test.ts`.
 
 ---
 
-_Last updated: 2026-05-28 (v1.0.6). When you change reallocation logic, allocation
+_Last updated: 2026-05-28 (v1.0.7). When you change reallocation logic, allocation
 list/filters (§5), caps/adapters display, Morpho GraphQL field names (§4.4.1), vault
 list/sidebar (§4.3.1), vault overview/history (share price in §4.4), risk scoring
 (§4.5), V2 idle/MetaMorpho/Blue display, pending/emergency tabs, wallet stack,
