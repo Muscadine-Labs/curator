@@ -54,7 +54,7 @@ const V1_REALLOCATIONS_QUERY = gql`
         assets
         type
         market {
-          uniqueKey
+          marketId
           lltv
           loanAsset {
             symbol
@@ -106,7 +106,7 @@ type V1GraphResponse = {
       assets?: string | null;
       type?: string | null;
       market?: {
-        uniqueKey?: string | null;
+        marketId?: string | null;
         lltv?: string | null;
         loanAsset?: { symbol?: string | null } | null;
         collateralAsset?: { symbol?: string | null } | null;
@@ -234,7 +234,7 @@ export async function GET(
           allocationIds: [],
           market: tx.market
             ? {
-                uniqueKey: tx.market.uniqueKey ?? null,
+                uniqueKey: tx.market.marketId ?? null,
                 loanAssetSymbol: tx.market.loanAsset?.symbol ?? null,
                 collateralAssetSymbol: tx.market.collateralAsset?.symbol ?? null,
                 lltv: tx.market.lltv ?? null,
