@@ -4,6 +4,7 @@
 - change the username from owner to admin. We can just have admin, no other usernames should exist.
 - on the Total tokens supplied grapgh for each vault, chnage the name to TVL becuse thats what it is. 
 - On V2 allocations, is there a way where there is extra dust left over that would go to the idle allocation, that I can pick what markets/adapter the extra would go to, it still can go to indle if i dont pick anything.
+- On allocations or anywhere else, on Liquidation LTV keep it always at one decimal, its currently rounded to the nearest percent. 
 - On the v2 allocation, there was a market a thought i deallocated and delisted on the Muscadine WETH Prime vault v2 on base, wstETH / WETH
 97%
 Util.
