@@ -4,7 +4,7 @@
 
 const CACHE_KEY = 'curator_auth';
 
-export type CuratorAuthCache = { ok: true; role: 'owner' };
+export type CuratorAuthCache = { ok: true; role: 'admin' };
 
 export function readCuratorAuthCache(): CuratorAuthCache | null {
   if (typeof window === 'undefined') return null;
@@ -17,7 +17,7 @@ export function readCuratorAuthCache(): CuratorAuthCache | null {
       p &&
       typeof p === 'object' &&
       p['ok'] === true &&
-      p['role'] === 'owner'
+      p['role'] === 'admin'
     ) {
       return { ok: true, role: p['role'] } as CuratorAuthCache;
     }
@@ -27,7 +27,7 @@ export function readCuratorAuthCache(): CuratorAuthCache | null {
   }
 }
 
-export function writeCuratorAuthCache(role: 'owner'): void {
+export function writeCuratorAuthCache(role: 'admin'): void {
   if (typeof window === 'undefined') return;
   try {
     const payload: CuratorAuthCache = { ok: true, role };
@@ -47,5 +47,5 @@ export function clearCuratorAuthCache(): void {
 }
 
 export function isCuratorAuthCacheValid(cache: CuratorAuthCache | null): boolean {
-  return cache !== null && cache.ok === true && cache.role === 'owner';
+  return cache !== null && cache.ok === true && cache.role === 'admin';
 }

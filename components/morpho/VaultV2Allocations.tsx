@@ -41,7 +41,9 @@ import {
 } from '@/components/morpho/AllocationFilters';
 import {
   applyPlanningDust,
+  type DustRecipientChoice,
 } from '@/lib/onchain/allocation-dust';
+import { DustRecipientSelect } from '@/components/morpho/DustRecipientSelect';
 import {
   morphoMarketHref,
   morphoVaultHref,
@@ -524,10 +526,13 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
   const [inputMode, setInputMode] = useState<InputMode>('percentage');
   const [inputValues, setInputValues] = useState<string[]>([]);
   const [filters, setFilters] = useState<AllocationFilterState>(DEFAULT_FILTER_STATE);
+  /** Where unallocated remainder goes: 'auto' = implicit Idle, or a target index. */
+  const [dustRecipientKey, setDustRecipientKey] = useState<DustRecipientChoice>('auto');
   const multicallWrite = useVaultWrite();
 
   const startEditing = useCallback(() => {
     setInputValues(targetsWithCaps.map(() => ''));
+    setDustRecipientKey('auto');
     setEditing(true);
   }, [targetsWithCaps]);
 
@@ -611,8 +616,34 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
     let dustDiff = BigInt(0);
     let dustRecipientIdx: number | null = null;
 
-    // Full % rebalance only: nudge sub-token rounding onto idle. Never inflate a strategy target.
+    // Explicit dust recipient: curator picked a strategy target to absorb the
+    // unallocated remainder. Cap validation below still applies to the
+    // inflated target. With 'auto' the remainder stays implicit Idle —
+    // never auto-pushed onto a strategy target.
+    const explicitRecipientIdx =
+      dustRecipientKey !== 'auto' ? Number.parseInt(dustRecipientKey, 10) : NaN;
     if (
+      !overshoot &&
+      diff !== BigInt(0) &&
+      Number.isInteger(explicitRecipientIdx) &&
+      explicitRecipientIdx >= 0 &&
+      explicitRecipientIdx < results.length &&
+      !results[explicitRecipientIdx].target.isVaultIdle
+    ) {
+      const dustResult = applyPlanningDust(
+        results,
+        totalRawAssets,
+        explicitRecipientIdx,
+        (r) => r.assets,
+        (r, assets) => ({ ...r, assets })
+      );
+      if (!dustResult.error) {
+        adjustedResults = dustResult.items;
+        dustDiff = dustResult.diff;
+        dustRecipientIdx = explicitRecipientIdx;
+      }
+    } else if (
+      // Full % rebalance only: nudge sub-token rounding onto idle. Never inflate a strategy target.
       !overshoot &&
       diff !== BigInt(0) &&
       inputMode === 'percentage' &&
@@ -691,7 +722,11 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
       }
     }
 
-    const anyChanged = adjustedResults.some((r) => r.assets !== r.current);
+    // Only strategy-adapter deltas produce on-chain calls; an idle-only edit
+    // has nothing to submit (idle never appears in allocate/deallocate calldata).
+    const anyChanged = adjustedResults.some(
+      (r) => !r.target.isVaultIdle && r.assets !== r.current
+    );
     if (!anyChanged) {
       return {
         valid: false as const,
@@ -713,7 +748,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
       dustDiff,
       dustRecipientIdx,
     };
-  }, [editing, inputValues, targetsWithCaps, inputMode, totalRawAssets, vaultDecimals, vaultDisplayDecimals, vaultSymbol]);
+  }, [editing, inputValues, targetsWithCaps, inputMode, totalRawAssets, vaultDecimals, vaultDisplayDecimals, vaultSymbol, dustRecipientKey]);
 
   const handleRebalance = useCallback(() => {
     if (!resolvedAllocations?.valid) return;
@@ -745,7 +780,10 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
     if (allCalls.length === 0) return;
 
     if (allCalls.length === 1) {
-      const r = resolvedAllocations.results.find((r) => r.assets !== r.current)!;
+      // Idle is never a direct allocate/deallocate target — skip it here.
+      const r = resolvedAllocations.results.find(
+        (r) => !r.target.isVaultIdle && r.assets !== r.current
+      )!;
       if (r.assets > r.current) {
         multicallWrite.write(v2WriteConfigs.allocate(
           vaultAddress as Address,
@@ -805,11 +843,24 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
   // --- Filtering & sorting -------------------------------------------------
   const search = filters.search.trim().toLowerCase();
 
+  // A target is "delisted" when it holds nothing and has no active cap
+  // (absolute and relative both absent/zero) — the vault can no longer
+  // allocate to it, so it should not appear as a rebalance target.
+  // Zero-allocation markets that still have a live cap remain visible.
+  const govLoaded = (governance?.caps?.length ?? 0) > 0;
+  const isDelistedTarget = (t: AllocTarget): boolean =>
+    govLoaded &&
+    !t.isVaultIdle &&
+    t.currentAssets === BigInt(0) &&
+    (t.absoluteCapRaw == null || t.absoluteCapRaw === BigInt(0)) &&
+    (t.relativeCapWad == null || t.relativeCapWad === BigInt(0));
+
   // Map target index -> whether it should be shown
   const showTarget = new Map<number, boolean>();
   for (const r of rows) {
     const t = targetsWithCaps[r.targetIdx];
     if (!t) { showTarget.set(r.targetIdx, false); continue; }
+    if (isDelistedTarget(t)) { showTarget.set(r.targetIdx, false); continue; }
 
     const entryVal = editing ? inputValues[r.targetIdx] ?? '' : '';
     const isEdited = entryVal.trim() !== '';
@@ -867,6 +918,17 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
 
   const plannedSum = resolvedAllocations?.inputSum ?? BigInt(0);
   const remainingRaw = editing ? totalRawAssets - plannedSum : BigInt(0);
+
+  // Strategy targets the curator can route unallocated remainder to ('auto' = Idle).
+  const dustOptions = targetsWithCaps
+    .map((t, idx) => ({ id: String(idx), label: t.label, isVaultIdle: t.isVaultIdle }))
+    .filter((o) => !o.isVaultIdle)
+    .map(({ id, label }) => ({ id, label }));
+
+  const dustRecipientLabel =
+    dustRecipientKey !== 'auto'
+      ? targetsWithCaps[Number.parseInt(dustRecipientKey, 10)]?.label ?? null
+      : null;
 
   const extraColumnLabels = getActiveExtraColumns(filters.columns).map((c) => c.label);
 
@@ -1059,6 +1121,13 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
               amountUnit={filters.amountUnit}
               dustDiff={resolvedAllocations?.dustDiff ?? BigInt(0)}
               implicitIdle
+              dustRecipientLabel={dustRecipientLabel}
+            />
+            <DustRecipientSelect
+              value={dustRecipientKey}
+              onChange={setDustRecipientKey}
+              options={dustOptions}
+              autoLabel="Idle (default)"
             />
           </div>
         )}
@@ -1144,6 +1213,7 @@ function RemainingBanner({
   amountUnit,
   dustDiff = BigInt(0),
   implicitIdle = false,
+  dustRecipientLabel = null,
 }: {
   totalRaw: bigint;
   plannedRaw: bigint;
@@ -1154,6 +1224,8 @@ function RemainingBanner({
   amountUnit: AllocationAmountUnit;
   dustDiff?: bigint;
   implicitIdle?: boolean;
+  /** When set, unallocated remainder goes to this target instead of Idle. */
+  dustRecipientLabel?: string | null;
 }) {
   const isBalanced = remainingRaw === BigInt(0);
   const overshoot = remainingRaw < BigInt(0);
@@ -1170,10 +1242,12 @@ function RemainingBanner({
 
   const label = isBalanced
     ? tinyDust
-      ? `Balanced — ${formatRawTokenAmount(dustDiff, decimals, Math.min(4, displayDecimals))} ${symbol} rounding applied to Idle.`
+      ? `Balanced — ${formatRawTokenAmount(dustDiff, decimals, Math.min(4, displayDecimals))} ${symbol} rounding applied to ${dustRecipientLabel ?? 'Idle'}.`
       : 'Balanced — every asset is accounted for.'
     : overshoot
     ? `Over-allocated by ${formatRawTokenAmount(absRemaining, decimals, Math.min(4, displayDecimals))} ${symbol}. Reduce a target.`
+    : dustRecipientLabel
+    ? `${formatRawTokenAmount(absRemaining, decimals, Math.min(4, displayDecimals))} ${symbol} will go to ${dustRecipientLabel} after rebalance.`
     : implicitIdle
     ? `${formatRawTokenAmount(absRemaining, decimals, Math.min(4, displayDecimals))} ${symbol} will move to Idle after rebalance.`
     : `Unallocated: ${formatRawTokenAmount(absRemaining, decimals, Math.min(4, displayDecimals))} ${symbol}.`;

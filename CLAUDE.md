@@ -8,6 +8,19 @@ vault mechanics, contract wiring, or the data flow.
 
 ---
 
+## 0. Working Agreements (read first)
+
+- **Review `TODO.md` at the start of every session.** It is the running task list
+ for the repo. Work the "TO work on today" section top-to-bottom unless the user
+ directs otherwise; leave "To work on another day" items alone unless asked.
+- **Version bump on every push to GitHub:** increment `package.json` `version` by
+ 0.0.1 per push. When the last digit would pass 9, roll it over to the next
+ decimal (0.2.9 → 0.3.0, 1.9.9 → 2.0.0).
+- **Before pushing:** run `npm run lint`, `npm test`, and `npm run build` and make
+ sure all pass.
+
+---
+
 ## 1. Project Overview
 
 **Curator** is a Next.js (App Router) + TypeScript + Tailwind dashboard used by
@@ -177,7 +190,16 @@ Getting those semantics wrong is the #1 source of reverts.
     (sum of entered targets) for the banner; unallocated remainder is implicit
     **Idle** via deallocations. Auto-dust (`applyPlanningDust`) only runs in
     **full % rebalance** (every row edited) and only nudges **Idle** for
-    sub-token rounding.
+    sub-token rounding. The curator can **explicitly** route the remainder to a
+    strategy target via `DustRecipientSelect` (default `auto` = Idle); the
+    explicit recipient still goes through cap validation before submit.
+  - **Delisted targets**: a strategy row with **zero allocation and no active
+    cap** (absolute and relative both absent/zero, with governance caps loaded)
+    is hidden from the Allocations list — the vault can no longer allocate to
+    it (e.g. a deallocated + delisted Blue market that Morpho's own UI no
+    longer shows). Zero-allocation rows with a live cap stay visible. Same rule
+    on V1: zero allocation + supply cap exactly 0 is hidden (`null` cap =
+    unknown, kept; `parseSupplyCap` preserves explicit `0`).
   - **Risk tab** (`VaultRiskV2.tsx`): idle counts toward **Adapters Count**
     (`strategy adapters + 1`) and appears as its own row (“No strategy risk”).
 
@@ -313,7 +335,7 @@ Ethereum appears in `SIDEBAR_NETWORKS` but has no configured vaults — expand
 
 | Metric | V1 `VaultHistory` | V2 `VaultV2History` |
 | ------ | ----------------- | ------------------- |
-| Tokens supplied | `totalAssets` / `totalAssetsUsd` | same |
+| TVL (tokens supplied) | `totalAssets` / `totalAssetsUsd` | same |
 | APY | `netApy` (×100 for %) | `avgNetApy` (×100 for %) |
 | Price per share (token) | `sharePriceNumber` (human decimal per share) | `sharePrice` |
 | Price per share (USD) | `sharePriceUsd` | `totalAssetsUsd ÷ totalSupply` (18-decimal shares) |
@@ -323,9 +345,14 @@ Ethereum appears in `SIDEBAR_NETWORKS` but has no configured vaults — expand
   liquidity from TVL, idle, or `realAssetsUsd`.
 - The history chart **does not offer a Liquidity metric** (removed — no indexed
   timeseries). Spot withdrawable liquidity stays on the overview breakdown card.
-- History metrics (`MetricModeFilter`): **Tokens supplied**, **Price per share**, **APY**.
+- History metrics (`MetricModeFilter`): **TVL** (label for tokens supplied),
+  **Price per share**, **APY**.
 - **Price per share** uses `UsdTokenModeFilter`: **Tokens** = underlying per share;
-  **USD** = dollar per share.
+  **USD** = dollar per share. Y-axis tick precision is **adaptive**
+  (`axisFractionDigits` in `VaultOverviewHistoryChart.tsx`): fraction digits are
+  derived from the zoomed domain span so near-flat series (e.g. cbBTC share
+  price ≈ 1.0000x, or USD share price ≈ $104k with small drift) get distinct
+  tick labels instead of repeating compact values.
 - `useVaultHistory` normalizes responses via `normalizeVaultHistoryResponse()` so
   stale React Query cache missing new series keys does not crash the chart.
   Query key includes a version suffix when series shape changes.
@@ -583,9 +610,12 @@ These rules are baked into `AllocationV1.tsx`, `VaultV2Allocations.tsx`,
 4. **V1 submit** uses `maxUint256` on the chosen dust recipient's deposit when
    the plan includes withdrawals. `DustRecipientSelect` lets the curator pick
    the catcher row (default: largest target).
-5. **V2 submit** batches via `multicall`; deallocates before allocates. No
-   `DustRecipientSelect` — remainder is implicit Idle. Never auto-inflate a
-   strategy target to absorb under-allocation.
+5. **V2 submit** batches via `multicall`; deallocates before allocates.
+   `DustRecipientSelect` (auto = **Idle**) lets the curator explicitly route the
+   unallocated remainder to a strategy target; with `auto` the remainder is
+   implicit Idle. Never **auto**-inflate a strategy target to absorb
+   under-allocation — only an explicit curator choice may do so, and it still
+   passes cap validation.
 6. **V2 idle row** — editable for planning; never in `allocate`/`deallocate`
    calldata.
 7. Use `formatRawTokenAmount` for all raw bigint display (avoid `1.23e-6`).
@@ -662,9 +692,10 @@ components.
 
 - Curator-only routes live under `app/curator/*` and use `AuthGuard`.
 - Server auth verification lives in `app/api/auth/verify/route.ts` and
-  `lib/auth/curator-auth.ts`. Username is hardcoded **`Owner`** (case-sensitive);
-  password from env `CURATOR_OWNER_PASSWORD` only (must be uncommented in
-  `.env.local`; server restart required after changes).
+ `lib/auth/curator-auth.ts`. The **only** username is **`admin`**
+ (case-sensitive, role `'admin'`); password from env `CURATOR_ADMIN_PASSWORD`
+ (legacy `CURATOR_OWNER_PASSWORD` still accepted as fallback; must be
+ uncommented in `.env.local`; server restart required after changes).
 - Write UI (reallocate, caps, etc.) is gated on both wallet connection and
   curator role.
 - **All on-chain writes** (V1/V2 reallocate, caps, CCTP, etc.) go through
@@ -1088,7 +1119,7 @@ tests under `lib/onchain/__tests__/vault-writes.test.ts`.
 
 ---
 
-_Last updated: 2026-05-28 (v1.0.7). When you change reallocation logic, allocation
+_Last updated: 2026-06-12 (v1.0.8). When you change reallocation logic, allocation
 list/filters (§5), caps/adapters display, Morpho GraphQL field names (§4.4.1), vault
 list/sidebar (§4.3.1), vault overview/history (share price in §4.4), risk scoring
 (§4.5), V2 idle/MetaMorpho/Blue display, pending/emergency tabs, wallet stack,

@@ -13,7 +13,7 @@ interface MetricModeFilterProps {
 }
 
 const OPTIONS: Array<{ value: VaultHistoryMetric; label: string }> = [
-  { value: 'supplied', label: 'Tokens supplied' },
+  { value: 'supplied', label: 'TVL' },
   { value: 'sharePrice', label: 'Price per share' },
   { value: 'apy', label: 'APY' },
 ];
