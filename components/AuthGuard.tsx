@@ -92,8 +92,8 @@ export function AuthGuard({ children }: AuthGuardProps) {
     );
   }
 
-  // Authenticated but not Owner: access denied
-  if (role !== 'owner') {
+  // Authenticated but not admin: access denied
+  if (role !== 'admin') {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 px-4 dark:bg-slate-950">
         <div className="w-full max-w-sm space-y-6 rounded-xl border border-slate-200 bg-white p-6 shadow-lg dark:border-slate-800 dark:bg-slate-900">
@@ -102,7 +102,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
               Access Denied
             </h1>
             <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-              Owner role is required for full access to this site.
+              Admin role is required for full access to this site.
             </p>
           </div>
         </div>

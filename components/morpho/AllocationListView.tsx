@@ -28,7 +28,7 @@ export function formatLltvPill(lltv: string | number | null | undefined): string
   if (formatted === '—') return null;
   const parsed = parseFloat(formatted);
   if (!Number.isFinite(parsed)) return null;
-  return `${Math.round(parsed)}%`;
+  return `${parsed.toFixed(2)}%`;
 }
 
 export function AllocationPill({ children }: { children: ReactNode }) {

@@ -199,7 +199,7 @@ export function Sidebar({ onClose }: SidebarProps) {
           );
         })}
 
-        {role === 'owner' && (
+        {role === 'admin' && (
           <div className="space-y-2">
             <p className="px-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Curator Tools
@@ -259,7 +259,7 @@ export function Sidebar({ onClose }: SidebarProps) {
           </div>
         )}
 
-        {role === 'owner' && (
+        {role === 'admin' && (
           <div className="space-y-2">
             <p className="px-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Business

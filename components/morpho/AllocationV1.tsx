@@ -105,7 +105,8 @@ function parseSupplyCap(raw: unknown): bigint | null {
     }
   }
   if (typeof raw === 'number') {
-    if (!Number.isFinite(raw) || raw <= 0) return null;
+    // Preserve an explicit 0 cap (delisted market) — null means "unknown".
+    if (!Number.isFinite(raw) || raw < 0) return null;
     try {
       return BigInt(Math.floor(raw));
     } catch {
@@ -316,11 +317,11 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
       };
     }
 
-    // Cap validation
+    // Cap validation (null cap = unknown, skipped; 0 cap = delisted, enforced)
     for (const t of targets) {
       if (t.assets <= t.current) continue;
       const alloc = allocations.get(t.key);
-      if (!alloc?.supplyCapRaw) continue;
+      if (alloc?.supplyCapRaw == null) continue;
       if (t.assets > alloc.supplyCapRaw) {
         return {
           valid: false as const,
@@ -429,6 +430,17 @@ export function AllocationV1({ vaultAddress }: AllocationV1Props) {
 
   const search = filters.search.trim().toLowerCase();
   const filteredRows = rowsBase.filter((alloc) => {
+    // Delisted market: nothing supplied and supply cap explicitly 0 — the
+    // vault can no longer allocate there. Zero-allocation markets with a
+    // live cap (or unknown cap) stay visible.
+    if (
+      !alloc.isIdle &&
+      alloc.currentAssets === BigInt(0) &&
+      alloc.supplyCapRaw != null &&
+      alloc.supplyCapRaw === BigInt(0)
+    ) {
+      return false;
+    }
     if (search) {
       const hay = `${alloc.marketName} ${alloc.loanAssetSymbol ?? ''} ${alloc.collateralAssetSymbol ?? ''}`.toLowerCase();
       if (!hay.includes(search)) return false;

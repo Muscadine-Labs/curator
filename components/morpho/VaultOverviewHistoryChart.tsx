@@ -38,7 +38,7 @@ interface VaultOverviewHistoryChartProps {
 }
 
 const METRIC_TITLES: Record<VaultHistoryMetric, string> = {
-  supplied: 'Total tokens supplied',
+  supplied: 'TVL',
   sharePrice: 'Price per share',
   apy: 'Net APY',
 };
@@ -81,6 +81,33 @@ function computeZoomedYDomain(
 function formatCompactTokenAxis(rawValue: number, chainDecimals: number): string {
   const human = rawValue / 10 ** chainDecimals;
   return formatCompactNumber(human);
+}
+
+/**
+ * Pick how many fraction digits y-axis ticks need so adjacent ticks are
+ * distinguishable. Share-price series often span tiny ranges (e.g. a cbBTC
+ * vault moving from 1.00012 to 1.00038 per share), where fixed 2-decimal
+ * formatting renders every tick identically.
+ */
+function axisFractionDigits(domain: [number, number] | ['auto', 'auto']): number {
+  if (typeof domain[0] !== 'number' || typeof domain[1] !== 'number') return 2;
+  const span = Math.abs(domain[1] - domain[0]);
+  if (!Number.isFinite(span) || span <= 0) return 2;
+  // ~4-5 ticks per axis; each tick step needs one significant digit.
+  const digits = Math.ceil(-Math.log10(span / 4));
+  return Math.min(8, Math.max(0, digits));
+}
+
+function formatSharePriceAxis(
+  value: number,
+  unit: AmountUnit,
+  fractionDigits: number
+): string {
+  const formatted = value.toLocaleString('en-US', {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  });
+  return unit === 'usd' ? `$${formatted}` : formatted;
 }
 
 export function VaultOverviewHistoryChart({
@@ -140,10 +167,15 @@ export function VaultOverviewHistoryChart({
 
   const showUnitToggle = metric === 'supplied' || metric === 'sharePrice';
 
+  const sharePriceAxisDigits = useMemo(
+    () => axisFractionDigits(yDomain),
+    [yDomain]
+  );
+
   const yAxisFormatter = (value: number) => {
     if (metric === 'apy') return formatPercentage(value, 0);
     if (metric === 'sharePrice') {
-      return amountUnit === 'usd' ? formatCompactUSD(value) : formatCompactNumber(value);
+      return formatSharePriceAxis(value, amountUnit, sharePriceAxisDigits);
     }
     if (amountUnit === 'usd') return formatCompactUSD(value);
     return formatCompactTokenAxis(value, chainDecimals);
