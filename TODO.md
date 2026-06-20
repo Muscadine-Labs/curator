@@ -1,4 +1,11 @@
 *TO work on today:
+- Delete the files for the ability to change vault perameters like in Roles, adaptors, Caps, Parameters, timelocks, pending, queues. We dont need them, and they dont work. Keep all of the function in Allocation because they work. Review your work and allocation for V1 and V2.
+- On constants I will be adding more V2 vaults on base, this time they would be Base Frontier vaults, create the pathway for me to access before I impliment.
+- Review Net APY 4.74%, Base 4.72%. This doesnt seem right because net apy is after a preformance fee, see if your uploades from morpho sdk/grapghql are correct or the same type. 
+- For "Recent Transactions" on the vault pages, include the transcaction address/hash or whatever its named to basescan. (Etherscan if on ethereum). For a "Transfer", fetching the amount transfer does not load, and for every transcaction the usd value does not load.
+- standardize on allocations Util, Liquidity, Supply, Allocated, Eff. cap, Allocation as defult, while also making it look better because each row has its columns in diferent sections. Also for v2 vaults "% cap" does nto fetch correctly, while v1 vaults do not have this option at all (only a v2 function, which doesnt work on v2).
+- Make the graphs on each vault page a little neater, y axis is lowk trash. keep the defult for All for time, not 30d.
+- on overview for revenue, Total Revenue $250.29 From Vaults $154.95 Miscellaneous $63.61. So these numbers do not add up, your total revenue is incorrect. 
 
 ///
 -  Run lint, build and test to make sure everything is functional
