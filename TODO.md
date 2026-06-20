@@ -7,6 +7,7 @@
 - Make the graphs on each vault page a little neater, y axis is lowk trash. keep the defult for All for time, not 30d.
 - on overview for revenue, Total Revenue $250.29 From Vaults $154.95 Miscellaneous $63.61. So these numbers do not add up, your total revenue is incorrect.
 - on dashbaord, you can mark on constancts that the v1 vaults and v2 testing vaults are not active, hould reduce users and active vaults. Users 29 Active Vaults 6
+- Make this website a safe app i can use for my multi sigs - https://github.com/safe-global/safe-apps-sdk
 
 
 ///
