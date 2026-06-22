@@ -8,7 +8,8 @@
 - on overview for revenue, Total Revenue $250.29 From Vaults $154.95 Miscellaneous $63.61. So these numbers do not add up, your total revenue is incorrect.
 - on dashbaord, you can mark on constancts that the v1 vaults and v2 testing vaults are not active, hould reduce users and active vaults. Users 29 Active Vaults 6
 - Make this website a safe app i can use for my multi sigs - https://github.com/safe-global/safe-apps-sdk
--On the side bar, make it so the types of vaults we can toggle off, we can toggle off v1 vaults and testing. 
+-On the side bar, make it so the types of vaults we can toggle off, we can toggle off v1 vaults and testing.
+- Delete the front and back end and pages for curator/eip-7702 and curator/cctp these are not needed anymore.
 
 ///
 -  Run lint, build and test to make sure everything is functional
