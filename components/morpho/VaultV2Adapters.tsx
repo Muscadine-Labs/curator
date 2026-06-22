@@ -15,8 +15,6 @@ import {
   resolveAssetDecimals,
 } from '@/lib/format/asset-decimals';
 import {
-  buildAdapterLabelMap,
-  capDisplayLabel,
   formatCapRelative,
   formatCapTokenAmount,
 } from '@/lib/morpho/v2-cap-format';

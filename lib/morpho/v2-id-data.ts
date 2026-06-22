@@ -129,17 +129,15 @@ export function resolveCapIdData(
     if (match) {
       return encodeMarketCapIdData(match.adapterAddress, match.market);
     }
-    // Fallback: use cap's adapter address with partial market data from risk scan
-    if (match === null) {
-      for (const adapter of risk.adapters ?? []) {
-        if (adapter.adapterAddress.toLowerCase() !== cap.adapterAddress.toLowerCase()) {
-          continue;
-        }
-        for (const m of adapter.markets ?? []) {
-          const key = marketKeyFromGraphQL(m.market);
-          if (key?.toLowerCase() === cap.marketKey.toLowerCase()) {
-            return encodeMarketCapIdData(adapter.adapterAddress, m.market);
-          }
+    // Fallback: scan adapter from cap.adapterAddress when findMarketByKey misses
+    for (const adapter of risk.adapters ?? []) {
+      if (adapter.adapterAddress.toLowerCase() !== cap.adapterAddress.toLowerCase()) {
+        continue;
+      }
+      for (const m of adapter.markets ?? []) {
+        const key = marketKeyFromGraphQL(m.market);
+        if (key?.toLowerCase() === cap.marketKey.toLowerCase()) {
+          return encodeMarketCapIdData(adapter.adapterAddress, m.market);
         }
       }
     }
