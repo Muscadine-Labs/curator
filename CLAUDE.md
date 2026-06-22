@@ -172,6 +172,23 @@ Getting those semantics wrong is the #1 source of reverts.
   4. Violating a cap reverts. We validate both caps before sending.
 - **Cap data source**: `useVaultV2Governance` (`/api/vaults/v2/[id]/governance`),
   which returns `CapInfo[]` keyed by `id = keccak256(idData)`.
+- **Cap `idData` vs adapter `data` (critical — do not conflate)**:
+  All encoding helpers live in `lib/morpho/v2-id-data.ts`. The vault hashes
+  `idData` to get the cap/allocation id; adapter calldata uses different bytes.
+
+  | Purpose | Function | Encoding |
+  | ------- | -------- | -------- |
+  | Adapter cap id | `encodeAdapterCapIdData` | `abi.encode("this", adapterAddress)` |
+  | Collateral cap id | `encodeCollateralCapIdData` | `abi.encode("collateralToken", collateralAddress)` |
+  | Market cap id | `encodeMarketCapIdData` | `abi.encode("this/marketParams", adapterAddress, marketParams)` |
+  | Blue market allocate/deallocate `data` | `encodeMarketParamsData` | `abi.encode(marketParams)` — five-tuple, no prefix |
+  | MetaMorpho allocate/deallocate `data` | `METAMORPHO_ADAPTER_DATA` | `0x` (empty bytes) |
+
+  Use `resolveCapIdData(cap, risk)` for `decreaseAbsoluteCap` /
+  `decreaseRelativeCap`. Market caps need `cap.adapterAddress` from governance
+  GraphQL plus full market params from the risk API (oracle, irm, lltv, token
+  addresses). Wrong encoding causes silent cap lookup misses or on-chain reverts.
+  Reference: [Morpho market listing docs](https://docs.morpho.org/curate/tutorials-v2/market-listing/).
 - **No max-catcher needed** — V2 is delta-based so interest drift doesn't cause
   a balancing revert; the allocator simply chooses deltas.
 - **Idle (vault cash)** — V2 holds unallocated assets in the vault contract
@@ -237,18 +254,30 @@ Getting those semantics wrong is the #1 source of reverts.
 
 ### 4.2 V2 (`app/vault/v2/[address]/page.tsx`)
 
+**Tab order** (matches Morpho Curator; no standalone Risk tab in the nav):
+Overview → Roles → Adapters → Caps → Timelocks → Allocation → Sentinel → Emergency.
+
 1. `useVaultV2Complete` fans out to:
    - `useVault(address)` for base data
    - `useVaultV2Risk` → `/api/vaults/v2/[id]/risk` (adapters, markets, idle)
    - `useVaultV2Governance` → `/api/vaults/v2/[id]/governance` (caps, roles,
      timelocks, `idleAssets`)
-   - `useVaultV2Parameters`, `useVaultV2Pending`
-2. **Adapters** — `VaultV2Adapters.tsx` lists the idle adapter first, then
+   - `useVaultV2Pending`
+2. **Roles** — `VaultV2Roles.tsx` (read-only): owner, curator, allocators,
+   sentinels.
+3. **Adapters** — `VaultV2Adapters.tsx` lists the idle adapter first, then
    registered strategy adapters from governance. Pass `assetSymbol` /
    `assetDecimals` from the vault page for token formatting.
-3. **Allocations** — `VaultV2Allocations.tsx` receives `preloadedData`
-   (governance) **and** `preloadedRisk`. Caps are resolved by hashing each
-   target's `idData` to look up `CapInfo`. **List layout** (same shell as V1):
+4. **Caps** — `VaultV2Caps.tsx`. Grouped adapter / collateral / market cap
+   tables (read-only). Embeds `VaultV2Pending` when `pending.length > 0`.
+   Tab label shows pending count. Pass `assetSymbol` / `assetDecimals` from
+   the vault page. Display **absolute cap** and **allocation** with
+   `formatRawTokenAmount` (not raw uint256).
+5. **Timelocks** — `VaultV2Timelocks.tsx` (read-only).
+6. **Allocation** — `VaultV2Allocations.tsx` receives `preloadedData`
+   (governance) **and** `preloadedRisk`. Caps are resolved via
+   `keccak256(idData)` using helpers in `lib/morpho/v2-id-data.ts` (see §3.2).
+   **List layout** (same shell as V1):
    sections in order **Idle → V1 Vault → Morpho Blue Market** (MetaMorpho rows
    show a **V1**/**V2** pill from `VAULT_VERSION_MAP` on the underlying vault
    address). No per-row type labels (section headers carry context). No token
@@ -261,20 +290,25 @@ Getting those semantics wrong is the #1 source of reverts.
      APY/utilization GraphQL values are **decimals**; multiply by 100 before
      `formatPercentage`.
    - **Idle** — vault cash row; no on-chain cap; no direct writes.
-4. **Caps tab** — `VaultV2Caps.tsx`. Pass `assetSymbol` / `assetDecimals` from
-   the vault page. Display **absolute cap** and **allocation** with
-   `formatRawTokenAmount` (not raw uint256). Cap edit form accepts human token
-   amounts for absolute caps (`parseUnits`).
-5. **Risk** — `VaultRiskV2.tsx`. MetaMorpho adapters show vault-level risk
-   only (`markets: []` in the risk API response); link to underlying V1 vault
-   for market detail. MorphoMarketV1Adapter rows list per-market risk.
-6. **Pending tab** — shown only when `pending.length > 0` (V1 and V2). While
-   loading or when empty, the tab is hidden entirely.
-7. **Emergency tab** (V2 only) — links to Morpho Curator emergency actions:
+7. **Sentinel** — `VaultV2Sentinel.tsx` (Morpho Curator–style; **only tab with
+   sentinel writes**). Sections:
+   - **Allocation Overview** — stacked bar + per-target token amounts and `%`.
+   - **Vault Pending Actions** — read-only; empty state “No pending actions”.
+   - **Decrease Caps** — adapter / collateral / market tables; radio pick
+     absolute vs relative per row; new value input; single **Decrease Caps**
+     button (multicall when multiple). Uses `resolveCapIdData` + `parseHumanTokenInput`.
+     New cap must be **≤ current** cap. `TransactionButton` uses
+     `suppressConnectPrompt` (wallet connect is in the topbar only).
+   - **Deallocate to Idle** — table (Idle row display-only) with amount + Max
+     per strategy row; batch **Deallocate** via `encodeMarketParamsData` or
+     `METAMORPHO_ADAPTER_DATA`. Token parse via `parseHumanTokenInput`.
+8. **Emergency tab** — links to Morpho Curator emergency actions:
    `https://curator.morpho.org/vaults/{chainId}/{vaultAddress}/emergency-actions`
-   (V1 uses the legacy `curator-v1.morpho.org/emergency` URL on its Emergency tab).
-8. Submits use `v2WriteConfigs.allocate/deallocate` wrapped in
+9. Submits use `v2WriteConfigs.allocate/deallocate` wrapped in
    `v2WriteConfigs.multicall` when multiple moves are planned.
+
+`VaultRiskV2.tsx` remains in the codebase for reference but is **not** a main
+vault tab. V1 vault pages use a separate tab set (see V1 route if present).
 
 ### 4.3 Caching
 
@@ -727,6 +761,24 @@ components.
 - **Fix:** Banner uses `inputSum`. Do not dust-balance partial edits onto
   strategy rows; under-allocation is implicit Idle. See §3.2 and §5.3.
 
+### V2 Sentinel decrease-cap or deallocate reverts
+
+- Confirm cap `idData` uses prefixed encoding from `lib/morpho/v2-id-data.ts`
+  (§3.2 table) — **not** bare `abi.encode(address)` or raw `marketParams`.
+- For market caps, confirm `cap.adapterAddress` from governance and full market
+  params (oracle, irm, lltv) from the risk API are used in
+  `encodeMarketCapIdData`.
+- Deallocate Blue markets: `data = encodeMarketParamsData(market)`. MetaMorpho:
+  `data = 0x`.
+- New absolute/relative cap on decrease must be **≤ current** on-chain cap.
+- Relative cap input is human **percent** (0–100); convert to WAD with
+  `BigInt(Math.round(pct * 1e16))`.
+- Use `parseHumanTokenInput` for deallocate amounts (comma-safe), not raw
+  `parseUnits` on un stripped strings.
+- Sentinel writes require a connected wallet with the **Sentinel** role (or
+  Curator for some actions). Connect via topbar — Sentinel tab does not duplicate
+  Connect Wallet (`suppressConnectPrompt` on `TransactionButton`).
+
 ### V2 allocation reverts
 
 - Check `absoluteCap` and `relativeCap` — both enforced on-chain per id.
@@ -800,7 +852,9 @@ components.
 
 ### Pending tab visible with nothing to accept
 
-- Hide the tab when `pending.length === 0` on both V1 and V2 vault pages.
+- V2: pending embeds in **Caps** tab (count in tab label); Sentinel shows a
+  read-only pending section with empty state. No standalone Pending tab on V2.
+- V1: hide the tab when `pending.length === 0`.
 
 ### Vault list empty or only V2 Prime in sidebar
 
@@ -852,7 +906,11 @@ npm run build
 | V2 allocation UI + allocate/etc. | `components/morpho/VaultV2Allocations.tsx`              |
 | Allocation list shell + sections | `components/morpho/AllocationListView.tsx`               |
 | V2 adapters UI (incl. idle)      | `components/morpho/VaultV2Adapters.tsx`                 |
-| V2 caps UI                       | `components/morpho/VaultV2Caps.tsx`                      |
+| V2 caps UI (read-only + pending) | `components/morpho/VaultV2Caps.tsx`                      |
+| V2 roles / timelocks UI          | `components/morpho/VaultV2Roles.tsx`, `VaultV2Timelocks.tsx` |
+| V2 Sentinel UI + writes          | `components/morpho/VaultV2Sentinel.tsx`                  |
+| V2 cap idData encoding           | `lib/morpho/v2-id-data.ts` (`resolveCapIdData`, …)       |
+| V2 cap display helpers           | `lib/morpho/v2-cap-format.ts`                            |
 | V2 risk UI (incl. idle count)    | `components/morpho/VaultRiskV2.tsx`, `MarketRiskDetailCard.tsx` |
 | Market risk scoring (shared)     | `lib/morpho/compute-v1-market-risk.ts`, `lib/morpho/irm-utils.ts`, `lib/morpho/oracle-utils.ts` |
 | Morpho app deep links            | `lib/morpho/morpho-app-links.ts`                         |
@@ -1119,9 +1177,10 @@ tests under `lib/onchain/__tests__/vault-writes.test.ts`.
 
 ---
 
-_Last updated: 2026-06-12 (v1.0.8). When you change reallocation logic, allocation
-list/filters (§5), caps/adapters display, Morpho GraphQL field names (§4.4.1), vault
-list/sidebar (§4.3.1), vault overview/history (share price in §4.4), risk scoring
-(§4.5), V2 idle/MetaMorpho/Blue display, pending/emergency tabs, wallet stack,
-formatting, the CCTP flow, global density, or add a new vault interaction, update
-Sections 3–6, 4.3.1, 4.4–4.5, 9–10, 13, 15, and 16 accordingly._
+_Last updated: 2026-06-22 (v1.0.8). When you change reallocation logic, allocation
+list/filters (§5), caps/adapters display, V2 idData/Sentinel (§3.2, §4.2), Morpho
+GraphQL field names (§4.4.1), vault list/sidebar (§4.3.1), vault overview/history
+(share price in §4.4), risk scoring (§4.5), V2 idle/MetaMorpho/Blue display,
+pending/emergency tabs, wallet stack, formatting, the CCTP flow, global density,
+or add a new vault interaction, update Sections 3–6, 4.2–4.5, 9–10, 13, 15,
+and 16 accordingly._

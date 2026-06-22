@@ -36,5 +36,13 @@ would pass 9, roll over to the next decimal:
 - **V2 allocate/deallocate** is delta-based; idle is never in calldata;
   unallocated remainder defaults to implicit Idle, with an optional explicit
   dust recipient (cap-validated).
+- **V2 cap `idData` ≠ deallocate `data`:** cap writes use prefixed ABI encoding
+  (`"this"`, `"collateralToken"`, `"this/marketParams"`) via `lib/morpho/v2-id-data.ts`;
+  deallocate/allocate adapter `data` is `abi.encode(marketParams)` for Blue markets
+  or `0x` for MetaMorpho. Never pass bare addresses or raw MarketParams as cap
+  `idData`.
+- **V2 vault tabs** (Morpho Curator order): Overview → Roles → Adapters → Caps →
+  Timelocks → Allocation → Sentinel → Emergency. Pending actions embed in Caps;
+  Sentinel is the only tab with sentinel writes (decrease caps, deallocate).
 - **No server-side private keys** — all writes go through the connected wallet.
 - Keep `CLAUDE.md`, `AGENTS.md`, and `TODO.md` in sync with behavior changes.

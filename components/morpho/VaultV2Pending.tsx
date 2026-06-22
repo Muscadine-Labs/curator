@@ -16,6 +16,8 @@ interface VaultV2PendingProps {
   preloadedData?: VaultV2PendingResponse | null;
   /** Hide card wrapper when embedded in Sentinel tab */
   embedded?: boolean;
+  /** Simpler empty state for Sentinel page */
+  sentinelEmpty?: boolean;
 }
 
 type PendingFilter = 'all' | 'ready' | 'waiting';
@@ -32,6 +34,7 @@ export function VaultV2Pending({
   chainId,
   preloadedData,
   embedded,
+  sentinelEmpty,
 }: VaultV2PendingProps) {
   const { data: fetchedData, isLoading, error } = useVaultV2Pending(vaultAddress);
   const data = preloadedData ?? fetchedData;
@@ -81,21 +84,25 @@ export function VaultV2Pending({
 
   const body = (
   <>
-      <div className="flex flex-wrap gap-2">
-        {(['all', 'ready', 'waiting'] as PendingFilter[]).map((f) => (
-          <Button
-            key={f}
-            size="sm"
-            variant={filter === f ? 'default' : 'outline'}
-            onClick={() => setFilter(f)}
-          >
-            {f === 'all' ? 'All' : f === 'ready' ? 'Executable now' : 'Pending'}
-          </Button>
-        ))}
-      </div>
+      {!sentinelEmpty && (
+        <div className="flex flex-wrap gap-2">
+          {(['all', 'ready', 'waiting'] as PendingFilter[]).map((f) => (
+            <Button
+              key={f}
+              size="sm"
+              variant={filter === f ? 'default' : 'outline'}
+              onClick={() => setFilter(f)}
+            >
+              {f === 'all' ? 'All' : f === 'ready' ? 'Executable now' : 'Pending'}
+            </Button>
+          ))}
+        </div>
+      )}
 
       {filtered.length === 0 ? (
-        <p className="text-sm text-slate-600 dark:text-slate-400">No pending timelocked actions.</p>
+        <p className="text-sm text-slate-600 dark:text-slate-400">
+          {sentinelEmpty ? 'No pending actions' : 'No pending timelocked actions.'}
+        </p>
       ) : (
         <div className="space-y-3">
           {filtered.map((item) => (
@@ -145,16 +152,23 @@ export function VaultV2Pending({
   );
 
   if (embedded) {
+    if (sentinelEmpty && (data?.pending?.length ?? 0) === 0) {
+      return (
+        <p className="text-sm text-slate-600 dark:text-slate-400">No pending actions</p>
+      );
+    }
     return (
       <div className="space-y-4">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            Vault Pending Actions ({data.pending.length})
-          </h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Pending timelock actions queued on this vault.
-          </p>
-        </div>
+        {!sentinelEmpty && (
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Vault Pending Actions ({data.pending.length})
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Pending timelock actions queued on this vault.
+            </p>
+          </div>
+        )}
         {body}
       </div>
     );

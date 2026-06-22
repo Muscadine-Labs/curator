@@ -14,8 +14,6 @@ import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
 import type { Address, Hex } from 'viem';
 import {
   parseUnits,
-  encodeAbiParameters,
-  parseAbiParameters,
   keccak256,
 } from 'viem';
 import {
@@ -37,6 +35,11 @@ import {
 import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
 import type { VaultV2GovernanceResponse, CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
 import { isAdapterCap, isMarketCap } from '@/lib/morpho/cap-utils';
+import {
+  encodeAdapterCapIdData,
+  encodeMarketCapIdData,
+  encodeMarketParamsData,
+} from '@/lib/morpho/v2-id-data';
 import {
   AllocationFilters,
   DEFAULT_FILTER_STATE,
@@ -187,30 +190,6 @@ interface AllocTarget {
 
 type InputMode = 'tokens' | 'percentage';
 
-function encodeMarketData(market: {
-  loanAsset?: { address: string } | null;
-  collateralAsset?: { address: string } | null;
-  oracleAddress?: string | null;
-  irmAddress?: string | null;
-  lltv?: string | number | null;
-}): Hex {
-  const loan = market.loanAsset?.address || '0x0000000000000000000000000000000000000000';
-  const col = market.collateralAsset?.address || '0x0000000000000000000000000000000000000000';
-  const oracle = market.oracleAddress || '0x0000000000000000000000000000000000000000';
-  const irm = market.irmAddress || '0x0000000000000000000000000000000000000000';
-  const lltv = market.lltv ? BigInt(market.lltv) : BigInt(0);
-
-  return encodeAbiParameters(
-    parseAbiParameters('address, address, address, address, uint256'),
-    [loan as Address, col as Address, oracle as Address, irm as Address, lltv]
-  );
-}
-
-/** Encode adapter-scoped cap data (MetaMorphoAdapter): `address`. */
-function encodeAdapterCapData(adapterAddress: string): Hex {
-  return encodeAbiParameters(parseAbiParameters('address'), [adapterAddress as Address]);
-}
-
 function parseBigIntOrNull(s: string | number | null | undefined): bigint | null {
   if (s == null) return null;
   try {
@@ -279,7 +258,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
     for (const cap of governance?.caps ?? []) {
       // Build idHash for each cap based on its kind.
       if (isAdapterCap(cap) && cap.adapterAddress) {
-        const h = keccak256(encodeAdapterCapData(cap.adapterAddress));
+        const h = keccak256(encodeAdapterCapIdData(cap.adapterAddress));
         map.set(h.toLowerCase(), cap);
       }
       if (isMarketCap(cap) && cap.marketKey) {
@@ -362,7 +341,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
         totalRaw += rawAssets;
 
         const adapterDataHex = '0x' as Hex;
-        const adapterIdData = encodeAdapterCapData(adapter.adapterAddress);
+        const adapterIdData = encodeAdapterCapIdData(adapter.adapterAddress);
         const adapterIdHash = keccak256(adapterIdData);
 
         targets.push({
@@ -427,8 +406,11 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
           if (allocAssets) { try { rawAssets = BigInt(allocAssets); } catch { /* */ } }
           totalRaw += rawAssets;
 
-          const data = m.market ? encodeMarketData(m.market) : ('0x' as Hex);
-          const idHash = keccak256(data);
+          const data = m.market ? encodeMarketParamsData(m.market) : ('0x' as Hex);
+          const capIdData = m.market
+            ? encodeMarketCapIdData(adapter.adapterAddress, m.market)
+            : data;
+          const idHash = keccak256(capIdData);
 
           const tIdx = targets.length;
           targets.push({
@@ -544,7 +526,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
               .flatMap((a) => a.markets ?? [])
               .find((m) => {
                 if (!m.market) return false;
-                const data = encodeMarketData(m.market);
+                const data = encodeMarketParamsData(m.market);
                 return data.toLowerCase() === t.data.toLowerCase();
               })?.market?.uniqueKey ?? undefined
           : undefined;

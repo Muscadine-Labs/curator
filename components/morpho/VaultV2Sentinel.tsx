@@ -1,13 +1,23 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
+import { Info } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { TransactionButton } from '@/components/TransactionButton';
 import { formatLltvPill, formatMarketPairLabel } from '@/components/morpho/AllocationListView';
+import { VaultV2Pending } from '@/components/morpho/VaultV2Pending';
 import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
 import { useVaultV2Risk } from '@/lib/hooks/useVaultV2Risk';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
@@ -20,22 +30,35 @@ import {
   formatCapTokenAmount,
   groupCaps,
 } from '@/lib/morpho/v2-cap-format';
-import { encodeMarketIdData, resolveCapIdData } from '@/lib/morpho/v2-id-data';
-import { formatPercentage, formatRawTokenAmount, formatUSD } from '@/lib/format/number';
+import {
+  METAMORPHO_ADAPTER_DATA,
+  encodeMarketParamsData,
+  resolveCapIdData,
+} from '@/lib/morpho/v2-id-data';
+import { formatFullUSD, formatPercentage, formatRawTokenAmount } from '@/lib/format/number';
+import {
+  formatAllocationTableAmount,
+  parseHumanTokenInput,
+} from '@/lib/format/allocation-display';
 import {
   getTokenDisplayDecimals,
   resolveAssetDecimals,
 } from '@/lib/format/asset-decimals';
 import { marketKeyFromGraphQL } from '@/lib/morpho/morpho-app-links';
+import { VAULT_VERSION_MAP } from '@/lib/morpho/treasury-statement';
+import { vaultV2Abi } from '@/lib/onchain/abis';
 import type { CapInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governance/route';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
+import type { VaultV2PendingResponse } from '@/app/api/vaults/v2/[id]/pending/route';
 import type { Address, Hex } from 'viem';
-import { parseUnits } from 'viem';
+import { encodeFunctionData } from 'viem';
 
 interface VaultV2SentinelProps {
   vaultAddress: string;
+  chainId: number;
   preloadedGovernance?: VaultV2GovernanceResponse | null;
   preloadedRisk?: V2VaultRiskResponse | null;
+  preloadedPending?: VaultV2PendingResponse | null;
   assetSymbol?: string | null;
   assetDecimals?: number | null;
 }
@@ -44,21 +67,43 @@ type DeallocateRow = {
   key: string;
   label: string;
   lltv: string | null;
+  wrappedVaultVersion: 'v1' | 'v2' | null;
   adapterAddress: string;
   idData: Hex;
   currentRaw: bigint;
-  currentUsd: number;
   allocationPct: number;
   supplyApy: number | null;
   liquidityUsd: number | null;
   absoluteCap: string | null;
   relativeCap: string | null;
+  canDeallocate: boolean;
 };
+
+type OverviewSegment = {
+  key: string;
+  label: string;
+  pct: number;
+  raw: bigint;
+  color: string;
+};
+
+type CapDecreaseMode = 'absolute' | 'relative';
+
+const BAR_COLORS = [
+  'bg-blue-500',
+  'bg-indigo-500',
+  'bg-violet-500',
+  'bg-sky-500',
+  'bg-cyan-500',
+  'bg-teal-500',
+];
 
 export function VaultV2Sentinel({
   vaultAddress,
+  chainId,
   preloadedGovernance,
   preloadedRisk,
+  preloadedPending,
   assetSymbol,
   assetDecimals,
 }: VaultV2SentinelProps) {
@@ -70,25 +115,20 @@ export function VaultV2Sentinel({
   const chainDecimals = resolveAssetDecimals(assetSymbol ?? undefined, assetDecimals ?? undefined);
   const displayDecimals = getTokenDisplayDecimals(assetSymbol ?? undefined, chainDecimals);
 
-  const totalUsd = useMemo(() => {
-    const idle = risk?.idleAssetsUsd ?? governance?.idleAssetsUsd ?? 0;
-    const strat = risk?.totalAdapterAssetsUsd ?? 0;
-    return idle + strat;
+  const { totalRaw, overviewSegments, deallocateRows } = useMemo(() => {
+    if (!risk) {
+      return { totalRaw: 0n, overviewSegments: [] as OverviewSegment[], deallocateRows: [] as DeallocateRow[] };
+    }
+    return buildOverviewAndDeallocate(risk, governance);
   }, [risk, governance]);
-
-  const deallocateRows = useMemo(() => buildDeallocateRows(risk, governance, totalUsd), [risk, governance, totalUsd]);
 
   if ((!preloadedGovernance && govLoading) || (!preloadedRisk && riskLoading)) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Sentinel</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Skeleton className="h-16 w-full" />
-          <Skeleton className="h-48 w-full" />
-        </CardContent>
-      </Card>
+      <div className="space-y-6">
+        <Skeleton className="h-32 w-full rounded-xl" />
+        <Skeleton className="h-24 w-full rounded-xl" />
+        <Skeleton className="h-64 w-full rounded-xl" />
+      </div>
     );
   }
 
@@ -115,141 +155,563 @@ export function VaultV2Sentinel({
           <CardTitle>Allocation Overview</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Total Assets</p>
-          <p className="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-            {formatUSD(totalUsd, 2)}
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {(risk.idleAssetsUsd ?? 0) > 0 && (
-              <Badge variant="outline">
-                Idle {formatUSD(risk.idleAssetsUsd ?? 0, 2)}
-              </Badge>
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-sm text-slate-500 dark:text-slate-400">Total Assets</p>
+            <p className="text-sm font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+              {formatAllocationTableAmount(totalRaw, assetSymbol, assetDecimals ?? chainDecimals)}
+            </p>
+          </div>
+          <div className="mt-3 flex h-2.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+            {overviewSegments.map((seg, i) =>
+              seg.pct > 0 ? (
+                <div
+                  key={seg.key}
+                  className={`${BAR_COLORS[i % BAR_COLORS.length]} transition-all`}
+                  style={{ width: `${Math.max(seg.pct, 0.5)}%` }}
+                  title={`${seg.label} ${seg.pct.toFixed(1)}%`}
+                />
+              ) : null
             )}
-            {deallocateRows
-              .filter((r) => r.currentUsd > 0)
-              .map((r) => (
-                <Badge key={r.key} variant="secondary">
-                  {r.label} {formatUSD(r.currentUsd, 2)} ({r.allocationPct.toFixed(1)}%)
-                </Badge>
-              ))}
+          </div>
+          <div className="mt-4 space-y-2">
+            {overviewSegments.map((seg, i) => (
+              <div key={seg.key} className="flex items-center justify-between gap-3 text-sm">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className={`h-2 w-2 shrink-0 rounded-full ${BAR_COLORS[i % BAR_COLORS.length]}`}
+                  />
+                  <span className="truncate text-slate-800 dark:text-slate-200">{seg.label}</span>
+                </div>
+                <div className="flex shrink-0 items-center gap-4 tabular-nums text-slate-600 dark:text-slate-300">
+                  <span>
+                    {formatAllocationTableAmount(seg.raw, assetSymbol, assetDecimals ?? chainDecimals)}
+                  </span>
+                  <span className="w-14 text-right">{seg.pct.toFixed(1)}%</span>
+                </div>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Decrease Caps</CardTitle>
+          <CardTitle>Vault Pending Actions</CardTitle>
           <CardDescription>
-            Sentinels can decrease absolute and relative caps without a timelock. Enter a new cap
-            value below the current cap.
+            Pending timelock actions on this vault that can be revoked.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-8">
-          <DecreaseCapSection
-            title="Adapter Caps"
-            caps={grouped.adapter}
-            risk={risk}
-            adapterLabels={adapterLabels}
+        <CardContent>
+          <VaultV2Pending
             vaultAddress={vaultAddress}
-            assetSymbol={assetSymbol}
-            assetDecimals={assetDecimals}
-          />
-          <DecreaseCapSection
-            title="Collateral Token Caps"
-            caps={grouped.collateral}
-            risk={risk}
-            adapterLabels={adapterLabels}
-            vaultAddress={vaultAddress}
-            assetSymbol={assetSymbol}
-            assetDecimals={assetDecimals}
-          />
-          <DecreaseCapSection
-            title="Market Caps"
-            caps={grouped.market}
-            risk={risk}
-            adapterLabels={adapterLabels}
-            vaultAddress={vaultAddress}
-            assetSymbol={assetSymbol}
-            assetDecimals={assetDecimals}
-            showLltv
+            chainId={chainId}
+            preloadedData={preloadedPending}
+            embedded
+            sentinelEmpty
           />
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Deallocate to Idle</CardTitle>
-          <CardDescription>
-            Move assets from strategy positions back to vault idle cash. Partial deallocations are
-            supported.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {deallocateRows.length === 0 ? (
-            <p className="text-sm text-slate-500 dark:text-slate-400">No strategy positions.</p>
-          ) : (
-            deallocateRows.map((row) => (
-              <DeallocateRowForm
-                key={row.key}
-                row={row}
-                vaultAddress={vaultAddress}
-                assetSymbol={assetSymbol}
-                assetDecimals={assetDecimals}
-                chainDecimals={chainDecimals}
-                displayDecimals={displayDecimals}
-              />
-            ))
-          )}
-        </CardContent>
-      </Card>
+      <DecreaseCapsPanel
+        grouped={grouped}
+        risk={risk}
+        adapterLabels={adapterLabels}
+        vaultAddress={vaultAddress}
+        assetSymbol={assetSymbol}
+        assetDecimals={assetDecimals}
+        chainDecimals={chainDecimals}
+      />
+
+      <DeallocatePanel
+        rows={deallocateRows}
+        vaultAddress={vaultAddress}
+        assetSymbol={assetSymbol}
+        assetDecimals={assetDecimals}
+        chainDecimals={chainDecimals}
+        displayDecimals={displayDecimals}
+      />
     </div>
   );
 }
 
-function DecreaseCapSection({
-  title,
-  caps,
+function DecreaseCapsPanel({
+  grouped,
   risk,
   adapterLabels,
   vaultAddress,
   assetSymbol,
   assetDecimals,
-  showLltv,
+  chainDecimals,
 }: {
-  title: string;
-  caps: CapInfo[];
+  grouped: ReturnType<typeof groupCaps>;
   risk: V2VaultRiskResponse;
   adapterLabels: Map<string, string>;
   vaultAddress: string;
   assetSymbol?: string | null;
   assetDecimals?: number | null;
-  showLltv?: boolean;
+  chainDecimals: number;
 }) {
-  if (caps.length === 0) return null;
+  const [selections, setSelections] = useState<Record<string, CapDecreaseMode>>({});
+  const [newValues, setNewValues] = useState<Record<string, string>>({});
+  const write = useVaultWrite();
+
+  const setSelection = (rowKey: string, mode: CapDecreaseMode) => {
+    setSelections((prev) => ({ ...prev, [rowKey]: mode }));
+  };
+
+  const submitDecrease = useCallback(() => {
+    const calls: Hex[] = [];
+
+    for (const [rowKey, mode] of Object.entries(selections)) {
+      const valueStr = newValues[rowKey]?.trim();
+      if (!valueStr) continue;
+
+      const cap = findCapByRowKey(rowKey, grouped);
+      if (!cap) continue;
+
+      const idData = resolveCapIdData(cap, risk);
+      if (!idData) continue;
+
+      if (mode === 'absolute') {
+        try {
+          const parsed = parseHumanTokenInput(valueStr, assetSymbol, chainDecimals);
+          const current = BigInt(cap.absoluteCap);
+          if (parsed > current) continue;
+          calls.push(
+            encodeFunctionData({
+              abi: vaultV2Abi,
+              functionName: 'decreaseAbsoluteCap',
+              args: [idData, parsed],
+            })
+          );
+        } catch {
+          continue;
+        }
+      } else {
+        try {
+          const pct = Number(valueStr);
+          if (!Number.isFinite(pct) || pct < 0 || pct > 100) continue;
+          const wad = BigInt(Math.round(pct * 1e16));
+          const current = BigInt(cap.relativeCap);
+          if (wad > current) continue;
+          calls.push(
+            encodeFunctionData({
+              abi: vaultV2Abi,
+              functionName: 'decreaseRelativeCap',
+              args: [idData, wad],
+            })
+          );
+        } catch {
+          continue;
+        }
+      }
+    }
+
+    if (calls.length === 0) return;
+    write.write(v2WriteConfigs.multicall(vaultAddress as Address, calls));
+  }, [assetSymbol, chainDecimals, grouped, newValues, risk, selections, vaultAddress, write]);
+
+  const hasPendingSubmit = Object.entries(selections).some(
+    ([key, mode]) => selections[key] === mode && (newValues[key]?.trim() ?? '').length > 0
+  );
+
+  const sections: Array<{
+    title: string;
+    description: string;
+    caps: CapInfo[];
+    nameCol: string;
+    showLltv?: boolean;
+  }> = [
+    {
+      title: 'Adapter Caps',
+      description: 'Limit the amount of assets that can be allocated to positions using specific adapters.',
+      caps: grouped.adapter,
+      nameCol: 'Adapter',
+    },
+    {
+      title: 'Collateral Token Caps',
+      description:
+        'Limit the amount of assets that can be allocated to positions using specific collateral tokens.',
+      caps: grouped.collateral,
+      nameCol: 'Collateral',
+    },
+    {
+      title: 'Market Caps',
+      description: 'Limit the amount of assets that can be allocated to specific Morpho markets.',
+      caps: grouped.market,
+      nameCol: 'Market',
+      showLltv: true,
+    },
+  ];
+
+  const totalCaps =
+    grouped.adapter.length + grouped.collateral.length + grouped.market.length;
 
   return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</h3>
-      <div className="space-y-3">
-        {caps.map((cap, idx) => (
-          <DecreaseCapRow
-            key={capRowKey(cap, idx)}
-            cap={cap}
-            label={capDisplayLabel(cap, risk, adapterLabels)}
-            lltv={
-              showLltv && cap.marketKey
-                ? resolveLltv(cap.marketKey, risk)
-                : null
-            }
-            idData={resolveCapIdData(cap, risk)}
-            vaultAddress={vaultAddress}
-            assetSymbol={assetSymbol}
-            assetDecimals={assetDecimals}
-          />
-        ))}
-      </div>
-    </div>
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            Decrease Caps
+            <Info className="h-4 w-4 text-slate-400" aria-hidden />
+          </CardTitle>
+          <CardDescription className="mt-1">
+            Sentinels can decrease caps instantly without a timelock. Select a cap type, enter a new
+            value below the current cap, then submit.
+          </CardDescription>
+        </div>
+        <TransactionButton
+          label="Decrease Caps"
+          suppressConnectPrompt
+          onClick={submitDecrease}
+          disabled={!hasPendingSubmit || totalCaps === 0}
+          isLoading={write.isLoading}
+          isSuccess={write.isSuccess}
+          error={write.error}
+          txHash={write.txHash}
+        />
+      </CardHeader>
+      <CardContent className="space-y-8">
+        {totalCaps === 0 ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400">No caps configured.</p>
+        ) : (
+          sections.map((section) =>
+            section.caps.length === 0 ? null : (
+              <div key={section.title} className="space-y-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    {section.title}
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{section.description}</p>
+                </div>
+                <div className="overflow-x-auto rounded-md border border-slate-200 dark:border-slate-800">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{section.nameCol}</TableHead>
+                        <TableHead className="text-right">Allocation</TableHead>
+                        <TableHead className="text-right">Absolute Cap</TableHead>
+                        <TableHead className="text-right">Relative Cap</TableHead>
+                        <TableHead className="min-w-[120px]">New value</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {section.caps.map((cap, idx) => {
+                        const rowKey = capRowKey(cap, idx);
+                        const label = capDisplayLabel(cap, risk, adapterLabels);
+                        const lltv =
+                          section.showLltv && cap.marketKey
+                            ? resolveLltv(cap.marketKey, risk)
+                            : null;
+                        const idData = resolveCapIdData(cap, risk);
+                        const mode = selections[rowKey] ?? null;
+
+                        return (
+                          <TableRow key={rowKey}>
+                            <TableCell>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium">{label}</span>
+                                {lltv && (
+                                  <Badge variant="outline" className="text-xs">
+                                    {lltv}
+                                  </Badge>
+                                )}
+                              </div>
+                              {!idData && (
+                                <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                                  idData unavailable
+                                </p>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {formatCapTokenAmount(cap.allocation, assetSymbol, assetDecimals)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <label className="inline-flex cursor-pointer items-center justify-end gap-2 tabular-nums">
+                                <input
+                                  type="radio"
+                                  name={`cap-mode-${rowKey}`}
+                                  checked={mode === 'absolute'}
+                                  disabled={!idData}
+                                  onChange={() => setSelection(rowKey, 'absolute')}
+                                  className="h-4 w-4 accent-blue-600"
+                                />
+                                {formatCapTokenAmount(cap.absoluteCap, assetSymbol, assetDecimals)}
+                              </label>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <label className="inline-flex cursor-pointer items-center justify-end gap-2 tabular-nums">
+                                <input
+                                  type="radio"
+                                  name={`cap-mode-${rowKey}`}
+                                  checked={mode === 'relative'}
+                                  disabled={!idData}
+                                  onChange={() => setSelection(rowKey, 'relative')}
+                                  className="h-4 w-4 accent-blue-600"
+                                />
+                                {formatCapRelative(cap.relativeCap)}
+                              </label>
+                            </TableCell>
+                            <TableCell>
+                              {mode ? (
+                                <Input
+                                  type="text"
+                                  className="h-8"
+                                  placeholder={mode === 'absolute' ? 'New absolute' : 'New %'}
+                                  value={newValues[rowKey] ?? ''}
+                                  onChange={(e) =>
+                                    setNewValues((prev) => ({ ...prev, [rowKey]: e.target.value }))
+                                  }
+                                />
+                              ) : (
+                                <span className="text-xs text-slate-400">Select cap type</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )
+          )
+        )}
+      </CardContent>
+    </Card>
   );
+}
+
+function DeallocatePanel({
+  rows,
+  vaultAddress,
+  assetSymbol,
+  assetDecimals,
+  chainDecimals,
+  displayDecimals,
+}: {
+  rows: DeallocateRow[];
+  vaultAddress: string;
+  assetSymbol?: string | null;
+  assetDecimals?: number | null;
+  chainDecimals: number;
+  displayDecimals: number;
+}) {
+  const [amounts, setAmounts] = useState<Record<string, string>>({});
+  const write = useVaultWrite();
+
+  const setAmount = (key: string, value: string) => {
+    setAmounts((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleDeallocate = useCallback(() => {
+    const calls: Hex[] = [];
+
+    for (const row of rows) {
+      if (!row.canDeallocate) continue;
+      const raw = amounts[row.key]?.trim();
+      if (!raw) continue;
+      try {
+        const parsed = parseHumanTokenInput(raw, assetSymbol, chainDecimals);
+        if (parsed <= 0n || parsed > row.currentRaw) continue;
+        calls.push(
+          v2WriteConfigs.encodeDeallocate(
+            row.adapterAddress as Address,
+            row.idData,
+            parsed
+          )
+        );
+      } catch {
+        continue;
+      }
+    }
+
+    if (calls.length === 0) return;
+
+    if (calls.length === 1) {
+      const row = rows.find((r) => {
+        const raw = amounts[r.key]?.trim();
+        if (!raw || !r.canDeallocate) return false;
+        try {
+          const parsed = parseHumanTokenInput(raw, assetSymbol, chainDecimals);
+          return parsed > 0n && parsed <= r.currentRaw;
+        } catch {
+          return false;
+        }
+      });
+      if (!row) return;
+      const parsed = parseHumanTokenInput(amounts[row.key], assetSymbol, chainDecimals);
+      write.write(
+        v2WriteConfigs.deallocate(
+          vaultAddress as Address,
+          row.adapterAddress as Address,
+          row.idData,
+          parsed
+        )
+      );
+      return;
+    }
+
+    write.write(v2WriteConfigs.multicall(vaultAddress as Address, calls));
+  }, [amounts, assetSymbol, chainDecimals, rows, vaultAddress, write]);
+
+  const hasAmount = rows.some((row) => {
+    if (!row.canDeallocate) return false;
+    const raw = amounts[row.key]?.trim();
+    if (!raw) return false;
+    try {
+      const parsed = parseHumanTokenInput(raw, assetSymbol, chainDecimals);
+      return parsed > 0n && parsed <= row.currentRaw;
+    } catch {
+      return false;
+    }
+  });
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+        <div>
+          <CardTitle>Deallocate to Idle</CardTitle>
+          <CardDescription>
+            Move assets from strategy positions back to vault idle cash.
+          </CardDescription>
+        </div>
+        <TransactionButton
+          label="Deallocate"
+          suppressConnectPrompt
+          onClick={handleDeallocate}
+          disabled={!hasAmount}
+          isLoading={write.isLoading}
+          isSuccess={write.isSuccess}
+          error={write.error}
+          txHash={write.txHash}
+        />
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto rounded-md border border-slate-200 dark:border-slate-800">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Allocation</TableHead>
+                <TableHead className="text-right">Allocation</TableHead>
+                <TableHead className="text-right">Effective Abs. Cap</TableHead>
+                <TableHead className="text-right">Effective Rel. Cap</TableHead>
+                <TableHead className="text-right">Rate</TableHead>
+                <TableHead className="text-right">Liquidity</TableHead>
+                <TableHead className="min-w-[140px]">Amount</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-slate-500">
+                    No positions.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                rows.map((row) => {
+                  const maxLabel = formatRawTokenAmount(
+                    row.currentRaw,
+                    chainDecimals,
+                    displayDecimals
+                  );
+                  return (
+                    <TableRow key={row.key}>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{row.label}</span>
+                          {row.wrappedVaultVersion && (
+                            <Badge variant="outline" className="text-xs uppercase">
+                              {row.wrappedVaultVersion}
+                            </Badge>
+                          )}
+                          {row.lltv && (
+                            <Badge variant="outline" className="text-xs">
+                              {row.lltv}
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatAllocationTableAmount(
+                          row.currentRaw,
+                          assetSymbol,
+                          assetDecimals ?? chainDecimals
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-xs">
+                        {row.absoluteCap
+                          ? formatCapTokenAmount(row.absoluteCap, assetSymbol, assetDecimals)
+                          : '—'}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-xs">
+                        {row.relativeCap ? formatCapRelative(row.relativeCap) : '—'}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {row.supplyApy != null ? formatPercentage(row.supplyApy * 100, 2) : '—'}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {row.liquidityUsd != null ? formatFullUSD(row.liquidityUsd, 2) : '—'}
+                      </TableCell>
+                      <TableCell>
+                        {row.canDeallocate ? (
+                          <div className="flex items-center gap-1">
+                            <Input
+                              type="text"
+                              className="h-8 min-w-[100px]"
+                              placeholder={`Max ${maxLabel}`}
+                              value={amounts[row.key] ?? ''}
+                              onChange={(e) => setAmount(row.key, e.target.value)}
+                            />
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="shrink-0 px-2"
+                              onClick={() =>
+                                setAmount(
+                                  row.key,
+                                  formatRawTokenAmount(
+                                    row.currentRaw,
+                                    chainDecimals,
+                                    displayDecimals
+                                  ).replace(/,/g, '')
+                                )
+                              }
+                            >
+                              Max
+                            </Button>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function findCapByRowKey(
+  rowKey: string,
+  grouped: ReturnType<typeof groupCaps>
+): CapInfo | null {
+  for (let i = 0; i < grouped.adapter.length; i++) {
+    if (capRowKey(grouped.adapter[i], i) === rowKey) return grouped.adapter[i];
+  }
+  for (let i = 0; i < grouped.collateral.length; i++) {
+    if (capRowKey(grouped.collateral[i], i) === rowKey) return grouped.collateral[i];
+  }
+  for (let i = 0; i < grouped.market.length; i++) {
+    if (capRowKey(grouped.market[i], i) === rowKey) return grouped.market[i];
+  }
+  return null;
 }
 
 function resolveLltv(marketKey: string, risk: V2VaultRiskResponse): string | null {
@@ -265,225 +727,14 @@ function resolveLltv(marketKey: string, risk: V2VaultRiskResponse): string | nul
   return null;
 }
 
-function DecreaseCapRow({
-  cap,
-  label,
-  lltv,
-  idData,
-  vaultAddress,
-  assetSymbol,
-  assetDecimals,
-}: {
-  cap: CapInfo;
-  label: string;
-  lltv: string | null;
-  idData: Hex | null;
-  vaultAddress: string;
-  assetSymbol?: string | null;
-  assetDecimals?: number | null;
-}) {
-  const [newAbsolute, setNewAbsolute] = useState('');
-  const [newRelativePct, setNewRelativePct] = useState('');
-  const absWrite = useVaultWrite();
-  const relWrite = useVaultWrite();
-  const chainDecimals = resolveAssetDecimals(assetSymbol ?? undefined, assetDecimals ?? undefined);
-
-  const submitAbsolute = useCallback(() => {
-    if (!idData || !newAbsolute.trim()) return;
-    try {
-      const parsed = parseUnits(newAbsolute.trim(), chainDecimals);
-      absWrite.write(
-        v2WriteConfigs.decreaseAbsoluteCap(vaultAddress as Address, idData, parsed)
-      );
-    } catch {
-      /* invalid input */
-    }
-  }, [absWrite, chainDecimals, idData, newAbsolute, vaultAddress]);
-
-  const submitRelative = useCallback(() => {
-    if (!idData || !newRelativePct.trim()) return;
-    try {
-      const pct = Number(newRelativePct);
-      if (!Number.isFinite(pct) || pct < 0 || pct > 100) return;
-      const wad = BigInt(Math.round(pct * 1e16));
-      relWrite.write(
-        v2WriteConfigs.decreaseRelativeCap(vaultAddress as Address, idData, wad)
-      );
-    } catch {
-      /* invalid */
-    }
-  }, [idData, newRelativePct, relWrite, vaultAddress]);
-
-  return (
-    <div className="rounded-md border border-slate-200 p-3 dark:border-slate-800">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-medium text-slate-900 dark:text-slate-100">{label}</span>
-        {lltv && <Badge variant="outline" className="text-xs">{lltv}</Badge>}
-      </div>
-      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-        Current: {formatCapTokenAmount(cap.allocation, assetSymbol, assetDecimals)} allocated ·{' '}
-        {formatCapTokenAmount(cap.absoluteCap, assetSymbol, assetDecimals)} absolute ·{' '}
-        {formatCapRelative(cap.relativeCap)} relative
-      </p>
-      {!idData ? (
-        <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-          Cannot resolve cap idData for writes on this row.
-        </p>
-      ) : (
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-[140px] flex-1">
-              <label className="text-xs text-slate-500">New absolute cap ({assetSymbol ?? 'tokens'})</label>
-              <Input
-                type="text"
-                placeholder="e.g. 1000"
-                value={newAbsolute}
-                onChange={(e) => setNewAbsolute(e.target.value)}
-              />
-            </div>
-            <TransactionButton
-              label="Decrease absolute"
-              size="sm"
-              suppressConnectPrompt
-              onClick={submitAbsolute}
-              disabled={!newAbsolute.trim()}
-              isLoading={absWrite.isLoading}
-              isSuccess={absWrite.isSuccess}
-              error={absWrite.error}
-              txHash={absWrite.txHash}
-            />
-          </div>
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-[100px] flex-1">
-              <label className="text-xs text-slate-500">New relative cap (%)</label>
-              <Input
-                type="text"
-                placeholder="e.g. 50"
-                value={newRelativePct}
-                onChange={(e) => setNewRelativePct(e.target.value)}
-              />
-            </div>
-            <TransactionButton
-              label="Decrease relative"
-              size="sm"
-              suppressConnectPrompt
-              onClick={submitRelative}
-              disabled={!newRelativePct.trim()}
-              isLoading={relWrite.isLoading}
-              isSuccess={relWrite.isSuccess}
-              error={relWrite.error}
-              txHash={relWrite.txHash}
-            />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function DeallocateRowForm({
-  row,
-  vaultAddress,
-  assetSymbol,
-  assetDecimals,
-  chainDecimals,
-  displayDecimals,
-}: {
-  row: DeallocateRow;
-  vaultAddress: string;
-  assetSymbol?: string | null;
-  assetDecimals?: number | null;
-  chainDecimals: number;
-  displayDecimals: number;
-}) {
-  const [amount, setAmount] = useState('');
-  const write = useVaultWrite();
-
-  const maxLabel = formatRawTokenAmount(row.currentRaw, chainDecimals, displayDecimals);
-
-  const handleDeallocate = useCallback(() => {
-    if (!amount.trim() || row.currentRaw === 0n) return;
-    try {
-      const parsed = parseUnits(amount.trim(), chainDecimals);
-      if (parsed <= 0n || parsed > row.currentRaw) return;
-      write.write(
-        v2WriteConfigs.deallocate(
-          vaultAddress as Address,
-          row.adapterAddress as Address,
-          row.idData,
-          parsed
-        )
-      );
-    } catch {
-      /* invalid */
-    }
-  }, [amount, chainDecimals, row, vaultAddress, write]);
-
-  const handleMax = () => {
-    setAmount(formatRawTokenAmount(row.currentRaw, chainDecimals, displayDecimals).replace(/,/g, ''));
-  };
-
-  return (
-    <div className="grid grid-cols-1 gap-3 rounded-md border border-slate-200 p-3 text-sm dark:border-slate-800 lg:grid-cols-6 lg:items-center">
-      <div className="lg:col-span-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium">{row.label}</span>
-          {row.lltv && <Badge variant="outline" className="text-xs">{row.lltv}</Badge>}
-        </div>
-        <p className="mt-1 text-xs text-slate-500">
-          {maxLabel} {assetSymbol ?? ''} · {row.allocationPct.toFixed(2)}% of vault
-        </p>
-      </div>
-      <div className="text-xs text-slate-600 dark:text-slate-300">
-        {row.absoluteCap && row.relativeCap ? (
-          <>
-            {formatCapTokenAmount(row.absoluteCap, assetSymbol, assetDecimals)} /{' '}
-            {formatCapRelative(row.relativeCap)}
-          </>
-        ) : (
-          '—'
-        )}
-      </div>
-      <div className="tabular-nums">
-        {row.supplyApy != null ? formatPercentage(row.supplyApy * 100, 2) : '—'}
-      </div>
-      <div className="tabular-nums text-xs">
-        {row.liquidityUsd != null ? formatUSD(row.liquidityUsd, 2) : '—'}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          type="text"
-          className="h-8 min-w-[100px] flex-1"
-          placeholder={`Max ${maxLabel}`}
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-        />
-        <Button type="button" size="sm" variant="outline" onClick={handleMax}>
-          Max
-        </Button>
-        <TransactionButton
-          label="Deallocate"
-          size="sm"
-          suppressConnectPrompt
-          onClick={handleDeallocate}
-          disabled={!amount.trim() || row.currentRaw === 0n}
-          isLoading={write.isLoading}
-          isSuccess={write.isSuccess}
-          error={write.error}
-          txHash={write.txHash}
-        />
-      </div>
-    </div>
-  );
-}
-
-function buildDeallocateRows(
-  risk: V2VaultRiskResponse | null | undefined,
-  governance: VaultV2GovernanceResponse | null | undefined,
-  totalUsd: number
-): DeallocateRow[] {
-  if (!risk) return [];
-
+function buildOverviewAndDeallocate(
+  risk: V2VaultRiskResponse,
+  governance: VaultV2GovernanceResponse | null | undefined
+): {
+  totalRaw: bigint;
+  overviewSegments: OverviewSegment[];
+  deallocateRows: DeallocateRow[];
+} {
   const capByMarket = new Map<string, CapInfo>();
   const capByAdapter = new Map<string, CapInfo>();
   for (const cap of governance?.caps ?? []) {
@@ -493,56 +744,121 @@ function buildDeallocateRows(
     }
   }
 
-  const rows: DeallocateRow[] = [];
+  let idleRaw = parseBig(risk.idleAssets);
+  let totalRaw = idleRaw;
+  const overviewSegments: OverviewSegment[] = [];
+  const deallocateRows: DeallocateRow[] = [];
+
+  if (idleRaw > 0n || (risk.idleAssetsUsd ?? 0) > 0) {
+    overviewSegments.push({
+      key: 'idle',
+      label: 'Idle',
+      pct: 0,
+      raw: idleRaw,
+      color: BAR_COLORS[0],
+    });
+  }
+
+  deallocateRows.push({
+    key: 'idle',
+    label: 'Idle',
+    lltv: null,
+    wrappedVaultVersion: null,
+    adapterAddress: '',
+    idData: '0x',
+    currentRaw: idleRaw,
+    allocationPct: 0,
+    supplyApy: null,
+    liquidityUsd: null,
+    absoluteCap: null,
+    relativeCap: null,
+    canDeallocate: false,
+  });
 
   for (const adapter of risk.adapters ?? []) {
     if (adapter.adapterType === 'MetaMorphoAdapter') {
       const raw = parseBig(adapter.allocationAssets);
-      if (raw === 0n && (adapter.allocationUsd ?? 0) === 0) continue;
+      totalRaw += raw;
       const cap = capByAdapter.get(adapter.adapterAddress.toLowerCase());
-      rows.push({
+      const underlyingAddr = adapter.underlyingVaultAddress?.toLowerCase();
+      const wrappedVersion = underlyingAddr ? VAULT_VERSION_MAP[underlyingAddr] ?? 'v1' : 'v1';
+
+      overviewSegments.push({
+        key: `meta-${adapter.adapterAddress}`,
+        label: adapter.adapterLabel || 'MetaMorpho',
+        pct: 0,
+        raw,
+        color: BAR_COLORS[1],
+      });
+
+      deallocateRows.push({
         key: `meta-${adapter.adapterAddress}`,
         label: adapter.adapterLabel || 'MetaMorpho',
         lltv: null,
+        wrappedVaultVersion: wrappedVersion,
         adapterAddress: adapter.adapterAddress,
-        idData: '0x' as Hex,
+        idData: METAMORPHO_ADAPTER_DATA,
         currentRaw: raw,
-        currentUsd: adapter.allocationUsd ?? 0,
-        allocationPct: totalUsd > 0 ? ((adapter.allocationUsd ?? 0) / totalUsd) * 100 : 0,
+        allocationPct: 0,
         supplyApy: adapter.underlyingVaultStats?.netApy ?? null,
         liquidityUsd: adapter.underlyingVaultStats?.liquidityUsd ?? null,
         absoluteCap: cap?.absoluteCap ?? null,
         relativeCap: cap?.relativeCap ?? null,
+        canDeallocate: raw > 0n,
       });
       continue;
     }
 
     for (const m of adapter.markets ?? []) {
       const raw = parseBig(m.allocationAssets);
-      const usd = m.allocationUsd ?? 0;
+      totalRaw += raw;
       const key = marketKeyFromGraphQL(m.market);
       const cap = key ? capByMarket.get(key.toLowerCase()) : undefined;
       const col = m.market?.collateralAsset?.symbol;
       const loan = m.market?.loanAsset?.symbol;
-
-      rows.push({
+      const label = formatMarketPairLabel(col, loan);
+      overviewSegments.push({
         key: key ?? `${adapter.adapterAddress}-${col}-${loan}`,
-        label: formatMarketPairLabel(col, loan),
+        label,
+        pct: 0,
+        raw,
+        color: BAR_COLORS[2],
+      });
+
+      deallocateRows.push({
+        key: key ?? `${adapter.adapterAddress}-${col}-${loan}`,
+        label,
         lltv: formatLltvPill(m.market?.lltv ?? null),
+        wrappedVaultVersion: null,
         adapterAddress: adapter.adapterAddress,
-        idData: m.market ? encodeMarketIdData(m.market) : ('0x' as Hex),
+        idData: m.market ? encodeMarketParamsData(m.market) : ('0x' as Hex),
         currentRaw: raw,
-        currentUsd: usd,
-        allocationPct: totalUsd > 0 ? (usd / totalUsd) * 100 : 0,
+        allocationPct: 0,
         supplyApy: m.market?.state?.supplyApy ?? null,
         liquidityUsd: m.market?.state?.liquidityAssetsUsd ?? null,
         absoluteCap: cap?.absoluteCap ?? null,
         relativeCap: cap?.relativeCap ?? null,
+        canDeallocate: raw > 0n,
       });
     }
   }
 
-  return rows.sort((a, b) => b.currentUsd - a.currentUsd);
+  const totalForPct = totalRaw > 0n ? totalRaw : 1n;
+  for (const seg of overviewSegments) {
+    seg.pct = Number((seg.raw * 10000n) / totalForPct) / 100;
+  }
+  for (const row of deallocateRows) {
+    row.allocationPct = Number((row.currentRaw * 10000n) / totalForPct) / 100;
+  }
+
+  overviewSegments.sort((a, b) => Number(b.raw - a.raw));
+  deallocateRows.sort((a, b) => {
+    if (a.key === 'idle') return -1;
+    if (b.key === 'idle') return 1;
+    return Number(b.currentRaw - a.currentRaw);
+  });
+
+  return { totalRaw, overviewSegments, deallocateRows };
 }
 
 function parseBig(value: string | null | undefined): bigint {
@@ -553,3 +869,4 @@ function parseBig(value: string | null | undefined): bigint {
     return 0n;
   }
 }
+
