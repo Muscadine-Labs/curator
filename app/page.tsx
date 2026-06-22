@@ -77,12 +77,10 @@ export default function Home() {
     const statements = monthlyData?.statements ?? [];
     const fromVaults = statements.reduce((sum, s) => sum + (s.vaultFeesTotal?.usd ?? 0), 0);
     const miscellaneous = statements.reduce((sum, s) => sum + (s.miscellaneousTotal?.usd ?? 0), 0);
-    const total =
-      treasuryRevenueCumulative.length > 0
-        ? treasuryRevenueCumulative[treasuryRevenueCumulative.length - 1].value
-        : fromVaults + miscellaneous;
+    // Total revenue = performance fees only; miscellaneous is external capital, not revenue.
+    const total = fromVaults;
     return { total, fromVaults, miscellaneous };
-  }, [monthlyData?.statements, treasuryRevenueCumulative]);
+  }, [monthlyData?.statements]);
 
   const revenueTotal =
     revenueSource === 'treasury'

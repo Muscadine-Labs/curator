@@ -71,6 +71,9 @@ const V2_TRANSACTIONS_QUERY = gql`
         symbol
         decimals
       }
+      totalAssets
+      totalAssetsUsd
+      totalSupply
     }
     vaultV2transactions(
       first: $first
@@ -145,6 +148,9 @@ type V2TxData =
 type V2GraphResponse = {
   vaultV2ByAddress?: {
     asset?: { symbol?: string | null; decimals?: number | null } | null;
+    totalAssets?: string | number | null;
+    totalAssetsUsd?: number | null;
+    totalSupply?: string | number | null;
   } | null;
   vaultV2transactions?: {
     items?: Array<{
@@ -158,7 +164,55 @@ type V2GraphResponse = {
   } | null;
 };
 
-function mapV2TransactionData(data: V2TxData): { user: string | null; assets: string | null } {
+function parseBigIntSafe(value: string | number | null | undefined): bigint | null {
+  if (value == null) return null;
+  try {
+    return BigInt(typeof value === 'number' ? Math.floor(value) : value);
+  } catch {
+    return null;
+  }
+}
+
+function sharesToAssets(
+  shares: string | null | undefined,
+  totalAssets: bigint | null,
+  totalSupply: bigint | null
+): string | null {
+  if (!shares || totalAssets == null || totalSupply == null || totalSupply === BigInt(0)) {
+    return null;
+  }
+  try {
+    const shareAmount = BigInt(shares);
+    if (shareAmount <= BigInt(0)) return null;
+    return String((shareAmount * totalAssets) / totalSupply);
+  } catch {
+    return null;
+  }
+}
+
+function assetsToUsd(
+  assets: string | null,
+  totalAssets: bigint | null,
+  totalAssetsUsd: number | null
+): number | null {
+  if (!assets || totalAssets == null || totalAssets === BigInt(0) || totalAssetsUsd == null) {
+    return null;
+  }
+  try {
+    const assetAmount = BigInt(assets);
+    if (assetAmount <= BigInt(0)) return null;
+    return (Number(assetAmount) / Number(totalAssets)) * totalAssetsUsd;
+  } catch {
+    return null;
+  }
+}
+
+function mapV2TransactionData(
+  data: V2TxData,
+  shares: string | null | undefined,
+  totalAssets: bigint | null,
+  totalSupply: bigint | null
+): { user: string | null; assets: string | null } {
   if (!data?.__typename) return { user: null, assets: null };
   switch (data.__typename) {
     case 'VaultV2DepositData':
@@ -171,11 +225,13 @@ function mapV2TransactionData(data: V2TxData): { user: string | null; assets: st
         user: data.onBehalf ?? data.receiver ?? data.sender ?? null,
         assets: data.assets != null ? String(data.assets) : null,
       };
-    case 'VaultV2TransferData':
+    case 'VaultV2TransferData': {
+      const converted = sharesToAssets(shares, totalAssets, totalSupply);
       return {
         user: data.to ?? data.from ?? null,
-        assets: null,
+        assets: converted,
       };
+    }
     default:
       return { user: null, assets: null };
   }
@@ -236,11 +292,19 @@ export async function GET(
       });
       assetSymbol = data.vaultV2ByAddress?.asset?.symbol ?? null;
       assetDecimals = data.vaultV2ByAddress?.asset?.decimals ?? null;
+      const totalAssets = parseBigIntSafe(data.vaultV2ByAddress?.totalAssets);
+      const totalSupply = parseBigIntSafe(data.vaultV2ByAddress?.totalSupply);
+      const totalAssetsUsd = data.vaultV2ByAddress?.totalAssetsUsd ?? null;
       const items = data.vaultV2transactions?.items ?? [];
       transactions = items
         .filter((x): x is NonNullable<typeof x> => x !== null && Boolean(x.txHash))
         .map((tx) => {
-          const { user, assets } = mapV2TransactionData(tx.data ?? null);
+          const { user, assets } = mapV2TransactionData(
+            tx.data ?? null,
+            tx.shares,
+            totalAssets,
+            totalSupply
+          );
           return {
             hash: String(tx.txHash),
             blockNumber: tx.blockNumber != null ? Number(tx.blockNumber) : null,
@@ -249,7 +313,7 @@ export async function GET(
             user,
             shares: tx.shares ?? null,
             assets,
-            assetsUsd: null,
+            assetsUsd: assetsToUsd(assets, totalAssets, totalAssetsUsd),
           };
         });
     } else {

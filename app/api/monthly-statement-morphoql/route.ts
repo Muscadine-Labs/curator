@@ -11,6 +11,7 @@ import {
   VAULT_VERSION_MAP,
   emptyTreasuryAssetBreakdown,
   fetchTreasuryMiscellaneousByMonth,
+  fetchTreasuryCapitalByMonth,
   subtractTreasuryBreakdowns,
   sumTreasuryBreakdownUsd,
   type TreasuryAssetBreakdown,
@@ -680,7 +681,8 @@ export async function GET(request: Request) {
       return null;
     };
 
-    const miscellaneousByMonth = await fetchTreasuryMiscellaneousByMonth(
+    const { external: miscellaneousByMonth, internal: internalMovesByMonth } =
+      await fetchTreasuryCapitalByMonth(
       addresses,
       BASE_CHAIN_ID,
       startTimestampSec,
@@ -704,10 +706,12 @@ export async function GET(request: Request) {
         const isComplete = now > lastDayOfMonth;
 
         const miscellaneous = miscellaneousByMonth.get(month) ?? emptyTreasuryAssetBreakdown();
-        const vaultFees = subtractTreasuryBreakdowns(assets, miscellaneous);
+        const internalMoves = internalMovesByMonth.get(month) ?? emptyTreasuryAssetBreakdown();
+        const netAssets = subtractTreasuryBreakdowns(assets, internalMoves);
+        const vaultFees = subtractTreasuryBreakdowns(netAssets, miscellaneous);
 
-        const totalTokens = assets.USDC.tokens + assets.cbBTC.tokens + assets.WETH.tokens;
-        const totalUsd = sumTreasuryBreakdownUsd(assets);
+        const totalTokens = vaultFees.USDC.tokens + vaultFees.cbBTC.tokens + vaultFees.WETH.tokens;
+        const totalUsd = sumTreasuryBreakdownUsd(vaultFees);
         const vaultFeesTotalTokens =
           vaultFees.USDC.tokens + vaultFees.cbBTC.tokens + vaultFees.WETH.tokens;
         const vaultFeesTotalUsd = sumTreasuryBreakdownUsd(vaultFees);

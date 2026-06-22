@@ -79,7 +79,8 @@ type TreasuryPeriodMode = 'month' | 'quarter' | 'year';
 // Vault address to name mapping
 const VAULT_NAMES: Record<string, string> = {
   '0xf7e26fa48a568b8b0038e104dfd8abdf0f99074f': 'USDC V1',
-  '0x89712980cb434ef5ae4ab29349419eb976b0b496': 'USDC V2',
+  '0x89712980cb434ef5ae4ab29349419eb976b0b496': 'USDC V2 Prime',
+  '0x314fd07319ef645ba7d548915ccd91f4788a1839': 'USDC V2 Frontier',
   '0xaecc8113a7bd0cfaf7000ea7a31affd4691ff3e9': 'cbBTC V1',
   '0x99dcd0d75822ba398f13b2a8852b07c7e137ec70': 'cbBTC V2',
   '0x21e0d366272798da3a977feba699fcb91959d120': 'WETH V1',

@@ -35,7 +35,7 @@ export interface VaultWithData {
   createdAt: string;
   description?: string;
   version?: 'v1' | 'v2';
-  listCategory?: 'prime' | 'vineyard' | 'v1' | 'test' | null;
+  listCategory?: 'prime' | 'vineyard' | 'frontier' | 'v1' | 'test' | null;
   tvl: number | null;
   apy: number | null;
   depositors: number;
@@ -170,6 +170,8 @@ export const useVaultList = (filters?: {
   search?: string;
   /** When true, includes test vaults that are excluded from business views. */
   includeAll?: boolean;
+  /** When true, only active V2 vaults for sidebar (excludes V1 and test). */
+  sidebar?: boolean;
 }) => {
   return useQuery<VaultWithData[]>({
     queryKey: ['vaults', filters],
@@ -179,7 +181,8 @@ export const useVaultList = (filters?: {
       if (filters?.status) searchParams.set('status', filters.status);
       if (filters?.riskTier) searchParams.set('riskTier', filters.riskTier);
       if (filters?.search) searchParams.set('search', filters.search);
-      if (filters?.includeAll) searchParams.set('includeAll', 'true');
+      if (filters?.sidebar) searchParams.set('sidebar', 'true');
+      else if (filters?.includeAll) searchParams.set('includeAll', 'true');
       
       const response = await fetch(`/api/vaults?${searchParams}`, {
         credentials: 'omit',

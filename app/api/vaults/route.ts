@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import {
-  getVaultAddressesForBusinessViews,
   getAllVaultAddresses,
+  getSidebarVaultAddresses,
+  getVaultAddressesForBusinessViews,
   getVaultByAddress,
 } from '@/lib/config/vaults';
 import { BASE_CHAIN_ID, BPS_PER_ONE, getScanUrlForChain, GRAPHQL_FIRST_LIMIT } from '@/lib/constants';
@@ -37,8 +38,13 @@ export async function GET(request: Request) {
   try {
     // Check if the caller wants all vaults (including test) for sidebar display
     const url = new URL(request.url);
+    const sidebarOnly = url.searchParams.get('sidebar') === 'true';
     const includeAll = url.searchParams.get('includeAll') === 'true';
-    const vaultConfigs = includeAll ? getAllVaultAddresses() : getVaultAddressesForBusinessViews();
+    const vaultConfigs = sidebarOnly
+      ? getSidebarVaultAddresses()
+      : includeAll
+        ? getAllVaultAddresses()
+        : getVaultAddressesForBusinessViews();
     const addresses = vaultConfigs.map((v) => getAddress(v.address));
     const configuredAddressSet = new Set(addresses.map((a) => a.toLowerCase()));
 

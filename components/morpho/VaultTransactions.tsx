@@ -173,7 +173,7 @@ export function VaultTransactions({
                 </TableHead>
                 <TableHead className="text-right">USD</TableHead>
                 <TableHead>When</TableHead>
-                <TableHead className="w-10">Tx</TableHead>
+                <TableHead>Transaction</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -222,10 +222,10 @@ export function VaultTransactions({
                         href={`${scanUrl}/tx/${tx.hash}`}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
-                        aria-label="View on explorer"
+                        className="inline-flex items-center gap-1 font-mono text-xs text-blue-600 hover:underline dark:text-blue-400"
                       >
-                        <ExternalLink className="h-3.5 w-3.5" />
+                        {formatAddress(tx.hash, 8, 6)}
+                        <ExternalLink className="h-3 w-3 shrink-0 opacity-60" />
                       </a>
                     </TableCell>
                   </TableRow>

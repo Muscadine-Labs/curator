@@ -1,40 +1,49 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Zap, Plus, Pencil, X, Trash2 } from 'lucide-react';
+import { LayoutGrid, List, Zap } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { AddressBadge } from '@/components/AddressBadge';
 import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
-import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
-import { TransactionButton } from '@/components/TransactionButton';
-import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
-import { formatUSD, formatRawTokenAmount } from '@/lib/format/number';
+import { useVaultV2Risk } from '@/lib/hooks/useVaultV2Risk';
+import { formatPercentage, formatRawTokenAmount, formatUSD } from '@/lib/format/number';
 import {
   getTokenDisplayDecimals,
   resolveAssetDecimals,
 } from '@/lib/format/asset-decimals';
-import { isAddress, type Address, type Hex } from 'viem';
+import {
+  formatCapRelative,
+  formatCapTokenAmount,
+} from '@/lib/morpho/v2-cap-format';
+import { isAdapterCap } from '@/lib/morpho/cap-utils';
 import type { AdapterInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governance/route';
+import type { V2AdapterRiskData, V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
 
 interface VaultV2AdaptersProps {
   vaultAddress: string;
   preloadedData?: VaultV2GovernanceResponse | null;
+  preloadedRisk?: V2VaultRiskResponse | null;
   assetSymbol?: string | null;
   assetDecimals?: number | null;
 }
 
+type ViewMode = 'card' | 'table';
+
 export function VaultV2Adapters({
   vaultAddress,
   preloadedData,
+  preloadedRisk,
   assetSymbol,
   assetDecimals,
 }: VaultV2AdaptersProps) {
-  const { data: fetchedData, isLoading, error } = useVaultV2Governance(vaultAddress);
-  const data = preloadedData ?? fetchedData;
+  const { data: fetchedGov, isLoading: govLoading, error: govError } = useVaultV2Governance(vaultAddress);
+  const { data: fetchedRisk, isLoading: riskLoading } = useVaultV2Risk(vaultAddress);
+  const data = preloadedData ?? fetchedGov;
+  const risk = preloadedRisk ?? fetchedRisk;
+  const [viewMode, setViewMode] = useState<ViewMode>('card');
 
   const liquidityAdapterAddress = data?.liquidityAdapter?.address?.toLowerCase();
 
@@ -43,14 +52,39 @@ export function VaultV2Adapters({
     return [...data.adapters].sort((a, b) => (b.assetsUsd ?? 0) - (a.assetsUsd ?? 0));
   }, [data?.adapters]);
 
-  const [addOpen, setAddOpen] = useState(false);
-  const [liquidityOpen, setLiquidityOpen] = useState(false);
+  const riskByAdapter = useMemo(() => {
+    const map = new Map<string, V2AdapterRiskData>();
+    for (const a of risk?.adapters ?? []) {
+      map.set(a.adapterAddress.toLowerCase(), a);
+    }
+    return map;
+  }, [risk?.adapters]);
 
-  if (!preloadedData && isLoading) {
+  const capByAdapter = useMemo(() => {
+    const map = new Map<string, { absolute: string; relative: string; allocation: string }>();
+    if (!data?.caps) return map;
+    for (const cap of data.caps) {
+      if (!isAdapterCap(cap) || !cap.adapterAddress) continue;
+      map.set(cap.adapterAddress.toLowerCase(), {
+        absolute: cap.absoluteCap,
+        relative: cap.relativeCap,
+        allocation: cap.allocation,
+      });
+    }
+    return map;
+  }, [data?.caps]);
+
+  const totalUsd = useMemo(() => {
+    const idle = data?.idleAssetsUsd ?? 0;
+    const strat = adapters.reduce((s, a) => s + (a.assetsUsd ?? 0), 0);
+    return idle + strat;
+  }, [data?.idleAssetsUsd, adapters]);
+
+  if ((!preloadedData && govLoading) || (!preloadedRisk && riskLoading)) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Adapters</CardTitle>
+          <CardTitle>Active Morpho Adapters</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <Skeleton className="h-24 w-full" />
@@ -60,15 +94,15 @@ export function VaultV2Adapters({
     );
   }
 
-  if (error || !data) {
+  if (govError || !data) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Adapters</CardTitle>
+          <CardTitle>Active Morpho Adapters</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-red-600 dark:text-red-400">
-            Failed to load adapters: {error instanceof Error ? error.message : 'Unknown error'}
+            Failed to load adapters: {govError instanceof Error ? govError.message : 'Unknown error'}
           </p>
         </CardContent>
       </Card>
@@ -78,277 +112,336 @@ export function VaultV2Adapters({
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle>Adapters</CardTitle>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant={liquidityOpen ? 'secondary' : 'outline'} onClick={() => setLiquidityOpen((v) => !v)}>
-              {liquidityOpen ? <X className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
-              <span className="ml-1">Liquidity adapter</span>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle>Active Morpho Adapters</CardTitle>
+          <div className="flex gap-1">
+            <Button
+              size="sm"
+              variant={viewMode === 'card' ? 'default' : 'outline'}
+              onClick={() => setViewMode('card')}
+            >
+              <LayoutGrid className="mr-1 h-3.5 w-3.5" />
+              Card view
             </Button>
-            <Button size="sm" variant={addOpen ? 'secondary' : 'default'} onClick={() => setAddOpen((v) => !v)}>
-              {addOpen ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
-              <span className="ml-1">Add adapter</span>
+            <Button
+              size="sm"
+              variant={viewMode === 'table' ? 'default' : 'outline'}
+              onClick={() => setViewMode('table')}
+            >
+              <List className="mr-1 h-3.5 w-3.5" />
+              Table view
             </Button>
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {addOpen && <AddAdapterForm vaultAddress={vaultAddress} onDone={() => setAddOpen(false)} />}
-        {liquidityOpen && <LiquidityAdapterForm vaultAddress={vaultAddress} onDone={() => setLiquidityOpen(false)} />}
+        {data.liquidityAdapter?.address && (
+          <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-sm">
+            <span className="font-medium text-emerald-800 dark:text-emerald-300">Liquidity adapter: </span>
+            <AddressBadge address={data.liquidityAdapter.address} truncate={false} />
+          </div>
+        )}
 
-        <IdleAdapterRow
-          idleAssets={data.idleAssets}
-          idleAssetsUsd={data.idleAssetsUsd}
-          vaultSymbol={assetSymbol}
-          assetDecimals={assetDecimals}
-        />
-
-        {adapters.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">No adapters configured for this vault.</p>
-        ) : (
-          adapters.map((adapter) => {
-            const label =
-              adapter.metaMorpho?.name ??
-              adapter.metaMorpho?.symbol ??
-              (adapter.type === 'MetaMorpho' ? 'MetaMorpho Adapter' : 'Morpho Market Adapter');
-
-            const isLiquidity = adapter.address.toLowerCase() === liquidityAdapterAddress;
-
-            return (
-              <AdapterRow
+        {viewMode === 'card' ? (
+          <div className="space-y-4">
+            <IdleAdapterCard
+              idleAssets={data.idleAssets}
+              idleAssetsUsd={data.idleAssetsUsd}
+              totalUsd={totalUsd}
+              assetSymbol={assetSymbol}
+              assetDecimals={assetDecimals}
+            />
+            {adapters.map((adapter) => (
+              <StrategyAdapterCard
                 key={adapter.address}
-                vaultAddress={vaultAddress}
                 adapter={adapter}
-                label={label}
-                isLiquidity={isLiquidity}
+                risk={riskByAdapter.get(adapter.address.toLowerCase())}
+                cap={capByAdapter.get(adapter.address.toLowerCase())}
+                isLiquidity={adapter.address.toLowerCase() === liquidityAdapterAddress}
+                totalUsd={totalUsd}
                 assetSymbol={assetSymbol}
                 assetDecimals={assetDecimals}
               />
-            );
-          })
+            ))}
+          </div>
+        ) : (
+          <AdapterTable
+            idleAssets={data.idleAssets}
+            idleAssetsUsd={data.idleAssetsUsd}
+            adapters={adapters}
+            riskByAdapter={riskByAdapter}
+            capByAdapter={capByAdapter}
+            liquidityAdapterAddress={liquidityAdapterAddress}
+            totalUsd={totalUsd}
+            assetSymbol={assetSymbol}
+            assetDecimals={assetDecimals}
+          />
         )}
       </CardContent>
     </Card>
   );
 }
 
-function IdleAdapterRow({
+function pctOfTotal(amountUsd: number, totalUsd: number): string {
+  if (totalUsd <= 0) return '0%';
+  return `${((amountUsd / totalUsd) * 100).toFixed(1)}%`;
+}
+
+function IdleAdapterCard({
   idleAssets,
   idleAssetsUsd,
-  vaultSymbol,
+  totalUsd,
+  assetSymbol,
   assetDecimals,
 }: {
   idleAssets: string | null;
   idleAssetsUsd: number | null;
-  vaultSymbol?: string | null;
+  totalUsd: number;
+  assetSymbol?: string | null;
   assetDecimals?: number | null;
 }) {
-  const chainDecimals = resolveAssetDecimals(vaultSymbol ?? undefined, assetDecimals ?? undefined);
-  const displayDecimals = getTokenDisplayDecimals(vaultSymbol ?? undefined, chainDecimals);
+  const chainDecimals = resolveAssetDecimals(assetSymbol ?? undefined, assetDecimals ?? undefined);
+  const displayDecimals = getTokenDisplayDecimals(assetSymbol ?? undefined, chainDecimals);
+  const usd = idleAssetsUsd ?? 0;
 
   return (
-    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50/80 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/50">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
+    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-900/50">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-base font-semibold text-slate-900 dark:text-slate-100">Idle</p>
-            <Badge variant="outline" className="text-xs">
-              Idle Adapter
-            </Badge>
+            <p className="font-semibold text-slate-900 dark:text-slate-100">Idle</p>
+            <Badge variant="outline" className="text-xs">Idle Adapter</Badge>
+            <Badge className="bg-emerald-600 text-xs text-white">Active</Badge>
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Unallocated vault cash. Increase idle by deallocating from strategy adapters on the
-            Allocations tab.
-          </p>
-        </div>
-        <div className="space-y-1 text-right">
-          <p className="text-sm text-slate-500 dark:text-slate-400">Balance</p>
-          <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-            {idleAssetsUsd != null ? formatUSD(idleAssetsUsd, 2) : 'N/A'}
-          </p>
-          {idleAssets != null && (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              {formatRawTokenAmount(idleAssets, chainDecimals, displayDecimals)}
-              {vaultSymbol ? ` ${vaultSymbol}` : ''}
-            </p>
-          )}
         </div>
       </div>
+      <dl className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+        <Metric label="Allocation / %" value={`${formatToken(idleAssets, chainDecimals, displayDecimals, assetSymbol)} / ${pctOfTotal(usd, totalUsd)}`} />
+        <Metric label="Absolute / Relative Cap" value="Infinite / 100%" />
+        <Metric label="Liquidity" value={formatToken(idleAssets, chainDecimals, displayDecimals, assetSymbol)} />
+      </dl>
     </div>
   );
 }
 
-function AdapterRow({
-  vaultAddress,
+function StrategyAdapterCard({
   adapter,
-  label,
+  risk,
+  cap,
   isLiquidity,
+  totalUsd,
   assetSymbol,
   assetDecimals,
 }: {
-  vaultAddress: string;
   adapter: AdapterInfo;
-  label: string;
+  risk?: V2AdapterRiskData;
+  cap?: { absolute: string; relative: string; allocation: string };
   isLiquidity: boolean;
+  totalUsd: number;
   assetSymbol?: string | null;
   assetDecimals?: number | null;
 }) {
-  const [confirmRemove, setConfirmRemove] = useState(false);
-  const write = useVaultWrite();
+  const label =
+    adapter.metaMorpho?.name ??
+    adapter.metaMorpho?.symbol ??
+    (adapter.type === 'MetaMorpho' || adapter.type === 'MetaMorphoAdapter'
+      ? 'MetaMorpho Adapter'
+      : 'Variable Rate Market Adapter');
+
   const chainDecimals = resolveAssetDecimals(assetSymbol ?? undefined, assetDecimals ?? undefined);
   const displayDecimals = getTokenDisplayDecimals(assetSymbol ?? undefined, chainDecimals);
+  const usd = adapter.assetsUsd ?? 0;
+  const marketsCount = risk?.markets?.length ?? 0;
+  const rate = resolveAdapterRate(risk);
+  const liquidity = resolveAdapterLiquidity(risk, adapter);
 
-  const rawAssets =
-    adapter.assets != null && Number.isFinite(adapter.assets)
-      ? (() => {
-          try {
-            return BigInt(Math.floor(adapter.assets));
-          } catch {
-            return null;
-          }
-        })()
-      : null;
-
-  const allocatedLabel =
-    rawAssets != null
-      ? `${formatRawTokenAmount(rawAssets, chainDecimals, displayDecimals)}${assetSymbol ? ` ${assetSymbol}` : ''}`
-      : 'N/A';
+  const allocStr = formatTokenFromAssets(adapter.assets, chainDecimals, displayDecimals, assetSymbol);
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+    <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-base font-semibold text-slate-900 dark:text-slate-100">{label}</p>
-            <Badge variant="outline" className="text-xs">
-              {adapter.type === 'MetaMorpho' ? 'Vault Adapter' : 'Market Adapter'}
-            </Badge>
+            <p className="font-semibold text-slate-900 dark:text-slate-100">{label}</p>
             {isLiquidity && (
               <Badge className="flex items-center gap-1 bg-emerald-600 text-white">
                 <Zap className="h-3 w-3" />
                 Liquidity Adapter
               </Badge>
             )}
+            <Badge className="bg-emerald-600 text-xs text-white">Active</Badge>
           </div>
           <AddressBadge address={adapter.address} truncate={false} />
-          {adapter.metaMorpho?.address && (
-            <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
-              <span>Underlying vault:</span>
-              <AddressBadge address={adapter.metaMorpho.address} truncate={false} />
-            </div>
+          {marketsCount > 0 && (
+            <p className="text-xs text-slate-500 dark:text-slate-400">Underlying: {marketsCount} markets</p>
           )}
         </div>
-        <div className="space-y-1 text-right">
-          <p className="text-sm text-slate-500 dark:text-slate-400">Allocated</p>
-          <p className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-            {allocatedLabel}
-          </p>
-          <div className="flex justify-end pt-2">
-            {confirmRemove ? (
-              <div className="flex items-center gap-1">
-                <TransactionButton
-                  label="Remove"
-                  variant="destructive"
-                  onClick={() =>
-                    write.write(v2WriteConfigs.removeAdapter(vaultAddress as Address, adapter.address as Address))
-                  }
-                  isLoading={write.isLoading}
-                  isSuccess={write.isSuccess}
-                  error={write.error}
-                  txHash={write.txHash}
-                />
-                <Button size="sm" variant="ghost" onClick={() => setConfirmRemove(false)}>
-                  Cancel
-                </Button>
-              </div>
-            ) : (
-              <Button
-                size="sm"
-                variant="ghost"
-                aria-label="Remove adapter"
-                onClick={() => setConfirmRemove(true)}
-              >
-                <Trash2 className="mr-1 h-3.5 w-3.5" /> Remove
-              </Button>
-            )}
-          </div>
-        </div>
       </div>
-    </div>
-  );
-}
-
-function AddAdapterForm({ vaultAddress, onDone }: { vaultAddress: string; onDone: () => void }) {
-  const [addr, setAddr] = useState('');
-  const write = useVaultWrite();
-  const valid = isAddress(addr);
-  return (
-    <div className="rounded-md border border-dashed border-slate-300 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-800/40">
-      <p className="mb-2 text-[11px] text-slate-500">Timelocked operation. Enter the new adapter address.</p>
-      <Input type="text" placeholder="0x…" value={addr} onChange={(e) => setAddr(e.target.value)} />
-      <div className="mt-2 flex items-center gap-2">
-        <TransactionButton
-          label="Add Adapter"
-          onClick={() => {
-            if (!valid) return;
-            write.write(v2WriteConfigs.addAdapter(vaultAddress as Address, addr as Address));
-          }}
-          disabled={!valid}
-          isLoading={write.isLoading}
-          isSuccess={write.isSuccess}
-          error={write.error}
-          txHash={write.txHash}
+      <dl className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+        <Metric label="Allocation / %" value={`${allocStr} / ${pctOfTotal(usd, totalUsd)}`} />
+        <Metric
+          label="Absolute / Relative Cap"
+          value={
+            cap
+              ? `${formatCapTokenAmount(cap.absolute, assetSymbol, assetDecimals)} / ${formatCapRelative(cap.relative)}`
+              : '—'
+          }
         />
-        {write.isSuccess && (
-          <Button size="sm" variant="outline" onClick={onDone}>
-            Done
-          </Button>
-        )}
-      </div>
+        <Metric label="Liquidity" value={liquidity} />
+        {rate != null && <Metric label="Rate" value={formatPercentage(rate * 100, 2)} />}
+      </dl>
     </div>
   );
 }
 
-function LiquidityAdapterForm({ vaultAddress, onDone }: { vaultAddress: string; onDone: () => void }) {
-  const [addr, setAddr] = useState('');
-  const [data, setData] = useState<string>('0x');
-  const write = useVaultWrite();
-  const valid = isAddress(addr);
+function AdapterTable({
+  idleAssets,
+  idleAssetsUsd,
+  adapters,
+  riskByAdapter,
+  capByAdapter,
+  liquidityAdapterAddress,
+  totalUsd,
+  assetSymbol,
+  assetDecimals,
+}: {
+  idleAssets: string | null;
+  idleAssetsUsd: number | null;
+  adapters: AdapterInfo[];
+  riskByAdapter: Map<string, V2AdapterRiskData>;
+  capByAdapter: Map<string, { absolute: string; relative: string; allocation: string }>;
+  liquidityAdapterAddress?: string;
+  totalUsd: number;
+  assetSymbol?: string | null;
+  assetDecimals?: number | null;
+}) {
+  const chainDecimals = resolveAssetDecimals(assetSymbol ?? undefined, assetDecimals ?? undefined);
+  const displayDecimals = getTokenDisplayDecimals(assetSymbol ?? undefined, chainDecimals);
+
   return (
-    <div className="space-y-2 rounded-md border border-dashed border-slate-300 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-800/40">
-      <div className="space-y-1">
-        <label className="text-[11px] text-slate-500">Adapter address</label>
-        <Input type="text" placeholder="0x…" value={addr} onChange={(e) => setAddr(e.target.value)} />
-      </div>
-      <div className="space-y-1">
-        <label className="text-[11px] text-slate-500">Data (bytes, optional)</label>
-        <Input type="text" placeholder="0x" value={data} onChange={(e) => setData(e.target.value)} />
-      </div>
-      <div className="flex items-center gap-2">
-        <TransactionButton
-          label="Set Liquidity Adapter"
-          onClick={() => {
-            if (!valid) return;
-            write.write(
-              v2WriteConfigs.setLiquidityAdapterAndData(
-                vaultAddress as Address,
-                addr as Address,
-                (data || '0x') as Hex,
-              ),
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[640px] text-sm">
+        <thead>
+          <tr className="border-b border-slate-200 text-left text-xs text-slate-500 dark:border-slate-800">
+            <th className="pb-2 pr-3 font-medium">Adapter</th>
+            <th className="pb-2 pr-3 font-medium">Allocation / %</th>
+            <th className="pb-2 pr-3 font-medium">Caps</th>
+            <th className="pb-2 pr-3 font-medium">Liquidity</th>
+            <th className="pb-2 font-medium">Rate</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr className="border-b border-slate-100 dark:border-slate-800/80">
+            <td className="py-2 pr-3 font-medium">Idle</td>
+            <td className="py-2 pr-3 tabular-nums">
+              {formatToken(idleAssets, chainDecimals, displayDecimals, assetSymbol)} /{' '}
+              {pctOfTotal(idleAssetsUsd ?? 0, totalUsd)}
+            </td>
+            <td className="py-2 pr-3">Infinite / 100%</td>
+            <td className="py-2 pr-3 tabular-nums">
+              {formatToken(idleAssets, chainDecimals, displayDecimals, assetSymbol)}
+            </td>
+            <td className="py-2">—</td>
+          </tr>
+          {adapters.map((adapter) => {
+            const risk = riskByAdapter.get(adapter.address.toLowerCase());
+            const cap = capByAdapter.get(adapter.address.toLowerCase());
+            const label =
+              adapter.metaMorpho?.name ??
+              adapter.metaMorpho?.symbol ??
+              (adapter.type.includes('MetaMorpho') ? 'MetaMorpho' : 'Market Adapter');
+            const rate = resolveAdapterRate(risk);
+            return (
+              <tr key={adapter.address} className="border-b border-slate-100 dark:border-slate-800/80">
+                <td className="py-2 pr-3">
+                  <div className="font-medium">{label}</div>
+                  {adapter.address.toLowerCase() === liquidityAdapterAddress && (
+                    <Badge className="mt-1 bg-emerald-600 text-[10px] text-white">Liquidity</Badge>
+                  )}
+                </td>
+                <td className="py-2 pr-3 tabular-nums">
+                  {formatTokenFromAssets(adapter.assets, chainDecimals, displayDecimals, assetSymbol)} /{' '}
+                  {pctOfTotal(adapter.assetsUsd ?? 0, totalUsd)}
+                </td>
+                <td className="py-2 pr-3 tabular-nums">
+                  {cap
+                    ? `${formatCapTokenAmount(cap.absolute, assetSymbol, assetDecimals)} / ${formatCapRelative(cap.relative)}`
+                    : '—'}
+                </td>
+                <td className="py-2 pr-3 tabular-nums">{resolveAdapterLiquidity(risk, adapter)}</td>
+                <td className="py-2 tabular-nums">{rate != null ? formatPercentage(rate * 100, 2) : '—'}</td>
+              </tr>
             );
-          }}
-          disabled={!valid}
-          isLoading={write.isLoading}
-          isSuccess={write.isSuccess}
-          error={write.error}
-          txHash={write.txHash}
-        />
-        {write.isSuccess && (
-          <Button size="sm" variant="outline" onClick={onDone}>
-            Done
-          </Button>
-        )}
-      </div>
+          })}
+        </tbody>
+      </table>
     </div>
   );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs text-slate-500 dark:text-slate-400">{label}</dt>
+      <dd className="mt-0.5 font-medium tabular-nums text-slate-900 dark:text-slate-100">{value}</dd>
+    </div>
+  );
+}
+
+function formatToken(
+  raw: string | null,
+  decimals: number,
+  displayDecimals: number,
+  symbol?: string | null
+): string {
+  if (!raw) return symbol ? `0 ${symbol}` : '0';
+  try {
+    const f = formatRawTokenAmount(BigInt(raw), decimals, displayDecimals);
+    return symbol ? `${f} ${symbol}` : f;
+  } catch {
+    return '—';
+  }
+}
+
+function formatTokenFromAssets(
+  assets: number | null,
+  decimals: number,
+  displayDecimals: number,
+  symbol?: string | null
+): string {
+  if (assets == null) return '—';
+  try {
+    const f = formatRawTokenAmount(BigInt(Math.floor(assets)), decimals, displayDecimals);
+    return symbol ? `${f} ${symbol}` : f;
+  } catch {
+    return '—';
+  }
+}
+
+function resolveAdapterRate(risk?: V2AdapterRiskData): number | null {
+  if (!risk) return null;
+  if (risk.underlyingVaultStats?.netApy != null) {
+    return risk.underlyingVaultStats.netApy;
+  }
+  let bestUsd = 0;
+  let bestApy: number | null = null;
+  for (const m of risk.markets ?? []) {
+    const apy = m.market?.state?.supplyApy;
+    const usd = m.allocationUsd ?? 0;
+    if (apy != null && usd >= bestUsd) {
+      bestUsd = usd;
+      bestApy = apy;
+    }
+  }
+  return bestApy;
+}
+
+function resolveAdapterLiquidity(risk: V2AdapterRiskData | undefined, adapter: AdapterInfo): string {
+  if (risk?.underlyingVaultStats?.liquidityUnderlying) {
+    return risk.underlyingVaultStats.liquidityUsd != null
+      ? formatUSD(risk.underlyingVaultStats.liquidityUsd, 2)
+      : '—';
+  }
+  const usd = adapter.assetsUsd ?? 0;
+  return formatUSD(usd, 2);
 }

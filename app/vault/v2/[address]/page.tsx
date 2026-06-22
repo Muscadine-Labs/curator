@@ -8,15 +8,13 @@ import { useVaultV2Complete } from '@/lib/hooks/useVaultV2Complete';
 import { getVaultCategory } from '@/lib/config/vaults';
 import { AppShell } from '@/components/layout/AppShell';
 import { VaultOverviewPanel } from '@/components/morpho/VaultOverviewPanel';
-import { VaultRiskV2 } from '@/components/morpho/VaultRiskV2';
 import { VaultV2Roles } from '@/components/morpho/VaultV2Roles';
 import { VaultV2Adapters } from '@/components/morpho/VaultV2Adapters';
 import { VaultV2Allocations } from '@/components/morpho/VaultV2Allocations';
-import { AllocationHistory } from '@/components/morpho/AllocationHistory';
 import { VaultV2Caps } from '@/components/morpho/VaultV2Caps';
 import { VaultV2Timelocks } from '@/components/morpho/VaultV2Timelocks';
-import { VaultV2Parameters } from '@/components/morpho/VaultV2Parameters';
-import { VaultV2Pending } from '@/components/morpho/VaultV2Pending';
+import { VaultV2Sentinel } from '@/components/morpho/VaultV2Sentinel';
+import { AllocationHistory } from '@/components/morpho/AllocationHistory';
 import { VaultHolders } from '@/components/morpho/VaultHolders';
 import { VaultTransactions } from '@/components/morpho/VaultTransactions';
 import { Button } from '@/components/ui/button';
@@ -25,16 +23,19 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 
+const CATEGORY_BADGE: Record<string, string> = {
+  prime: 'V2 Prime',
+  vineyard: 'V2 Vineyard',
+  frontier: 'V2 Frontier',
+  test: 'V2 Test',
+};
+
 export default function V2VaultPage() {
   const params = useParams();
   const address = params.address as string;
-  // Load all data in parallel - hooks will fetch independently
-  // Only block on vault data loading (needed for basic info)
-  const { vault, risk, governance, parameters, pending, vaultIsLoading, isError, error } =
+  const { vault, risk, governance, pending, vaultIsLoading, isError, error } =
     useVaultV2Complete(address);
 
-  // Only block on vault data loading (needed for basic info)
-  // Other data (risk, governance) will load in parallel via their own hooks
   if (vaultIsLoading) {
     return (
       <AppShell title="Loading vault..." description="Fetching vault data">
@@ -70,37 +71,18 @@ export default function V2VaultPage() {
     );
   }
 
-  if (!vault) {
-    return (
-      <AppShell title="Vault not found" description="The vault you're looking for doesn't exist.">
-        <Card>
-          <CardHeader>
-            <CardTitle>Missing vault</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-slate-600 dark:text-slate-400">Check the address or pick a vault from the sidebar.</p>
-            <Button asChild className="w-full sm:w-auto">
-              <Link href="/">Back to overview</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </AppShell>
-    );
-  }
-
   const category = getVaultCategory(vault.name, vault.address);
-  const vaultBadge = category === 'prime' ? 'V2 Prime' : category === 'vineyard' ? 'V2 Vineyard' : 'V2';
+  const vaultBadge = CATEGORY_BADGE[category] ?? 'V2';
+  const hasPending = (pending?.pending?.length ?? 0) > 0;
 
-  const morphoUiUrl = vault.address 
+  const morphoUiUrl = vault.address
     ? `https://app.morpho.org/base/vault/${vault.address.toLowerCase()}`
     : '#';
 
-  const hasPendingChanges = (pending?.pending.length ?? 0) > 0;
   const emergencyActionsUrl = vault.address
     ? `https://curator.morpho.org/vaults/${vault.chainId}/${vault.address}/emergency-actions`
     : '#';
-  
-  // Safe defaults for missing data
+
   const vaultName = vault.name ?? 'Unknown Vault';
   const vaultSymbol = vault.symbol ?? 'UNKNOWN';
   const vaultAsset = vault.asset ?? 'UNKNOWN';
@@ -127,24 +109,18 @@ export default function V2VaultPage() {
           <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide sm:overflow-visible">
             <TabsList className="inline-flex w-auto min-w-full sm:min-w-0 sm:w-full justify-start gap-1">
               <TabsTrigger value="overview" className="sm:flex-1 flex-shrink-0 min-w-fit">Overview</TabsTrigger>
-              <TabsTrigger value="risk" className="sm:flex-1 flex-shrink-0 min-w-fit">
-                <span className="hidden sm:inline">Risk Management</span>
-                <span className="sm:hidden">Risk</span>
-              </TabsTrigger>
               <TabsTrigger value="roles" className="sm:flex-1 flex-shrink-0 min-w-fit">Roles</TabsTrigger>
               <TabsTrigger value="adapters" className="sm:flex-1 flex-shrink-0 min-w-fit">Adapters</TabsTrigger>
-              <TabsTrigger value="allocations" className="sm:flex-1 flex-shrink-0 min-w-fit">Allocations</TabsTrigger>
-              <TabsTrigger value="caps" className="sm:flex-1 flex-shrink-0 min-w-fit">Caps</TabsTrigger>
-              <TabsTrigger value="parameters" className="sm:flex-1 flex-shrink-0 min-w-fit">Parameters</TabsTrigger>
+              <TabsTrigger value="caps" className="sm:flex-1 flex-shrink-0 min-w-fit">
+                Caps{hasPending ? ` (${pending!.pending.length})` : ''}
+              </TabsTrigger>
               <TabsTrigger value="timelocks" className="sm:flex-1 flex-shrink-0 min-w-fit">Timelocks</TabsTrigger>
+              <TabsTrigger value="allocations" className="sm:flex-1 flex-shrink-0 min-w-fit">Allocation</TabsTrigger>
+              <TabsTrigger value="sentinel" className="sm:flex-1 flex-shrink-0 min-w-fit">Sentinel</TabsTrigger>
               <TabsTrigger value="emergency" className="sm:flex-1 flex-shrink-0 min-w-fit">Emergency</TabsTrigger>
-              {hasPendingChanges && (
-                <TabsTrigger value="pending" className="sm:flex-1 flex-shrink-0 min-w-fit">Pending</TabsTrigger>
-              )}
             </TabsList>
           </div>
 
-          {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-4">
             <VaultOverviewPanel
               vault={vault}
@@ -161,7 +137,6 @@ export default function V2VaultPage() {
               assetSymbol={vault.asset}
             />
 
-            {/* Transactions — last ~100 deposits/withdraws/interactions */}
             <VaultTransactions
               vaultAddress={vault.address}
               chainId={vault.chainId}
@@ -170,27 +145,20 @@ export default function V2VaultPage() {
             />
           </TabsContent>
 
-          {/* Risk Management Tab */}
-          <TabsContent value="risk" className="space-y-4">
-            <VaultRiskV2 vaultAddress={vault.address} preloadedData={risk} />
-          </TabsContent>
-
-          {/* Roles Tab */}
           <TabsContent value="roles">
             <VaultV2Roles vaultAddress={vault.address} preloadedData={governance} />
           </TabsContent>
 
-          {/* Adapters Tab */}
           <TabsContent value="adapters">
             <VaultV2Adapters
               vaultAddress={vault.address}
               preloadedData={governance}
+              preloadedRisk={risk}
               assetSymbol={vault.asset}
               assetDecimals={vault.assetDecimals}
             />
           </TabsContent>
 
-          {/* Allocations Tab */}
           <TabsContent value="allocations" className="space-y-6">
             <VaultV2Allocations
               vaultAddress={vault.address}
@@ -205,27 +173,34 @@ export default function V2VaultPage() {
             />
           </TabsContent>
 
-          {/* Caps Tab */}
           <TabsContent value="caps">
             <VaultV2Caps
               vaultAddress={vault.address}
+              chainId={vault.chainId}
               preloadedData={governance}
+              preloadedRisk={risk}
+              preloadedPending={pending}
               assetSymbol={vault.asset}
               assetDecimals={vault.assetDecimals}
             />
           </TabsContent>
 
-          {/* Parameters Tab */}
-          <TabsContent value="parameters">
-            <VaultV2Parameters vaultAddress={vault.address} preloadedData={parameters} />
-          </TabsContent>
-
-          {/* Timelocks Tab */}
           <TabsContent value="timelocks">
             <VaultV2Timelocks vaultAddress={vault.address} preloadedData={governance} />
           </TabsContent>
 
-          {/* Emergency Tab */}
+          <TabsContent value="sentinel">
+            <VaultV2Sentinel
+              vaultAddress={vault.address}
+              chainId={vault.chainId}
+              preloadedGovernance={governance}
+              preloadedRisk={risk}
+              preloadedPending={pending}
+              assetSymbol={vault.asset}
+              assetDecimals={vault.assetDecimals}
+            />
+          </TabsContent>
+
           <TabsContent value="emergency" className="space-y-4">
             <Card>
               <CardHeader>
@@ -255,17 +230,6 @@ export default function V2VaultPage() {
               </CardContent>
             </Card>
           </TabsContent>
-
-          {/* Pending Tab */}
-          {hasPendingChanges && (
-            <TabsContent value="pending">
-              <VaultV2Pending
-                vaultAddress={vault.address}
-                chainId={vault.chainId}
-                preloadedData={pending}
-              />
-            </TabsContent>
-          )}
         </Tabs>
       </div>
     </AppShell>

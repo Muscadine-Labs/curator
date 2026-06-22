@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Shield, X, FileText, BookOpen, LayoutGrid, Book, ChevronDown, ChevronRight, ArrowLeftRight } from 'lucide-react';
-import { getVaultCategory, shouldUseV2Query } from '@/lib/config/vaults';
+import { Shield, X, FileText, LayoutGrid, Book, ChevronDown, ChevronRight } from 'lucide-react';
+import { getVaultCategory } from '@/lib/config/vaults';
 import { useVaultList } from '@/lib/hooks/useProtocolStats';
 import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
 import { Button } from '@/components/ui/button';
@@ -15,28 +15,44 @@ const navBase = [
   { label: 'Overview', href: '/', icon: Shield },
 ];
 
-type VaultSection = { type: 'vineyard' | 'prime' | 'v1' | 'test'; label: string; vaults: VaultWithData[] };
+type VaultSectionType = 'prime' | 'frontier' | 'vineyard' | 'test';
 
-function vaultSectionType(vault: VaultWithData): VaultSection['type'] {
-  if (vault.listCategory) return vault.listCategory;
-  if (vault.version === 'v1') return 'v1';
-  if (vault.version === 'v2') {
-    return getVaultCategory(vault.name, vault.address);
+type VaultSection = { type: VaultSectionType; label: string; vaults: VaultWithData[] };
+
+const SECTION_ORDER: VaultSectionType[] = ['prime', 'frontier', 'vineyard', 'test'];
+
+const SECTION_LABELS: Record<VaultSectionType, string> = {
+  prime: 'V2 Prime Vaults',
+  frontier: 'V2 Frontier Vaults',
+  vineyard: 'V2 Vineyard Vaults',
+  test: 'V2 Test',
+};
+
+function vaultSectionType(vault: VaultWithData): VaultSectionType {
+  if (
+    vault.listCategory === 'prime' ||
+    vault.listCategory === 'frontier' ||
+    vault.listCategory === 'vineyard' ||
+    vault.listCategory === 'test'
+  ) {
+    return vault.listCategory;
   }
-  return getVaultCategory(vault.name, vault.address);
+  const cat = getVaultCategory(vault.name, vault.address);
+  if (cat === 'frontier' || cat === 'vineyard') return cat;
+  return 'prime';
 }
 
 function getSectionsForNetwork(vaults: VaultWithData[], chainId: number): VaultSection[] {
   const byChain = vaults.filter((v) => v.chainId === chainId);
   const sections: VaultSection[] = [];
-  const v1 = byChain.filter((v) => vaultSectionType(v) === 'v1');
-  const vineyard = byChain.filter((v) => vaultSectionType(v) === 'vineyard');
-  const prime = byChain.filter((v) => vaultSectionType(v) === 'prime');
-  const test = byChain.filter((v) => vaultSectionType(v) === 'test');
-  if (prime.length > 0) sections.push({ type: 'prime', label: 'V2 Prime Vaults', vaults: prime });
-  if (v1.length > 0) sections.push({ type: 'v1', label: 'V1 Vaults', vaults: v1 });
-  if (vineyard.length > 0) sections.push({ type: 'vineyard', label: 'V2 Vineyard Vaults', vaults: vineyard });
-  if (test.length > 0) sections.push({ type: 'test', label: 'V2 Test Vaults', vaults: test });
+
+  for (const type of SECTION_ORDER) {
+    const matched = byChain.filter((v) => vaultSectionType(v) === type);
+    if (matched.length > 0) {
+      sections.push({ type, label: SECTION_LABELS[type], vaults: matched });
+    }
+  }
+
   return sections;
 }
 
@@ -47,7 +63,7 @@ type SidebarProps = {
 export function Sidebar({ onClose }: SidebarProps) {
   const pathname = usePathname();
   const { role } = useCuratorAuth();
-  const { data: vaults = [], isLoading } = useVaultList({ includeAll: true });
+  const { data: vaults = [], isLoading } = useVaultList({ sidebar: true });
   const [expandedNetworks, setExpandedNetworks] = useState<Set<number>>(() =>
     new Set(SIDEBAR_NETWORKS.map((n) => n.chainId))
   );
@@ -135,9 +151,7 @@ export function Sidebar({ onClose }: SidebarProps) {
                 ) : (
                   <ChevronRight className="h-4 w-4 shrink-0" />
                 )}
-                <span className="font-medium">
-                  {network.name}
-                </span>
+                <span className="font-medium">{network.name}</span>
               </button>
               {isExpanded && (
                 <div className="ml-4 space-y-4 border-l border-slate-200 pl-2 dark:border-slate-700">
@@ -151,17 +165,8 @@ export function Sidebar({ onClose }: SidebarProps) {
                         </p>
                         <div className="space-y-1">
                           {section.vaults.map((vault) => {
-                            const useV2Route =
-                              section.type !== 'v1' && shouldUseV2Query(vault.name, vault.address);
-                            const href =
-                              section.type === 'v1'
-                                ? `/vault/v1/${vault.address}`
-                                : `/vault/${useV2Route ? 'v2' : 'v1'}/${vault.address}`;
-                            const active =
-                              section.type === 'v1'
-                                ? isActive(`/vault/v1/${vault.address}`)
-                                : isActive(`/vault/${useV2Route ? 'v2' : 'v1'}/${vault.address}`);
-                            const isTestVault = section.type === 'test';
+                            const href = `/vault/v2/${vault.address}`;
+                            const active = isActive(href);
 
                             return (
                               <Link
@@ -176,10 +181,8 @@ export function Sidebar({ onClose }: SidebarProps) {
                               >
                                 <span
                                   className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-                                    isTestVault
-                                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300'
-                                      : section.type === 'v1'
-                                      ? 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
+                                    section.type === 'frontier'
+                                      ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300'
                                       : 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
                                   }`}
                                 >
@@ -234,26 +237,6 @@ export function Sidebar({ onClose }: SidebarProps) {
               >
                 <Shield className="h-4 w-4 shrink-0" />
                 <span className="truncate min-w-0">Multisig Safe</span>
-              </Link>
-              <Link
-                href="/curator/eip-7702"
-                onClick={handleLinkClick}
-                className={`flex min-h-[44px] w-full touch-manipulation items-center gap-2 rounded-lg px-2 py-2 text-slate-700 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 ${
-                  isActive('/curator/eip-7702') ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : ''
-                }`}
-              >
-                <BookOpen className="h-4 w-4 shrink-0" />
-                <span className="truncate min-w-0">EIP-7702</span>
-              </Link>
-              <Link
-                href="/curator/cctp"
-                onClick={handleLinkClick}
-                className={`flex min-h-[44px] w-full touch-manipulation items-center gap-2 rounded-lg px-2 py-2 text-slate-700 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 ${
-                  isActive('/curator/cctp') ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : ''
-                }`}
-              >
-                <ArrowLeftRight className="h-4 w-4 shrink-0" />
-                <span className="truncate min-w-0">USDC Bridge (CCTP)</span>
               </Link>
             </div>
           </div>

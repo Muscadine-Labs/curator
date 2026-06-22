@@ -7,7 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import Link from 'next/link';
 import { formatCompactUSD, formatPercentage, formatRawTokenAmount } from '@/lib/format/number';
 import {
   getTokenDisplayDecimals,
@@ -271,12 +270,14 @@ export function VaultRiskV2({ vaultAddress, preloadedData }: VaultRiskV2Props) {
                       {formatPercentage(adapterWeightPct, 2)} of vault
                     </p>
                     {isMetaMorpho && adapter.underlyingVaultAddress && (
-                      <Link
-                        href={`/vault/v1/${adapter.underlyingVaultAddress}`}
+                      <a
+                        href={morphoVaultHref(adapter.underlyingVaultAddress) ?? '#'}
+                        target="_blank"
+                        rel="noreferrer"
                         className="text-xs text-slate-500 hover:underline dark:text-slate-400"
                       >
-                        View in Curator →
-                      </Link>
+                        View on Morpho →
+                      </a>
                     )}
                   </div>
                   <div className="flex items-center gap-2">

@@ -6,6 +6,11 @@ import { logger } from '@/lib/utils/logger';
 /** Safe that receives vault performance fees and holds vault share positions. */
 export const TREASURY_ADDRESS = '0x057fd8B961Eb664baA647a5C7A6e9728fabA266A';
 
+/** Tx hashes to exclude from miscellaneous income (e.g. V1→V2 fee migration transfers). */
+export const TREASURY_MISC_EXCLUDED_TX_HASHES = new Set<string>([
+  // Add migration tx hashes here when known, lowercase.
+]);
+
 /** Monthly statements begin November 2025. */
 export const STATEMENT_START_DATE = new Date('2025-11-01T00:00:00Z');
 
@@ -67,6 +72,7 @@ export function monthKeyFromTimestamp(timestampSec: number): string {
 export const VAULT_ASSET_MAP: Record<string, TreasuryAssetKey> = {
   '0xf7e26fa48a568b8b0038e104dfd8abdf0f99074f': 'USDC',
   '0x89712980cb434ef5ae4ab29349419eb976b0b496': 'USDC',
+  '0x314fd07319ef645ba7d548915ccd91f4788a1839': 'USDC',
   '0xaecc8113a7bd0cfaf7000ea7a31affd4691ff3e9': 'cbBTC',
   '0x99dcd0d75822ba398f13b2a8852b07c7e137ec70': 'cbBTC',
   '0x21e0d366272798da3a977feba699fcb91959d120': 'WETH',
@@ -76,6 +82,7 @@ export const VAULT_ASSET_MAP: Record<string, TreasuryAssetKey> = {
 export const VAULT_VERSION_MAP: Record<string, 'v1' | 'v2'> = {
   '0xf7e26fa48a568b8b0038e104dfd8abdf0f99074f': 'v1',
   '0x89712980cb434ef5ae4ab29349419eb976b0b496': 'v2',
+  '0x314fd07319ef645ba7d548915ccd91f4788a1839': 'v2',
   '0xaecc8113a7bd0cfaf7000ea7a31affd4691ff3e9': 'v1',
   '0x99dcd0d75822ba398f13b2a8852b07c7e137ec70': 'v2',
   '0x21e0d366272798da3a977feba699fcb91959d120': 'v1',
@@ -156,6 +163,7 @@ const V2_MISC_TX_QUERY = gql`
       }
     ) {
       items {
+        txHash
         timestamp
         type
         assets
@@ -177,6 +185,8 @@ const V2_MISC_TX_QUERY = gql`
 `;
 
 type V1MiscTxItem = {
+  txHash?: string | null;
+  hash?: string | null;
   timestamp?: number | string | null;
   type?: string | null;
   assets?: string | number | null;
@@ -239,18 +249,42 @@ export function extractVaultMiscAssets(tx: V1MiscTxItem): bigint {
 
 /** Capital flowing into the treasury position (deposit or share transfer in). */
 export function isIncomingVaultMiscTx(tx: V1MiscTxItem, treasuryLower: string): boolean {
-  if (!tx.data?.__typename) return false;
+  return classifyTreasuryCapitalTx(tx, treasuryLower) !== 'ignore';
+}
 
-  if (tx.data.__typename === 'VaultV1DepositData' || tx.data.__typename === 'VaultV2DepositData') {
+/**
+ * Classify treasury vault txs for statement math.
+ * - external: capital from outside the treasury wallet (miscellaneous / deposits in)
+ * - internal: treasury redeploying its own assets between vault positions (not revenue)
+ * - ignore: not a treasury inflow
+ */
+export function classifyTreasuryCapitalTx(
+  tx: V1MiscTxItem,
+  treasuryLower: string
+): 'external' | 'internal' | 'ignore' {
+  if (!tx.data?.__typename) return 'ignore';
+
+  if (
+    tx.data.__typename === 'VaultV1DepositData' ||
+    tx.data.__typename === 'VaultV2DepositData'
+  ) {
     const onBehalf = tx.data.onBehalf?.toLowerCase();
-    return onBehalf === treasuryLower;
+    if (onBehalf !== treasuryLower) return 'ignore';
+    const sender = tx.data.sender?.toLowerCase();
+    return sender === treasuryLower ? 'internal' : 'external';
   }
 
-  if (tx.data.__typename === 'VaultV1TransferData' || tx.data.__typename === 'VaultV2TransferData') {
-    return tx.data.to?.toLowerCase() === treasuryLower;
+  if (
+    tx.data.__typename === 'VaultV1TransferData' ||
+    tx.data.__typename === 'VaultV2TransferData'
+  ) {
+    const to = tx.data.to?.toLowerCase();
+    if (to !== treasuryLower) return 'ignore';
+    const from = tx.data.from?.toLowerCase();
+    return from === treasuryLower ? 'internal' : 'external';
   }
 
-  return false;
+  return 'ignore';
 }
 
 function addMiscEntry(
@@ -365,10 +399,10 @@ async function paginateV2MiscTxs(
 }
 
 /**
- * Capital contributions to treasury vault positions (deposits + share transfers in).
- * Excludes fee accrual — those stay in vault performance fees.
+ * External capital + internal treasury redeployments indexed by month.
+ * Internal moves are subtracted from position growth so vault fees stay performance-only.
  */
-export async function fetchTreasuryMiscellaneousByMonth(
+export async function fetchTreasuryCapitalByMonth(
   vaultAddresses: string[],
   chainId: number,
   startTimestampSec: number,
@@ -377,9 +411,13 @@ export async function fetchTreasuryMiscellaneousByMonth(
     timestampSec: number,
     vaultAddressLower: string
   ) => number | null
-): Promise<Map<string, TreasuryAssetBreakdown>> {
+): Promise<{
+  external: Map<string, TreasuryAssetBreakdown>;
+  internal: Map<string, TreasuryAssetBreakdown>;
+}> {
   const treasuryLower = getAddress(TREASURY_ADDRESS).toLowerCase();
-  const byMonth = new Map<string, TreasuryAssetBreakdown>();
+  const external = new Map<string, TreasuryAssetBreakdown>();
+  const internal = new Map<string, TreasuryAssetBreakdown>();
 
   for (const vaultAddress of vaultAddresses) {
     const vaultLower = vaultAddress.toLowerCase();
@@ -396,19 +434,29 @@ export async function fetchTreasuryMiscellaneousByMonth(
           : await paginateV2MiscTxs(vaultLower, chainId, startTimestampSec);
 
       for (const tx of items) {
+        const txHash = (tx.txHash ?? tx.hash)?.toLowerCase();
+        if (txHash && TREASURY_MISC_EXCLUDED_TX_HASHES.has(txHash)) continue;
+
         const ts = tx.timestamp != null ? Number(tx.timestamp) : 0;
         if (!ts || ts < startTimestampSec) continue;
-        if (!isIncomingVaultMiscTx(tx, treasuryLower)) continue;
+
+        const kind = classifyTreasuryCapitalTx(tx, treasuryLower);
+        if (kind === 'ignore') continue;
 
         const raw = extractVaultMiscAssets(tx);
         if (raw <= BigInt(0)) continue;
 
         const tokens = Number(raw) / Math.pow(10, decimals);
         const usd = resolveMiscUsd(asset, tokens, ts, vaultLower, pricePerTokenAt);
-        addMiscEntry(byMonth, monthKeyFromTimestamp(ts), asset, tokens, usd);
+        const monthKey = monthKeyFromTimestamp(ts);
+        if (kind === 'internal') {
+          addMiscEntry(internal, monthKey, asset, tokens, usd);
+        } else {
+          addMiscEntry(external, monthKey, asset, tokens, usd);
+        }
       }
     } catch (error) {
-      logger.warn('Failed to fetch treasury miscellaneous transactions', {
+      logger.warn('Failed to fetch treasury capital transactions', {
         vaultAddress: vaultLower,
         version,
         error: error instanceof Error ? error.message : String(error),
@@ -416,5 +464,25 @@ export async function fetchTreasuryMiscellaneousByMonth(
     }
   }
 
-  return byMonth;
+  return { external, internal };
+}
+
+/** External capital only (legacy helper). */
+export async function fetchTreasuryMiscellaneousByMonth(
+  vaultAddresses: string[],
+  chainId: number,
+  startTimestampSec: number,
+  pricePerTokenAt: (
+    asset: TreasuryAssetKey,
+    timestampSec: number,
+    vaultAddressLower: string
+  ) => number | null
+): Promise<Map<string, TreasuryAssetBreakdown>> {
+  const { external } = await fetchTreasuryCapitalByMonth(
+    vaultAddresses,
+    chainId,
+    startTimestampSec,
+    pricePerTokenAt
+  );
+  return external;
 }

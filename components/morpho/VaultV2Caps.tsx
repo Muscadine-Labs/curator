@@ -1,91 +1,62 @@
 'use client';
 
-import { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Pencil } from 'lucide-react';
 import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
-import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
-import { TransactionButton } from '@/components/TransactionButton';
-import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
-import { formatRawTokenAmount } from '@/lib/format/number';
+import { useVaultV2Risk } from '@/lib/hooks/useVaultV2Risk';
 import {
-  getTokenDisplayDecimals,
-  resolveAssetDecimals,
-} from '@/lib/format/asset-decimals';
+  buildAdapterLabelMap,
+  capDisplayLabel,
+  capRowKey,
+  formatCapRelative,
+  formatCapTokenAmount,
+  groupCaps,
+} from '@/lib/morpho/v2-cap-format';
 import type { CapInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governance/route';
-import type { Address, Hex } from 'viem';
-import { parseUnits } from 'viem';
+import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
+import type { VaultV2PendingResponse } from '@/app/api/vaults/v2/[id]/pending/route';
+import { VaultV2Pending } from '@/components/morpho/VaultV2Pending';
+import { formatLltvPill } from '@/components/morpho/AllocationListView';
+import { marketKeyFromGraphQL } from '@/lib/morpho/morpho-app-links';
 
 interface VaultV2CapsProps {
   vaultAddress: string;
+  chainId: number;
   preloadedData?: VaultV2GovernanceResponse | null;
+  preloadedRisk?: V2VaultRiskResponse | null;
+  preloadedPending?: VaultV2PendingResponse | null;
   assetSymbol?: string | null;
   assetDecimals?: number | null;
 }
 
-function formatRelativeCap(relativeCap: string): string {
-  try {
-    const scaled = BigInt(relativeCap);
-    const percent = Number(scaled) / 1e16;
-    return `${percent.toFixed(2)}%`;
-  } catch {
-    return relativeCap;
-  }
-}
-
-function formatCapTokenAmount(
-  value: string,
-  symbol: string | null | undefined,
-  apiDecimals: number | null | undefined
-): string {
-  try {
-    const raw = BigInt(value);
-    const chainDecimals = resolveAssetDecimals(symbol ?? undefined, apiDecimals ?? undefined);
-    const displayDecimals = getTokenDisplayDecimals(symbol ?? undefined, chainDecimals);
-    const formatted = formatRawTokenAmount(raw, chainDecimals, displayDecimals);
-    return symbol ? `${formatted} ${symbol}` : formatted;
-  } catch {
-    return value;
-  }
-}
-
 export function VaultV2Caps({
   vaultAddress,
+  chainId,
   preloadedData,
+  preloadedRisk,
+  preloadedPending,
   assetSymbol,
   assetDecimals,
 }: VaultV2CapsProps) {
-  const { data: fetchedData, isLoading, error } = useVaultV2Governance(vaultAddress);
-  const data = preloadedData ?? fetchedData;
+  const { data: fetchedGov, isLoading: govLoading, error: govError } = useVaultV2Governance(vaultAddress);
+  const { data: fetchedRisk } = useVaultV2Risk(vaultAddress);
+  const data = preloadedData ?? fetchedGov;
+  const risk = preloadedRisk ?? fetchedRisk;
 
-  if (!preloadedData && isLoading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Adapter Caps</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-12 w-full" />
-        </CardContent>
-      </Card>
-    );
+  if (!preloadedData && govLoading) {
+    return <CapsSkeleton />;
   }
 
-  if (error || !data) {
+  if (govError || !data) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Adapter Caps</CardTitle>
+          <CardTitle>Caps</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-red-600 dark:text-red-400">
-            Failed to load caps: {error instanceof Error ? error.message : 'Unknown error'}
+            Failed to load caps: {govError instanceof Error ? govError.message : 'Unknown error'}
           </p>
         </CardContent>
       </Card>
@@ -96,7 +67,10 @@ export function VaultV2Caps({
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Adapter Caps</CardTitle>
+          <CardTitle>Caps</CardTitle>
+          <CardDescription>
+            Supply caps limit how much can be allocated to each adapter, collateral token, or market.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-slate-500 dark:text-slate-400">No caps configured.</p>
@@ -105,198 +79,176 @@ export function VaultV2Caps({
     );
   }
 
+  const adapterLabels = buildAdapterLabelMap(data.adapters);
+  const grouped = groupCaps(data.caps);
+  const pendingCount = preloadedPending?.pending?.length ?? 0;
+
+  return (
+    <div className="space-y-6">
+      {pendingCount > 0 && (
+        <VaultV2Pending
+          vaultAddress={vaultAddress}
+          chainId={chainId}
+          preloadedData={preloadedPending}
+        />
+      )}
+    <Card>
+      <CardHeader>
+        <CardTitle>Caps</CardTitle>
+        <CardDescription>
+          Supply caps limit how much can be allocated to each adapter, collateral token, or market.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-8">
+        {grouped.adapter.length > 0 && (
+          <CapSection
+            title="Adapter Caps"
+            description="Limit the amount of assets that can be allocated to positions using specific adapters."
+            caps={grouped.adapter}
+            risk={risk}
+            adapterLabels={adapterLabels}
+            assetSymbol={assetSymbol}
+            assetDecimals={assetDecimals}
+          />
+        )}
+        {grouped.collateral.length > 0 && (
+          <CapSection
+            title="Collateral Token Caps"
+            description="Limit the amount of assets that can be allocated to positions using specific collateral tokens."
+            caps={grouped.collateral}
+            risk={risk}
+            adapterLabels={adapterLabels}
+            assetSymbol={assetSymbol}
+            assetDecimals={assetDecimals}
+          />
+        )}
+        {grouped.market.length > 0 && (
+          <CapSection
+            title="Market Caps"
+            description="Limit the amount of assets that can be allocated to specific Morpho markets."
+            caps={grouped.market}
+            risk={risk}
+            adapterLabels={adapterLabels}
+            assetSymbol={assetSymbol}
+            assetDecimals={assetDecimals}
+            showLltv
+          />
+        )}
+      </CardContent>
+    </Card>
+    </div>
+  );
+}
+
+function CapsSkeleton() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Adapter Caps</CardTitle>
+        <CardTitle>Caps</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="grid grid-cols-1 gap-2">
-          {data.caps.map((cap, idx) => (
-            <CapRow
-              key={`${cap.adapterAddress ?? cap.marketKey ?? cap.collateralAddress ?? 'idx'}-${idx}`}
-              vaultAddress={vaultAddress}
-              cap={cap}
-              assetSymbol={assetSymbol}
-              assetDecimals={assetDecimals}
-            />
-          ))}
-        </div>
+        <Skeleton className="h-12 w-full" />
+        <Skeleton className="h-12 w-full" />
+        <Skeleton className="h-12 w-full" />
       </CardContent>
     </Card>
   );
 }
 
-function CapRow({
-  vaultAddress,
-  cap,
+function CapSection({
+  title,
+  description,
+  caps,
+  risk,
+  adapterLabels,
   assetSymbol,
   assetDecimals,
+  showLltv,
 }: {
-  vaultAddress: string;
-  cap: CapInfo;
+  title: string;
+  description: string;
+  caps: CapInfo[];
+  risk: V2VaultRiskResponse | null | undefined;
+  adapterLabels: Map<string, string>;
   assetSymbol?: string | null;
   assetDecimals?: number | null;
+  showLltv?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const targetLabel = cap.adapterAddress ?? cap.marketKey ?? cap.collateralAddress ?? 'Global Cap';
-
   return (
-    <div className="rounded-md border border-slate-200 p-4 dark:border-slate-800">
-      <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-6 sm:items-center">
-        <div>
-          <p className="text-xs uppercase text-slate-500 dark:text-slate-400">Type</p>
-          <div className="mt-1 flex items-center gap-2">
-            <Badge variant="outline" className="text-xs">
-              {cap.type}
-            </Badge>
-          </div>
-        </div>
-        <div className="sm:col-span-2">
-          <p className="text-xs uppercase text-slate-500 dark:text-slate-400">Target</p>
-          <p className="mt-1 break-all text-xs text-slate-700 dark:text-slate-200">{targetLabel}</p>
-        </div>
-        <div>
-          <p className="text-xs uppercase text-slate-500 dark:text-slate-400">Absolute</p>
-          <p className="mt-1 font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-            {formatCapTokenAmount(cap.absoluteCap, assetSymbol, assetDecimals)}
-          </p>
-        </div>
-        <div>
-          <p className="text-xs uppercase text-slate-500 dark:text-slate-400">Relative</p>
-          <p className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{formatRelativeCap(cap.relativeCap)}</p>
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <p className="text-xs uppercase text-slate-500 dark:text-slate-400">Allocation</p>
-            <p className="mt-1 font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-              {formatCapTokenAmount(cap.allocation, assetSymbol, assetDecimals)}
-            </p>
-          </div>
-          <Button
-            size="icon"
-            variant={open ? 'secondary' : 'ghost'}
-            aria-label="Edit cap"
-            onClick={() => setOpen((v) => !v)}
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </Button>
-        </div>
+    <div className="space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</h3>
+        <p className="text-xs text-slate-500 dark:text-slate-400">{description}</p>
       </div>
-      {open && (
-        <div className="mt-3 rounded-md border border-dashed border-slate-300 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-800/40">
-          <CapEditForm
-            vaultAddress={vaultAddress}
+      <div className="space-y-2">
+        {caps.map((cap, idx) => (
+          <CapRow
+            key={capRowKey(cap, idx)}
             cap={cap}
+            label={capDisplayLabel(cap, risk, adapterLabels)}
+            lltv={showLltv ? resolveMarketLltv(cap.marketKey, risk) : null}
             assetSymbol={assetSymbol}
             assetDecimals={assetDecimals}
-            onClose={() => setOpen(false)}
           />
-        </div>
-      )}
+        ))}
+      </div>
     </div>
   );
 }
 
-type CapAction = 'increaseAbsolute' | 'decreaseAbsolute' | 'increaseRelative' | 'decreaseRelative';
+function resolveMarketLltv(
+  marketKey: string | null | undefined,
+  risk: V2VaultRiskResponse | null | undefined
+): string | null {
+  if (!marketKey) return null;
+  const needle = marketKey.toLowerCase();
+  for (const adapter of risk?.adapters ?? []) {
+    for (const m of adapter.markets ?? []) {
+      const key = marketKeyFromGraphQL(m.market);
+      if (key?.toLowerCase() === needle) {
+        return formatLltvPill(m.market?.lltv ?? null);
+      }
+    }
+  }
+  return null;
+}
 
-function CapEditForm({
-  vaultAddress,
+function CapRow({
   cap,
+  label,
+  lltv,
   assetSymbol,
   assetDecimals,
 }: {
-  vaultAddress: string;
   cap: CapInfo;
+  label: string;
+  lltv: string | null;
   assetSymbol?: string | null;
   assetDecimals?: number | null;
-  onClose: () => void;
 }) {
-  const [action, setAction] = useState<CapAction>('increaseAbsolute');
-  const [idData, setIdData] = useState('');
-  const [value, setValue] = useState('');
-  const write = useVaultWrite();
-
-  const isRelative = action === 'increaseRelative' || action === 'decreaseRelative';
-  const chainDecimals = resolveAssetDecimals(assetSymbol ?? undefined, assetDecimals ?? undefined);
-
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap gap-2">
-        {(['increaseAbsolute', 'decreaseAbsolute', 'increaseRelative', 'decreaseRelative'] as CapAction[]).map((a) => (
-          <button
-            key={a}
-            onClick={() => setAction(a)}
-            className={`rounded-md px-3 py-1 text-xs font-medium ${
-              action === a ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
-            }`}
-          >
-            {a === 'increaseAbsolute'
-              ? '+ Absolute'
-              : a === 'decreaseAbsolute'
-                ? '− Absolute'
-                : a === 'increaseRelative'
-                  ? '+ Relative'
-                  : '− Relative'}
-          </button>
-        ))}
+    <div className="grid grid-cols-1 gap-2 rounded-md border border-slate-200 p-3 text-sm dark:border-slate-800 sm:grid-cols-4 sm:items-center">
+      <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
+        <span className="font-medium text-slate-900 dark:text-slate-100">{label}</span>
+        {lltv && (
+          <Badge variant="outline" className="text-xs text-slate-600 dark:text-slate-300">
+            {lltv}
+          </Badge>
+        )}
       </div>
-      <div className="space-y-1">
-        <label className="text-[11px] text-slate-500">ID Data (bytes). Pre-fill from marketKey/adapter when applicable.</label>
-        <Input
-          type="text"
-          placeholder={(cap.marketKey as string | undefined) ?? '0x…'}
-          value={idData}
-          onChange={(e) => setIdData(e.target.value)}
-        />
+      <div>
+        <p className="text-xs text-slate-500 dark:text-slate-400">Allocation</p>
+        <p className="font-semibold tabular-nums">
+          {formatCapTokenAmount(cap.allocation, assetSymbol, assetDecimals)}
+        </p>
       </div>
-      <div className="space-y-1">
-        <label className="text-[11px] text-slate-500">
-          {isRelative
-            ? 'New Relative Cap (%)'
-            : `New Absolute Cap${assetSymbol ? ` (${assetSymbol})` : ''}`}
-        </label>
-        <Input
-          type="text"
-          placeholder={isRelative ? 'e.g. 50 for 50%' : 'e.g. 1000000'}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-        />
+      <div>
+        <p className="text-xs text-slate-500 dark:text-slate-400">Absolute / Relative</p>
+        <p className="font-semibold tabular-nums">
+          {formatCapTokenAmount(cap.absoluteCap, assetSymbol, assetDecimals)}
+        </p>
+        <p className="text-xs text-slate-600 dark:text-slate-300">{formatCapRelative(cap.relativeCap)}</p>
       </div>
-      <TransactionButton
-        label={
-          action === 'increaseAbsolute'
-            ? 'Increase Absolute Cap'
-            : action === 'decreaseAbsolute'
-              ? 'Decrease Absolute Cap'
-              : action === 'increaseRelative'
-                ? 'Increase Relative Cap'
-                : 'Decrease Relative Cap'
-        }
-        onClick={() => {
-          if (!idData || !value) return;
-          let parsed: bigint;
-          try {
-            parsed = isRelative
-              ? BigInt(Math.floor(parseFloat(value) * 1e16))
-              : parseUnits(value, chainDecimals);
-          } catch {
-            return;
-          }
-          const configs = {
-            increaseAbsolute: v2WriteConfigs.increaseAbsoluteCap,
-            decreaseAbsolute: v2WriteConfigs.decreaseAbsoluteCap,
-            increaseRelative: v2WriteConfigs.increaseRelativeCap,
-            decreaseRelative: v2WriteConfigs.decreaseRelativeCap,
-          };
-          write.write(configs[action](vaultAddress as Address, idData as Hex, parsed));
-        }}
-        disabled={!idData || !value}
-        isLoading={write.isLoading}
-        isSuccess={write.isSuccess}
-        error={write.error}
-        txHash={write.txHash}
-      />
     </div>
   );
 }
