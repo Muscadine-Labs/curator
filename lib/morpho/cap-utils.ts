@@ -9,6 +9,10 @@ export function isMarketCap(cap: CapInfo): boolean {
   return cap.type === 'MarketV1' || !!cap.marketKey;
 }
 
+export function isCollateralCap(cap: CapInfo): boolean {
+  return cap.type === 'Collateral' || (!!cap.collateralAddress && !cap.marketKey && !cap.adapterAddress);
+}
+
 export function computeCapUtilizationPercent(caps: CapInfo[]): number | null {
   if (caps.length === 0) return null;
   let totalCap = 0n;

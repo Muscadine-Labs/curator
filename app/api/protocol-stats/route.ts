@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
-import { getVaultAddressesForBusinessViews } from '@/lib/config/vaults';
+import {
+  getActiveVaultAddressesForStats,
+  getVaultAddressesForBusinessViews,
+} from '@/lib/config/vaults';
 import { 
   BASE_CHAIN_ID, 
   GRAPHQL_FIRST_LIMIT,
@@ -11,7 +14,7 @@ import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } 
 import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
 import { gql } from 'graphql-request';
 import { getAddress } from 'viem';
-import type { Vault, VaultPosition, Maybe } from '@morpho-org/blue-api-sdk';
+import type { Vault, Maybe } from '@morpho-org/blue-api-sdk';
 import { logger } from '@/lib/utils/logger';
 import { 
   fetchDefiLlamaFees, 
@@ -33,9 +36,6 @@ export const dynamic = 'force-dynamic';
 type ProtocolStatsQueryResponse = {
   vaults: {
     items: Maybe<Vault>[] | null;
-  } | null;
-  vaultPositions: {
-    items: Maybe<VaultPosition>[] | null;
   } | null;
 };
 
@@ -59,7 +59,9 @@ export async function GET(request: Request) {
 
   try {
     const businessVaults = getVaultAddressesForBusinessViews();
+    const activeVaultsForStats = getActiveVaultAddressesForStats();
     const addresses = businessVaults.map((v) => getAddress(v.address));
+    const activeAddresses = activeVaultsForStats.map((v) => getAddress(v.address));
 
     const query = gql`
       query FetchProtocolStats($addresses: [String!]) {
@@ -75,16 +77,6 @@ export async function GET(request: Request) {
             }
           }
         }
-
-        vaultPositions(
-          first: ${GRAPHQL_FIRST_LIMIT}
-          where: { vaultAddress_in: $addresses }
-        ) {
-          items {
-            vault { address }
-            user { address }
-          }
-        }
       }
     `;
 
@@ -94,11 +86,10 @@ export async function GET(request: Request) {
     );
 
     const morphoVaults = data.vaults?.items?.filter((v): v is Vault => v !== null) ?? [];
-    const positions = data.vaultPositions?.items?.filter((p): p is VaultPosition => p !== null) ?? [];
 
     // Calculate totalDeposited from V1 vaults (from main query)
     let totalDeposited = morphoVaults.reduce((sum, v) => sum + (v.state?.totalAssetsUsd ?? 0), 0);
-    const activeVaults = businessVaults.length;
+    const activeVaults = activeVaultsForStats.length;
 
     // Create a map of V1 vault current TVL for fallback
     const v1VaultCurrentTvl = new Map<string, number>();
@@ -516,12 +507,37 @@ export async function GET(request: Request) {
     let totalFeesGenerated = 0;
     let totalInterestGenerated = 0;
 
-    // Unique depositors across our vaults
+    // Unique depositors across active V2 vaults (vaultPositions is V1-only in Morpho API)
     const uniqueUsers = new Set<string>();
-    for (const p of positions) {
-      const userAddress = p.user?.address?.toLowerCase();
-      if (userAddress) {
-        uniqueUsers.add(userAddress);
+    const v2UserResults = await Promise.all(
+      activeAddresses.map(async (address) => {
+        try {
+          const usersQuery = gql`
+            query V2VaultDepositors($address: String!, $chainId: Int!) {
+              vaultV2ByAddress(address: $address, chainId: $chainId) {
+                positions(first: ${GRAPHQL_FIRST_LIMIT}) {
+                  items {
+                    user { address }
+                  }
+                }
+              }
+            }
+          `;
+          const result = await morphoGraphQLClient.request<{
+            vaultV2ByAddress?: {
+              positions?: { items?: Array<{ user?: { address?: string | null } | null } | null> | null } | null;
+            } | null;
+          }>(usersQuery, { address, chainId: BASE_CHAIN_ID });
+          return result.vaultV2ByAddress?.positions?.items ?? [];
+        } catch {
+          return [];
+        }
+      })
+    );
+    for (const items of v2UserResults) {
+      for (const pos of items) {
+        const userAddress = pos?.user?.address?.toLowerCase();
+        if (userAddress) uniqueUsers.add(userAddress);
       }
     }
 

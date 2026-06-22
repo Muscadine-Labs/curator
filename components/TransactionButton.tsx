@@ -15,6 +15,8 @@ interface TransactionButtonProps {
   label?: string;
   variant?: 'default' | 'destructive' | 'outline' | 'secondary';
   size?: 'default' | 'sm' | 'lg';
+  /** When true, disconnected state shows a disabled action button (use topbar connect). */
+  suppressConnectPrompt?: boolean;
 }
 
 export function TransactionButton({
@@ -27,11 +29,19 @@ export function TransactionButton({
   label = 'Submit Transaction',
   variant = 'default',
   size = 'default',
+  suppressConnectPrompt = false,
 }: TransactionButtonProps) {
   const { isConnected } = useAccount();
   const { openConnectModal } = useConnectModal();
 
   if (!isConnected) {
+    if (suppressConnectPrompt) {
+      return (
+        <Button variant={variant} size={size} disabled>
+          {label}
+        </Button>
+      );
+    }
     return (
       <Button
         variant="outline"

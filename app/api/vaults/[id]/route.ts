@@ -573,9 +573,10 @@ export async function GET(
       ? (mv?.totalAssetsUsd ?? null)
       : (mv?.state?.totalAssetsUsd ?? null);
     
-    // Calculate APY - preserve null if all values are null/undefined
+    // V2: Net APY = spot net (after performance fee); Base = gross supply APY
     const apyPct = isV2
-      ? (mv?.avgNetApy != null ? mv.avgNetApy * 100 :
+      ? (mv?.netApy != null ? mv.netApy * 100 :
+         mv?.avgNetApy != null ? mv.avgNetApy * 100 :
          mv?.apy != null ? mv.apy * 100 :
          mv?.maxApy != null ? mv.maxApy * 100 : null)
       : (mv?.state?.netApy != null ? mv.state.netApy * 100 :
@@ -583,8 +584,7 @@ export async function GET(
          mv?.state?.apy != null ? mv.state.apy * 100 : null);
     
     const apyBasePct = isV2
-      ? (mv?.apy != null ? mv.apy * 100 :
-         mv?.maxApy != null ? mv.maxApy * 100 : null)
+      ? (mv?.apy != null ? mv.apy * 100 : null)
       : (mv?.state?.apy != null ? mv.state.apy * 100 : null);
     
     const apyBoostedPct = isV2

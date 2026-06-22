@@ -69,8 +69,8 @@ interface AllocationListShellProps {
 
 export function AllocationListShell({ children, className }: AllocationListShellProps) {
   return (
-    <div className={cn('overflow-hidden rounded-xl border bg-card', className)}>
-      {children}
+    <div className={cn('overflow-x-auto rounded-xl border bg-card', className)}>
+      <div className="min-w-[76rem]">{children}</div>
     </div>
   );
 }
@@ -99,25 +99,27 @@ export function AllocationListHeader({
   columnLabels?: ReadonlyArray<string>;
   editing?: boolean;
 }) {
+  const extraCount = columnLabels.length;
   return (
-    <div className="grid grid-cols-[1fr_auto] items-center border-b px-4 py-3 text-sm font-medium text-foreground">
+    <div
+      className="grid items-center border-b px-4 py-3 text-sm font-medium text-foreground"
+      style={{
+        gridTemplateColumns: `minmax(0, 1fr) repeat(${extraCount}, 5rem) 7.5rem${editing ? ' 7rem' : ''}`,
+      }}
+    >
       <span>Allocation</span>
-      <div className="flex items-center gap-6">
-        {columnLabels.map((label) => (
-          <span
-            key={label}
-            className="hidden min-w-[4.5rem] text-right text-xs font-medium text-muted-foreground sm:block"
-          >
-            {label}
-          </span>
-        ))}
-        <span className="min-w-[7.5rem] text-right">Allocation</span>
-        {editing && (
-          <span className="min-w-[7rem] text-right text-xs font-medium text-muted-foreground">
-            New
-          </span>
-        )}
-      </div>
+      {columnLabels.map((label) => (
+        <span
+          key={label}
+          className="hidden text-right text-xs font-medium text-muted-foreground sm:block"
+        >
+          {label}
+        </span>
+      ))}
+      <span className="text-right">Allocation</span>
+      {editing && (
+        <span className="text-right text-xs font-medium text-muted-foreground">New</span>
+      )}
     </div>
   );
 }
@@ -140,13 +142,17 @@ export function AllocationListRow({
   extraCells,
   editingCell,
   className,
-}: AllocationListRowProps) {
+  extraColumnCount = 0,
+}: AllocationListRowProps & { extraColumnCount?: number }) {
   return (
     <div
       className={cn(
-        'grid grid-cols-[1fr_auto] items-center gap-3 border-b border-border/60 px-4 py-4 last:border-b-0',
+        'grid items-center gap-3 border-b border-border/60 px-4 py-4 last:border-b-0',
         className
       )}
+      style={{
+        gridTemplateColumns: `minmax(0, 1fr) repeat(${extraColumnCount}, 5rem) 7.5rem${editingCell ? ' 7rem' : ''}`,
+      }}
     >
       <div className="flex min-w-0 items-center justify-between gap-4">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -157,26 +163,116 @@ export function AllocationListRow({
           <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">{typeLabel}</span>
         )}
       </div>
-      <div className="flex items-center gap-6">
-        {extraCells}
-        <div className="min-w-[7.5rem] text-right text-sm tabular-nums text-foreground">{amount}</div>
-        {editingCell}
-      </div>
+      {extraCells}
+      <div className="text-right text-sm tabular-nums text-foreground">{amount}</div>
+      {editingCell}
     </div>
   );
 }
 
 export function AllocationExtraColumn({
-  label,
   value,
 }: {
-  label: string;
+  label?: string;
   value: ReactNode;
 }) {
   return (
-    <div className="hidden min-w-[4.5rem] text-right sm:block">
-      <div className="text-[10px] text-muted-foreground">{label}</div>
-      <div className="text-xs tabular-nums">{value}</div>
+    <div className="text-right text-xs tabular-nums">
+      {value}
+    </div>
+  );
+}
+
+/** Morpho Curator–style fixed column grid for V2 allocations (desktop). */
+export const CURATOR_ALLOCATION_GRID = {
+  view: 'minmax(12rem, 1.6fr) 8.5rem 9rem 5rem 10rem 5rem 6.5rem',
+  edit: 'minmax(12rem, 1.6fr) 8.5rem 9rem 5rem 10rem 5rem 6.5rem minmax(26rem, 1.5fr)',
+} as const;
+
+export function CuratorAllocationListHeader({ editing = false }: { editing?: boolean }) {
+  return (
+    <div
+      className="grid items-center gap-x-5 border-b px-5 py-3.5 text-xs font-medium text-muted-foreground"
+      style={{
+        gridTemplateColumns: editing ? CURATOR_ALLOCATION_GRID.edit : CURATOR_ALLOCATION_GRID.view,
+      }}
+    >
+      <span className="text-sm font-medium text-foreground">Allocation</span>
+      <span className="text-right">Allocation</span>
+      <span className="text-right">Eff. Abs. Cap</span>
+      <span className="text-right">Rate</span>
+      <span className="text-right">Liquidity</span>
+      <span className="text-right">Util.</span>
+      <span className="text-right">% Alloc.</span>
+      {editing && <span className="text-right">Target</span>}
+    </div>
+  );
+}
+
+export function AllocationPctIndicator({ pct }: { pct: number }) {
+  const active = pct > 0;
+  return (
+    <span className="inline-flex items-center justify-end gap-2">
+      <span
+        className={cn(
+          'h-3.5 w-3.5 shrink-0 rounded-full border-2',
+          active ? 'border-primary bg-primary' : 'border-muted-foreground/35 bg-transparent'
+        )}
+        aria-hidden
+      />
+      <span className="text-sm tabular-nums text-foreground">{pct.toFixed(2)}%</span>
+    </span>
+  );
+}
+
+interface CuratorAllocationListRowProps {
+  name: ReactNode;
+  tags?: ReactNode;
+  allocationAmount: ReactNode;
+  effectiveCap: ReactNode;
+  rate: ReactNode;
+  liquidity: ReactNode;
+  utilization: ReactNode;
+  percentAllocated: ReactNode;
+  targetCell?: ReactNode;
+  className?: string;
+  editing?: boolean;
+}
+
+export function CuratorAllocationListRow({
+  name,
+  tags,
+  allocationAmount,
+  effectiveCap,
+  rate,
+  liquidity,
+  utilization,
+  percentAllocated,
+  targetCell,
+  className,
+  editing = false,
+}: CuratorAllocationListRowProps) {
+  return (
+    <div
+      className={cn(
+        'grid items-center gap-x-5 border-b border-border/60 px-5 py-4 last:border-b-0',
+        className
+      )}
+      style={{
+        gridTemplateColumns: editing ? CURATOR_ALLOCATION_GRID.edit : CURATOR_ALLOCATION_GRID.view,
+      }}
+    >
+      <div className="flex min-w-0 items-center gap-2.5">
+        <div className="truncate text-sm font-medium text-foreground">{name}</div>
+        {tags}
+      </div>
+      <div className="text-right text-sm tabular-nums tracking-tight text-foreground">{allocationAmount}</div>
+      <div className="text-right text-sm tabular-nums tracking-tight text-foreground">{effectiveCap}</div>
+      <div className="text-right text-sm tabular-nums tracking-tight text-foreground">{rate}</div>
+      <div className="text-right text-sm tabular-nums tracking-tight text-foreground">{liquidity}</div>
+      <div className="text-right text-sm tabular-nums tracking-tight text-foreground">{utilization}</div>
+      <div className="text-right">{percentAllocated}</div>
+      {targetCell}
     </div>
   );
 }

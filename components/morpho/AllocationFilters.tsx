@@ -58,8 +58,8 @@ const DEFAULT_COLUMN_STATE: AllocationColumnState = {
   liquidity: true,
   borrowApy: false,
   supplyApy: true,
-  allocated: true,
-  effectiveCap: false,
+  allocated: false,
+  effectiveCap: true,
   percentCap: false,
 };
 

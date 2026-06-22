@@ -19,18 +19,21 @@ import {
   keccak256,
 } from 'viem';
 import {
-  formatCompactUSD,
   formatFullUSD,
   formatPercentage,
-  formatTokenAmount,
   formatRawTokenAmount,
 } from '@/lib/format/number';
 import {
   getTokenDisplayDecimals,
   resolveAssetDecimals,
 } from '@/lib/format/asset-decimals';
-import type { AllocationAmountUnit } from '@/components/morpho/AllocationFilters';
-import { formatAllocationAmount, formatCapRawAmount } from '@/lib/format/allocation-display';
+import {
+  allocationInputWidthCh,
+  formatAllocationEditInput,
+  formatAllocationTableAmount,
+  formatCapDisplayAmount,
+  parseHumanTokenInput,
+} from '@/lib/format/allocation-display';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
 import type { VaultV2GovernanceResponse, CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
 import { isAdapterCap, isMarketCap } from '@/lib/morpho/cap-utils';
@@ -50,16 +53,14 @@ import {
 } from '@/lib/morpho/morpho-app-links';
 import { VAULT_VERSION_MAP } from '@/lib/morpho/treasury-statement';
 import {
-  AllocationExtraColumn,
-  AllocationListHeader,
-  AllocationListRow,
+  AllocationPctIndicator,
   AllocationListSection,
   AllocationListShell,
   AllocationPill,
-  formatListAllocationAmount,
+  CuratorAllocationListHeader,
+  CuratorAllocationListRow,
   formatMarketPairLabel,
   formatLltvPill,
-  getActiveExtraColumns,
 } from '@/components/morpho/AllocationListView';
 
 interface VaultV2AllocationsProps {
@@ -94,27 +95,61 @@ function MorphoAllocationLink({
   );
 }
 
-function formatLiquidityCell(
+function formatLiquidityFull(
   row: TargetRow,
-  amountUnit: AllocationAmountUnit,
   symbol: string,
   decimals: number
 ): string {
-  if (amountUnit === 'token' && row.liquidityAssets != null) {
+  if (row.liquidityAssets != null) {
     try {
-      return `${formatRawTokenAmount(
-        BigInt(row.liquidityAssets),
-        decimals,
-        getTokenDisplayDecimals(symbol, decimals)
-      )} ${symbol}`;
+      return formatAllocationTableAmount(BigInt(row.liquidityAssets), symbol, decimals);
     } catch {
-      /* fall through to USD */
+      /* fall through */
     }
   }
   if (row.liquidity != null && Number.isFinite(row.liquidity)) {
-    return formatCompactUSD(row.liquidity);
+    return formatFullUSD(row.liquidity, 2);
   }
   return '—';
+}
+
+function formatEffAbsCap(
+  t: AllocTarget,
+  isIdle: boolean
+): string {
+  if (isIdle || t.absoluteCapRaw == null) return '—';
+  return formatCapDisplayAmount(t.absoluteCapRaw, t.symbol, t.decimals);
+}
+
+function resolveTargetAssetsFromInput(
+  targetIdx: number,
+  rawInput: string,
+  inputMode: InputMode,
+  targets: AllocTarget[],
+  totalRaw: bigint
+): { assets: bigint; error: string | null } {
+  const t = targets[targetIdx];
+  const v = rawInput.trim();
+  if (!v) {
+    return { assets: t.currentAssets, error: null };
+  }
+  if (inputMode === 'percentage') {
+    const pct = parseFloat(v);
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+      return { assets: t.currentAssets, error: `Invalid percentage for ${t.label}` };
+    }
+    const assets = (totalRaw * BigInt(Math.round(pct * 1e10))) / BigInt(1e12);
+    return { assets, error: null };
+  }
+  try {
+    const assets = parseHumanTokenInput(v, t.symbol, t.decimals);
+    if (assets < 0n) {
+      return { assets: t.currentAssets, error: `Negative amount for ${t.label}` };
+    }
+    return { assets, error: null };
+  } catch {
+    return { assets: t.currentAssets, error: `Invalid number for ${t.label}` };
+  }
 }
 
 function formatOrDash(value: number | null | undefined): string {
@@ -523,7 +558,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
   }, [targets, capsForTarget, risk?.adapters]);
 
   const [editing, setEditing] = useState(false);
-  const [inputMode, setInputMode] = useState<InputMode>('percentage');
+  const [inputMode, setInputMode] = useState<InputMode>('tokens');
   const [inputValues, setInputValues] = useState<string[]>([]);
   const [filters, setFilters] = useState<AllocationFilterState>(DEFAULT_FILTER_STATE);
   /** Where unallocated remainder goes: 'auto' = implicit Idle, or a target index. */
@@ -531,6 +566,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
   const multicallWrite = useVaultWrite();
 
   const startEditing = useCallback(() => {
+    setInputMode('tokens');
     setInputValues(targetsWithCaps.map(() => ''));
     setDustRecipientKey('auto');
     setEditing(true);
@@ -542,8 +578,75 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
   }, [multicallWrite]);
 
   const updateInput = useCallback((idx: number, val: string) => {
-    setInputValues((prev) => prev.map((v, i) => i === idx ? val : v));
+    setInputValues((prev) => prev.map((v, i) => (i === idx ? val : v)));
   }, []);
+
+  const parseInputToRaw = useCallback(
+    (idx: number, val: string): bigint => {
+      return resolveTargetAssetsFromInput(
+        idx,
+        val,
+        inputMode,
+        targetsWithCaps,
+        totalRawAssets
+      ).assets;
+    },
+    [inputMode, targetsWithCaps, totalRawAssets]
+  );
+
+  const formatRawAsInput = useCallback(
+    (raw: bigint, t: AllocTarget): string => {
+      if (inputMode === 'percentage') {
+        const pct =
+          totalRawAssets > BigInt(0)
+            ? Number((raw * BigInt(10000)) / totalRawAssets) / 100
+            : 0;
+        return pct.toFixed(2);
+      }
+      return formatAllocationEditInput(raw, t.symbol, t.decimals);
+    },
+    [inputMode, totalRawAssets]
+  );
+
+  const setRowZero = useCallback(
+    (targetIdx: number) => {
+      updateInput(targetIdx, '0');
+    },
+    [updateInput]
+  );
+
+  const setRowMax = useCallback(
+    (targetIdx: number) => {
+      setInputValues((prev) => {
+        const values = prev.length === targetsWithCaps.length ? prev : targetsWithCaps.map(() => '');
+        let others = BigInt(0);
+        for (let j = 0; j < targetsWithCaps.length; j++) {
+          if (j === targetIdx) continue;
+          others += resolveTargetAssetsFromInput(
+            j,
+            values[j] ?? '',
+            inputMode,
+            targetsWithCaps,
+            totalRawAssets
+          ).assets;
+        }
+        let max = totalRawAssets > others ? totalRawAssets - others : BigInt(0);
+        const t = targetsWithCaps[targetIdx];
+        if (!t.isVaultIdle && t.absoluteCapRaw != null && max > t.absoluteCapRaw) {
+          max = t.absoluteCapRaw;
+        }
+        if (!t.isVaultIdle && t.relativeCapWad != null && totalRawAssets > BigInt(0)) {
+          const wad = BigInt('1000000000000000000');
+          const maxRel = (totalRawAssets * t.relativeCapWad) / wad;
+          if (max > maxRel) max = maxRel;
+        }
+        const next = [...values];
+        next[targetIdx] = formatRawAsInput(max, t);
+        return next;
+      });
+    },
+    [formatRawAsInput, inputMode, targetsWithCaps, totalRawAssets]
+  );
 
   const resolvedAllocations = useMemo(() => {
     if (!editing || inputValues.length === 0 || inputValues.length !== targetsWithCaps.length) return null;
@@ -558,38 +661,33 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
     for (let i = 0; i < targetsWithCaps.length; i++) {
       const t = targetsWithCaps[i];
       const v = inputValues[i];
-
-      if (v.trim() === '') {
-        results.push({ target: t, assets: t.currentAssets, current: t.currentAssets });
-        continue;
+      const resolved = resolveTargetAssetsFromInput(
+        i,
+        v,
+        inputMode,
+        targetsWithCaps,
+        totalRawAssets
+      );
+      if (resolved.error) {
+        errorMsg = resolved.error;
+        break;
       }
-
-      if (inputMode === 'percentage') {
-        const pct = parseFloat(v);
-        if (isNaN(pct) || pct < 0 || pct > 100) {
-          errorMsg = `Invalid percentage for ${t.label}`;
-          break;
-        }
-        const raw = totalRawAssets * BigInt(Math.round(pct * 1e10)) / BigInt(1e12);
-        results.push({ target: t, assets: raw, current: t.currentAssets });
-      } else {
-        try {
-          const raw = parseUnits(v, t.decimals);
-          if (raw < BigInt(0)) { errorMsg = `Negative amount for ${t.label}`; break; }
-          results.push({ target: t, assets: raw, current: t.currentAssets });
-        } catch {
-          errorMsg = `Invalid number for ${t.label}`;
-          break;
-        }
-      }
+      results.push({
+        target: t,
+        assets: resolved.assets,
+        current: t.currentAssets,
+      });
     }
+
+    const partialInputSum = results.reduce((s, r) => s + r.assets, BigInt(0));
 
     if (errorMsg) {
       return {
         valid: false as const,
         error: errorMsg,
         results: [] as Result[],
-        sumAssets: BigInt(0),
+        inputSum: partialInputSum,
+        sumAssets: partialInputSum,
         dustDiff: BigInt(0),
         dustRecipientIdx: null as number | null,
       };
@@ -804,6 +902,33 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
     }
   }, [resolvedAllocations, vaultAddress, multicallWrite]);
 
+  const getRowPercent = useCallback(
+    (targetIdx: number): number => {
+      const t = targetsWithCaps[targetIdx];
+      if (!t) return 0;
+      if (!editing) {
+        return totalRawAssets > BigInt(0)
+          ? Number((t.currentAssets * BigInt(10000)) / totalRawAssets) / 100
+          : 0;
+      }
+      const v = inputValues[targetIdx]?.trim() ?? '';
+      if (!v) {
+        return totalRawAssets > BigInt(0)
+          ? Number((t.currentAssets * BigInt(10000)) / totalRawAssets) / 100
+          : 0;
+      }
+      if (inputMode === 'percentage') {
+        const pct = parseFloat(v);
+        return Number.isFinite(pct) ? pct : 0;
+      }
+      const raw = parseInputToRaw(targetIdx, v);
+      return totalRawAssets > BigInt(0)
+        ? Number((raw * BigInt(10000)) / totalRawAssets) / 100
+        : 0;
+    },
+    [editing, inputMode, inputValues, parseInputToRaw, targetsWithCaps, totalRawAssets]
+  );
+
   if (!preloadedRisk && isLoading) {
     return (
       <Card>
@@ -918,6 +1043,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
 
   const plannedSum = resolvedAllocations?.inputSum ?? BigInt(0);
   const remainingRaw = editing ? totalRawAssets - plannedSum : BigInt(0);
+  const hasEditingInputs = editing && inputValues.some((v) => v.trim() !== '');
 
   // Strategy targets the curator can route unallocated remainder to ('auto' = Idle).
   const dustOptions = targetsWithCaps
@@ -930,8 +1056,6 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
       ? targetsWithCaps[Number.parseInt(dustRecipientKey, 10)]?.label ?? null
       : null;
 
-  const extraColumnLabels = getActiveExtraColumns(filters.columns).map((c) => c.label);
-
   const sectionedRows = ALLOCATION_SECTIONS.map((section) => ({
     ...section,
     rows: rowsToRender.filter((r) => {
@@ -942,126 +1066,77 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
 
   const renderAllocationRow = (r: TargetRow) => {
     const t = targetsWithCaps[r.targetIdx];
-    const currentPct =
-      totalRawAssets > BigInt(0)
-        ? Number(t.currentAssets * BigInt(10000) / totalRawAssets) / 100
-        : 0;
     const lltvPill = formatLltvPill(r.lltv);
+    const isIdle = Boolean(t.isVaultIdle);
 
-    const mainAmount =
-      filters.displayMode === 'percent'
-        ? `${r.pct.toFixed(2)}%`
-        : filters.amountUnit === 'usd'
-          ? formatFullUSD(r.allocated, 2)
-          : formatListAllocationAmount(
-              r.allocAssets != null ? BigInt(r.allocAssets) : t.currentAssets,
-              r.allocSymbol ?? t.symbol,
-              r.allocDecimals
-            );
+    const allocationAmount = formatAllocationTableAmount(
+      r.allocAssets != null ? BigInt(r.allocAssets) : t.currentAssets,
+      r.allocSymbol ?? t.symbol,
+      r.allocDecimals
+    );
 
-    const extraCells = (
-      <>
-        {filters.columns.utilization && (
-          <AllocationExtraColumn
-            label="Util."
-            value={formatOrDash(scalePercent(r.utilization))}
-          />
-        )}
-        {filters.columns.liquidity && (
-          <AllocationExtraColumn
-            label="Liquidity"
-            value={formatLiquidityCell(r, filters.amountUnit, t.symbol, t.decimals)}
-          />
-        )}
-        {filters.columns.borrowApy && (
-          <AllocationExtraColumn
-            label="Borrow"
-            value={formatOrDash(scalePercent(r.borrowApy))}
-          />
-        )}
-        {filters.columns.supplyApy && (
-          <AllocationExtraColumn
-            label="Supply"
-            value={formatOrDash(scalePercent(r.supplyApy))}
-          />
-        )}
-        {filters.columns.allocated && (
-          <AllocationExtraColumn
-            label="Allocated"
-            value={
-              filters.displayMode === 'percent'
-                ? `${r.pct.toFixed(2)}%`
-                : r.allocAssets != null
-                  ? formatAllocationAmount(
-                      filters.amountUnit,
-                      r.allocated,
-                      BigInt(r.allocAssets),
-                      r.allocSymbol ?? t.symbol,
-                      r.allocDecimals
-                    )
-                  : '—'
-            }
-          />
-        )}
-        {filters.columns.effectiveCap && (
-          <AllocationExtraColumn
-            label="Eff. cap"
-            value={
-              t.absoluteCapRaw == null
-                ? '—'
-                : filters.displayMode === 'percent' && totalRawAssets > BigInt(0)
-                  ? `${(Number((t.absoluteCapRaw * BigInt(10000)) / totalRawAssets) / 100).toFixed(2)}%`
-                  : formatCapRawAmount(t.absoluteCapRaw, t.symbol, t.decimals)
-            }
-          />
-        )}
-        {filters.columns.percentCap && (
-          <AllocationExtraColumn
-            label="% cap"
-            value={
-              t.relativeCapWad != null &&
-              t.relativeCapWad < BigInt('1000000000000000000')
-                ? `${(Number(t.relativeCapWad) / 1e16).toFixed(0)}%`
-                : '—'
-            }
-          />
-        )}
-      </>
+    const inputWidthCh = allocationInputWidthCh(t.symbol, t.decimals);
+
+    const rate = isIdle ? '—' : formatOrDash(scalePercent(r.supplyApy));
+
+    const utilizationCell = filters.columns.utilization
+      ? formatOrDash(scalePercent(r.utilization))
+      : '—';
+
+    const percentAllocated = (
+      <AllocationPctIndicator pct={getRowPercent(r.targetIdx)} />
     );
 
     return (
-      <AllocationListRow
+      <CuratorAllocationListRow
         key={`target-${r.targetIdx}`}
-        className={t.isVaultIdle ? 'bg-muted/30' : undefined}
+        editing={editing}
+        className={isIdle ? 'bg-muted/30' : undefined}
         name={
-          t.isVaultIdle ? (
+          isIdle ? (
             r.market
           ) : (
             <MorphoAllocationLink href={r.morphoHref}>{r.market}</MorphoAllocationLink>
           )
         }
         tags={lltvPill ? <AllocationPill>{lltvPill}</AllocationPill> : undefined}
-        amount={mainAmount}
-        extraCells={extraCells}
-        editingCell={
+        allocationAmount={allocationAmount}
+        effectiveCap={formatEffAbsCap(t, isIdle)}
+        rate={rate}
+        liquidity={formatLiquidityFull(r, t.symbol, t.decimals)}
+        utilization={utilizationCell}
+        percentAllocated={percentAllocated}
+        targetCell={
           editing ? (
-            <div className="flex min-w-[7rem] items-center justify-end gap-1">
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-2.5 text-xs"
+                onClick={() => setRowZero(r.targetIdx)}
+              >
+                Zero
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 px-2.5 text-xs"
+                onClick={() => setRowMax(r.targetIdx)}
+              >
+                Max
+              </Button>
               <Input
                 type="text"
-                placeholder={
-                  inputMode === 'percentage'
-                    ? currentPct.toFixed(2)
-                    : formatTokenAmount(
-                        t.currentAssets,
-                        t.decimals,
-                        Math.min(4, getTokenDisplayDecimals(t.symbol, t.decimals))
-                      )
-                }
+                inputMode="decimal"
+                placeholder={formatAllocationEditInput(t.currentAssets, t.symbol, t.decimals)}
                 value={inputValues[r.targetIdx] ?? ''}
                 onChange={(e) => updateInput(r.targetIdx, e.target.value)}
-                className="h-8 w-28 text-right text-sm"
+                className="h-9 text-right font-mono text-sm tabular-nums"
+                style={{ width: `${inputWidthCh}ch` }}
               />
-              <span className="w-6 text-left text-xs text-muted-foreground">
+              <span className="w-10 shrink-0 text-left text-xs text-muted-foreground">
                 {inputMode === 'percentage' ? '%' : t.symbol}
               </span>
             </div>
@@ -1109,19 +1184,18 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
         </div>
       </CardHeader>
       <CardContent>
-        {editing && (
+        {editing && hasEditingInputs && (
           <div className="mb-3 space-y-2">
             <RemainingBanner
               totalRaw={totalRawAssets}
               plannedRaw={plannedSum}
               remainingRaw={remainingRaw}
               decimals={vaultDecimals}
-              displayDecimals={vaultDisplayDecimals}
               symbol={vaultSymbol}
-              amountUnit={filters.amountUnit}
               dustDiff={resolvedAllocations?.dustDiff ?? BigInt(0)}
               implicitIdle
               dustRecipientLabel={dustRecipientLabel}
+              parseError={resolvedAllocations?.error ?? null}
             />
             <DustRecipientSelect
               value={dustRecipientKey}
@@ -1133,7 +1207,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
         )}
 
         <AllocationListShell>
-          <AllocationListHeader columnLabels={extraColumnLabels} editing={editing} />
+          <CuratorAllocationListHeader editing={editing} />
           {rowsToRender.length === 0 ? (
             <div className="px-4 py-8 text-center text-xs text-muted-foreground">
               No targets match your filters.
@@ -1208,61 +1282,59 @@ function RemainingBanner({
   plannedRaw,
   remainingRaw,
   decimals,
-  displayDecimals,
   symbol,
-  amountUnit,
   dustDiff = BigInt(0),
   implicitIdle = false,
   dustRecipientLabel = null,
+  parseError = null,
 }: {
   totalRaw: bigint;
   plannedRaw: bigint;
   remainingRaw: bigint;
   decimals: number;
-  displayDecimals: number;
   symbol: string;
-  amountUnit: AllocationAmountUnit;
   dustDiff?: bigint;
   implicitIdle?: boolean;
-  /** When set, unallocated remainder goes to this target instead of Idle. */
   dustRecipientLabel?: string | null;
+  parseError?: string | null;
 }) {
-  const isBalanced = remainingRaw === BigInt(0);
+  const isBalanced = remainingRaw === BigInt(0) && !parseError;
   const overshoot = remainingRaw < BigInt(0);
   const absRemaining = overshoot ? -remainingRaw : remainingRaw;
   const tinyDust =
     dustDiff !== BigInt(0) &&
     (dustDiff < BigInt(0) ? -dustDiff : dustDiff) <= parseUnits('0.01', decimals);
 
-  const tone = isBalanced
+  const tone = parseError
+    ? 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-800 dark:text-red-200'
+    : isBalanced
     ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
     : overshoot
     ? 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-800 dark:text-red-200'
     : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200';
 
-  const label = isBalanced
+  const label = parseError
+    ? parseError
+    : isBalanced
     ? tinyDust
-      ? `Balanced — ${formatRawTokenAmount(dustDiff, decimals, Math.min(4, displayDecimals))} ${symbol} rounding applied to ${dustRecipientLabel ?? 'Idle'}.`
+      ? `Balanced — ${formatAllocationTableAmount(dustDiff, symbol, decimals)} rounding applied to ${dustRecipientLabel ?? 'Idle'}.`
       : 'Balanced — every asset is accounted for.'
     : overshoot
-    ? `Over-allocated by ${formatRawTokenAmount(absRemaining, decimals, Math.min(4, displayDecimals))} ${symbol}. Reduce a target.`
+    ? `Over-allocated by ${formatAllocationTableAmount(absRemaining, symbol, decimals)}. Reduce a target.`
     : dustRecipientLabel
-    ? `${formatRawTokenAmount(absRemaining, decimals, Math.min(4, displayDecimals))} ${symbol} will go to ${dustRecipientLabel} after rebalance.`
+    ? `${formatAllocationTableAmount(absRemaining, symbol, decimals)} will go to ${dustRecipientLabel} after rebalance.`
     : implicitIdle
-    ? `${formatRawTokenAmount(absRemaining, decimals, Math.min(4, displayDecimals))} ${symbol} will move to Idle after rebalance.`
-    : `Unallocated: ${formatRawTokenAmount(absRemaining, decimals, Math.min(4, displayDecimals))} ${symbol}.`;
+    ? `${formatAllocationTableAmount(absRemaining, symbol, decimals)} will move to Idle after rebalance.`
+    : `Unallocated: ${formatAllocationTableAmount(absRemaining, symbol, decimals)}.`;
 
-  const fmt = (v: bigint) =>
-    amountUnit === 'usd'
-      ? '—'
-      : formatRawTokenAmount(v, decimals, displayDecimals);
+  const fmt = (v: bigint) => formatAllocationTableAmount(v, symbol, decimals);
 
   return (
     <div className={`mb-3 rounded-md border p-3 text-xs ${tone}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span>{label}</span>
-        <span className="font-mono tabular-nums">
-          planned {fmt(plannedRaw)} / {fmt(totalRaw)} {amountUnit === 'token' ? symbol : ''}
+        <span className="font-mono text-sm tabular-nums">
+          planned {fmt(plannedRaw)} / {fmt(totalRaw)}
         </span>
       </div>
     </div>

@@ -115,7 +115,7 @@ export function VaultOverviewHistoryChart({
 }: VaultOverviewHistoryChartProps) {
   const { data, isLoading, error } = useVaultHistory(vaultAddress);
   const [metric, setMetric] = useState<VaultHistoryMetric>('supplied');
-  const [range, setRange] = useState<TimeRange>('month');
+  const [range, setRange] = useState<TimeRange>('all');
   const [amountUnit, setAmountUnit] = useState<AmountUnit>('token');
 
   const chainDecimals = data
@@ -251,20 +251,25 @@ export function VaultOverviewHistoryChart({
             No historical data for this range
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={chartPoints}>
-              <CartesianGrid strokeDasharray="3 3" />
+          <ResponsiveContainer width="100%" height={240}>
+            <LineChart data={chartPoints} margin={{ top: 8, right: 12, left: 4, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis
                 dataKey="date"
                 tickFormatter={formatXAxisLabel}
-                tick={{ fontSize: 11 }}
-                minTickGap={24}
+                tick={{ fontSize: 10 }}
+                minTickGap={32}
+                axisLine={false}
+                tickLine={false}
               />
               <YAxis
                 domain={yDomain}
                 tickFormatter={(v) => yAxisFormatter(Number(v))}
-                tick={{ fontSize: 11 }}
-                width={64}
+                tick={{ fontSize: 10 }}
+                width={72}
+                tickCount={5}
+                axisLine={false}
+                tickLine={false}
               />
               <Tooltip
                 content={({ active, payload, label }) => {
