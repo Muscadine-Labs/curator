@@ -57,8 +57,3 @@ export type MorphoMarketMetrics = {
   configVersion?: string;
   raw: MorphoMarketRaw;
 };
-
-export type MorphoMarketsResponse = {
-  timestamp: string;
-  markets: MorphoMarketMetrics[];
-};

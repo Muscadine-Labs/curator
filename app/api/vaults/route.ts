@@ -17,6 +17,7 @@ import {
 import { gql } from 'graphql-request';
 import { getAddress } from 'viem';
 import { logger } from '@/lib/utils/logger';
+import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
 
 // Ensure Node.js runtime for API routes (required for external API calls)
 export const runtime = 'nodejs';
@@ -264,8 +265,7 @@ export async function GET(request: Request) {
     // Filter to only include vaults from our configured addresses
     const merged = allVaults.filter(v => configuredAddressSet.has(v.address.toLowerCase()));
 
-    const responseHeaders = new Headers(rateLimitResult.headers);
-    responseHeaders.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+    const responseHeaders = mergeApiCacheHeaders(rateLimitResult.headers, 60);
 
     return NextResponse.json(merged, { headers: responseHeaders });
   } catch (err) {

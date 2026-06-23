@@ -10,6 +10,7 @@ import { getVaultByAddress } from '@/lib/config/vaults';
 import { handleApiError, AppError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
 import { BASE_CHAIN_ID, VAULT_V2_GRAPHQL_PENDING_LIMIT } from '@/lib/constants';
+import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
 
 const PENDING_LIMIT = VAULT_V2_GRAPHQL_PENDING_LIMIT;
 
@@ -120,8 +121,7 @@ export async function GET(
       pending,
     };
 
-    const headers = new Headers(rateLimitResult.headers);
-    headers.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=120');
+    const headers = mergeApiCacheHeaders(rateLimitResult.headers, 30);
 
     return NextResponse.json(response, { headers });
   } catch (error) {

@@ -5,35 +5,6 @@
 
 export type DustRecipientChoice = 'auto' | string;
 
-export function resolveDustRecipientIndex<T>(
-  items: ReadonlyArray<T>,
-  choice: DustRecipientChoice,
-  getKey: (item: T, index: number) => string,
-  pickAutoIndex: (items: ReadonlyArray<T>) => number
-): number {
-  if (items.length === 0) return -1;
-  if (choice === 'auto') return pickAutoIndex(items);
-  const idx = items.findIndex((item, i) => getKey(item, i) === choice);
-  return idx >= 0 ? idx : pickAutoIndex(items);
-}
-
-export function pickLargestAssetsIndex<T>(
-  items: ReadonlyArray<T>,
-  getAssets: (item: T) => bigint
-): number {
-  if (items.length === 0) return -1;
-  let bestIdx = 0;
-  let best = getAssets(items[0]);
-  for (let i = 1; i < items.length; i++) {
-    const v = getAssets(items[i]);
-    if (v > best) {
-      best = v;
-      bestIdx = i;
-    }
-  }
-  return bestIdx;
-}
-
 export function applyPlanningDust<T>(
   items: ReadonlyArray<T>,
   totalRaw: bigint,

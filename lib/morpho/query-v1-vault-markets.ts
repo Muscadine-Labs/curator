@@ -60,6 +60,7 @@ const VAULT_V1_MARKETS_QUERY = gql`
               supplyAssetsUsd
               borrowAssetsUsd
               collateralAssetsUsd
+              liquidityAssets
               liquidityAssetsUsd
               utilization
               supplyApy
@@ -118,6 +119,7 @@ export type V1VaultMarketData = {
     supplyAssetsUsd: number | null;
     borrowAssetsUsd: number | null;
     collateralAssetsUsd: number | null;
+    liquidityAssets: string | null;
     liquidityAssetsUsd: number | null;
     utilization: number | null;
     supplyApy: number | null;
@@ -177,6 +179,7 @@ export type V1VaultMarketsQueryResponse = {
             supplyAssetsUsd: number | null;
             borrowAssetsUsd: number | null;
             collateralAssetsUsd: number | null;
+            liquidityAssets: string | null;
             liquidityAssetsUsd: number | null;
             utilization: number | null;
             supplyApy: number | null;

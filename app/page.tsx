@@ -9,6 +9,7 @@ import { useProtocolStats } from '@/lib/hooks/useProtocolStats';
 import { AppShell } from '@/components/layout/AppShell';
 import { useRevenueSource, type RevenueSource } from '@/lib/RevenueSourceContext';
 import { sumTreasuryRevenueYtd, sumTreasuryRevenueYtdFromDaily } from '@/lib/morpho/treasury-statement';
+import { apiFetch } from '@/lib/data/api-fetch';
 
 // Lazy load chart components to reduce initial bundle size
 const ChartTvl = dynamic(() => import('@/components/ChartTvl').then(mod => ({ default: mod.ChartTvl })), {
@@ -46,7 +47,7 @@ export default function Home() {
   const { data: monthlyData, isLoading: isTreasuryLoading } = useQuery<MonthlyStatementResponse>({
     queryKey: ['monthly-statement', 'wallet-balance'],
     queryFn: async () => {
-      const res = await fetch('/api/monthly-statement-morphoql', { credentials: 'omit' });
+      const res = await apiFetch('/api/monthly-statement-morphoql', { credentials: 'omit' });
       if (!res.ok) throw new Error('Failed to fetch monthly statement');
       return res.json();
     },

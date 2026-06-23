@@ -16,6 +16,7 @@ import { gql } from 'graphql-request';
 import { getAddress } from 'viem';
 import type { Vault, Maybe } from '@morpho-org/blue-api-sdk';
 import { logger } from '@/lib/utils/logger';
+import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
 import { 
   fetchDefiLlamaFees, 
   fetchDefiLlamaRevenue,
@@ -664,8 +665,7 @@ export async function GET(request: Request) {
       inflowsTrendCumulative,
     };
 
-    const responseHeaders = new Headers(rateLimitResult.headers);
-    responseHeaders.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+    const responseHeaders = mergeApiCacheHeaders(rateLimitResult.headers, 60);
 
     return NextResponse.json(stats, { headers: responseHeaders });
   } catch (err) {

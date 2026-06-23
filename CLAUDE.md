@@ -16,8 +16,7 @@ vault mechanics, contract wiring, or the data flow.
 - **Version bump on every push to GitHub:** increment `package.json` `version` by
  0.0.1 per push. When the last digit would pass 9, roll it over to the next
  decimal (0.2.9 → 0.3.0, 1.9.9 → 2.0.0).
-- **Before pushing:** run `npm run lint`, `npm test`, and `npm run build` and make
- sure all pass.
+- **Before pushing:** run `npm run lint` and `npm run build` and make sure all pass.
 
 ---
 
@@ -62,36 +61,34 @@ Muscadine for managing and reporting on Morpho-style vaults on Base (chainId
 ```
 app/
   api/                 Next.js route handlers (BFF for Morpho + onchain data)
-    vaults/            GET /api/vaults, /api/vaults/[id]
-    vaults/v1/[id]/    V1-specific endpoints (market-risk)
-    vaults/v2/[id]/    V2-specific endpoints (risk, governance)
+    vaults/            GET /api/vaults, /api/vaults/[id], history, holders, …
+    vaults/v2/[id]/    V2-specific endpoints (risk, governance, pending)
     morpho-markets/    Cross-vault market list
     protocol-stats/    Aggregate TVL / revenue
     monthly-statement-* Statement generators
     google-sheets/     Sheets export
     auth/              Session verify
-  curator/             Curator-only tools (eip-7702, safe, frontend, morpho)
+  curator/             Curator-only tools (morpho, safe)
   overview/            Aggregate dashboards
-  vault/v1/[address]/  V1 vault detail page
-  vault/v2/[address]/  V2 vault detail page
-  vaults/              Vault list & legacy details
+  vault/v2/[address]/  V2 vault detail page (only vault detail route)
 
 components/
-  morpho/              Vault-specific UI (AllocationV1, VaultV2Allocations,
-                       VaultV2Caps, VaultRiskV1/V2, ...)
+  morpho/              VaultV2Allocations, VaultV2Caps, VaultV2Sentinel,
+                       TxPreviewDialog, AllocationListView, …
   layout/              AppShell, Sidebar, Topbar
   ui/                  Primitive components (button, card, input, table, ...)
-  eip7702/             EIP-7702 delegation control
 
 lib/
   auth/                Curator auth context + server helpers
   config/vaults.ts     Tracked vault addresses (V1 + V2)
+  data/                api-fetch, query-config (30s refetch)
+  api/                 response-cache helpers for BFF routes
   format/number.ts     Central number/BigInt formatting helpers
-  hooks/               React Query hooks for vault data (markets, caps,
-                       queues, risk, roles, governance, writes)
-  morpho/              Morpho GraphQL queries, compute helpers, IRM/oracle math
+  hooks/               React Query hooks for vault data
+  morpho/              GraphQL queries, tx-preview, cap-decrease-input, …
   onchain/
-    abis.ts            MetaMorpho V1 + Vault V2 ABIs
+    abis.ts            Vault V2 ABI only
+    vault-writes.ts    V2 write config builders
     client.ts          viem client factory
     contracts.ts       Chain/address constants
     vault-writes.ts    Typed write config builders (reallocate, allocate,
@@ -119,9 +116,14 @@ Allocators (curator/allocator role) periodically rebalance idle + market
 balances. V1 and V2 reach the same goal via _different_ contract semantics.
 Getting those semantics wrong is the #1 source of reverts.
 
-### 3.1 Morpho V1 (MetaMorpho) — **target-based `reallocate`**
+### 3.1 Morpho V1 (MetaMorpho) — **target-based `reallocate`** (reference)
 
-- Contract: `MetaMorpho` (`lib/onchain/abis.ts: metaMorphoV1Abi`)
+> **App note:** this repo no longer ships a V1 vault detail page or V1 write
+> builders. V1 vaults still appear in list/dashboard APIs and as MetaMorpho
+> adapter rows on V2 vaults. The rules below remain relevant for understanding
+> wrapped V1 positions and Morpho protocol semantics.
+
+- Contract: `MetaMorpho` (Morpho Blue ERC-4626 vault)
 - Write entrypoint: `reallocate(MarketAllocation[] allocations)`
   - `MarketAllocation { MarketParams marketParams; uint256 assets; }`
   - `assets` is the **target supply** the vault should hold in that market
@@ -143,13 +145,8 @@ Getting those semantics wrong is the #1 source of reverts.
   - Set the last deposit's `assets` to `type(uint256).max` (`maxUint256`). The
     contract interprets this as "supply whatever is still idle," which exactly
     absorbs the dust from accrual and guarantees the invariant.
-  - The pure helper that enforces this lives in `lib/onchain/reallocation.ts`
-    (`buildV1ReallocationPlan`). `AllocationV1.tsx` calls it instead of
-    duplicating the logic, and `lib/onchain/__tests__/reallocation.test.ts`
-    asserts the catcher is always present whenever the plan contains at
-    least one withdrawal.
-  - We do this in `components/morpho/AllocationV1.tsx` by sorting deposits by
-    positive delta and tagging the **largest** as the catcher.
+  - When implementing V1 reallocate UIs elsewhere, withdrawals must precede
+    deposits and the largest deposit should be the catcher.
 - **Cap model**: each market has a `supplyCap` (absolute assets). We validate
   targets against `supplyCap` client-side before sending the tx.
 
@@ -236,21 +233,13 @@ Getting those semantics wrong is the #1 source of reverts.
 
 ## 4. Data Flow for Allocation Pages
 
-### 4.1 V1 (`app/vault/v1/[address]/page.tsx`)
+### 4.1 V1 vaults (API / reporting only)
 
-1. `useVaultV1Complete` fans out to:
-   - `useVault(address)` → `/api/vaults/[id]` → Morpho GraphQL. Provides
-     `allocation[]` with `market`, `assets`, `supplyAssets`, `supplyCap`, etc.
-   - `useVaultV1MarketRisk` → per-market risk
-   - `useVaultCaps`, `useVaultQueues`, `useVaultRoles` (governance detail)
-2. `components/morpho/AllocationV1.tsx` receives the preloaded vault and risk.
-   It builds market rows, then on submit calls `v1WriteConfigs.reallocate(...)`
-   via `useVaultWrite`. UI uses the shared **list layout**
-   (`AllocationListView.tsx`): two-column “Allocation” header, sections **Idle**
-   then **Morpho Blue Market**, optional metric columns from filters, LLTV
-   pills on Blue rows (`86%` style via `formatLltvPill`).
-3. Number display uses `lib/format/number.ts` helpers
-   (`formatRawTokenAmount`, `formatFullUSD`) for precision output.
+V1 MetaMorpho vaults are still queried in `GET /api/vaults` and
+`GET /api/vaults/[id]` for dashboard TVL, treasury statements, and sidebar
+listing. There is **no** `app/vault/v1/…` detail route in this app — open V1
+vaults on Morpho (`morphoVaultHref`) or manage wrapped V1 exposure via the
+parent V2 vault's MetaMorpho adapter rows.
 
 ### 4.2 V2 (`app/vault/v2/[address]/page.tsx`)
 
@@ -351,9 +340,9 @@ is business vaults only.
 
 **Sidebar** (`components/layout/Sidebar.tsx`) uses `useVaultList({ includeAll: true })`.
 Section order under each network (Base only today): **V2 Prime → V1 Vaults → V2
-Vineyard → V2 Test**. Categorization prefers `version` / `listCategory` from the
-API, then `getVaultCategory(name, address)` heuristics. V1 routes:
-`/vault/v1/{address}`; V2 Prime/Vineyard/Test use `/vault/v2/{address}`.
+Vineyard → V2 Test**. All sidebar vault links route to `/vault/v2/{address}`
+(V1-labeled rows included — the V2 page loads whatever vault Morpho returns for
+that address).
 
 Ethereum appears in `SIDEBAR_NETWORKS` but has no configured vaults — expand
 **Base**, not Ethereum, to see vault links.
@@ -550,9 +539,12 @@ its own row with “No strategy risk”; it does not dilute or improve the headl
 Adapter count KPI = `adapters.length + 1`. Total allocated display =
 `totalAdapterAssetsUsd + idleAssetsUsd`.
 
-**Hooks / cache:** `useVaultV1MarketRisk`, `useVaultV2Risk`; keys
-`['vault-v1-market-risk', address]`, `['vault-v2-risk', address]`. Routes cache
-`public, s-maxage=120, stale-while-revalidate=300`.
+**Hooks / cache:** `useVaultV2Risk`, `useVaultV2Governance`; keys
+`['vault-v2-risk', address]`, `['vault-v2-governance', address]`. BFF routes
+set `Cache-Control` via `mergeApiCacheHeaders()` in `lib/api/response-cache.ts`
+(default `s-maxage=30`, stale-while-revalidate=60; some routes pass 60–300s).
+Client hooks bypass the browser HTTP cache with `apiFetch` (`cache: 'no-store'`)
+and poll every `CURATOR_REFETCH_INTERVAL_MS` (30s).
 
 #### Do not regress
 
@@ -602,14 +594,14 @@ the treasury dashboard without restoring the tx-classification pipeline in
 
 ## 5. Reallocation UX Conventions (current code)
 
-These rules are baked into `AllocationV1.tsx`, `VaultV2Allocations.tsx`,
+These rules are baked into `VaultV2Allocations.tsx`, `VaultV2Sentinel.tsx`,
 `AllocationListView.tsx`, and `AllocationFilters.tsx` — preserve them:
 
 ### 5.1 List layout (`AllocationListView.tsx`)
 
 - Morpho-style card: header **Allocation | Allocation** (name left, amount right).
 - **Sections** (fixed order on V2): Idle → V1 Vault → Morpho Blue Market.
-  V1 uses Idle → Morpho Blue Market. Section headers replace per-row type labels.
+  Section headers replace per-row type labels.
 - **No token icons.** LLTV on Blue rows is a gray pill (`86%`) via
   `formatLltvPill`, not “LLTV 86%”.
 - Optional metric columns render as compact extra cells when enabled in filters.
@@ -624,34 +616,35 @@ These rules are baked into `AllocationV1.tsx`, `VaultV2Allocations.tsx`,
 - **Default optional columns ON:** utilization, liquidity, supply APY, allocated.
 - **Default optional columns OFF:** borrow APY, effective cap, percent cap.
 - Column keys: `effectiveCap` (absolute token cap) and `percentCap` (relative
-  WAD on V2; supply cap as % of vault on V1). Replaced the old single `cap` key.
+  WAD on V2).
+- Filter preferences persist per vault via `usePersistedAllocationFilters` and
+  `lib/allocation/allocation-filters-storage.ts`.
 
 ### 5.3 Planning & submit
 
 1. **Edit inputs are human-readable strings** parsed with `parseUnits` /
    percentage of `totalRawAssets`.
 2. **Cap validation** runs client-side before enabling submit.
-   - V1: `target <= supplyCap` per market
    - V2: `target <= absoluteCap` and relative cap vs `firstTotalAssets`
 3. **Remaining banner** (`RemainingBanner`):
    - **Planned** = `inputSum` (sum of resolved target inputs), **not** forced to
      `totalRawAssets` after dust adjustment.
    - V2 under-allocation: “X will move to Idle after rebalance” (`implicitIdle`).
    - Uses `formatRawTokenAmount` for token amounts.
-4. **V1 submit** uses `maxUint256` on the chosen dust recipient's deposit when
-   the plan includes withdrawals. `DustRecipientSelect` lets the curator pick
-   the catcher row (default: largest target).
-5. **V2 submit** batches via `multicall`; deallocates before allocates.
+4. **V2 submit** batches via `multicall`; deallocates before allocates.
    `DustRecipientSelect` (auto = **Idle**) lets the curator explicitly route the
    unallocated remainder to a strategy target; with `auto` the remainder is
    implicit Idle. Never **auto**-inflate a strategy target to absorb
    under-allocation — only an explicit curator choice may do so, and it still
-   passes cap validation.
-6. **V2 idle row** — editable for planning; never in `allocate`/`deallocate`
+   passes cap validation. **`TxPreviewDialog`** shows human-readable deltas
+   (`lib/morpho/tx-preview.ts`) before the wallet signs.
+5. **V2 idle row** — editable for planning; never in `allocate`/`deallocate`
    calldata.
-7. Use `formatRawTokenAmount` for all raw bigint display (avoid `1.23e-6`).
-8. **APY / utilization from Morpho GraphQL** (V2 risk route): multiply by 100
-   before `formatPercentage`. V1 vault API pre-scales allocation fields.
+6. Use `formatRawTokenAmount` for all raw bigint display (avoid `1.23e-6`).
+7. **APY / utilization from Morpho GraphQL** (V2 risk route): multiply by 100
+   before `formatPercentage`.
+8. **Sentinel cap decreases** parse via `parseCapDecreaseInput`
+   (`lib/morpho/cap-decrease-input.ts`) with inline row errors.
 
 ### 5.4 Adapters & caps tabs
 
@@ -690,14 +683,12 @@ Rules:
 
 ## 7. Onchain Writes
 
-`lib/onchain/vault-writes.ts` defines typed write config builders:
+`lib/onchain/vault-writes.ts` defines typed **V2** write config builders:
 
-- V1: `v1WriteConfigs.reallocate(vaultAddress, MarketAllocation[])`
-- V2:
-  - `v2WriteConfigs.allocate(vaultAddress, adapter, idData, assets, maxAssets)`
-  - `v2WriteConfigs.deallocate(vaultAddress, adapter, idData, assets, minAssets)`
-  - `v2WriteConfigs.multicall(vaultAddress, calls)`
-  - `v2WriteConfigs.increase/decreaseAbsoluteCap`, relative cap variants
+- `v2WriteConfigs.allocate(vaultAddress, adapter, data, assets)`
+- `v2WriteConfigs.deallocate(vaultAddress, adapter, data, assets)`
+- `v2WriteConfigs.multicall(vaultAddress, calls)`
+- `v2WriteConfigs.increase/decreaseAbsoluteCap`, relative cap variants
 
 `lib/hooks/useVaultWrite.ts` wraps `wagmi`'s write hooks to expose
 `{ write, isPending, isSuccess, error, txHash }`. Always pass a fully-built
@@ -877,7 +868,6 @@ npm install
 npm run dev            # next dev
 npm run lint           # eslint . --max-warnings=0
 npm run typecheck      # or: npx tsc --noEmit
-npm test               # jest
 npm run build
 ```
 
@@ -899,32 +889,33 @@ npm run build
 
 | Concern                          | File                                                     |
 | -------------------------------- | -------------------------------------------------------- |
-| V1 allocation UI + reallocate    | `components/morpho/AllocationV1.tsx`                    |
 | V2 allocation UI + allocate/etc. | `components/morpho/VaultV2Allocations.tsx`              |
+| Tx preview dialog + builders     | `components/morpho/TxPreviewDialog.tsx`, `lib/morpho/tx-preview.ts` |
 | Allocation list shell + sections | `components/morpho/AllocationListView.tsx`               |
+| Allocation filter persistence  | `lib/allocation/allocation-filters-storage.ts`, `usePersistedAllocationFilters.ts` |
 | V2 adapters UI (incl. idle)      | `components/morpho/VaultV2Adapters.tsx`                 |
 | V2 caps UI (read-only + pending) | `components/morpho/VaultV2Caps.tsx`                      |
 | V2 roles / timelocks UI          | `components/morpho/VaultV2Roles.tsx`, `VaultV2Timelocks.tsx` |
 | V2 Sentinel UI + writes          | `components/morpho/VaultV2Sentinel.tsx`                  |
+| Cap decrease input parsing     | `lib/morpho/cap-decrease-input.ts`                       |
 | V2 cap idData encoding           | `lib/morpho/v2-id-data.ts` (`resolveCapIdData`, …)       |
 | V2 cap display helpers           | `lib/morpho/v2-cap-format.ts`                            |
 | Market risk scoring (shared)     | `lib/morpho/compute-v1-market-risk.ts`, `lib/morpho/irm-utils.ts`, `lib/morpho/oracle-utils.ts` |
 | V2 risk API                      | `app/api/vaults/v2/[id]/risk/route.ts` |
 | Morpho app deep links            | `lib/morpho/morpho-app-links.ts`                         |
 | V2 pending UI                    | `components/morpho/VaultV2Pending.tsx`                    |
-| V1 pending UI                    | `components/morpho/VaultV1Pending.tsx`                    |
 | V2 vault page (tabs)             | `app/vault/v2/[address]/page.tsx`                         |
-| V1 vault page (tabs)             | `app/vault/v1/[address]/page.tsx`                         |
 | Underlying V1 vault stats query  | `lib/morpho/query-v1-vault-markets.ts`                    |
+| Client fetch + refetch interval  | `lib/data/api-fetch.ts`, `lib/data/query-config.ts`      |
+| BFF cache headers                | `lib/api/response-cache.ts`                              |
 | Wallet / RainbowKit config       | `lib/wallet/config.ts`, `app/providers.tsx`, `components/ConnectWalletButton.tsx` |
 | Shared filters UI                | `components/morpho/AllocationFilters.tsx`               |
 | Number formatting                | `lib/format/number.ts`                                   |
-| ABIs                             | `lib/onchain/abis.ts`                                    |
-| Write configs                    | `lib/onchain/vault-writes.ts`                            |
-| V1 reallocation planner (pure)   | `lib/onchain/reallocation.ts`, `lib/onchain/allocation-dust.ts` |
+| ABIs                             | `lib/onchain/abis.ts` (V2 only)                          |
+| Write configs                    | `lib/onchain/vault-writes.ts` (V2 only)                  |
+| Planning dust helper             | `lib/onchain/allocation-dust.ts` (`applyPlanningDust`)   |
 | Dust recipient UI                | `components/morpho/DustRecipientSelect.tsx`              |
 | Write hook                       | `lib/hooks/useVaultWrite.ts`                             |
-| V1 data hook                     | `lib/hooks/useVaultV1Complete.ts`                        |
 | V2 data hook                     | `lib/hooks/useVaultV2Complete.ts`                        |
 | V2 caps API                      | `app/api/vaults/v2/[id]/governance/route.ts`             |
 | Vault overview + history chart   | `components/morpho/VaultOverviewPanel.tsx`, `VaultOverviewHistoryChart.tsx` |
@@ -934,9 +925,7 @@ npm run build
 | Vault overview analytics         | `lib/morpho/vault-analytics.ts`                          |
 | Chart metric / unit filters      | `components/charts/MetricModeFilter.tsx`, `UsdTokenModeFilter.tsx` |
 | Asset decimals + allocation fmt  | `lib/format/asset-decimals.ts`, `allocation-display.ts` |
-| V1 parameters API                | `app/api/vaults/v1/[id]/parameters/route.ts`             |
 | V2 cap helpers                   | `lib/morpho/cap-utils.ts`, `lib/morpho/vault-v2-governance-map.ts` |
-| V1 market risk API               | `app/api/vaults/v1/[id]/market-risk/route.ts`            |
 | Vault list API                   | `app/api/vaults/route.ts`, `app/api/vaults/[id]/route.ts`|
 | Vault history + share price      | `lib/morpho/vault-history.ts`, `useVaultHistory.ts`, `VaultOverviewHistoryChart.tsx` |
 | Sidebar vault sections           | `components/layout/Sidebar.tsx`, `lib/config/vaults.ts` (`getVaultCategory`) |
@@ -1045,10 +1034,12 @@ V2 contracts (same on every chain):
 - **No unused files** — all source files are referenced.
 - **Unused direct deps** — none flagged at last knip run after RainbowKit
   migration (wallet stack is `@rainbow-me/rainbowkit` + `wagmi`).
-- **Unused test/lint devDeps** — `@testing-library/*`, `@eslint/compat`,
-  `@eslint/eslintrc`, `@jest/globals`, `fake-indexeddb`, `eslint-config-next`
-  are flagged by knip because they're used via config files, not `import`.
-  They are legitimately required. **Don't remove.**
+- **Unused test/lint devDeps** — `fake-indexeddb` is required for the SSR
+  indexedDB polyfill (`lib/wallet/polyfill-indexeddb.ts`), not for Jest.
+  `@eslint/*` and `eslint-config-next` are used via config files. **Don't remove
+  `fake-indexeddb`.**
+- **Jest** — not configured in this branch (`npm test` absent). Reintroduce
+  Jest + pure `lib/` unit tests before restoring allocation write regressions.
 - **Unused exports** — a number of helpers are exported but not yet consumed
   (examples: `lib/constants.ts` time helpers, `lib/morpho/graphql-client.ts`
   types). They are kept as a shared vocabulary; remove individual ones only
@@ -1148,34 +1139,22 @@ When adding new paginated tables, reuse the same 10/page pattern and the
 
 ## 16. Tests
 
-`jest.config.js` sets up `ts-jest` + `jest-environment-jsdom`, with viem and
-wagmi transformed via `transformIgnorePatterns`. Run with `npm test` (or
-`npm run test:coverage`).
+Jest is **not** configured in this branch. Before pushing substantive changes,
+run `npm run lint` and `npm run build`.
 
-### 16.1 Test files (current)
+When reintroducing tests, prefer pure logic in `lib/` with `*.test.ts` under
+`__tests__/`. Do not call wagmi hooks from tests; mock React Query hooks at
+module level. Tests should never hit the network.
 
-| Suite | What it asserts |
-| ---------------------------------------------------------- | --------------- |
-| `lib/onchain/__tests__/reallocation.test.ts`               | `buildV1ReallocationPlan` ordering (withdrawals first, deposits after) and `maxUint256` catcher (default largest deposit + explicit `catcherKey` from dust recipient). |
-| `lib/format/__tests__/asset-decimals.test.ts`            | Known symbol decimals (USDC 6, cbBTC 8, WETH 18) and `resolveAssetDecimals` / `getTokenDisplayDecimals`. |
-When adding write builders in `vault-writes.ts`, add or restore ABI round-trip
-tests under `lib/onchain/__tests__/vault-writes.test.ts`.
-
-### 16.2 Conventions
-
-- Pure logic lives in `lib/` and gets a `*.test.ts` next to it under
-  `__tests__/`. Component behaviour gets a `*.test.tsx` under
-  `components/.../__tests__/`.
-- Do not call wagmi hooks from tests; mock the React Query hook
-  (`useVaultHolders`, `useVaultTransactions`, etc.) at module level with
-  `jest.mock(...)`. Tests should never hit the network.
+High-value targets if Jest returns: `lib/morpho/cap-decrease-input.ts`,
+`lib/morpho/tx-preview.ts`, `lib/onchain/allocation-dust.ts` (`applyPlanningDust`).
 
 ---
 
-_Last updated: 2026-06-23 (v1.1.3). When you change reallocation logic, allocation
-list/filters (§5), caps/adapters display, V2 idData/Sentinel (§3.2, §4.2), Morpho
-GraphQL field names (§4.4.1), vault list/sidebar (§4.3.1), vault overview/history
-(share price in §4.4), risk scoring (§4.5), V2 idle/MetaMorpho/Blue display,
-pending/emergency tabs, wallet stack, formatting, the CCTP flow, global density,
-or add a new vault interaction, update Sections 3–6, 4.2–4.5, 9–10, 13, 15,
-and 16 accordingly._
+_Last updated: 2026-06-23 (v1.1.7). When you change reallocation logic, allocation
+list/filters (§5), caps/adapters display, V2 idData/Sentinel (§3.2, §4.2), tx
+preview, client fetch/cache, Morpho GraphQL field names (§4.4.1), vault list/sidebar
+(§4.3.1), vault overview/history (share price in §4.4), risk scoring (§4.5), V2
+idle/MetaMorpho/Blue display, pending/emergency tabs, wallet stack, formatting,
+the CCTP flow, global density, or add a new vault interaction, update Sections 3–6,
+4.2–4.5, 9–10, 13, 15, and 16 accordingly._

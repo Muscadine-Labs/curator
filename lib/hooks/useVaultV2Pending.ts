@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import type { VaultV2PendingResponse } from '@/app/api/vaults/v2/[id]/pending/route';
+import { apiFetch } from '@/lib/data/api-fetch';
 
 async function fetchVaultV2Pending(vaultAddress: string): Promise<VaultV2PendingResponse> {
-  const res = await fetch(`/api/vaults/v2/${vaultAddress}/pending`, { credentials: 'omit' });
+  const res = await apiFetch(`/api/vaults/v2/${vaultAddress}/pending`, { credentials: 'omit' });
 
   if (!res.ok) {
     const text = await res.text();

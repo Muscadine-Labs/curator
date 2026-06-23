@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import type { VaultTransactionsResponse } from '@/app/api/vaults/[id]/transactions/route';
+import { apiFetch } from '@/lib/data/api-fetch';
 
 async function fetchVaultTransactions(
   vaultAddress: string,
   first = 100
 ): Promise<VaultTransactionsResponse> {
-  const res = await fetch(
+  const res = await apiFetch(
     `/api/vaults/${vaultAddress}/transactions?first=${first}`,
     { credentials: 'omit' }
   );

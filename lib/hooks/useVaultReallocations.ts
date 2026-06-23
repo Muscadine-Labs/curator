@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import type { ReallocationsResponse } from '@/app/api/vaults/[id]/reallocations/route';
+import { apiFetch } from '@/lib/data/api-fetch';
 
 async function fetchVaultReallocations(
   vaultAddress: string,
   first = 100
 ): Promise<ReallocationsResponse> {
-  const res = await fetch(
+  const res = await apiFetch(
     `/api/vaults/${vaultAddress}/reallocations?first=${first}`,
     { credentials: 'omit' }
   );

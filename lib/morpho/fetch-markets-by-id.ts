@@ -27,6 +27,7 @@ const MARKETS_FOR_CAPS_QUERY = gql`
           supplyApy
           borrowApy
           utilization
+          liquidityAssets
           liquidityAssetsUsd
         }
       }
@@ -38,6 +39,7 @@ export type MarketStateSnapshot = {
   supplyApy?: number | null;
   borrowApy?: number | null;
   utilization?: number | null;
+  liquidityAssets?: string | number | null;
   liquidityAssetsUsd?: number | null;
 };
 

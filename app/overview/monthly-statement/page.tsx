@@ -12,6 +12,7 @@ import { formatCompactUSD } from '@/lib/format/number';
 import { getAddress } from 'viem';
 import Link from 'next/link';
 import { Info } from 'lucide-react';
+import { apiFetch } from '@/lib/data/api-fetch';
 
 interface TreasuryAssetBreakdown {
   USDC: { tokens: number; usd: number };
@@ -99,7 +100,7 @@ export default function MonthlyStatementPage() {
   const { data, isLoading, error } = useQuery<MonthlyStatementResponse>({
     queryKey: ['monthly-statement', 'wallet-balance'],
     queryFn: async () => {
-      const response = await fetch('/api/monthly-statement-morphoql', {
+      const response = await apiFetch('/api/monthly-statement-morphoql', {
         credentials: 'omit',
       });
       if (!response.ok) throw new Error('Failed to fetch monthly statement');
@@ -110,7 +111,7 @@ export default function MonthlyStatementPage() {
   const { data: vaultData, isLoading: isVaultDataLoading } = useQuery<VaultStatementResponse>({
     queryKey: ['monthly-statement-vaults'],
     queryFn: async () => {
-      const response = await fetch('/api/monthly-statement-morphoql?perVault=true', {
+      const response = await apiFetch('/api/monthly-statement-morphoql?perVault=true', {
         credentials: 'omit',
       });
       if (!response.ok) throw new Error('Failed to fetch vault statement');
@@ -122,7 +123,7 @@ export default function MonthlyStatementPage() {
   const { data: defiLlamaData, isLoading: isDefiLlamaLoading, error: defiLlamaError } = useQuery<DefiLlamaStatementResponse>({
     queryKey: ['monthly-statement-defillama'],
     queryFn: async () => {
-      const response = await fetch('/api/monthly-statement-defillama', {
+      const response = await apiFetch('/api/monthly-statement-defillama', {
         credentials: 'omit',
       });
       if (!response.ok) throw new Error('Failed to fetch DefiLlama statement');

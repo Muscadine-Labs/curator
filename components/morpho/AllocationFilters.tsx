@@ -5,91 +5,40 @@ import { Filter, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import {
+  DEFAULT_COLUMN_STATE,
+  DEFAULT_FILTER_STATE,
+  type AllocationColumnState,
+  type AllocationFilterState,
+  type AllocationSortKey,
+} from '@/lib/allocation/allocation-filters';
 
-type SortKey =
-  | 'allocated-desc'
-  | 'allocated-asc'
-  | 'supplyApy-desc'
-  | 'utilization-desc'
-  | 'capacity-desc'
-  | 'name-asc';
-
-/**
- * Which data columns the allocation table should show.
- * Kept flat so components can do `if (filters.columns.utilization)`.
- */
-interface AllocationColumnState {
-  utilization: boolean;
-  liquidity: boolean;
-  borrowApy: boolean;
-  supplyApy: boolean;
-  allocated: boolean;
-  /** Absolute / effective cap (raw token cap). */
-  effectiveCap: boolean;
-  /** Relative cap as % of vault (WAD). */
-  percentCap: boolean;
-}
-
-/**
- * Display mode for the Allocated / Cap columns.
- * - 'amount'  — raw token amount (e.g. "12,345.67 USDC")
- * - 'percent' — share of total vault allocation (e.g. "12.34%")
- */
-type AllocationDisplayMode = 'amount' | 'percent';
-
-export type AllocationAmountUnit = 'usd' | 'token';
-
-export interface AllocationFilterState {
-  search: string;
-  hideZero: boolean;
-  onlyIdle: boolean;
-  hideIdle: boolean;
-  onlyWithCapacity: boolean;
-  onlyEdited: boolean;
-  sort: SortKey;
-  columns: AllocationColumnState;
-  displayMode: AllocationDisplayMode;
-  /** When displayMode is `amount`, show USD or native token amounts. */
-  amountUnit: AllocationAmountUnit;
-}
-
-const DEFAULT_COLUMN_STATE: AllocationColumnState = {
-  utilization: true,
-  liquidity: true,
-  borrowApy: false,
-  supplyApy: true,
-  allocated: false,
-  effectiveCap: true,
-  percentCap: false,
-};
-
-export const DEFAULT_FILTER_STATE: AllocationFilterState = {
-  search: '',
-  hideZero: false,
-  onlyIdle: false,
-  hideIdle: false,
-  onlyWithCapacity: false,
-  onlyEdited: false,
-  sort: 'allocated-desc',
-  columns: DEFAULT_COLUMN_STATE,
-  displayMode: 'amount',
-  amountUnit: 'token',
-};
+export type {
+  AllocationAmountUnit,
+  AllocationFilterState,
+  AllocationLiquidityUnit,
+  AllocationSortKey,
+} from '@/lib/allocation/allocation-filters';
 
 interface AllocationFiltersProps {
   value: AllocationFilterState;
   onChange: (next: AllocationFilterState) => void;
+  onReset?: () => void;
   editing?: boolean;
   showIdleToggles?: boolean;
 }
 
-const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+const SORT_OPTIONS: { key: AllocationSortKey; label: string }[] = [
   { key: 'allocated-desc', label: 'Allocated (high → low)' },
   { key: 'allocated-asc', label: 'Allocated (low → high)' },
   { key: 'supplyApy-desc', label: 'Supply APY (high → low)' },
+  { key: 'borrowApy-desc', label: 'Borrow APY (high → low)' },
   { key: 'utilization-desc', label: 'Utilization (high → low)' },
+  { key: 'liquidity-desc', label: 'Liquidity USD (high → low)' },
+  { key: 'liquidity-asc', label: 'Liquidity USD (low → high)' },
   { key: 'capacity-desc', label: 'Remaining capacity (high → low)' },
   { key: 'name-asc', label: 'Market (A → Z)' },
+  { key: 'name-desc', label: 'Market (Z → A)' },
 ];
 
 const COLUMN_OPTIONS: { key: keyof AllocationColumnState; label: string }[] = [
@@ -102,7 +51,53 @@ const COLUMN_OPTIONS: { key: keyof AllocationColumnState; label: string }[] = [
   { key: 'percentCap', label: 'Percent cap' },
 ];
 
-export function AllocationFilters({ value, onChange, editing = false, showIdleToggles = true }: AllocationFiltersProps) {
+const COLUMN_PRESETS: {
+  id: string;
+  label: string;
+  columns: AllocationColumnState;
+}[] = [
+  {
+    id: 'default',
+    label: 'Default',
+    columns: { ...DEFAULT_COLUMN_STATE },
+  },
+  {
+    id: 'full',
+    label: 'All columns',
+    columns: COLUMN_OPTIONS.reduce(
+      (acc, c) => ({ ...acc, [c.key]: true }),
+      {} as AllocationColumnState
+    ),
+  },
+  {
+    id: 'risk',
+    label: 'Risk focus',
+    columns: {
+      utilization: true,
+      liquidity: true,
+      borrowApy: true,
+      supplyApy: true,
+      allocated: true,
+      effectiveCap: true,
+      percentCap: true,
+    },
+  },
+  {
+    id: 'minimal',
+    label: 'Minimal',
+    columns: {
+      utilization: false,
+      liquidity: true,
+      borrowApy: false,
+      supplyApy: true,
+      allocated: false,
+      effectiveCap: false,
+      percentCap: false,
+    },
+  },
+];
+
+export function AllocationFilters({ value, onChange, onReset, editing = false, showIdleToggles = true }: AllocationFiltersProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -132,9 +127,13 @@ export function AllocationFilters({ value, onChange, editing = false, showIdleTo
     (value.sort !== DEFAULT_FILTER_STATE.sort ? 1 : 0) +
     (hiddenColumnCount > 0 ? 1 : 0) +
     (value.displayMode !== DEFAULT_FILTER_STATE.displayMode ? 1 : 0) +
-    (value.amountUnit !== DEFAULT_FILTER_STATE.amountUnit ? 1 : 0);
+    (value.amountUnit !== DEFAULT_FILTER_STATE.amountUnit ? 1 : 0) +
+    (value.liquidityUnit !== DEFAULT_FILTER_STATE.liquidityUnit ? 1 : 0);
 
-  const clearAll = () => onChange(DEFAULT_FILTER_STATE);
+  const clearAll = () => {
+    onReset?.();
+    onChange(DEFAULT_FILTER_STATE);
+  };
 
   return (
     <div className="relative" ref={containerRef}>
@@ -154,7 +153,7 @@ export function AllocationFilters({ value, onChange, editing = false, showIdleTo
       </Button>
 
       {open && (
-        <div className="absolute right-0 z-30 mt-2 w-80 rounded-md border bg-popover p-3 shadow-md text-sm">
+        <div className="absolute right-0 z-30 mt-2 w-[22rem] max-h-[min(80vh,40rem)] overflow-y-auto rounded-md border bg-popover p-3 shadow-md text-sm">
           <div className="flex items-center justify-between mb-3">
             <span className="font-medium">Filter markets</span>
             <button
@@ -218,20 +217,48 @@ export function AllocationFilters({ value, onChange, editing = false, showIdleTo
             <div className="pt-1 border-t">
               <div className="flex items-center justify-between mb-1">
                 <label className="text-xs text-muted-foreground">Columns</label>
-                <button
-                  type="button"
-                  onClick={() =>
-                    update({
-                      columns: COLUMN_OPTIONS.reduce(
-                        (acc, c) => ({ ...acc, [c.key]: true }),
-                        {} as AllocationColumnState
-                      ),
-                    })
-                  }
-                  className="text-[10px] text-muted-foreground hover:text-foreground"
-                >
-                  Show all
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      update({
+                        columns: COLUMN_OPTIONS.reduce(
+                          (acc, c) => ({ ...acc, [c.key]: false }),
+                          {} as AllocationColumnState
+                        ),
+                      })
+                    }
+                    className="text-[10px] text-muted-foreground hover:text-foreground"
+                  >
+                    Hide all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      update({
+                        columns: COLUMN_OPTIONS.reduce(
+                          (acc, c) => ({ ...acc, [c.key]: true }),
+                          {} as AllocationColumnState
+                        ),
+                      })
+                    }
+                    className="text-[10px] text-muted-foreground hover:text-foreground"
+                  >
+                    Show all
+                  </button>
+                </div>
+              </div>
+              <div className="mb-2 flex flex-wrap gap-1">
+                {COLUMN_PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => update({ columns: preset.columns })}
+                    className="rounded border px-2 py-0.5 text-[10px] text-muted-foreground hover:border-foreground/30 hover:text-foreground"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
               </div>
               <div className="grid grid-cols-2 gap-x-2 gap-y-1">
                 {COLUMN_OPTIONS.map((c) => (
@@ -241,6 +268,33 @@ export function AllocationFilters({ value, onChange, editing = false, showIdleTo
                     checked={value.columns[c.key]}
                     onChange={(v) => updateColumn(c.key, v)}
                   />
+                ))}
+              </div>
+            </div>
+
+            <div className="pt-1 border-t">
+              <label className="text-xs text-muted-foreground mb-1 block">Liquidity display</label>
+              <div className="mb-2 flex gap-0.5 rounded-md border p-0.5">
+                {(
+                  [
+                    ['both', 'USD + tokens'],
+                    ['usd', 'USD only'],
+                    ['token', 'Tokens only'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => update({ liquidityUnit: key })}
+                    className={cn(
+                      'flex-1 px-2 py-1 rounded text-[10px] font-medium transition-colors',
+                      value.liquidityUnit === key
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    {label}
+                  </button>
                 ))}
               </div>
             </div>
@@ -312,7 +366,7 @@ export function AllocationFilters({ value, onChange, editing = false, showIdleTo
               <select
                 className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
                 value={value.sort}
-                onChange={(e) => update({ sort: e.target.value as SortKey })}
+                onChange={(e) => update({ sort: e.target.value as AllocationSortKey })}
               >
                 {SORT_OPTIONS.map((o) => (
                   <option key={o.key} value={o.key}>{o.label}</option>

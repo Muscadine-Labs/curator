@@ -11,6 +11,8 @@ import { useVaultV2Risk } from '@/lib/hooks/useVaultV2Risk';
 import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
 import { TransactionButton } from '@/components/TransactionButton';
+import { TxPreviewDialog } from '@/components/morpho/TxPreviewDialog';
+import { buildAllocationRebalancePreview } from '@/lib/morpho/tx-preview';
 import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
 import type { Address, Hex } from 'viem';
 import {
@@ -34,9 +36,13 @@ import {
   formatAllocationEditInputExact,
   formatAllocationTableAmount,
   formatCapDisplayAmount,
+  readMarketLiquidity,
   parseHumanTokenInput,
   clampDeallocateAmount,
 } from '@/lib/format/allocation-display';
+import { formatLiquidityCell } from '@/components/morpho/FormatLiquidityCell';
+import { usePersistedAllocationFilters } from '@/lib/hooks/usePersistedAllocationFilters';
+import { clearAllocationFilters } from '@/lib/allocation/allocation-filters-storage';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
 import type { VaultV2GovernanceResponse, CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
 import { isAdapterCap, isMarketCap } from '@/lib/morpho/cap-utils';
@@ -48,7 +54,6 @@ import {
 } from '@/lib/morpho/v2-id-data';
 import {
   AllocationFilters,
-  DEFAULT_FILTER_STATE,
   type AllocationFilterState,
 } from '@/components/morpho/AllocationFilters';
 import {
@@ -105,24 +110,6 @@ function MorphoAllocationLink({
       {children}
     </a>
   );
-}
-
-function formatLiquidityFull(
-  row: TargetRow,
-  symbol: string,
-  decimals: number
-): string {
-  if (row.liquidityAssets != null) {
-    try {
-      return formatAllocationTableAmount(BigInt(row.liquidityAssets), symbol, decimals);
-    } catch {
-      /* fall through */
-    }
-  }
-  if (row.liquidity != null && Number.isFinite(row.liquidity)) {
-    return formatFullUSD(row.liquidity, 2);
-  }
-  return '—';
 }
 
 function compareBigIntDesc(a: bigint, b: bigint): number {
@@ -391,6 +378,8 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
     }
 
     const totalUsd = (risk.totalAdapterAssetsUsd ?? 0) + idleUsd;
+    const vaultRefUsd = totalUsd;
+    let vaultRefRaw = idleRaw;
     const va = risk.vaultAsset;
     const dec = resolveAssetDecimals(va?.symbol, va?.decimals);
     const displayDec = getTokenDisplayDecimals(va?.symbol, dec);
@@ -414,6 +403,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
         let rawAssets = BigInt(0);
         if (allocAssets) { try { rawAssets = BigInt(allocAssets); } catch { /* */ } }
         totalRaw += rawAssets;
+        vaultRefRaw += rawAssets;
 
         const adapterDataHex = '0x' as Hex;
         const adapterIdData = encodeAdapterCapIdData(adapter.adapterAddress);
@@ -439,6 +429,15 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
         const wrappedVersion = underlyingAddr ? VAULT_VERSION_MAP[underlyingAddr] ?? null : null;
         const displayName = adapter.adapterLabel || 'MetaMorpho';
 
+        const underlyingLiquidity = readMarketLiquidity(
+          {
+            liquidityAssetsUsd: underlying?.liquidityUsd ?? null,
+            liquidityAssets: underlying?.liquidityUnderlying ?? null,
+          },
+          vaultRefUsd,
+          vaultRefRaw
+        );
+
         rows.push({
           kind: 'target',
           targetIdx: tIdx,
@@ -449,8 +448,8 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
           supplyApy: underlying?.netApy ?? null,
           borrowApy: null,
           utilization: null,
-          liquidity: underlying?.liquidityUsd ?? null,
-          liquidityAssets: underlying?.liquidityUnderlying ?? null,
+          liquidity: underlyingLiquidity.usd,
+          liquidityAssets: underlyingLiquidity.assets,
           tvlUsd: underlying?.totalAssetsUsd ?? null,
           tvlAssets: underlying?.totalAssets ?? null,
           allocated: adapter.allocationUsd ?? 0,
@@ -476,9 +475,16 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
           const allocSym = m.loanAsset?.symbol ?? sym;
           const mktPct = totalUsd > 0 ? (entry.allocationUsd / totalUsd) * 100 : 0;
 
+          const marketLiquidity = readMarketLiquidity(
+            'state' in m ? m.state : undefined,
+            vaultRefUsd,
+            vaultRefRaw
+          );
+
           let rawAssets = BigInt(0);
           if (allocAssets) { try { rawAssets = BigInt(allocAssets); } catch { /* */ } }
           totalRaw += rawAssets;
+          vaultRefRaw += rawAssets;
 
           const data = encodeMarketParamsData(m);
           const capIdData = encodeMarketCapIdData(adapter.adapterAddress, m);
@@ -511,8 +517,8 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
             supplyApy: m.state?.supplyApy ?? null,
             borrowApy: m.state?.borrowApy ?? null,
             utilization: m.state?.utilization ?? null,
-            liquidity: m.state?.liquidityAssetsUsd ?? null,
-            liquidityAssets: null,
+            liquidity: marketLiquidity.usd,
+            liquidityAssets: marketLiquidity.assets,
             tvlUsd: null,
             tvlAssets: null,
             allocated: entry.allocationUsd,
@@ -629,7 +635,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
   const [editing, setEditing] = useState(false);
   const [inputMode, setInputMode] = useState<InputMode>('tokens');
   const [inputValues, setInputValues] = useState<string[]>([]);
-  const [filters, setFilters] = useState<AllocationFilterState>(DEFAULT_FILTER_STATE);
+  const [filters, setFilters] = usePersistedAllocationFilters(vaultAddress);
   /** Where unallocated remainder goes: 'auto' = implicit Idle, or a target index. */
   const liquidityAdapterAddress = governance?.liquidityAdapter?.address?.toLowerCase() ?? null;
 
@@ -660,13 +666,14 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
   }, [liquidityAdapterAddress, governance?.liquidityData, targetsWithCaps]);
 
   const [dustRecipientKey, setDustRecipientKey] = useState<DustRecipientChoice>('auto');
+  const [rebalancePreviewOpen, setRebalancePreviewOpen] = useState(false);
   const multicallWrite = useVaultWrite();
 
   useEffect(() => {
     if (!multicallWrite.isSuccess) return;
     void queryClient.invalidateQueries({ queryKey: ['vault-v2-risk', vaultAddress] });
     void queryClient.invalidateQueries({ queryKey: ['vault-v2-governance', vaultAddress] });
-    void queryClient.invalidateQueries({ queryKey: ['vault', vaultAddress] });
+    setRebalancePreviewOpen(false);
   }, [multicallWrite.isSuccess, queryClient, vaultAddress]);
 
   const startEditing = useCallback(() => {
@@ -1048,6 +1055,26 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
     }
   }, [resolvedAllocations, vaultAddress, multicallWrite]);
 
+  const rebalancePreview = useMemo(() => {
+    if (!resolvedAllocations?.valid) return null;
+    return buildAllocationRebalancePreview(
+      resolvedAllocations.results.map((r) => ({
+        label: r.target.label,
+        symbol: r.target.symbol,
+        decimals: r.target.decimals,
+        isVaultIdle: r.target.isVaultIdle,
+        currentAssets: r.current,
+        assets: r.assets,
+      })),
+      vaultSymbol
+    );
+  }, [resolvedAllocations, vaultSymbol]);
+
+  const openRebalancePreview = useCallback(() => {
+    if (!rebalancePreview) return;
+    setRebalancePreviewOpen(true);
+  }, [rebalancePreview]);
+
   const getRowPercent = useCallback(
     (targetIdx: number): number => {
       const t = targetsWithCaps[targetIdx];
@@ -1173,6 +1200,12 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
         return (rb.supplyApy ?? -Infinity) - (ra.supplyApy ?? -Infinity);
       case 'utilization-desc':
         return (rb.utilization ?? -Infinity) - (ra.utilization ?? -Infinity);
+      case 'borrowApy-desc':
+        return (rb.borrowApy ?? -Infinity) - (ra.borrowApy ?? -Infinity);
+      case 'liquidity-desc':
+        return (rb.liquidity ?? -Infinity) - (ra.liquidity ?? -Infinity);
+      case 'liquidity-asc':
+        return (ra.liquidity ?? Infinity) - (rb.liquidity ?? Infinity);
       case 'capacity-desc': {
         const headroom = (t: AllocTarget): bigint => {
           if (t.absoluteCapRaw == null) return BigInt(0);
@@ -1183,6 +1216,8 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
       }
       case 'name-asc':
         return ra.market.localeCompare(rb.market);
+      case 'name-desc':
+        return rb.market.localeCompare(ra.market);
       case 'allocated-desc':
       default:
         return compareBigIntDesc(ta.currentAssets, tb.currentAssets);
@@ -1241,7 +1276,16 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
         case 'borrowApy':
           return isIdle ? '—' : formatOrDash(scalePercent(r.borrowApy));
         case 'liquidity':
-          return isIdle ? '—' : formatLiquidityFull(r, t.symbol, t.decimals);
+          return isIdle
+            ? '—'
+            : formatLiquidityCell(
+                r,
+                r.allocSymbol ?? t.symbol,
+                r.allocDecimals ?? t.decimals,
+                totalUsd,
+                totalRawAssets,
+                filters.liquidityUnit
+              );
         case 'utilization':
           return isIdle ? '—' : formatOrDash(scalePercent(r.utilization));
         case 'allocated':
@@ -1355,7 +1399,12 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <AllocationFilters value={filters} onChange={setFilters} editing={editing} />
+            <AllocationFilters
+              value={filters}
+              onChange={setFilters}
+              onReset={() => clearAllocationFilters(vaultAddress)}
+              editing={editing}
+            />
             {!editing ? (
               <Button variant="outline" size="sm" onClick={startEditing} className="flex items-center gap-1.5">
                 <Pencil className="h-3.5 w-3.5" /> Rebalance
@@ -1466,12 +1515,26 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
 
             <TransactionButton
               label={multicallWrite.isLoading ? 'Confirming...' : 'Rebalance'}
-              onClick={handleRebalance}
-              disabled={!resolvedAllocations?.valid || capsUnavailable || Boolean(govError)}
+              onClick={openRebalancePreview}
+              disabled={
+                !resolvedAllocations?.valid ||
+                !rebalancePreview ||
+                capsUnavailable ||
+                Boolean(govError)
+              }
               isLoading={multicallWrite.isLoading}
               isSuccess={multicallWrite.isSuccess}
               error={multicallWrite.error}
               txHash={multicallWrite.txHash}
+            />
+
+            <TxPreviewDialog
+              open={rebalancePreviewOpen}
+              preview={rebalancePreview}
+              onOpenChange={setRebalancePreviewOpen}
+              onConfirm={handleRebalance}
+              isLoading={multicallWrite.isLoading}
+              confirmLabel="Confirm rebalance"
             />
 
             {multicallWrite.txHash && (
