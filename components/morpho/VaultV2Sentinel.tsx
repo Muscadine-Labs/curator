@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Info } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -16,6 +16,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { TransactionButton } from '@/components/TransactionButton';
+import { TxPreviewDialog } from '@/components/morpho/TxPreviewDialog';
 import { formatLltvPill, formatMarketPairLabel } from '@/components/morpho/AllocationListView';
 import { CapLabel } from '@/components/morpho/CapLabel';
 import { VaultV2Pending } from '@/components/morpho/VaultV2Pending';
@@ -53,6 +54,12 @@ import { VAULT_VERSION_MAP } from '@/lib/morpho/treasury-statement';
 import type { CapInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governance/route';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
 import type { VaultV2PendingResponse } from '@/app/api/vaults/v2/[id]/pending/route';
+import {
+  buildCapDecreasePreview,
+  buildDeallocatePreviewResult,
+} from '@/lib/morpho/tx-preview';
+import { parseCapDecreaseInput } from '@/lib/morpho/cap-decrease-input';
+import type { TxPreview } from '@/lib/morpho/tx-preview';
 import type { Address, Hex } from 'viem';
 
 interface VaultV2SentinelProps {
@@ -291,8 +298,19 @@ function DecreaseCapsPanel({
   const [selections, setSelections] = useState<Record<string, CapDecreaseMode>>({});
   const [newValues, setNewValues] = useState<Record<string, string>>({});
   const [activeRowKey, setActiveRowKey] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [txPreview, setTxPreview] = useState<TxPreview | null>(null);
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
+  const pendingConfirmRef = useRef<(() => void) | null>(null);
   const write = useVaultWrite();
   const writeInFlight = write.isLoading && activeRowKey !== null;
+
+  useEffect(() => {
+    if (!write.isSuccess) return;
+    setPreviewOpen(false);
+    setTxPreview(null);
+    pendingConfirmRef.current = null;
+  }, [write.isSuccess]);
 
   const beginWrite = useCallback(
     (rowKey: string, config: Parameters<typeof write.write>[0]) => {
@@ -305,6 +323,12 @@ function DecreaseCapsPanel({
 
   const setSelection = (rowKey: string, mode: CapDecreaseMode) => {
     setSelections((prev) => ({ ...prev, [rowKey]: mode }));
+    setRowErrors((prev) => {
+      if (!prev[rowKey]) return prev;
+      const next = { ...prev };
+      delete next[rowKey];
+      return next;
+    });
   };
 
   const submitRowDecrease = useCallback(
@@ -314,29 +338,80 @@ function DecreaseCapsPanel({
       const idData = resolveCapIdData(cap, risk);
       if (!idData) return;
 
-      if (mode === 'absolute') {
-        const parsed = parseHumanTokenInput(valueStr, assetSymbol, chainDecimals);
-        const current = BigInt(cap.absoluteCap);
-        if (parsed > current) return;
+      const parsed = parseCapDecreaseInput({
+        mode,
+        valueStr,
+        currentAbsoluteRaw: cap.absoluteCap,
+        currentRelativeRaw: cap.relativeCap,
+        assetSymbol,
+        chainDecimals,
+      });
+      if (!parsed.ok) return;
+
+      if (parsed.mode === 'absolute') {
         beginWrite(
           rowKey,
-          v2WriteConfigs.decreaseAbsoluteCap(vaultAddress as Address, idData, parsed)
+          v2WriteConfigs.decreaseAbsoluteCap(vaultAddress as Address, idData, parsed.value)
         );
         return;
       }
 
-      const pct = Number(valueStr);
-      if (!Number.isFinite(pct) || pct < 0 || pct > 100) return;
-      const wad = BigInt(Math.round(pct * 1e16));
-      const current = BigInt(cap.relativeCap);
-      if (wad > current) return;
       beginWrite(
         rowKey,
-        v2WriteConfigs.decreaseRelativeCap(vaultAddress as Address, idData, wad)
+        v2WriteConfigs.decreaseRelativeCap(vaultAddress as Address, idData, parsed.value)
       );
     },
     [assetSymbol, beginWrite, chainDecimals, grouped, risk, vaultAddress]
   );
+
+  const requestRowDecrease = useCallback(
+    (rowKey: string, mode: CapDecreaseMode, valueStr: string) => {
+      const cap = findCapByRowKey(rowKey, grouped);
+      if (!cap) {
+        setRowErrors((prev) => ({ ...prev, [rowKey]: 'Cap row not found.' }));
+        return;
+      }
+      if (!resolveCapIdData(cap, risk)) {
+        setRowErrors((prev) => ({
+          ...prev,
+          [rowKey]: 'Cap idData unavailable — cannot submit decrease.',
+        }));
+        return;
+      }
+
+      const label = capDisplayLabel(cap, risk, adapterLabels);
+      const result = buildCapDecreasePreview({
+        cap,
+        capLabel: label,
+        mode,
+        currentAbsoluteRaw: cap.absoluteCap,
+        currentRelativeRaw: cap.relativeCap,
+        newValueStr: valueStr,
+        assetSymbol,
+        assetDecimals,
+        chainDecimals,
+      });
+      if (!result.ok) {
+        setRowErrors((prev) => ({ ...prev, [rowKey]: result.error }));
+        return;
+      }
+
+      setRowErrors((prev) => {
+        if (!prev[rowKey]) return prev;
+        const next = { ...prev };
+        delete next[rowKey];
+        return next;
+      });
+      pendingConfirmRef.current = () => submitRowDecrease(rowKey, mode, valueStr);
+      setTxPreview(result.preview);
+      setPreviewOpen(true);
+    },
+    [adapterLabels, assetDecimals, assetSymbol, chainDecimals, grouped, risk, submitRowDecrease]
+  );
+
+  const confirmPreview = useCallback(() => {
+    pendingConfirmRef.current?.();
+  }, []);
 
   const clearRowInput = (rowKey: string) => {
     setSelections((prev) => {
@@ -345,6 +420,12 @@ function DecreaseCapsPanel({
       return next;
     });
     setNewValues((prev) => {
+      const next = { ...prev };
+      delete next[rowKey];
+      return next;
+    });
+    setRowErrors((prev) => {
+      if (!prev[rowKey]) return prev;
       const next = { ...prev };
       delete next[rowKey];
       return next;
@@ -484,6 +565,7 @@ function DecreaseCapsPanel({
                               </label>
                             </TableCell>
                             <TableCell>
+                              <div className="flex flex-col gap-1">
                               <div className="flex flex-wrap items-center gap-2">
                                 <Input
                                   type="text"
@@ -491,9 +573,16 @@ function DecreaseCapsPanel({
                                   placeholder={mode === 'relative' ? '0–100' : 'New cap'}
                                   value={newValues[rowKey] ?? ''}
                                   disabled={!mode || !idData || isOtherRowBusy}
-                                  onChange={(e) =>
-                                    setNewValues((prev) => ({ ...prev, [rowKey]: e.target.value }))
-                                  }
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    setNewValues((prev) => ({ ...prev, [rowKey]: value }));
+                                    setRowErrors((prev) => {
+                                      if (!prev[rowKey]) return prev;
+                                      const next = { ...prev };
+                                      delete next[rowKey];
+                                      return next;
+                                    });
+                                  }}
                                 />
                                 <Button
                                   type="button"
@@ -525,13 +614,17 @@ function DecreaseCapsPanel({
                                   }
                                   onClick={() =>
                                     mode &&
-                                    submitRowDecrease(rowKey, mode, newValues[rowKey] ?? '')
+                                    requestRowDecrease(rowKey, mode, newValues[rowKey] ?? '')
                                   }
                                   isLoading={isActiveRow && write.isLoading}
                                   isSuccess={isActiveRow && write.isSuccess}
                                   error={isActiveRow ? write.error : null}
                                   txHash={isActiveRow ? write.txHash : undefined}
                                 />
+                              </div>
+                              {rowErrors[rowKey] && (
+                                <p className="text-xs text-red-600 dark:text-red-400">{rowErrors[rowKey]}</p>
+                              )}
                               </div>
                             </TableCell>
                           </TableRow>
@@ -545,6 +638,21 @@ function DecreaseCapsPanel({
           )
         )}
       </CardContent>
+      <TxPreviewDialog
+        open={previewOpen}
+        preview={txPreview}
+        onOpenChange={(open) => {
+          if (writeInFlight) return;
+          setPreviewOpen(open);
+          if (!open) {
+            setTxPreview(null);
+            pendingConfirmRef.current = null;
+          }
+        }}
+        onConfirm={confirmPreview}
+        isLoading={writeInFlight}
+        confirmLabel="Confirm decrease"
+      />
     </Card>
   );
 }
@@ -566,8 +674,19 @@ function DeallocatePanel({
 }) {
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [activeRowKey, setActiveRowKey] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [txPreview, setTxPreview] = useState<TxPreview | null>(null);
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
+  const pendingConfirmRef = useRef<(() => void) | null>(null);
   const write = useVaultWrite();
   const writeInFlight = write.isLoading && activeRowKey !== null;
+
+  useEffect(() => {
+    if (!write.isSuccess) return;
+    setPreviewOpen(false);
+    setTxPreview(null);
+    pendingConfirmRef.current = null;
+  }, [write.isSuccess]);
 
   const beginWrite = useCallback(
     (rowKey: string, config: Parameters<typeof write.write>[0]) => {
@@ -580,6 +699,12 @@ function DeallocatePanel({
 
   const setAmount = (key: string, value: string) => {
     setAmounts((prev) => ({ ...prev, [key]: value }));
+    setRowErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
   };
 
   const zeroOutRow = (row: DeallocateRow) => {
@@ -615,6 +740,61 @@ function DeallocatePanel({
     },
     [amounts, assetSymbol, beginWrite, chainDecimals, vaultAddress]
   );
+
+  const requestDeallocate = useCallback(
+    (row: DeallocateRow) => {
+      if (!row.canDeallocate || row.currentRaw === 0n) return;
+      const rawInput = amounts[row.key]?.trim();
+      if (!rawInput) {
+        setRowErrors((prev) => ({ ...prev, [row.key]: 'Enter an amount to deallocate.' }));
+        return;
+      }
+      let parsed: bigint;
+      try {
+        parsed = parseHumanTokenInput(rawInput, assetSymbol, chainDecimals);
+      } catch {
+        setRowErrors((prev) => ({ ...prev, [row.key]: 'Invalid token amount.' }));
+        return;
+      }
+      parsed = clampDeallocateAmount(parsed, row.currentRaw);
+      if (parsed <= 0n) {
+        setRowErrors((prev) => ({
+          ...prev,
+          [row.key]: 'Amount must be greater than zero.',
+        }));
+        return;
+      }
+
+      const result = buildDeallocatePreviewResult({
+        label: row.label,
+        lltv: row.lltv,
+        amountRaw: parsed,
+        currentRaw: row.currentRaw,
+        symbol: assetSymbol,
+        chainDecimals,
+        assetDecimals,
+      });
+      if (!result.ok) {
+        setRowErrors((prev) => ({ ...prev, [row.key]: result.error }));
+        return;
+      }
+
+      setRowErrors((prev) => {
+        if (!prev[row.key]) return prev;
+        const next = { ...prev };
+        delete next[row.key];
+        return next;
+      });
+      pendingConfirmRef.current = () => deallocateRow(row);
+      setTxPreview(result.preview);
+      setPreviewOpen(true);
+    },
+    [amounts, assetDecimals, assetSymbol, chainDecimals, deallocateRow]
+  );
+
+  const confirmPreview = useCallback(() => {
+    pendingConfirmRef.current?.();
+  }, []);
 
   return (
     <Card>
@@ -699,6 +879,7 @@ function DeallocatePanel({
                       </TableCell>
                       <TableCell>
                         {row.canDeallocate ? (
+                          <div className="flex flex-col gap-1">
                           <div className="flex flex-wrap items-center gap-1">
                             <Input
                               type="text"
@@ -723,12 +904,16 @@ function DeallocatePanel({
                               size="sm"
                               suppressConnectPrompt
                               disabled={!amounts[row.key]?.trim() || isOtherRowBusy}
-                              onClick={() => deallocateRow(row)}
+                              onClick={() => requestDeallocate(row)}
                               isLoading={isActiveRow && write.isLoading}
                               isSuccess={isActiveRow && write.isSuccess}
                               error={isActiveRow ? write.error : null}
                               txHash={isActiveRow ? write.txHash : undefined}
                             />
+                          </div>
+                          {rowErrors[row.key] && (
+                            <p className="text-xs text-red-600 dark:text-red-400">{rowErrors[row.key]}</p>
+                          )}
                           </div>
                         ) : (
                           <span className="text-xs text-slate-400">—</span>
@@ -742,6 +927,21 @@ function DeallocatePanel({
           </Table>
         </div>
       </CardContent>
+      <TxPreviewDialog
+        open={previewOpen}
+        preview={txPreview}
+        onOpenChange={(open) => {
+          if (writeInFlight) return;
+          setPreviewOpen(open);
+          if (!open) {
+            setTxPreview(null);
+            pendingConfirmRef.current = null;
+          }
+        }}
+        onConfirm={confirmPreview}
+        isLoading={writeInFlight}
+        confirmLabel="Confirm deallocate"
+      />
     </Card>
   );
 }

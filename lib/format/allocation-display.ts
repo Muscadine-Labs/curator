@@ -112,8 +112,7 @@ export function formatCapRawAmount(
   apiDecimals: number
 ): string {
   const chain = resolveAssetDecimals(symbol, apiDecimals);
-  const display = getTokenDisplayDecimals(symbol, chain);
-  return formatRawTokenAmount(capRaw, chain, display);
+  return formatRawTokenAmount(capRaw, chain, 0);
 }
 
 export function formatCapDisplayAmount(
@@ -124,4 +123,83 @@ export function formatCapDisplayAmount(
   if (capRaw == null) return '—';
   const formatted = formatCapRawAmount(capRaw, symbol ?? '', apiDecimals);
   return symbol ? `${formatted} ${symbol}` : formatted;
+}
+
+export type LiquidityDisplayUnit = 'both' | 'usd' | 'token';
+
+export type LiquidityRowLike = {
+  liquidity: number | null;
+  liquidityAssets: string | number | null | undefined;
+  allocated: number;
+  allocAssets: string | null;
+};
+
+export function estimateRawFromUsd(
+  usd: number,
+  referenceUsd: number,
+  referenceRaw: bigint
+): bigint | null {
+  if (!Number.isFinite(usd) || usd <= 0 || !Number.isFinite(referenceUsd) || referenceUsd <= 0) {
+    return null;
+  }
+  if (referenceRaw <= 0n) return null;
+  const usdMicro = BigInt(Math.round(usd * 1_000_000));
+  const refUsdMicro = BigInt(Math.round(referenceUsd * 1_000_000));
+  if (refUsdMicro === 0n) return null;
+  return (usdMicro * referenceRaw) / refUsdMicro;
+}
+
+export function resolveLiquidityAssetsRaw(
+  row: LiquidityRowLike,
+  vaultTotalUsd: number,
+  vaultTotalRaw: bigint
+): bigint | null {
+  if (row.liquidityAssets != null && row.liquidityAssets !== '') {
+    try {
+      return BigInt(String(row.liquidityAssets).split('.')[0] ?? '');
+    } catch {
+      /* fall through */
+    }
+  }
+
+  if (row.allocAssets && row.allocated > 0 && row.liquidity != null && row.liquidity > 0) {
+    try {
+      const allocRaw = BigInt(row.allocAssets);
+      if (allocRaw > 0n) {
+        return estimateRawFromUsd(row.liquidity, row.allocated, allocRaw);
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  if (row.liquidity != null && row.liquidity > 0) {
+    return estimateRawFromUsd(row.liquidity, vaultTotalUsd, vaultTotalRaw);
+  }
+
+  return null;
+}
+
+export type MarketLiquidityState = {
+  liquidityAssetsUsd?: number | null;
+  liquidityAssets?: string | number | null;
+};
+
+export function readMarketLiquidity(
+  state: MarketLiquidityState | null | undefined,
+  vaultTotalUsd: number,
+  vaultTotalRaw: bigint
+): { usd: number | null; assets: string | null } {
+  const usd = state?.liquidityAssetsUsd ?? null;
+  let assets =
+    state?.liquidityAssets != null && state.liquidityAssets !== ''
+      ? String(state.liquidityAssets).split('.')[0] ?? null
+      : null;
+
+  if (!assets && usd != null && usd > 0) {
+    const estimated = estimateRawFromUsd(usd, vaultTotalUsd, vaultTotalRaw);
+    if (estimated != null) assets = estimated.toString();
+  }
+
+  return { usd, assets };
 }

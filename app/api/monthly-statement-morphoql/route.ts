@@ -6,6 +6,7 @@ import {
   RATE_LIMIT_REQUESTS_PER_MINUTE,
   MINUTE_MS,
 } from '@/lib/utils/rate-limit';
+import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,8 +30,7 @@ export async function GET(request: Request) {
 
   try {
     const { statements, daily, vaults } = await computeTreasuryStatement();
-    const responseHeaders = new Headers(rateLimitResult.headers);
-    responseHeaders.set('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
+    const responseHeaders = mergeApiCacheHeaders(rateLimitResult.headers, 300);
 
     const url = new URL(request.url);
     const wantPerVault = url.searchParams.get('perVault') === 'true';

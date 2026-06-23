@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import type { VaultHistoryResponse } from '@/app/api/vaults/[id]/history/route';
 import type { VaultHistorySeries } from '@/lib/morpho/vault-history';
+import { apiFetch } from '@/lib/data/api-fetch';
 
 const EMPTY_HISTORY_SERIES: VaultHistorySeries = {
   supplied: [],
@@ -23,7 +24,7 @@ export function normalizeVaultHistoryResponse(
 }
 
 async function fetchVaultHistory(vaultAddress: string): Promise<VaultHistoryResponse> {
-  const res = await fetch(`/api/vaults/${vaultAddress}/history`, { credentials: 'omit' });
+  const res = await apiFetch(`/api/vaults/${vaultAddress}/history`, { credentials: 'omit' });
   if (!res.ok) {
     const text = await res.text();
     try {

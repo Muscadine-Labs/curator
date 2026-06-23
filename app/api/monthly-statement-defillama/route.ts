@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { handleApiError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
+import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
 import { 
   fetchDefiLlamaFees,
   fetchDefiLlamaRevenue,
@@ -153,8 +154,7 @@ export async function GET(request: Request) {
     // Sort by month
     monthlyData.sort((a, b) => a.month.localeCompare(b.month));
 
-    const responseHeaders = new Headers(rateLimitResult.headers);
-    responseHeaders.set('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
+    const responseHeaders = mergeApiCacheHeaders(rateLimitResult.headers, 300);
 
     return NextResponse.json({ statements: monthlyData }, { headers: responseHeaders });
   } catch (err) {

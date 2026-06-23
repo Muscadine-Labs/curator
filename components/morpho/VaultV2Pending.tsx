@@ -73,8 +73,9 @@ export function VaultV2Pending({
 
   useEffect(() => {
     if (!revokeWrite.isSuccess || activeRowId === null) return;
-    void queryClient.invalidateQueries({ queryKey: ['vault-v2-pending', vaultAddress] });
-    setActiveRowId(null);
+    void queryClient
+      .invalidateQueries({ queryKey: ['vault-v2-pending', vaultAddress] })
+      .finally(() => setActiveRowId(null));
   }, [revokeWrite.isSuccess, activeRowId, queryClient, vaultAddress]);
 
   const handleRevoke = (rowId: number, dataHex: string) => {

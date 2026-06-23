@@ -6,6 +6,7 @@ import { getVaultByAddress, shouldUseV2Query } from '@/lib/config/vaults';
 import { handleApiError, AppError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
 import { BASE_CHAIN_ID } from '@/lib/constants';
+import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
 
 export type VaultTransaction = {
   hash: string;
@@ -348,8 +349,7 @@ export async function GET(
       transactions,
     };
 
-    const responseHeaders = new Headers(rateLimitResult.headers);
-    responseHeaders.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
+    const responseHeaders = mergeApiCacheHeaders(rateLimitResult.headers, 60);
     return NextResponse.json(response, { headers: responseHeaders });
   } catch (error) {
     const { error: apiError, statusCode } = handleApiError(error, 'Failed to fetch vault transactions');

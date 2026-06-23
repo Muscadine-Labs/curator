@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { apiFetch } from '@/lib/data/api-fetch';
 
 export interface ProtocolStats {
   totalDeposited: number;
@@ -153,7 +154,7 @@ export const useProtocolStats = () => {
   return useQuery<ProtocolStats>({
     queryKey: ['protocol-stats'],
     queryFn: async () => {
-      const response = await fetch('/api/protocol-stats', {
+      const response = await apiFetch('/api/protocol-stats', {
         credentials: 'omit',
       });
       if (!response.ok) throw new Error('Failed to fetch protocol stats');
@@ -184,7 +185,7 @@ export const useVaultList = (filters?: {
       if (filters?.sidebar) searchParams.set('sidebar', 'true');
       else if (filters?.includeAll) searchParams.set('includeAll', 'true');
       
-      const response = await fetch(`/api/vaults?${searchParams}`, {
+      const response = await apiFetch(`/api/vaults?${searchParams}`, {
         credentials: 'omit',
       });
       if (!response.ok) throw new Error('Failed to fetch vaults');
@@ -198,7 +199,7 @@ export const useVault = (id: string) => {
   return useQuery<VaultDetail>({
     queryKey: ['vault', id],
     queryFn: async () => {
-      const response = await fetch(`/api/vaults/${id}`, {
+      const response = await apiFetch(`/api/vaults/${id}`, {
         credentials: 'omit',
       });
       if (!response.ok) throw new Error('Failed to fetch vault');

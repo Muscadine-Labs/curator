@@ -16,6 +16,7 @@ export type BlueMarketEntry = {
       supplyApy?: number | null;
       borrowApy?: number | null;
       utilization?: number | null;
+      liquidityAssets?: string | number | null;
       liquidityAssetsUsd?: number | null;
     } | null;
   };

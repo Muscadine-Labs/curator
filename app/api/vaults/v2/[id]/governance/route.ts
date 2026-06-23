@@ -8,6 +8,7 @@ import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } 
 import { BASE_CHAIN_ID, VAULT_V2_GRAPHQL_ADAPTER_LIMIT, VAULT_V2_GRAPHQL_CAPS_LIMIT } from '@/lib/constants';
 import { mapCap, type GraphCap } from '@/lib/morpho/vault-v2-governance-map';
 import { enrichCollateralCapSymbols, enrichMarketCapParams } from '@/lib/morpho/fetch-markets-by-id';
+import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
 
 type GraphAdapter = {
   __typename?: 'MetaMorphoAdapter' | 'MorphoMarketV1Adapter' | string | null;
@@ -119,6 +120,7 @@ export type CapInfo = {
       supplyApy?: number | null;
       borrowApy?: number | null;
       utilization?: number | null;
+      liquidityAssets?: string | number | null;
       liquidityAssetsUsd?: number | null;
     } | null;
   } | null;
@@ -228,6 +230,7 @@ const VAULT_V2_GOVERNANCE_QUERY = gql`
                   supplyApy
                   borrowApy
                   utilization
+                  liquidityAssets
                   liquidityAssetsUsd
                 }
               }
@@ -449,8 +452,7 @@ export async function GET(
       timelocks,
     };
 
-    const responseHeaders = new Headers(rateLimitResult.headers);
-    responseHeaders.set('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=300');
+    const responseHeaders = mergeApiCacheHeaders(rateLimitResult.headers);
 
     return NextResponse.json(response, { headers: responseHeaders });
   } catch (error) {

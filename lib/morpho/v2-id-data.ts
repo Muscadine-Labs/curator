@@ -53,11 +53,6 @@ export function encodeMarketParamsData(market: MarketParamsInput): Hex {
   return encodeAbiParameters(MARKET_PARAMS_ABI, [loan, col, oracle, irm, lltv]);
 }
 
-/** @deprecated Use encodeMarketParamsData */
-export function encodeMarketIdData(market: MarketParamsInput): Hex {
-  return encodeMarketParamsData(market);
-}
-
 /** Adapter cap idData = abi.encode("this", adapterAddress). */
 export function encodeAdapterCapIdData(adapterAddress: string): Hex {
   return encodeAbiParameters(parseAbiParameters('string, address'), [
@@ -66,22 +61,12 @@ export function encodeAdapterCapIdData(adapterAddress: string): Hex {
   ]);
 }
 
-/** @deprecated Use encodeAdapterCapIdData */
-export function encodeAdapterIdData(adapterAddress: string): Hex {
-  return encodeAdapterCapIdData(adapterAddress);
-}
-
 /** Collateral cap idData = abi.encode("collateralToken", collateralAddress). */
 export function encodeCollateralCapIdData(collateralAddress: string): Hex {
   return encodeAbiParameters(parseAbiParameters('string, address'), [
     'collateralToken',
     collateralAddress as Address,
   ]);
-}
-
-/** @deprecated Use encodeCollateralCapIdData */
-export function encodeCollateralIdData(collateralAddress: string): Hex {
-  return encodeCollateralCapIdData(collateralAddress);
 }
 
 /** Market cap idData = abi.encode("this/marketParams", adapterAddress, marketParams). */

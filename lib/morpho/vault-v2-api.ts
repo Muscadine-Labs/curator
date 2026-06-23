@@ -1,29 +1,6 @@
 import { gql } from 'graphql-request';
 import { formatVaultV2FunctionTitle } from '@/lib/morpho/vault-v2-timelocks';
 
-/** Shared Morpho Blue API queries for Vault V2 parameters and pending timelocked actions. */
-
-export const VAULT_V2_PARAMETERS_QUERY = gql`
-  query VaultV2Parameters($address: String!, $chainId: Int!) {
-    vault: vaultV2ByAddress(address: $address, chainId: $chainId) {
-      address
-      name
-      symbol
-      performanceFee
-      managementFee
-      maxRate
-      performanceFeeRecipient
-      managementFeeRecipient
-      timelocks {
-        selector
-        functionName
-        duration
-        abdicatedAt
-      }
-    }
-  }
-`;
-
 export const VAULT_V2_PENDING_QUERY = gql`
   query VaultV2Pending($address: String!, $chainId: Int!, $first: Int!) {
     vault: vaultV2ByAddress(address: $address, chainId: $chainId) {
@@ -99,18 +76,6 @@ export const VAULT_V2_PENDING_QUERY = gql`
     }
   }
 `;
-
-/** Morpho API returns fees as unitless fractions (e.g. 0.05 = 5%). */
-export function morphoFeeToPercent(fee: number | null | undefined): number | null {
-  if (fee == null || Number.isNaN(fee)) return null;
-  return fee * 100;
-}
-
-export function formatMorphoFeePercent(fee: number | null | undefined): string {
-  const pct = morphoFeeToPercent(fee);
-  if (pct == null) return 'N/A';
-  return `${pct.toFixed(2)}%`;
-}
 
 /** WAD-scaled bigint fee from Morpho pending decoded fields. */
 export function wadBigIntToPercent(wad: string | number | bigint): string {

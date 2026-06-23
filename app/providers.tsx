@@ -21,10 +21,14 @@ const ReactQueryDevtools = dynamic(
   { ssr: false }
 );
 
+import { CURATOR_REFETCH_INTERVAL_MS } from '@/lib/data/query-config';
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      refetchOnWindowFocus: false,
+      staleTime: 0,
+      refetchInterval: CURATOR_REFETCH_INTERVAL_MS,
+      refetchOnWindowFocus: true,
     },
   },
 });

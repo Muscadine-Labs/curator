@@ -15,6 +15,7 @@ import { isMarketCap } from '@/lib/morpho/cap-utils';
 import { isAllocatableMarketCap } from '@/lib/morpho/v2-allocation-targets';
 import { mapCap, type GraphCap } from '@/lib/morpho/vault-v2-governance-map';
 import { enrichMarketCapParams } from '@/lib/morpho/fetch-markets-by-id';
+import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
 import { marketKeyFromGraphQL } from '@/lib/morpho/morpho-app-links';
 import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
 import {
@@ -45,6 +46,7 @@ type GraphAdapter = {
         borrowAssetsUsd?: number | null;
         collateralAssetsUsd?: number | null;
         liquidityAssetsUsd?: number | null;
+        liquidityAssets?: string | number | null;
         utilization?: number | null;
       } | null;
       market: V1VaultMarketData;
@@ -170,6 +172,7 @@ const VAULT_V2_RISK_QUERY = gql`
                     supplyAssetsUsd
                     borrowAssetsUsd
                     collateralAssetsUsd
+                    liquidityAssets
                     liquidityAssetsUsd
                     utilization
                     supplyApy
@@ -205,6 +208,7 @@ const VAULT_V2_RISK_QUERY = gql`
                   supplyApy
                   borrowApy
                   utilization
+                  liquidityAssets
                   liquidityAssetsUsd
                 }
               }
@@ -329,6 +333,10 @@ function capToV1VaultMarketData(cap: CapInfo): V1VaultMarketData | null {
           supplyAssetsUsd: null,
           borrowAssetsUsd: null,
           collateralAssetsUsd: null,
+          liquidityAssets:
+            cap.marketParams.state.liquidityAssets != null
+              ? String(cap.marketParams.state.liquidityAssets)
+              : null,
           liquidityAssetsUsd: cap.marketParams.state.liquidityAssetsUsd ?? null,
           utilization: cap.marketParams.state.utilization ?? null,
           supplyApy: cap.marketParams.state.supplyApy ?? null,
@@ -606,8 +614,7 @@ export async function GET(
       adapters: adapterRisks,
     };
 
-    const responseHeaders = new Headers(rateLimitResult.headers);
-    responseHeaders.set('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=300');
+    const responseHeaders = mergeApiCacheHeaders(rateLimitResult.headers);
 
     return NextResponse.json(response, { headers: responseHeaders });
   } catch (error) {

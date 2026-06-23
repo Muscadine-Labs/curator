@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { formatLtv, formatRawTokenAmount } from '@/lib/format/number';
 import { getTokenDisplayDecimals } from '@/lib/format/asset-decimals';
-import type { AllocationFilterState } from '@/components/morpho/AllocationFilters';
+import type { AllocationFilterState } from '@/lib/allocation/allocation-filters';
 
 export const EXTRA_COLUMN_META: {
   key: keyof AllocationFilterState['columns'];
@@ -190,7 +190,7 @@ const CURATOR_OPTIONAL_COLUMNS: {
   width: string;
 }[] = [
   { filterKey: 'utilization', label: 'Util.', width: '5rem' },
-  { filterKey: 'liquidity', label: 'Liquidity', width: '10rem' },
+  { filterKey: 'liquidity', label: 'Liquidity', width: '12rem' },
   { filterKey: 'effectiveCap', label: 'Eff. Abs. Cap', width: '9rem' },
   { filterKey: 'supplyApy', label: 'Rate', width: '5rem' },
   { filterKey: 'borrowApy', label: 'Borrow', width: '5rem' },
@@ -305,7 +305,10 @@ export function CuratorAllocationListRow({
       {visible.map((col, i) => (
         <div
           key={col.filterKey}
-          className="text-right text-sm tabular-nums tracking-tight text-foreground"
+          className={cn(
+            'text-right text-sm tabular-nums tracking-tight text-foreground',
+            col.filterKey === 'liquidity' && 'whitespace-normal'
+          )}
         >
           {optionalCells[i] ?? '—'}
         </div>

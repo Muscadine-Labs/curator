@@ -10,6 +10,7 @@ import {
 import { resolveAssetDecimals } from '@/lib/format/asset-decimals';
 import { getVaultByAddress } from '@/lib/config/vaults';
 import { handleApiError, AppError } from '@/lib/utils/error-handler';
+import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
 import {
   createRateLimitMiddleware,
   RATE_LIMIT_REQUESTS_PER_MINUTE,
@@ -99,8 +100,7 @@ export async function GET(
         series: buildV2HistorySeries(data.vault.historicalState),
       };
 
-      const headers = new Headers(rateLimitResult.headers);
-      headers.set('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=300');
+      const headers = mergeApiCacheHeaders(rateLimitResult.headers, 120);
       return NextResponse.json(response, { headers });
     }
 
@@ -128,8 +128,7 @@ export async function GET(
       series: buildV1HistorySeries(data.vault.historicalState),
     };
 
-    const headers = new Headers(rateLimitResult.headers);
-    headers.set('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=300');
+    const headers = mergeApiCacheHeaders(rateLimitResult.headers, 120);
     return NextResponse.json(response, { headers });
   } catch (error) {
     const { error: apiError, statusCode } = handleApiError(error, 'Failed to fetch vault history');

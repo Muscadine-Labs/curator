@@ -51,12 +51,6 @@ export const formatPercentage = (value: number | null, decimals: number = 2): st
   }).format(value / 100);
 };
 
-// Format basis points to percentage
-export const formatBps = (bps: number | null): string => {
-  if (!bps) return '0.00%';
-  return formatPercentage(bps / 100, 2);
-};
-
 // Format large numbers with commas
 export const formatNumber = (value: number | bigint | null): string => {
   if (!value) return '0';
@@ -129,12 +123,6 @@ export const formatAddress = (address: string | null, startChars: number = 6, en
   return `${address.slice(0, startChars)}...${address.slice(-endChars)}`;
 };
 
-// Format token symbol
-export const formatTokenSymbol = (symbol: string | null): string => {
-  if (!symbol) return 'N/A';
-  return symbol.toUpperCase();
-};
-
 /** Format LTV to a percentage string (2 decimals). Handles wei (n>1e6), fraction (n<=1), or plain %. */
 export function formatLtv(lltv: number | string | null | undefined): string {
   const n = typeof lltv === 'string' ? Number(lltv) : lltv;
@@ -193,8 +181,13 @@ export const formatRawTokenAmount = (
   const whole = value / base;
   const frac = value % base;
 
+  if (displayDecimals <= 0) {
+    const roundedWhole = frac * 2n >= base ? whole + 1n : whole;
+    const wholeStr = roundedWhole.toLocaleString('en-US');
+    return negative ? `-${wholeStr}` : wholeStr;
+  }
+
   const wholeStr = whole.toLocaleString('en-US');
-  if (displayDecimals <= 0) return negative ? `-${wholeStr}` : wholeStr;
 
   const fracPadded = frac.toString().padStart(decimals, '0');
   const fracTrimmed = fracPadded.slice(0, displayDecimals).padEnd(displayDecimals, '0');

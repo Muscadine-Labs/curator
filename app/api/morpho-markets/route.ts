@@ -4,6 +4,7 @@ import type { CuratorConfigOverrides } from '@/lib/morpho/config';
 import { GRAPHQL_FIRST_LIMIT } from '@/lib/constants';
 import { handleApiError, AppError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
+import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
 
 // Ensure Node.js runtime for API routes (required for external API calls)
 export const runtime = 'nodejs';
@@ -54,8 +55,7 @@ export async function GET(request: NextRequest) {
       throw new AppError('Market not found', 404, 'MARKET_NOT_FOUND');
     }
 
-    const responseHeaders = new Headers(rateLimitResult.headers);
-    responseHeaders.set('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
+    const responseHeaders = mergeApiCacheHeaders(rateLimitResult.headers, 300);
 
     return NextResponse.json({
       timestamp: new Date().toISOString(),

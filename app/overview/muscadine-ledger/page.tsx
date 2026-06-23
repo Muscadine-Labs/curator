@@ -12,6 +12,7 @@ import { Alert } from '@/components/ui/alert';
 import { Filter, ChevronDown, ChevronUp } from 'lucide-react';
 import { DevelopmentLinksSection } from '@/components/overview/DevelopmentLinksSection';
 import { logger } from '@/lib/utils/logger';
+import { apiFetch } from '@/lib/data/api-fetch';
 import {
   MUSCADINE_LEDGER_SHEET_GIDS,
   MUSCADINE_LEDGER_SHEET_IDS,
@@ -59,7 +60,7 @@ export default function MuscadineLedgerPage() {
         MUSCADINE_LEDGER_SHEET_NAMES.map(async (name) => {
           try {
             const params = new URLSearchParams({ sheetId: currentSheetId, sheetName: name });
-            const response = await fetch(`/api/google-sheets?${params.toString()}`, {
+            const response = await apiFetch(`/api/google-sheets?${params.toString()}`, {
               credentials: 'omit',
             });
             if (response.ok) {
@@ -83,7 +84,7 @@ export default function MuscadineLedgerPage() {
       if (sheetName && sheetName !== 'All') {
         params.append('sheetName', sheetName);
       }
-      const response = await fetch(`/api/google-sheets?${params.toString()}`, {
+      const response = await apiFetch(`/api/google-sheets?${params.toString()}`, {
         credentials: 'omit',
       });
       if (!response.ok) throw new Error('Failed to fetch Google Sheets data');

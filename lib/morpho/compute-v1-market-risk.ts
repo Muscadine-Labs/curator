@@ -252,7 +252,7 @@ function computeLiquidationHeadroomScore(market: V1VaultMarketData): number {
  * At or below target stays at 100 (not riskier). Above target, score falls
  * linearly to 0 at 100% utilization.
  */
-export function scoreUtilizationRatio(
+function scoreUtilizationRatio(
   utilization: number,
   targetUtilization: number
 ): number {

@@ -16,6 +16,7 @@ import { logger } from '@/lib/utils/logger';
 import { buildVaultAnalytics } from '@/lib/morpho/vault-analytics';
 import { mapCap } from '@/lib/morpho/vault-v2-governance-map';
 import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
+import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
 // Types imported from SDK but not directly used in this file
 // import type { Vault, VaultPosition, Maybe } from '@morpho-org/blue-api-sdk';
 
@@ -380,8 +381,7 @@ export async function GET(
       if (isV2) {
         // For v2 vaults that aren't indexed, return minimal data structure
         // The frontend will handle null values appropriately
-        const responseHeaders = new Headers(rateLimitResult.headers);
-        responseHeaders.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
+        const responseHeaders = mergeApiCacheHeaders(rateLimitResult.headers, 60);
         
         return NextResponse.json({
           ...cfg,
@@ -817,8 +817,7 @@ export async function GET(
       },
     };
 
-    const responseHeaders = new Headers(rateLimitResult.headers);
-    responseHeaders.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+    const responseHeaders = mergeApiCacheHeaders(rateLimitResult.headers, 60);
 
     return NextResponse.json(result, { headers: responseHeaders });
   } catch (err) {
