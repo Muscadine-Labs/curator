@@ -1,5 +1,5 @@
 import { createPublicClient, http, Address, Abi } from 'viem';
-import { base } from 'viem/chains';
+import { base } from '@/lib/onchain/base-chain';
 import { logger } from '@/lib/utils/logger';
 
 // Determine RPC URL based on available API keys

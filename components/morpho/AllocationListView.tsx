@@ -189,11 +189,11 @@ const CURATOR_OPTIONAL_COLUMNS: {
   label: string;
   width: string;
 }[] = [
+  { filterKey: 'utilization', label: 'Util.', width: '5rem' },
+  { filterKey: 'liquidity', label: 'Liquidity', width: '10rem' },
   { filterKey: 'effectiveCap', label: 'Eff. Abs. Cap', width: '9rem' },
   { filterKey: 'supplyApy', label: 'Rate', width: '5rem' },
   { filterKey: 'borrowApy', label: 'Borrow', width: '5rem' },
-  { filterKey: 'liquidity', label: 'Liquidity', width: '10rem' },
-  { filterKey: 'utilization', label: 'Util.', width: '5rem' },
   { filterKey: 'allocated', label: 'Allocated', width: '8rem' },
   { filterKey: 'percentCap', label: '% Cap', width: '6rem' },
 ];
@@ -209,7 +209,7 @@ export function buildCuratorGridTemplate(
   const optional = getCuratorVisibleColumns(columns)
     .map((c) => c.width)
     .join(' ');
-  const base = `minmax(12rem, 1.6fr) 8.5rem${optional ? ` ${optional}` : ''} 6.5rem`;
+  const base = `minmax(12rem, 1.6fr)${optional ? ` ${optional}` : ''} 8.5rem 6.5rem`;
   return editing ? `${base} minmax(26rem, 1.5fr)` : base;
 }
 
@@ -227,12 +227,12 @@ export function CuratorAllocationListHeader({
       style={{ gridTemplateColumns: buildCuratorGridTemplate(columns, editing) }}
     >
       <span className="text-sm font-medium text-foreground">Allocation</span>
-      <span className="text-right">Allocation</span>
       {visible.map((col) => (
         <span key={col.filterKey} className="text-right">
           {col.label}
         </span>
       ))}
+      <span className="text-right">Allocation</span>
       <span className="text-right">% Alloc.</span>
       {editing && <span className="text-right">Target</span>}
     </div>
@@ -302,7 +302,6 @@ export function CuratorAllocationListRow({
         <div className="truncate text-sm font-medium text-foreground">{name}</div>
         {tags}
       </div>
-      <div className="text-right text-sm tabular-nums tracking-tight text-foreground">{allocationAmount}</div>
       {visible.map((col, i) => (
         <div
           key={col.filterKey}
@@ -311,6 +310,7 @@ export function CuratorAllocationListRow({
           {optionalCells[i] ?? '—'}
         </div>
       ))}
+      <div className="text-right text-sm tabular-nums tracking-tight text-foreground">{allocationAmount}</div>
       <div className="text-right">{percentAllocated}</div>
       {targetCell}
     </div>
