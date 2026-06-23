@@ -12,11 +12,17 @@ export type GraphCap = {
         adapterAddress?: string | null;
         market?: {
           marketId?: string | null;
-          loanAsset?: { address?: string | null; symbol?: string | null } | null;
-          collateralAsset?: { address?: string | null; symbol?: string | null } | null;
+          loanAsset?: { address?: string | null; symbol?: string | null; decimals?: number | null } | null;
+          collateralAsset?: { address?: string | null; symbol?: string | null; decimals?: number | null } | null;
           oracleAddress?: string | null;
           irmAddress?: string | null;
           lltv?: string | number | null;
+          state?: {
+            supplyApy?: number | null;
+            borrowApy?: number | null;
+            utilization?: number | null;
+            liquidityAssetsUsd?: number | null;
+          } | null;
         } | null;
       }
     | { __typename?: 'CollateralCapData'; collateralAddress?: string | null }
@@ -61,11 +67,17 @@ export function mapCap(graph: GraphCap | null | undefined): CapInfo | null {
       adapterAddress?: string | null;
       market?: {
         marketId?: string | null;
-        loanAsset?: { address?: string | null; symbol?: string | null } | null;
-        collateralAsset?: { address?: string | null; symbol?: string | null } | null;
+        loanAsset?: { address?: string | null; symbol?: string | null; decimals?: number | null } | null;
+        collateralAsset?: { address?: string | null; symbol?: string | null; decimals?: number | null } | null;
         oracleAddress?: string | null;
         irmAddress?: string | null;
         lltv?: string | number | null;
+        state?: {
+          supplyApy?: number | null;
+          borrowApy?: number | null;
+          utilization?: number | null;
+          liquidityAssetsUsd?: number | null;
+        } | null;
       } | null;
     };
     const m = marketData.market;
@@ -75,14 +87,17 @@ export function mapCap(graph: GraphCap | null | undefined): CapInfo | null {
             loanAsset: {
               address: m.loanAsset.address,
               symbol: m.loanAsset.symbol ?? null,
+              decimals: m.loanAsset.decimals ?? null,
             },
             collateralAsset: {
               address: m.collateralAsset.address,
               symbol: m.collateralAsset.symbol ?? null,
+              decimals: m.collateralAsset.decimals ?? null,
             },
             oracleAddress: m.oracleAddress ?? null,
             irmAddress: m.irmAddress ?? null,
             lltv: m.lltv != null ? String(m.lltv) : null,
+            state: m.state ?? null,
           }
         : null;
     return {

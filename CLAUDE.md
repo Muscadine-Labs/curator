@@ -567,7 +567,7 @@ Adapter count KPI = `adapters.length + 1`. Total allocated display =
 
 **UI** — `app/overview/monthly-statement/page.tsx` (tabs: **By Treasury Wallet** /
 **DefiLlama**). Treasury view modes: **Total** (default), By Token, By Vault.
-Dashboard overview shows a single **Total Revenue** KPI from treasury net
+Dashboard overview shows **Total Revenue** and **YTD Revenue** KPIs from treasury net
 month-over-month change (`app/page.tsx`). Toggle treasury vs DefiLlama via
 `lib/RevenueSourceContext.tsx` (default: treasury).
 

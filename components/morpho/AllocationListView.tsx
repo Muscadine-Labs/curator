@@ -183,31 +183,71 @@ export function AllocationExtraColumn({
   );
 }
 
-/** Morpho Curator–style fixed column grid for V2 allocations (desktop). */
-export const CURATOR_ALLOCATION_GRID = {
-  view: 'minmax(12rem, 1.6fr) 8.5rem 9rem 5rem 10rem 5rem 6.5rem',
-  edit: 'minmax(12rem, 1.6fr) 8.5rem 9rem 5rem 10rem 5rem 6.5rem minmax(26rem, 1.5fr)',
-} as const;
+/** Morpho Curator–style dynamic column grid for V2 allocations. */
+const CURATOR_OPTIONAL_COLUMNS: {
+  filterKey: keyof AllocationFilterState['columns'];
+  label: string;
+  width: string;
+}[] = [
+  { filterKey: 'effectiveCap', label: 'Eff. Abs. Cap', width: '9rem' },
+  { filterKey: 'supplyApy', label: 'Rate', width: '5rem' },
+  { filterKey: 'borrowApy', label: 'Borrow', width: '5rem' },
+  { filterKey: 'liquidity', label: 'Liquidity', width: '10rem' },
+  { filterKey: 'utilization', label: 'Util.', width: '5rem' },
+  { filterKey: 'allocated', label: 'Allocated', width: '8rem' },
+  { filterKey: 'percentCap', label: '% Cap', width: '6rem' },
+];
 
-export function CuratorAllocationListHeader({ editing = false }: { editing?: boolean }) {
+export function getCuratorVisibleColumns(columns: AllocationFilterState['columns']) {
+  return CURATOR_OPTIONAL_COLUMNS.filter((c) => columns[c.filterKey]);
+}
+
+export function buildCuratorGridTemplate(
+  columns: AllocationFilterState['columns'],
+  editing: boolean
+): string {
+  const optional = getCuratorVisibleColumns(columns)
+    .map((c) => c.width)
+    .join(' ');
+  const base = `minmax(12rem, 1.6fr) 8.5rem${optional ? ` ${optional}` : ''} 6.5rem`;
+  return editing ? `${base} minmax(26rem, 1.5fr)` : base;
+}
+
+export function CuratorAllocationListHeader({
+  editing = false,
+  columns = DEFAULT_CURATOR_COLUMNS,
+}: {
+  editing?: boolean;
+  columns?: AllocationFilterState['columns'];
+}) {
+  const visible = getCuratorVisibleColumns(columns);
   return (
     <div
       className="grid items-center gap-x-5 border-b px-5 py-3.5 text-xs font-medium text-muted-foreground"
-      style={{
-        gridTemplateColumns: editing ? CURATOR_ALLOCATION_GRID.edit : CURATOR_ALLOCATION_GRID.view,
-      }}
+      style={{ gridTemplateColumns: buildCuratorGridTemplate(columns, editing) }}
     >
       <span className="text-sm font-medium text-foreground">Allocation</span>
       <span className="text-right">Allocation</span>
-      <span className="text-right">Eff. Abs. Cap</span>
-      <span className="text-right">Rate</span>
-      <span className="text-right">Liquidity</span>
-      <span className="text-right">Util.</span>
+      {visible.map((col) => (
+        <span key={col.filterKey} className="text-right">
+          {col.label}
+        </span>
+      ))}
       <span className="text-right">% Alloc.</span>
       {editing && <span className="text-right">Target</span>}
     </div>
   );
 }
+
+const DEFAULT_CURATOR_COLUMNS: AllocationFilterState['columns'] = {
+  utilization: true,
+  liquidity: true,
+  borrowApy: false,
+  supplyApy: true,
+  allocated: false,
+  effectiveCap: true,
+  percentCap: false,
+};
 
 export function AllocationPctIndicator({ pct }: { pct: number }) {
   const active = pct > 0;
@@ -229,48 +269,48 @@ interface CuratorAllocationListRowProps {
   name: ReactNode;
   tags?: ReactNode;
   allocationAmount: ReactNode;
-  effectiveCap: ReactNode;
-  rate: ReactNode;
-  liquidity: ReactNode;
-  utilization: ReactNode;
+  optionalCells: ReactNode[];
   percentAllocated: ReactNode;
   targetCell?: ReactNode;
   className?: string;
   editing?: boolean;
+  columns?: AllocationFilterState['columns'];
 }
 
 export function CuratorAllocationListRow({
   name,
   tags,
   allocationAmount,
-  effectiveCap,
-  rate,
-  liquidity,
-  utilization,
+  optionalCells,
   percentAllocated,
   targetCell,
   className,
   editing = false,
+  columns = DEFAULT_CURATOR_COLUMNS,
 }: CuratorAllocationListRowProps) {
+  const visible = getCuratorVisibleColumns(columns);
+
   return (
     <div
       className={cn(
         'grid items-center gap-x-5 border-b border-border/60 px-5 py-4 last:border-b-0',
         className
       )}
-      style={{
-        gridTemplateColumns: editing ? CURATOR_ALLOCATION_GRID.edit : CURATOR_ALLOCATION_GRID.view,
-      }}
+      style={{ gridTemplateColumns: buildCuratorGridTemplate(columns, editing) }}
     >
       <div className="flex min-w-0 items-center gap-2.5">
         <div className="truncate text-sm font-medium text-foreground">{name}</div>
         {tags}
       </div>
       <div className="text-right text-sm tabular-nums tracking-tight text-foreground">{allocationAmount}</div>
-      <div className="text-right text-sm tabular-nums tracking-tight text-foreground">{effectiveCap}</div>
-      <div className="text-right text-sm tabular-nums tracking-tight text-foreground">{rate}</div>
-      <div className="text-right text-sm tabular-nums tracking-tight text-foreground">{liquidity}</div>
-      <div className="text-right text-sm tabular-nums tracking-tight text-foreground">{utilization}</div>
+      {visible.map((col, i) => (
+        <div
+          key={col.filterKey}
+          className="text-right text-sm tabular-nums tracking-tight text-foreground"
+        >
+          {optionalCells[i] ?? '—'}
+        </div>
+      ))}
       <div className="text-right">{percentAllocated}</div>
       {targetCell}
     </div>

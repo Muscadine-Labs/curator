@@ -3,11 +3,13 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
+import { CapLabel } from '@/components/morpho/CapLabel';
 import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
 import { useVaultV2Risk } from '@/lib/hooks/useVaultV2Risk';
 import {
   buildAdapterLabelMap,
   capDisplayLabel,
+  capLltvPill,
   capRowKey,
   formatCapRelative,
   formatCapTokenAmount,
@@ -17,8 +19,7 @@ import type { CapInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id
 import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
 import type { VaultV2PendingResponse } from '@/app/api/vaults/v2/[id]/pending/route';
 import { VaultV2Pending } from '@/components/morpho/VaultV2Pending';
-import { formatLltvPill } from '@/components/morpho/AllocationListView';
-import { marketKeyFromGraphQL } from '@/lib/morpho/morpho-app-links';
+import { formatMaxRateApr } from '@/lib/morpho/vault-v2-api';
 
 interface VaultV2CapsProps {
   vaultAddress: string;
@@ -65,17 +66,20 @@ export function VaultV2Caps({
 
   if (data.caps.length === 0) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Caps</CardTitle>
-          <CardDescription>
-            Supply caps limit how much can be allocated to each adapter, collateral token, or market.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-slate-500 dark:text-slate-400">No caps configured.</p>
-        </CardContent>
-      </Card>
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Caps</CardTitle>
+            <CardDescription>
+              Supply caps limit how much can be allocated to each adapter, collateral token, or market.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <MaxRateBlock maxRate={data.maxRate} />
+            <p className="text-sm text-slate-500 dark:text-slate-400">No caps configured.</p>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
@@ -100,6 +104,7 @@ export function VaultV2Caps({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-8">
+        <MaxRateBlock maxRate={data.maxRate} />
         {grouped.adapter.length > 0 && (
           <CapSection
             title="Adapter Caps"
@@ -109,6 +114,7 @@ export function VaultV2Caps({
             adapterLabels={adapterLabels}
             assetSymbol={assetSymbol}
             assetDecimals={assetDecimals}
+            chainId={chainId}
           />
         )}
         {grouped.collateral.length > 0 && (
@@ -120,6 +126,7 @@ export function VaultV2Caps({
             adapterLabels={adapterLabels}
             assetSymbol={assetSymbol}
             assetDecimals={assetDecimals}
+            chainId={chainId}
           />
         )}
         {grouped.market.length > 0 && (
@@ -131,6 +138,7 @@ export function VaultV2Caps({
             adapterLabels={adapterLabels}
             assetSymbol={assetSymbol}
             assetDecimals={assetDecimals}
+            chainId={chainId}
             showLltv
           />
         )}
@@ -155,6 +163,21 @@ function CapsSkeleton() {
   );
 }
 
+function MaxRateBlock({ maxRate }: { maxRate: string | null }) {
+  if (maxRate == null) return null;
+  return (
+    <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Max Rate</p>
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+        Maximum interest rate the vault can charge on allocated assets (annualized APR).
+      </p>
+      <p className="mt-2 text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+        {formatMaxRateApr(maxRate)}
+      </p>
+    </div>
+  );
+}
+
 function CapSection({
   title,
   description,
@@ -163,6 +186,7 @@ function CapSection({
   adapterLabels,
   assetSymbol,
   assetDecimals,
+  chainId,
   showLltv,
 }: {
   title: string;
@@ -172,6 +196,7 @@ function CapSection({
   adapterLabels: Map<string, string>;
   assetSymbol?: string | null;
   assetDecimals?: number | null;
+  chainId: number;
   showLltv?: boolean;
 }) {
   return (
@@ -186,31 +211,15 @@ function CapSection({
             key={capRowKey(cap, idx)}
             cap={cap}
             label={capDisplayLabel(cap, risk, adapterLabels)}
-            lltv={showLltv ? resolveMarketLltv(cap.marketKey, risk) : null}
+            lltv={showLltv ? capLltvPill(cap, risk) : null}
             assetSymbol={assetSymbol}
             assetDecimals={assetDecimals}
+            chainId={chainId}
           />
         ))}
       </div>
     </div>
   );
-}
-
-function resolveMarketLltv(
-  marketKey: string | null | undefined,
-  risk: V2VaultRiskResponse | null | undefined
-): string | null {
-  if (!marketKey) return null;
-  const needle = marketKey.toLowerCase();
-  for (const adapter of risk?.adapters ?? []) {
-    for (const m of adapter.markets ?? []) {
-      const key = marketKeyFromGraphQL(m.market);
-      if (key?.toLowerCase() === needle) {
-        return formatLltvPill(m.market?.lltv ?? null);
-      }
-    }
-  }
-  return null;
 }
 
 function CapRow({
@@ -219,17 +228,21 @@ function CapRow({
   lltv,
   assetSymbol,
   assetDecimals,
+  chainId,
 }: {
   cap: CapInfo;
   label: string;
   lltv: string | null;
   assetSymbol?: string | null;
   assetDecimals?: number | null;
+  chainId: number;
 }) {
   return (
     <div className="grid grid-cols-1 gap-2 rounded-md border border-slate-200 p-3 text-sm dark:border-slate-800 sm:grid-cols-4 sm:items-center">
       <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
-        <span className="font-medium text-slate-900 dark:text-slate-100">{label}</span>
+        <span className="font-medium text-slate-900 dark:text-slate-100">
+          <CapLabel cap={cap} label={label} chainId={chainId} />
+        </span>
         {lltv && (
           <Badge variant="outline" className="text-xs text-slate-600 dark:text-slate-300">
             {lltv}

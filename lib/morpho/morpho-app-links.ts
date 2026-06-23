@@ -1,6 +1,4 @@
-import { BASE_CHAIN_ID } from '@/lib/constants';
-
-const MORPHO_APP_ORIGIN = 'https://app.morpho.org';
+import { BASE_CHAIN_ID, MORPHO_APP_ORIGIN } from '@/lib/constants';
 
 /** Morpho API market identifier (`marketId` replaced legacy `uniqueKey`). */
 export function marketKeyFromGraphQL(

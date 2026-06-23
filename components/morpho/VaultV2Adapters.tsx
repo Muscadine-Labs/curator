@@ -18,6 +18,7 @@ import {
   formatCapRelative,
   formatCapTokenAmount,
 } from '@/lib/morpho/v2-cap-format';
+import { formatForceDeallocatePenaltyWad } from '@/lib/morpho/vault-v2-api';
 import { isAdapterCap } from '@/lib/morpho/cap-utils';
 import type { AdapterInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governance/route';
 import type { V2AdapterRiskData, V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
@@ -289,6 +290,10 @@ function StrategyAdapterCard({
         />
         <Metric label="Liquidity" value={liquidity} />
         {rate != null && <Metric label="Rate" value={formatPercentage(rate * 100, 2)} />}
+        <Metric
+          label="Force Deallocate Penalty"
+          value={formatForceDeallocatePenaltyWad(adapter.forceDeallocatePenalty)}
+        />
       </dl>
     </div>
   );
@@ -327,7 +332,8 @@ function AdapterTable({
             <th className="pb-2 pr-3 font-medium">Allocation / %</th>
             <th className="pb-2 pr-3 font-medium">Caps</th>
             <th className="pb-2 pr-3 font-medium">Liquidity</th>
-            <th className="pb-2 font-medium">Rate</th>
+            <th className="pb-2 pr-3 font-medium">Rate</th>
+            <th className="pb-2 font-medium">Force Penalty</th>
           </tr>
         </thead>
         <tbody>
@@ -341,6 +347,7 @@ function AdapterTable({
             <td className="py-2 pr-3 tabular-nums">
               {formatToken(idleAssets, chainDecimals, displayDecimals, assetSymbol)}
             </td>
+            <td className="py-2">—</td>
             <td className="py-2">—</td>
           </tr>
           {adapters.map((adapter) => {
@@ -369,7 +376,10 @@ function AdapterTable({
                     : '—'}
                 </td>
                 <td className="py-2 pr-3 tabular-nums">{resolveAdapterLiquidity(risk, adapter)}</td>
-                <td className="py-2 tabular-nums">{rate != null ? formatPercentage(rate * 100, 2) : '—'}</td>
+                <td className="py-2 pr-3 tabular-nums">{rate != null ? formatPercentage(rate * 100, 2) : '—'}</td>
+                <td className="py-2 tabular-nums">
+                  {formatForceDeallocatePenaltyWad(adapter.forceDeallocatePenalty)}
+                </td>
               </tr>
             );
           })}

@@ -8,6 +8,7 @@ import { KpiCard } from '@/components/KpiCard';
 import { useProtocolStats } from '@/lib/hooks/useProtocolStats';
 import { AppShell } from '@/components/layout/AppShell';
 import { useRevenueSource, type RevenueSource } from '@/lib/RevenueSourceContext';
+import { sumTreasuryRevenueYtd, sumTreasuryRevenueYtdFromDaily } from '@/lib/morpho/treasury-statement';
 
 // Lazy load chart components to reduce initial bundle size
 const ChartTvl = dynamic(() => import('@/components/ChartTvl').then(mod => ({ default: mod.ChartTvl })), {
@@ -76,10 +77,27 @@ export default function Home() {
     return statements.reduce((sum, s) => sum + s.total.usd, 0);
   }, [monthlyData?.statements]);
 
+  const treasuryRevenueYtd = useMemo(() => {
+    const daily = monthlyData?.daily ?? [];
+    if (daily.length > 0) {
+      return sumTreasuryRevenueYtdFromDaily(daily);
+    }
+    return sumTreasuryRevenueYtd(monthlyData?.statements ?? []);
+  }, [monthlyData?.daily, monthlyData?.statements]);
+
+  const defillamaRevenueYtd = useMemo(() => {
+    const year = String(new Date().getFullYear());
+    return (stats?.revenueTrendDaily ?? [])
+      .filter((d) => d.date.startsWith(year))
+      .reduce((sum, d) => sum + d.value, 0);
+  }, [stats?.revenueTrendDaily]);
+
   const revenueTotal =
     revenueSource === 'treasury'
       ? treasuryRevenueTotal
       : (stats?.totalFeesGenerated ?? 0);
+  const revenueYtd =
+    revenueSource === 'treasury' ? treasuryRevenueYtd : defillamaRevenueYtd;
   const isRevenueLoading =
     revenueSource === 'treasury' ? isTreasuryLoading : isLoading;
 
@@ -135,7 +153,7 @@ export default function Home() {
 
           <div className="border-t border-border/60" />
 
-          <div className="grid grid-cols-1 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             <p className="col-span-full text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
               Revenue
               <span className="ml-1.5 font-normal normal-case tracking-normal text-muted-foreground/80">
@@ -145,6 +163,14 @@ export default function Home() {
             <KpiCard
               title="Total Revenue"
               value={revenueTotal}
+              isLoading={isRevenueLoading}
+              format="usd"
+              compact
+              className="border-0 bg-muted/40 shadow-none py-2"
+            />
+            <KpiCard
+              title="YTD Revenue"
+              value={revenueYtd}
               isLoading={isRevenueLoading}
               format="usd"
               compact

@@ -5,12 +5,18 @@ import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
 import { getVaultByAddress } from '@/lib/config/vaults';
 import { handleApiError, AppError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
-import { BASE_CHAIN_ID } from '@/lib/constants';
+import { BASE_CHAIN_ID, VAULT_V2_GRAPHQL_ADAPTER_LIMIT, VAULT_V2_GRAPHQL_CAPS_LIMIT, VAULT_V2_GRAPHQL_POSITION_LIMIT } from '@/lib/constants';
 import {
   asV1VaultMarketData,
   fetchV1VaultMarkets,
   type V1VaultMarketData,
 } from '@/lib/morpho/query-v1-vault-markets';
+import { isMarketCap } from '@/lib/morpho/cap-utils';
+import { isAllocatableMarketCap } from '@/lib/morpho/v2-allocation-targets';
+import { mapCap, type GraphCap } from '@/lib/morpho/vault-v2-governance-map';
+import { enrichMarketCapParams } from '@/lib/morpho/fetch-markets-by-id';
+import { marketKeyFromGraphQL } from '@/lib/morpho/morpho-app-links';
+import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
 import {
   computeV1MarketRiskScores,
   isMarketIdle,
@@ -57,6 +63,9 @@ type GraphVaultResponse = {
     adapters?: {
       items?: Array<GraphAdapter | null> | null;
     } | null;
+    caps?: {
+      items?: Array<GraphCap | null> | null;
+    } | null;
   } | null;
 };
 
@@ -100,8 +109,12 @@ export type V2VaultRiskResponse = {
   adapters: V2AdapterRiskData[];
 };
 
+const ADAPTER_LIMIT = VAULT_V2_GRAPHQL_ADAPTER_LIMIT;
+const POSITION_LIMIT = VAULT_V2_GRAPHQL_POSITION_LIMIT;
+const CAPS_LIMIT = VAULT_V2_GRAPHQL_CAPS_LIMIT;
+
 const VAULT_V2_RISK_QUERY = gql`
-  query VaultV2Risk($address: String!, $chainId: Int!, $adapterLimit: Int!, $positionLimit: Int!) {
+  query VaultV2Risk($address: String!, $chainId: Int!, $adapterLimit: Int!, $positionLimit: Int!, $capLimit: Int!) {
     vault: vaultV2ByAddress(address: $address, chainId: $chainId) {
       address
       totalAssetsUsd
@@ -136,19 +149,6 @@ const VAULT_V2_RISK_QUERY = gql`
                   loanAsset { symbol decimals address }
                   collateralAsset { symbol decimals address }
                   oracleAddress
-                  oracle {
-                    id
-                    address
-                    type
-                    data {
-                      ... on MorphoChainlinkOracleV2Data {
-                        baseFeedOne { address }
-                      }
-                      ... on MorphoChainlinkOracleData {
-                        baseFeedOne { address }
-                      }
-                    }
-                  }
                   irmAddress
                   lltv
                   realizedBadDebt { usd }
@@ -161,6 +161,37 @@ const VAULT_V2_RISK_QUERY = gql`
                     supplyApy
                     borrowApy
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+      caps(first: $capLimit) {
+        items {
+          type
+          absoluteCap
+          relativeCap
+          allocation
+          data {
+            __typename
+            ... on AdapterCapData {
+              adapterAddress
+            }
+            ... on MarketV1CapData {
+              adapterAddress
+              market {
+                marketId
+                loanAsset { address symbol decimals }
+                collateralAsset { address symbol decimals }
+                oracleAddress
+                irmAddress
+                lltv
+                state {
+                  supplyApy
+                  borrowApy
+                  utilization
+                  liquidityAssetsUsd
                 }
               }
             }
@@ -248,20 +279,133 @@ function sumPositionSupplyAssetsRaw(
   }
 }
 
+function capToV1VaultMarketData(cap: CapInfo): V1VaultMarketData | null {
+  if (!cap.marketKey || !cap.marketParams) return null;
+  const loan = cap.marketParams.loanAsset;
+  const col = cap.marketParams.collateralAsset;
+  if (!loan?.address || !col?.address) return null;
+
+  let vaultSupplyAssets: string | null = null;
+  try {
+    const raw = BigInt(cap.allocation ?? '0');
+    vaultSupplyAssets = raw > 0n ? raw.toString() : null;
+  } catch {
+    vaultSupplyAssets = null;
+  }
+
+  return asV1VaultMarketData({
+    id: cap.marketKey,
+    marketId: cap.marketKey,
+    uniqueKey: cap.marketKey,
+    loanAsset: {
+      address: loan.address,
+      symbol: loan.symbol ?? 'Unknown',
+      decimals: loan.decimals ?? 18,
+    },
+    collateralAsset: {
+      address: col.address,
+      symbol: col.symbol ?? 'Unknown',
+      decimals: col.decimals ?? 18,
+    },
+    oracleAddress: cap.marketParams.oracleAddress ?? null,
+    oracle: null,
+    irmAddress: cap.marketParams.irmAddress ?? null,
+    lltv: cap.marketParams.lltv ?? null,
+    realizedBadDebt: null,
+    state: cap.marketParams.state
+      ? {
+          supplyAssetsUsd: null,
+          borrowAssetsUsd: null,
+          collateralAssetsUsd: null,
+          liquidityAssetsUsd: cap.marketParams.state.liquidityAssetsUsd ?? null,
+          utilization: cap.marketParams.state.utilization ?? null,
+          supplyApy: cap.marketParams.state.supplyApy ?? null,
+          borrowApy: cap.marketParams.state.borrowApy ?? null,
+        }
+      : null,
+    vaultSupplyAssets,
+    vaultSupplyAssetsUsd: null,
+    vaultTotalAssetsUsd: null,
+    marketTotalSupplyUsd: null,
+  });
+}
+
+function marketCapsForAdapter(adapterAddress: string, caps: CapInfo[]): CapInfo[] {
+  const addr = adapterAddress.toLowerCase();
+  return caps.filter(
+    (cap) =>
+      isMarketCap(cap) &&
+      isAllocatableMarketCap(cap) &&
+      cap.adapterAddress?.toLowerCase() === addr &&
+      Boolean(cap.marketKey)
+  );
+}
+
+async function buildBlueAdapterMarketRisks(
+  adapter: GraphAdapter,
+  positions: NonNullable<GraphAdapter['positions']>['items'],
+  caps: CapInfo[]
+): Promise<V2MarketRiskData[]> {
+  const adapterAddress = adapter.address;
+  const adapterCaps = marketCapsForAdapter(adapterAddress, caps);
+
+  const positionByKey = new Map<
+    string,
+    NonNullable<NonNullable<GraphAdapter['positions']>['items'][number]>
+  >();
+  for (const pos of positions) {
+    if (!pos?.market) continue;
+    const key = marketKeyFromGraphQL(pos.market)?.toLowerCase();
+    if (key) positionByKey.set(key, pos);
+  }
+
+  const keys = new Set<string>();
+  for (const cap of adapterCaps) {
+    if (cap.marketKey) keys.add(cap.marketKey.toLowerCase());
+  }
+
+  const marketRisks: V2MarketRiskData[] = [];
+  for (const key of keys) {
+    const cap = adapterCaps.find((c) => c.marketKey?.toLowerCase() === key);
+    const pos = positionByKey.get(key);
+
+    let market: V1VaultMarketData | null = null;
+    let supplyUsd = 0;
+    let supplyAssets: string | null = null;
+
+    if (pos?.market) {
+      market = asV1VaultMarketData(pos.market);
+      supplyUsd = pos.state?.supplyAssetsUsd ?? 0;
+      supplyAssets = pos.state?.supplyAssets ?? null;
+    } else if (cap) {
+      market = capToV1VaultMarketData(cap);
+      if (cap.allocation) {
+        try {
+          const raw = BigInt(cap.allocation);
+          if (raw > 0n) supplyAssets = raw.toString();
+        } catch {
+          /* skip */
+        }
+      }
+    }
+
+    if (!market) continue;
+    marketRisks.push(await buildMarketRisk(market, supplyUsd, supplyAssets));
+  }
+
+  return marketRisks;
+}
+
 async function computeAdapterRisk(
   adapter: GraphAdapter,
-  chainId: number
+  chainId: number,
+  caps: CapInfo[]
 ): Promise<V2AdapterRiskData | null> {
-  const positions = adapter.positions?.items?.filter(Boolean) ?? [];
   const posItems = adapter.positions?.items ?? null;
   const allocationUsd =
     adapter.__typename === 'MorphoMarketV1Adapter' && posItems
       ? sumPositionSupplyAssetsUsd(posItems)
       : (adapter.assetsUsd ?? 0);
-  const allocationAssetsFromPositions =
-    adapter.__typename === 'MorphoMarketV1Adapter' && posItems
-      ? sumPositionSupplyAssetsRaw(posItems)
-      : null;
 
   if (adapter.__typename === 'MetaMorphoAdapter' && adapter.metaMorpho?.address) {
     const { markets, vaultStats } = await fetchV1VaultMarkets(adapter.metaMorpho.address, chainId);
@@ -279,8 +423,7 @@ async function computeAdapterRisk(
       allocationAssets: adapter.assets ?? null,
       riskScore: weightedScore,
       riskGrade: grade,
-      // V1 vault only — underlying Blue markets are not listed in V2 risk UI.
-      markets: [],
+      markets: marketRisks,
       underlyingVaultAddress: adapter.metaMorpho.address,
       underlyingVaultStats: {
         netApy: vaultStats.netApy,
@@ -294,29 +437,7 @@ async function computeAdapterRisk(
 
   if (adapter.__typename === 'MorphoMarketV1Adapter') {
     const positions = adapter.positions?.items?.filter(Boolean) ?? [];
-    if (positions.length === 0) {
-      return {
-        adapterAddress: adapter.address,
-        adapterType: 'MorphoMarketV1Adapter',
-        adapterLabel: 'Morpho Market Adapter',
-        allocationUsd,
-        allocationAssets: adapter.assets ?? null,
-        riskScore: 0,
-        riskGrade: 'F',
-        markets: [],
-      };
-    }
-
-    const marketRisks = await Promise.all(
-      positions.map((pos) =>
-        buildMarketRisk(
-          asV1VaultMarketData(pos!.market),
-          pos!.state?.supplyAssetsUsd ?? 0,
-          pos!.state?.supplyAssets ?? null
-        )
-      )
-    );
-
+    const marketRisks = await buildBlueAdapterMarketRisks(adapter, positions, caps);
     const { weightedScore, grade } = computeWeightedRisk(marketRisks);
 
     return {
@@ -325,8 +446,8 @@ async function computeAdapterRisk(
       adapterLabel: 'Morpho Market Adapter',
       allocationUsd,
       allocationAssets: adapter.assets ?? null,
-      riskScore: weightedScore,
-      riskGrade: grade,
+      riskScore: marketRisks.length > 0 ? weightedScore : 0,
+      riskGrade: marketRisks.length > 0 ? grade : 'F',
       markets: marketRisks,
     };
   }
@@ -345,7 +466,23 @@ function computeWeightedRisk(markets: V2MarketRiskData[]): { weightedScore: numb
     }
   });
 
-  const weightedScore = totalWeight > 0 ? weightedSum / totalWeight : 0;
+  if (totalWeight === 0) {
+    let scoreSum = 0;
+    let scoreCount = 0;
+    markets.forEach((m) => {
+      if (m.scores && !isMarketIdle(m.market)) {
+        scoreSum += m.scores.marketRiskScore;
+        scoreCount += 1;
+      }
+    });
+    const avgScore = scoreCount > 0 ? scoreSum / scoreCount : 0;
+    return {
+      weightedScore: avgScore,
+      grade: getGradeFromScore(avgScore),
+    };
+  }
+
+  const weightedScore = weightedSum / totalWeight;
   return {
     weightedScore,
     grade: getGradeFromScore(weightedScore),
@@ -393,8 +530,9 @@ export async function GET(
       {
         address,
         chainId: cfg.chainId ?? BASE_CHAIN_ID,
-        adapterLimit: 20,
-        positionLimit: 20,
+        adapterLimit: ADAPTER_LIMIT,
+        positionLimit: POSITION_LIMIT,
+        capLimit: CAPS_LIMIT,
       }
     );
 
@@ -402,10 +540,16 @@ export async function GET(
       throw new AppError('Vault not found in Morpho API', 404, 'VAULT_NOT_FOUND');
     }
 
+    const capsRaw =
+      data.vault.caps?.items
+        ?.map(mapCap)
+        .filter((c): c is CapInfo => c !== null) ?? [];
+    const caps = await enrichMarketCapParams(capsRaw, cfg.chainId ?? BASE_CHAIN_ID);
+
     const adapters = data.vault.adapters?.items?.filter((a): a is GraphAdapter => Boolean(a)) ?? [];
 
     const adapterRisks = (
-      await Promise.all(adapters.map((adapter) => computeAdapterRisk(adapter, cfg.chainId)))
+      await Promise.all(adapters.map((adapter) => computeAdapterRisk(adapter, cfg.chainId, caps)))
     ).filter((a): a is V2AdapterRiskData => a !== null);
 
     const totalAdapterAssetsUsd = adapterRisks.reduce(

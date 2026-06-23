@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { format, formatDistanceToNow } from 'date-fns';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -14,6 +13,8 @@ import { getScanUrlForChain } from '@/lib/constants';
 import { TransactionButton } from '@/components/TransactionButton';
 import type { VaultV2PendingResponse } from '@/app/api/vaults/v2/[id]/pending/route';
 import type { Address, Hex } from 'viem';
+import { formatExecutableAt } from '@/lib/format/pending-time';
+import { formatVaultV2FunctionTitle } from '@/lib/morpho/vault-v2-timelocks';
 
 interface VaultV2PendingProps {
   vaultAddress: string;
@@ -29,13 +30,6 @@ interface VaultV2PendingProps {
 
 type PendingFilter = 'all' | 'ready' | 'waiting';
 
-function formatValidAt(ts: number): string {
-  if (!ts) return '—';
-  const d = new Date(ts * 1000);
-  const dist = formatDistanceToNow(d, { addSuffix: true });
-  return ts * 1000 > Date.now() ? dist : `since ${format(d, 'MMM d, yyyy')}`;
-}
-
 export function VaultV2Pending({
   vaultAddress,
   chainId,
@@ -48,6 +42,7 @@ export function VaultV2Pending({
   const data = preloadedData ?? fetchedData;
   const [filter, setFilter] = useState<PendingFilter>('all');
   const [activeRowId, setActiveRowId] = useState<number | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const revokeWrite = useVaultWrite();
   const queryClient = useQueryClient();
 
@@ -65,6 +60,14 @@ export function VaultV2Pending({
     if (filter === 'waiting') return pending.filter((p) => p.status === 'waiting');
     return pending;
   }, [pending, filter]);
+
+  const hasWaiting = pending.some((p) => p.status === 'waiting');
+
+  useEffect(() => {
+    if (!hasWaiting) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, [hasWaiting]);
 
   const revokeInFlight = revokeWrite.isLoading && activeRowId !== null;
 
@@ -152,7 +155,9 @@ export function VaultV2Pending({
             >
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <p className="font-medium text-slate-900 dark:text-slate-100">{item.functionName}</p>
+                  <p className="font-medium text-slate-900 dark:text-slate-100">
+                    {formatVaultV2FunctionTitle(item.functionName)}
+                  </p>
                   <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{item.summary}</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -179,7 +184,7 @@ export function VaultV2Pending({
                 <div>
                   <dt className="text-slate-500 dark:text-slate-400">Executable at</dt>
                   <dd className="font-medium text-slate-800 dark:text-slate-200">
-                    {formatValidAt(item.validAt)}
+                    {formatExecutableAt(item.validAt, nowMs)}
                   </dd>
                 </div>
                 <div>

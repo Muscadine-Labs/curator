@@ -33,6 +33,26 @@ export function sumTreasuryBreakdownUsd(assets: TreasuryAssetBreakdown): number 
   return assets.USDC.usd + assets.cbBTC.usd + assets.WETH.usd;
 }
 
+/** Sum treasury net revenue for calendar year-to-date from monthly statement rows. */
+export function sumTreasuryRevenueYtd(
+  statements: ReadonlyArray<{ month: string; total: { usd: number } }>,
+  year: number = new Date().getFullYear()
+): number {
+  const prefix = `${year}-`;
+  return statements
+    .filter((s) => s.month.startsWith(prefix))
+    .reduce((sum, s) => sum + (s.total?.usd ?? 0), 0);
+}
+
+/** YTD treasury revenue from daily net-change series (includes partial current month). */
+export function sumTreasuryRevenueYtdFromDaily(
+  daily: ReadonlyArray<{ date: string; value: number }>,
+  year: number = new Date().getFullYear()
+): number {
+  const prefix = `${year}-`;
+  return daily.filter((d) => d.date.startsWith(prefix)).reduce((sum, d) => sum + d.value, 0);
+}
+
 export const VAULT_ASSET_MAP: Record<string, TreasuryAssetKey> = {
   '0xf7e26fa48a568b8b0038e104dfd8abdf0f99074f': 'USDC',
   '0x89712980cb434ef5ae4ab29349419eb976b0b496': 'USDC',

@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState, useCallback, type ReactNode } from 'react';
+import { useMemo, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertTriangle, CheckCircle2, Pencil } from 'lucide-react';
@@ -21,12 +22,14 @@ import {
   formatPercentage,
   formatRawTokenAmount,
 } from '@/lib/format/number';
+import { formatCapRelative } from '@/lib/morpho/v2-cap-format';
 import {
   getTokenDisplayDecimals,
   resolveAssetDecimals,
 } from '@/lib/format/asset-decimals';
 import {
   allocationInputWidthCh,
+  formatAllocationAmount,
   formatAllocationEditInput,
   formatAllocationEditInputExact,
   formatAllocationTableAmount,
@@ -37,6 +40,7 @@ import {
 import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
 import type { VaultV2GovernanceResponse, CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
 import { isAdapterCap, isMarketCap } from '@/lib/morpho/cap-utils';
+import { collectMorphoBlueMarketEntries } from '@/lib/morpho/v2-allocation-targets';
 import {
   encodeAdapterCapIdData,
   encodeMarketCapIdData,
@@ -53,6 +57,7 @@ import {
 } from '@/lib/onchain/allocation-dust';
 import { DustRecipientSelect } from '@/components/morpho/DustRecipientSelect';
 import {
+  marketKeyFromGraphQL,
   morphoMarketHref,
   morphoVaultHref,
 } from '@/lib/morpho/morpho-app-links';
@@ -64,9 +69,11 @@ import {
   AllocationPill,
   CuratorAllocationListHeader,
   CuratorAllocationListRow,
+  getCuratorVisibleColumns,
   formatMarketPairLabel,
   formatLltvPill,
 } from '@/components/morpho/AllocationListView';
+import { VaultV2LiquidityAdapter } from '@/components/morpho/VaultV2LiquidityAdapter';
 
 interface VaultV2AllocationsProps {
   vaultAddress: string;
@@ -116,6 +123,66 @@ function formatLiquidityFull(
     return formatFullUSD(row.liquidity, 2);
   }
   return '—';
+}
+
+function compareBigIntDesc(a: bigint, b: bigint): number {
+  if (a === b) return 0;
+  return a > b ? -1 : 1;
+}
+
+function compareBigIntAsc(a: bigint, b: bigint): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
+/** Headroom under absolute and relative caps (if known). */
+function hasRemainingCapacity(t: AllocTarget, totalRaw: bigint): boolean {
+  if (t.isVaultIdle) return false;
+  let hasHeadroom = false;
+  if (t.absoluteCapRaw != null && t.absoluteCapRaw > t.currentAssets) {
+    hasHeadroom = true;
+  }
+  if (t.relativeCapWad != null && totalRaw > BigInt(0)) {
+    const wad = BigInt('1000000000000000000');
+    const maxRel = (totalRaw * t.relativeCapWad) / wad;
+    if (maxRel > t.currentAssets) hasHeadroom = true;
+  }
+  return hasHeadroom;
+}
+
+function formatEffRelCap(t: AllocTarget, isIdle: boolean): string {
+  if (isIdle || t.relativeCapWad == null) return '—';
+  return formatCapRelative(t.relativeCapWad.toString());
+}
+
+function formatRowAllocationCell(
+  r: TargetRow,
+  t: AllocTarget,
+  filters: AllocationFilterState
+): string {
+  const raw = r.allocAssets != null ? BigInt(r.allocAssets) : t.currentAssets;
+  if (filters.displayMode === 'percent') {
+    return `${r.pct.toFixed(2)}%`;
+  }
+  return formatAllocationAmount(
+    filters.amountUnit,
+    r.allocated,
+    raw,
+    r.allocSymbol ?? t.symbol,
+    r.allocDecimals
+  );
+}
+
+function formatRowCapCell(
+  t: AllocTarget,
+  isIdle: boolean,
+  filters: AllocationFilterState
+): string {
+  if (isIdle) return '—';
+  if (filters.displayMode === 'percent' && t.relativeCapWad != null) {
+    return formatCapRelative(t.relativeCapWad.toString());
+  }
+  return formatEffAbsCap(t, isIdle);
 }
 
 function formatEffAbsCap(
@@ -250,10 +317,16 @@ function rowSection(r: TargetRow, t: AllocTarget): AllocationSection {
 }
 
 export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk }: VaultV2AllocationsProps) {
-  const { data: fetchedRisk, isLoading, error } = useVaultV2Risk(vaultAddress);
-  const { data: fetchedGov } = useVaultV2Governance(vaultAddress);
+  const queryClient = useQueryClient();
+  const { data: fetchedRisk, isLoading, error } = useVaultV2Risk(preloadedRisk ? undefined : vaultAddress);
+  const {
+    data: fetchedGov,
+    isLoading: govLoading,
+    error: govError,
+  } = useVaultV2Governance(preloadedData ? undefined : vaultAddress);
   const risk = preloadedRisk ?? fetchedRisk;
   const governance = preloadedData ?? fetchedGov;
+  const capsUnavailable = !preloadedData && (govLoading || Boolean(govError));
 
   const capByIdHash = useMemo(() => {
     const map = new Map<string, CapInfo>();
@@ -392,27 +465,25 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
           searchHaystack: `${displayName} ${allocSym ?? ''} metamorpho`.toLowerCase(),
         });
       } else {
-        const sortedMarkets = (adapter.markets ?? [])
-          .slice()
-          .sort((a, b) => (b.allocationUsd ?? 0) - (a.allocationUsd ?? 0));
-        for (const m of sortedMarkets) {
-          const col = m.market?.collateralAsset?.symbol;
-          const loan = m.market?.loanAsset?.symbol;
+        const marketEntries = collectMorphoBlueMarketEntries(adapter, governance);
+        for (const entry of marketEntries) {
+          const m = entry.market;
+          const col = m.collateralAsset?.symbol;
+          const loan = m.loanAsset?.symbol;
           const label = formatMarketPairLabel(col, loan);
-          const allocAssets = m.allocationAssets ?? null;
-          const allocDec = m.market?.loanAsset?.decimals ?? dec;
-          const allocSym = m.market?.loanAsset?.symbol ?? sym;
-          const mktPct = totalUsd > 0 ? ((m.allocationUsd ?? 0) / totalUsd) * 100 : 0;
+          const allocAssets = entry.allocationAssets;
+          const allocDec = m.loanAsset?.decimals ?? dec;
+          const allocSym = m.loanAsset?.symbol ?? sym;
+          const mktPct = totalUsd > 0 ? (entry.allocationUsd / totalUsd) * 100 : 0;
 
           let rawAssets = BigInt(0);
           if (allocAssets) { try { rawAssets = BigInt(allocAssets); } catch { /* */ } }
           totalRaw += rawAssets;
 
-          const data = m.market ? encodeMarketParamsData(m.market) : ('0x' as Hex);
-          const capIdData = m.market
-            ? encodeMarketCapIdData(adapter.adapterAddress, m.market)
-            : data;
+          const data = encodeMarketParamsData(m);
+          const capIdData = encodeMarketCapIdData(adapter.adapterAddress, m);
           const idHash = keccak256(capIdData);
+          const marketKey = entry.marketKey;
 
           const tIdx = targets.length;
           targets.push({
@@ -422,7 +493,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
             data,
             capIdHash: idHash,
             currentAssets: rawAssets,
-            currentUsd: m.allocationUsd ?? 0,
+            currentUsd: entry.allocationUsd,
             decimals: allocDec,
             symbol: allocSym,
             isMetaMorpho: false,
@@ -434,26 +505,26 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
             kind: 'target',
             targetIdx: tIdx,
             market: label,
-            morphoHref: morphoMarketHref(m.market?.uniqueKey),
-            isIdle: !m.market?.lltv,
+            morphoHref: morphoMarketHref(marketKey),
+            isIdle: !m.lltv,
             isMorphoBlue: true,
-            supplyApy: m.market?.state?.supplyApy ?? null,
-            borrowApy: m.market?.state?.borrowApy ?? null,
-            utilization: m.market?.state?.utilization ?? null,
-            liquidity: m.market?.state?.liquidityAssetsUsd ?? null,
+            supplyApy: m.state?.supplyApy ?? null,
+            borrowApy: m.state?.borrowApy ?? null,
+            utilization: m.state?.utilization ?? null,
+            liquidity: m.state?.liquidityAssetsUsd ?? null,
             liquidityAssets: null,
             tvlUsd: null,
             tvlAssets: null,
-            allocated: m.allocationUsd ?? 0,
+            allocated: entry.allocationUsd,
             pct: mktPct,
             allocAssets,
             allocDecimals: allocDec,
             allocSymbol: allocSym,
-            lltv: m.market?.lltv ?? null,
+            lltv: m.lltv ?? null,
             collateralSymbol: col ?? null,
             loanSymbol: loan ?? null,
             wrappedVaultVersion: null,
-            searchHaystack: `${label} ${allocSym ?? ''} ${formatLltvPill(m.market?.lltv ?? null) ?? ''} morpho blue`.toLowerCase(),
+            searchHaystack: `${label} ${allocSym ?? ''} ${formatLltvPill(m.lltv ?? null) ?? ''} morpho blue`.toLowerCase(),
           });
         }
       }
@@ -514,7 +585,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
       vaultDisplayDecimals: displayDec,
       vaultSymbol: sym,
     };
-  }, [risk]);
+  }, [risk, governance]);
 
   // Attach caps to each target now that `targets` and `capByIdHash` are known.
   const targetsWithCaps: AllocTarget[] = useMemo(() => {
@@ -524,13 +595,27 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
       }
       const marketKey =
         !t.isMetaMorpho && !t.isVaultIdle
-          ? (risk?.adapters ?? [])
-              .flatMap((a) => a.markets ?? [])
-              .find((m) => {
-                if (!m.market) return false;
-                const data = encodeMarketParamsData(m.market);
-                return data.toLowerCase() === t.data.toLowerCase();
-              })?.market?.uniqueKey ?? undefined
+          ? (() => {
+              const matched = (risk?.adapters ?? [])
+                .flatMap((a) => a.markets ?? [])
+                .find((m) => {
+                  if (!m.market) return false;
+                  const data = encodeMarketParamsData(m.market);
+                  return data.toLowerCase() === t.data.toLowerCase();
+                });
+              if (matched?.market) {
+                return marketKeyFromGraphQL(matched.market) ?? undefined;
+              }
+              const capMatch = (governance?.caps ?? []).find(
+                (c) =>
+                  isMarketCap(c) &&
+                  c.adapterAddress?.toLowerCase() === t.adapterAddress.toLowerCase() &&
+                  c.marketParams &&
+                  encodeMarketParamsData(c.marketParams).toLowerCase() ===
+                    t.data.toLowerCase()
+              );
+              return capMatch?.marketKey ?? undefined;
+            })()
           : undefined;
       const cap = capsForTarget(t, marketKey);
       return {
@@ -539,7 +624,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
         relativeCapWad: cap ? parseBigIntOrNull(cap.relativeCap) : null,
       };
     });
-  }, [targets, capsForTarget, risk?.adapters]);
+  }, [targets, capsForTarget, risk?.adapters, governance?.caps]);
 
   const [editing, setEditing] = useState(false);
   const [inputMode, setInputMode] = useState<InputMode>('tokens');
@@ -550,16 +635,39 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
 
   const defaultDustRecipientKey = useMemo((): DustRecipientChoice => {
     if (!liquidityAdapterAddress) return 'auto';
-    const idx = targetsWithCaps.findIndex(
-      (t) =>
-        !t.isVaultIdle &&
-        t.adapterAddress.toLowerCase() === liquidityAdapterAddress
-    );
+
+    let liquidityDataHex: string | null = null;
+    const liquidityData = governance?.liquidityData;
+    if (liquidityData?.kind === 'market' && liquidityData.marketParams) {
+      try {
+        liquidityDataHex = encodeMarketParamsData(liquidityData.marketParams).toLowerCase();
+      } catch {
+        liquidityDataHex = null;
+      }
+    } else if (liquidityData?.kind === 'metaMorpho') {
+      liquidityDataHex = '0x';
+    }
+
+    const idx = targetsWithCaps.findIndex((t) => {
+      if (t.isVaultIdle) return false;
+      if (t.adapterAddress.toLowerCase() !== liquidityAdapterAddress) return false;
+      if (liquidityDataHex && !t.isMetaMorpho) {
+        return t.data.toLowerCase() === liquidityDataHex;
+      }
+      return true;
+    });
     return idx >= 0 ? String(idx) : 'auto';
-  }, [liquidityAdapterAddress, targetsWithCaps]);
+  }, [liquidityAdapterAddress, governance?.liquidityData, targetsWithCaps]);
 
   const [dustRecipientKey, setDustRecipientKey] = useState<DustRecipientChoice>('auto');
   const multicallWrite = useVaultWrite();
+
+  useEffect(() => {
+    if (!multicallWrite.isSuccess) return;
+    void queryClient.invalidateQueries({ queryKey: ['vault-v2-risk', vaultAddress] });
+    void queryClient.invalidateQueries({ queryKey: ['vault-v2-governance', vaultAddress] });
+    void queryClient.invalidateQueries({ queryKey: ['vault', vaultAddress] });
+  }, [multicallWrite.isSuccess, queryClient, vaultAddress]);
 
   const startEditing = useCallback(() => {
     setInputMode('tokens');
@@ -641,7 +749,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
         return next;
       });
     },
-    [formatRawAsInput, inputMode, targetsWithCaps, totalRawAssets]
+    [inputMode, targetsWithCaps, totalRawAssets]
   );
 
   const resolvedAllocations = useMemo(() => {
@@ -735,6 +843,16 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
         adjustedResults = dustResult.items;
         dustDiff = dustResult.diff;
         dustRecipientIdx = explicitRecipientIdx;
+      } else {
+        return {
+          valid: false as const,
+          error: dustResult.error,
+          results: adjustedResults,
+          inputSum,
+          sumAssets: inputSum,
+          dustDiff: BigInt(0),
+          dustRecipientIdx: null as number | null,
+        };
       }
     } else if (
       // Full % rebalance only: nudge sub-token rounding onto idle. Never inflate a strategy target.
@@ -755,8 +873,20 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
         adjustedResults = dustResult.items;
         dustDiff = dustResult.diff;
         dustRecipientIdx = idleIdx;
+      } else {
+        return {
+          valid: false as const,
+          error: dustResult.error,
+          results: adjustedResults,
+          inputSum,
+          sumAssets: inputSum,
+          dustDiff: BigInt(0),
+          dustRecipientIdx: null as number | null,
+        };
       }
     }
+
+    const sumAssets = adjustedResults.reduce((s, r) => s + r.assets, BigInt(0));
 
     if (adjustedResults.some((r) => r.assets < BigInt(0))) {
       return {
@@ -764,7 +894,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
         error: 'Allocation would go negative',
         results: [] as Result[],
         inputSum,
-        sumAssets: inputSum,
+        sumAssets,
         dustDiff: BigInt(0),
         dustRecipientIdx: null as number | null,
       };
@@ -776,7 +906,19 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
         error: `Over-allocated by ${formatRawTokenAmount(-diff, vaultDecimals, vaultDisplayDecimals)} ${vaultSymbol}. Reduce a target.`,
         results: adjustedResults,
         inputSum,
-        sumAssets: inputSum,
+        sumAssets,
+        dustDiff,
+        dustRecipientIdx,
+      };
+    }
+
+    if (!preloadedData && govError) {
+      return {
+        valid: false as const,
+        error: 'Governance data failed to load — cap validation unavailable.',
+        results: adjustedResults,
+        inputSum,
+        sumAssets,
         dustDiff,
         dustRecipientIdx,
       };
@@ -793,7 +935,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
           error: `${t.label}: allocation exceeds absolute cap (${formatRawTokenAmount(t.absoluteCapRaw, resolveAssetDecimals(t.symbol, t.decimals), getTokenDisplayDecimals(t.symbol, t.decimals))} ${t.symbol}).`,
           results: [] as Result[],
           inputSum,
-          sumAssets: inputSum,
+          sumAssets,
           dustDiff,
           dustRecipientIdx,
         };
@@ -808,7 +950,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
             error: `${t.label}: allocation exceeds relative cap (${(Number(t.relativeCapWad) / 1e16).toFixed(2)}% of vault).`,
             results: [] as Result[],
             inputSum,
-            sumAssets: inputSum,
+            sumAssets,
             dustDiff,
             dustRecipientIdx,
           };
@@ -827,7 +969,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
         error: null,
         results: adjustedResults,
         inputSum,
-        sumAssets: inputSum,
+        sumAssets,
         dustDiff,
         dustRecipientIdx,
       };
@@ -838,11 +980,11 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
       error: null,
       results: adjustedResults,
       inputSum,
-      sumAssets: inputSum,
+      sumAssets,
       dustDiff,
       dustRecipientIdx,
     };
-  }, [editing, inputValues, targetsWithCaps, inputMode, totalRawAssets, vaultDecimals, vaultDisplayDecimals, vaultSymbol, dustRecipientKey]);
+  }, [editing, inputValues, targetsWithCaps, inputMode, totalRawAssets, vaultDecimals, vaultDisplayDecimals, vaultSymbol, dustRecipientKey, preloadedData, govError]);
 
   const handleRebalance = useCallback(() => {
     if (!resolvedAllocations?.valid) return;
@@ -935,13 +1077,19 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
 
   if (!preloadedRisk && isLoading) {
     return (
-      <Card>
-        <CardHeader><CardTitle>Allocation</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-24 w-full" />
-        </CardContent>
-      </Card>
+      <div className="space-y-4">
+        <Card>
+          <CardHeader><CardTitle>Liquidity Adapter</CardTitle></CardHeader>
+          <CardContent><Skeleton className="h-20 w-full" /></CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>Allocation</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-24 w-full" />
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
@@ -994,7 +1142,6 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
     const entryVal = editing ? inputValues[r.targetIdx] ?? '' : '';
     const isEdited = entryVal.trim() !== '';
     const isIdleRow = Boolean(t.isVaultIdle);
-    const cap = t.absoluteCapRaw;
 
     let show = true;
     if (filters.onlyIdle && !isIdleRow) show = false;
@@ -1002,7 +1149,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
     if (filters.hideZero && t.currentAssets === BigInt(0)) show = false;
     if (filters.hideIdle && isIdleRow) show = false;
     if (filters.onlyWithCapacity) {
-      if (t.isVaultIdle || cap == null || cap <= t.currentAssets) show = false;
+      if (t.isVaultIdle || !hasRemainingCapacity(t, totalRawAssets)) show = false;
     }
     if (editing && filters.onlyEdited && !isEdited) show = false;
     showTarget.set(r.targetIdx, show);
@@ -1021,21 +1168,24 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
 
     switch (filters.sort) {
       case 'allocated-asc':
-        return Number(ta.currentAssets) - Number(tb.currentAssets);
+        return compareBigIntAsc(ta.currentAssets, tb.currentAssets);
       case 'supplyApy-desc':
         return (rb.supplyApy ?? -Infinity) - (ra.supplyApy ?? -Infinity);
       case 'utilization-desc':
         return (rb.utilization ?? -Infinity) - (ra.utilization ?? -Infinity);
       case 'capacity-desc': {
-        const capA = ta.absoluteCapRaw != null ? Number(ta.absoluteCapRaw - ta.currentAssets) : -Infinity;
-        const capB = tb.absoluteCapRaw != null ? Number(tb.absoluteCapRaw - tb.currentAssets) : -Infinity;
-        return capB - capA;
+        const headroom = (t: AllocTarget): bigint => {
+          if (t.absoluteCapRaw == null) return BigInt(0);
+          const h = t.absoluteCapRaw - t.currentAssets;
+          return h > 0n ? h : 0n;
+        };
+        return compareBigIntDesc(headroom(tb), headroom(ta));
       }
       case 'name-asc':
         return ra.market.localeCompare(rb.market);
       case 'allocated-desc':
       default:
-        return Number(tb.currentAssets) - Number(ta.currentAssets);
+        return compareBigIntDesc(ta.currentAssets, tb.currentAssets);
     }
   });
 
@@ -1045,14 +1195,14 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
     if (tr) rowsToRender.push(tr);
   }
 
-  const plannedSum = resolvedAllocations?.inputSum ?? BigInt(0);
+  const plannedSum = resolvedAllocations?.sumAssets ?? resolvedAllocations?.inputSum ?? BigInt(0);
   const remainingRaw = editing ? totalRawAssets - plannedSum : BigInt(0);
   const hasEditingInputs = editing && inputValues.some((v) => v.trim() !== '');
 
   // Strategy targets the curator can route unallocated remainder to ('auto' = Idle).
   const dustOptions = targetsWithCaps
     .map((t, idx) => ({ id: String(idx), label: t.label, isVaultIdle: t.isVaultIdle }))
-    .filter((o) => !o.isVaultIdle)
+    .filter((o) => !o.isVaultIdle && !isDelistedTarget(targetsWithCaps[Number(o.id)]))
     .map(({ id, label }) => ({ id, label }));
 
   const dustRecipientLabel =
@@ -1062,39 +1212,77 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
 
   const sectionedRows = ALLOCATION_SECTIONS.map((section) => ({
     ...section,
+    title:
+      section.key === 'vault'
+        ? rowsToRender.some((r) => r.wrappedVaultVersion === 'v2')
+          ? 'V2 Vault'
+          : 'V1 Vault'
+        : section.title,
     rows: rowsToRender.filter((r) => {
       const t = targetsWithCaps[r.targetIdx];
       return t && rowSection(r, t) === section.key;
     }),
   })).filter((section) => section.rows.length > 0);
 
+  const buildOptionalCells = (r: TargetRow, t: AllocTarget, isIdle: boolean): ReactNode[] => {
+    const visible = getCuratorVisibleColumns(filters.columns);
+    return visible.map((col) => {
+      switch (col.filterKey) {
+        case 'effectiveCap':
+          return formatRowCapCell(t, isIdle, filters);
+        case 'supplyApy': {
+          if (isIdle) return '—';
+          const label = formatOrDash(scalePercent(r.supplyApy));
+          if (!r.isMorphoBlue && label !== '—') {
+            return <span title="Underlying vault net APY">{label}</span>;
+          }
+          return label;
+        }
+        case 'borrowApy':
+          return isIdle ? '—' : formatOrDash(scalePercent(r.borrowApy));
+        case 'liquidity':
+          return isIdle ? '—' : formatLiquidityFull(r, t.symbol, t.decimals);
+        case 'utilization':
+          return isIdle ? '—' : formatOrDash(scalePercent(r.utilization));
+        case 'allocated':
+          return isIdle ? '—' : formatFullUSD(r.allocated, 2);
+        case 'percentCap':
+          return formatEffRelCap(t, isIdle);
+        default:
+          return '—';
+      }
+    });
+  };
+
   const renderAllocationRow = (r: TargetRow) => {
     const t = targetsWithCaps[r.targetIdx];
     const lltvPill = formatLltvPill(r.lltv);
     const isIdle = Boolean(t.isVaultIdle);
+    const versionPill =
+      r.wrappedVaultVersion != null ? (
+        <AllocationPill>{r.wrappedVaultVersion.toUpperCase()}</AllocationPill>
+      ) : null;
 
-    const allocationAmount = formatAllocationTableAmount(
-      r.allocAssets != null ? BigInt(r.allocAssets) : t.currentAssets,
-      r.allocSymbol ?? t.symbol,
-      r.allocDecimals
-    );
+    const allocationAmount = formatRowAllocationCell(r, t, filters);
 
     const inputWidthCh = allocationInputWidthCh(t.symbol, t.decimals);
 
-    const rate = isIdle ? '—' : formatOrDash(scalePercent(r.supplyApy));
-
-    const utilizationCell = filters.columns.utilization
-      ? formatOrDash(scalePercent(r.utilization))
-      : '—';
-
     const percentAllocated = (
       <AllocationPctIndicator pct={getRowPercent(r.targetIdx)} />
+    );
+
+    const tags = (
+      <>
+        {versionPill}
+        {lltvPill ? <AllocationPill>{lltvPill}</AllocationPill> : null}
+      </>
     );
 
     return (
       <CuratorAllocationListRow
         key={`target-${r.targetIdx}`}
         editing={editing}
+        columns={filters.columns}
         className={isIdle ? 'bg-muted/30' : undefined}
         name={
           isIdle ? (
@@ -1103,12 +1291,9 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
             <MorphoAllocationLink href={r.morphoHref}>{r.market}</MorphoAllocationLink>
           )
         }
-        tags={lltvPill ? <AllocationPill>{lltvPill}</AllocationPill> : undefined}
+        tags={versionPill || lltvPill ? tags : undefined}
         allocationAmount={allocationAmount}
-        effectiveCap={formatEffAbsCap(t, isIdle)}
-        rate={rate}
-        liquidity={formatLiquidityFull(r, t.symbol, t.decimals)}
-        utilization={utilizationCell}
+        optionalCells={buildOptionalCells(r, t, isIdle)}
         percentAllocated={percentAllocated}
         targetCell={
           editing ? (
@@ -1151,6 +1336,12 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
   };
 
   return (
+    <div className="space-y-4">
+      <VaultV2LiquidityAdapter
+        vaultAddress={vaultAddress}
+        governance={governance}
+        risk={risk}
+      />
     <Card>
       <CardHeader>
         <div className="flex items-start justify-between gap-2 flex-wrap">
@@ -1188,6 +1379,18 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
         </div>
       </CardHeader>
       <CardContent>
+        {govError && (
+          <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <p className="text-xs text-amber-800 dark:text-amber-200">
+              Governance data failed to load: {govError instanceof Error ? govError.message : 'Unknown error'}.
+              Caps and some markets may be missing — rebalancing is disabled until this resolves.
+            </p>
+          </div>
+        )}
+        {capsUnavailable && !govError && (
+          <div className="mb-3 text-xs text-muted-foreground">Loading governance caps…</div>
+        )}
         {editing && hasEditingInputs && (
           <div className="mb-3 space-y-2">
             <RemainingBanner
@@ -1211,7 +1414,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
         )}
 
         <AllocationListShell>
-          <CuratorAllocationListHeader editing={editing} />
+          <CuratorAllocationListHeader editing={editing} columns={filters.columns} />
           {rowsToRender.length === 0 ? (
             <div className="px-4 py-8 text-center text-xs text-muted-foreground">
               No targets match your filters.
@@ -1234,7 +1437,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
               </div>
             )}
 
-            {resolvedAllocations?.valid && (
+            {resolvedAllocations?.valid && remainingRaw === BigInt(0) && (
               <div className="flex items-start gap-2 rounded-md bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 p-3">
                 <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
                 <p className="text-xs text-green-700 dark:text-green-300">
@@ -1247,7 +1450,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
               <div className="flex items-start gap-2 rounded-md bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 p-3">
                 <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
                 <p className="text-xs text-green-700 dark:text-green-300">
-                  Transaction confirmed! Refresh to see updated allocations.
+                  Transaction confirmed! Allocations will refresh shortly.
                 </p>
               </div>
             )}
@@ -1264,7 +1467,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
             <TransactionButton
               label={multicallWrite.isLoading ? 'Confirming...' : 'Rebalance'}
               onClick={handleRebalance}
-              disabled={!resolvedAllocations?.valid}
+              disabled={!resolvedAllocations?.valid || capsUnavailable || Boolean(govError)}
               isLoading={multicallWrite.isLoading}
               isSuccess={multicallWrite.isSuccess}
               error={multicallWrite.error}
@@ -1278,6 +1481,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
         )}
       </CardContent>
     </Card>
+    </div>
   );
 }
 

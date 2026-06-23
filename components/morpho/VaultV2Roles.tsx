@@ -73,6 +73,16 @@ export function VaultV2Roles({ vaultAddress, preloadedData }: VaultV2RolesProps)
           description="Emergency responders who can deallocate and decrease caps"
           addresses={data.sentinels}
         />
+        <RoleBlock
+          title="Performance Fee Recipient"
+          description="Address that receives performance fee payments from vault interest"
+          address={data.performanceFeeRecipient}
+        />
+        <RoleBlock
+          title="Management Fee Recipient"
+          description="Address that receives management fee payments on total vault assets"
+          address={data.managementFeeRecipient}
+        />
       </CardContent>
     </Card>
   );

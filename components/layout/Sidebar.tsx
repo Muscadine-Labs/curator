@@ -219,16 +219,6 @@ export function Sidebar({ onClose }: SidebarProps) {
                 <span className="truncate min-w-0">Morpho</span>
               </Link>
               <Link
-                href="/curator/frontend"
-                onClick={handleLinkClick}
-                className={`flex min-h-[44px] w-full touch-manipulation items-center gap-2 rounded-lg px-2 py-2 text-slate-700 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 ${
-                  isActive('/curator/frontend') ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : ''
-                }`}
-              >
-                <LayoutGrid className="h-4 w-4 shrink-0" />
-                <span className="truncate min-w-0">Development</span>
-              </Link>
-              <Link
                 href="/curator/safe"
                 onClick={handleLinkClick}
                 className={`flex min-h-[44px] w-full touch-manipulation items-center gap-2 rounded-lg px-2 py-2 text-slate-700 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 ${

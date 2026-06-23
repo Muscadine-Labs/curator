@@ -14,6 +14,7 @@ import { VaultV2Allocations } from '@/components/morpho/VaultV2Allocations';
 import { VaultV2Caps } from '@/components/morpho/VaultV2Caps';
 import { VaultV2Timelocks } from '@/components/morpho/VaultV2Timelocks';
 import { VaultV2Sentinel } from '@/components/morpho/VaultV2Sentinel';
+import { VaultRiskV2 } from '@/components/morpho/VaultRiskV2';
 import { AllocationHistory } from '@/components/morpho/AllocationHistory';
 import { VaultHolders } from '@/components/morpho/VaultHolders';
 import { VaultTransactions } from '@/components/morpho/VaultTransactions';
@@ -105,19 +106,36 @@ export default function V2VaultPage() {
       }
     >
       <div className="space-y-4">
-        <Tabs defaultValue="overview" className="space-y-3">
-          <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide sm:overflow-visible">
-            <TabsList className="inline-flex w-auto min-w-full sm:min-w-0 sm:w-full justify-start gap-1">
-              <TabsTrigger value="overview" className="sm:flex-1 flex-shrink-0 min-w-fit">Overview</TabsTrigger>
-              <TabsTrigger value="roles" className="sm:flex-1 flex-shrink-0 min-w-fit">Roles</TabsTrigger>
-              <TabsTrigger value="adapters" className="sm:flex-1 flex-shrink-0 min-w-fit">Adapters</TabsTrigger>
-              <TabsTrigger value="caps" className="sm:flex-1 flex-shrink-0 min-w-fit">
+        <Tabs defaultValue="overview" className="vault-detail-tabs space-y-3">
+          <div className="-mx-4 overflow-x-auto px-4 scrollbar-hide sm:mx-0 sm:px-0">
+            <TabsList className="w-max min-w-full">
+              <TabsTrigger value="overview" className="!flex-none shrink-0 !px-4 !py-2 !text-sm">
+                Overview
+              </TabsTrigger>
+              <TabsTrigger value="risk" className="!flex-none shrink-0 !px-4 !py-2 !text-sm">
+                Risk
+              </TabsTrigger>
+              <TabsTrigger value="roles" className="!flex-none shrink-0 !px-4 !py-2 !text-sm">
+                Roles
+              </TabsTrigger>
+              <TabsTrigger value="adapters" className="!flex-none shrink-0 !px-4 !py-2 !text-sm">
+                Adapters
+              </TabsTrigger>
+              <TabsTrigger value="allocations" className="!flex-none shrink-0 !px-4 !py-2 !text-sm">
+                Allocation
+              </TabsTrigger>
+              <TabsTrigger value="caps" className="!flex-none shrink-0 !px-4 !py-2 !text-sm">
                 Caps{hasPending ? ` (${pending!.pending.length})` : ''}
               </TabsTrigger>
-              <TabsTrigger value="timelocks" className="sm:flex-1 flex-shrink-0 min-w-fit">Timelocks</TabsTrigger>
-              <TabsTrigger value="allocations" className="sm:flex-1 flex-shrink-0 min-w-fit">Allocation</TabsTrigger>
-              <TabsTrigger value="sentinel" className="sm:flex-1 flex-shrink-0 min-w-fit">Sentinel</TabsTrigger>
-              <TabsTrigger value="emergency" className="sm:flex-1 flex-shrink-0 min-w-fit">Emergency</TabsTrigger>
+              <TabsTrigger value="timelocks" className="!flex-none shrink-0 !px-4 !py-2 !text-sm">
+                Timelocks
+              </TabsTrigger>
+              <TabsTrigger value="sentinel" className="!flex-none shrink-0 !px-4 !py-2 !text-sm">
+                Sentinel
+              </TabsTrigger>
+              <TabsTrigger value="emergency" className="!flex-none shrink-0 !px-4 !py-2 !text-sm">
+                Emergency
+              </TabsTrigger>
             </TabsList>
           </div>
 
@@ -143,6 +161,10 @@ export default function V2VaultPage() {
               assetDecimals={vault.assetDecimals}
               assetSymbol={vault.asset}
             />
+          </TabsContent>
+
+          <TabsContent value="risk">
+            <VaultRiskV2 vaultAddress={vault.address} preloadedData={risk} />
           </TabsContent>
 
           <TabsContent value="roles">
