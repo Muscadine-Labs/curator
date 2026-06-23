@@ -1,10 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import {
-  DEFAULT_FILTER_STATE,
-  type AllocationFilterState,
-} from '@/lib/allocation/allocation-filters';
+import { type AllocationFilterState } from '@/lib/allocation/allocation-filters';
 import {
   loadAllocationFilters,
   saveAllocationFilters,
