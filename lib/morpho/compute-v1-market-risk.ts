@@ -93,6 +93,8 @@ export interface MarketRiskScores {
   grade: MarketRiskGrade;
   realizedBadDebt?: number | null; // Realized bad debt amount (USD) from Morpho GraphQL
   unrealizedBadDebt?: number | null; // Not available in GraphQL schema
+  /** IRM kink used for utilization scoring (0–1). */
+  targetUtilization?: number;
 }
 
 /**
@@ -511,5 +513,6 @@ export async function computeV1MarketRiskScores(
     grade: finalGrade,
     realizedBadDebt: badDebtUsd,
     unrealizedBadDebt: null, // Not available in GraphQL schema
+    targetUtilization: targetUtil,
   };
 }

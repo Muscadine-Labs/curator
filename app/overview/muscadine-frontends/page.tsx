@@ -4,37 +4,20 @@ import { AppShell } from '@/components/layout/AppShell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ExternalLink } from 'lucide-react';
-
-const MUSCADINE_DOMAINS = [
-  { name: 'Muscadine', url: 'https://muscadine.io', description: 'Website' },
-  { name: 'Analytics', url: 'https://analytics.muscadine.io', description: 'Analytics' },
-  { name: 'App', url: 'https://app.muscadine.io', description: 'App' },
-  { name: 'Curator', url: 'https://curator.muscadine.io', description: 'Curator' },
-  { name: 'Docs', url: 'https://docs.muscadine.io', description: 'Documentation' },
-] as const;
-
-const DEVELOPMENT = [
-  { name: 'GitHub', url: 'https://github.com/Muscadine-Labs', description: 'Muscadine-Labs' },
-  { name: 'Vercel', url: 'https://vercel.com/muscadine-labs', description: 'muscadine-labs' },
-  { name: 'Google Drive', url: 'https://drive.google.com/drive/u/1/folders/15YowG9xg376DzOftvXj2vQvTeXX9cZJc', description: 'Drive folder', displayText: 'drive.google.com' },
-] as const;
-
-const BUSINESS_SERVICES = [
-  { name: 'Georgia Secretary of State', url: 'https://ecorp.sos.ga.gov/', description: 'ecorp.sos.ga.gov' },
-  { name: 'NameSilo', url: 'https://www.namesilo.com/', description: 'Domain registrar' },
-] as const;
+import { DevelopmentLinksSection } from '@/components/overview/DevelopmentLinksSection';
+import {
+  MUSCADINE_BUSINESS_SERVICES,
+  MUSCADINE_DEVELOPMENT_LINKS,
+  MUSCADINE_DOMAINS,
+  type ExternalLinkItem,
+} from '@/lib/constants';
 
 function LinkCard({
   name,
   url,
   description,
   displayText,
-}: {
-  name: string;
-  url: string;
-  description: string;
-  displayText?: string;
-}) {
+}: ExternalLinkItem) {
   const buttonLabel = displayText ?? url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
   return (
     <Card className="flex flex-col">
@@ -84,7 +67,7 @@ export default function MuscadinePagesPage() {
             GitHub, Vercel & Google Drive
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {DEVELOPMENT.map((item) => (
+            {MUSCADINE_DEVELOPMENT_LINKS.map((item) => (
               <LinkCard key={item.url} {...item} />
             ))}
           </div>
@@ -95,11 +78,13 @@ export default function MuscadinePagesPage() {
             Business Services
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {BUSINESS_SERVICES.map((item) => (
+            {MUSCADINE_BUSINESS_SERVICES.map((item) => (
               <LinkCard key={item.url} {...item} />
             ))}
           </div>
         </div>
+
+        <DevelopmentLinksSection />
       </div>
     </AppShell>
   );

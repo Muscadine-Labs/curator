@@ -9,9 +9,9 @@ import {
 import { getVaultByAddress } from '@/lib/config/vaults';
 import { handleApiError, AppError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
-import { BASE_CHAIN_ID } from '@/lib/constants';
+import { BASE_CHAIN_ID, VAULT_V2_GRAPHQL_PENDING_LIMIT } from '@/lib/constants';
 
-const PENDING_LIMIT = 100;
+const PENDING_LIMIT = VAULT_V2_GRAPHQL_PENDING_LIMIT;
 
 type GraphPendingItem = {
   data?: string | null;

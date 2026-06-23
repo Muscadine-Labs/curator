@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/table';
 import { TransactionButton } from '@/components/TransactionButton';
 import { formatLltvPill, formatMarketPairLabel } from '@/components/morpho/AllocationListView';
+import { CapLabel } from '@/components/morpho/CapLabel';
 import { VaultV2Pending } from '@/components/morpho/VaultV2Pending';
 import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
 import { useVaultV2Risk } from '@/lib/hooks/useVaultV2Risk';
@@ -47,7 +48,7 @@ import {
   getTokenDisplayDecimals,
   resolveAssetDecimals,
 } from '@/lib/format/asset-decimals';
-import { marketKeyFromGraphQL } from '@/lib/morpho/morpho-app-links';
+import { marketKeyFromGraphQL, morphoMarketHref, morphoVaultHref } from '@/lib/morpho/morpho-app-links';
 import { VAULT_VERSION_MAP } from '@/lib/morpho/treasury-statement';
 import type { CapInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governance/route';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
@@ -67,6 +68,7 @@ interface VaultV2SentinelProps {
 type DeallocateRow = {
   key: string;
   label: string;
+  morphoHref: string | null;
   lltv: string | null;
   wrappedVaultVersion: 'v1' | 'v2' | null;
   adapterAddress: string;
@@ -83,6 +85,7 @@ type DeallocateRow = {
 type OverviewSegment = {
   key: string;
   label: string;
+  morphoHref: string | null;
   pct: number;
   raw: bigint;
   color: string;
@@ -98,6 +101,35 @@ const BAR_COLORS = [
   'bg-cyan-500',
   'bg-teal-500',
 ];
+
+const morphoLinkClass =
+  'truncate text-blue-600 hover:underline dark:text-blue-400';
+
+function SentinelAllocationLabel({
+  label,
+  morphoHref,
+  className,
+}: {
+  label: string;
+  morphoHref: string | null;
+  className?: string;
+}) {
+  if (!morphoHref) {
+    return (
+      <span className={className ?? 'truncate text-slate-800 dark:text-slate-200'}>{label}</span>
+    );
+  }
+  return (
+    <a
+      href={morphoHref}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={[morphoLinkClass, className].filter(Boolean).join(' ')}
+    >
+      {label}
+    </a>
+  );
+}
 
 export function VaultV2Sentinel({
   vaultAddress,
@@ -181,7 +213,7 @@ export function VaultV2Sentinel({
                   <span
                     className={`h-2 w-2 shrink-0 rounded-full ${BAR_COLORS[i % BAR_COLORS.length]}`}
                   />
-                  <span className="truncate text-slate-800 dark:text-slate-200">{seg.label}</span>
+                  <SentinelAllocationLabel label={seg.label} morphoHref={seg.morphoHref} />
                 </div>
                 <div className="flex shrink-0 items-center gap-4 tabular-nums text-slate-600 dark:text-slate-300">
                   <span>
@@ -219,6 +251,7 @@ export function VaultV2Sentinel({
         risk={risk}
         adapterLabels={adapterLabels}
         vaultAddress={vaultAddress}
+        chainId={chainId}
         assetSymbol={assetSymbol}
         assetDecimals={assetDecimals}
         chainDecimals={chainDecimals}
@@ -241,6 +274,7 @@ function DecreaseCapsPanel({
   risk,
   adapterLabels,
   vaultAddress,
+  chainId,
   assetSymbol,
   assetDecimals,
   chainDecimals,
@@ -249,6 +283,7 @@ function DecreaseCapsPanel({
   risk: V2VaultRiskResponse;
   adapterLabels: Map<string, string>;
   vaultAddress: string;
+  chainId: number;
   assetSymbol?: string | null;
   assetDecimals?: number | null;
   chainDecimals: number;
@@ -404,7 +439,9 @@ function DecreaseCapsPanel({
                           <TableRow key={rowKey}>
                             <TableCell>
                               <div className="flex flex-wrap items-center gap-2">
-                                <span className="font-medium">{label}</span>
+                                <span className="font-medium">
+                                  <CapLabel cap={cap} label={label} chainId={chainId} />
+                                </span>
                                 {lltv && (
                                   <Badge variant="outline" className="text-xs">
                                     {lltv}
@@ -622,7 +659,11 @@ function DeallocatePanel({
                     <TableRow key={row.key}>
                       <TableCell>
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-medium">{row.label}</span>
+                          <SentinelAllocationLabel
+                            label={row.label}
+                            morphoHref={row.morphoHref}
+                            className="font-medium"
+                          />
                           {row.wrappedVaultVersion && (
                             <Badge variant="outline" className="text-xs uppercase">
                               {row.wrappedVaultVersion}
@@ -747,6 +788,7 @@ function buildOverviewAndDeallocate(
     overviewSegments.push({
       key: 'idle',
       label: 'Idle',
+      morphoHref: null,
       pct: 0,
       raw: idleRaw,
       color: BAR_COLORS[0],
@@ -756,6 +798,7 @@ function buildOverviewAndDeallocate(
   deallocateRows.push({
     key: 'idle',
     label: 'Idle',
+    morphoHref: null,
     lltv: null,
     wrappedVaultVersion: null,
     adapterAddress: '',
@@ -780,6 +823,7 @@ function buildOverviewAndDeallocate(
       overviewSegments.push({
         key: `meta-${adapter.adapterAddress}`,
         label: adapter.adapterLabel || 'MetaMorpho',
+        morphoHref: morphoVaultHref(adapter.underlyingVaultAddress),
         pct: 0,
         raw,
         color: BAR_COLORS[1],
@@ -788,6 +832,7 @@ function buildOverviewAndDeallocate(
       deallocateRows.push({
         key: `meta-${adapter.adapterAddress}`,
         label: adapter.adapterLabel || 'MetaMorpho',
+        morphoHref: morphoVaultHref(adapter.underlyingVaultAddress),
         lltv: null,
         wrappedVaultVersion: wrappedVersion,
         adapterAddress: adapter.adapterAddress,
@@ -811,9 +856,11 @@ function buildOverviewAndDeallocate(
       const col = m.market?.collateralAsset?.symbol;
       const loan = m.market?.loanAsset?.symbol;
       const label = formatMarketPairLabel(col, loan);
+      const morphoHref = key ? morphoMarketHref(key) : null;
       overviewSegments.push({
         key: key ?? `${adapter.adapterAddress}-${col}-${loan}`,
         label,
+        morphoHref,
         pct: 0,
         raw,
         color: BAR_COLORS[2],
@@ -822,6 +869,7 @@ function buildOverviewAndDeallocate(
       deallocateRows.push({
         key: key ?? `${adapter.adapterAddress}-${col}-${loan}`,
         label,
+        morphoHref,
         lltv: formatLltvPill(m.market?.lltv ?? null),
         wrappedVaultVersion: null,
         adapterAddress: adapter.adapterAddress,

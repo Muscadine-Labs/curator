@@ -187,13 +187,13 @@ export function AllocationFilters({ value, onChange, editing = false, showIdleTo
             {showIdleToggles && (
               <>
                 <FilterCheckbox
-                  label="Show only idle markets"
+                  label="Show only Idle (vault cash)"
                   checked={value.onlyIdle}
                   disabled={value.hideIdle}
                   onChange={(v) => update({ onlyIdle: v, hideIdle: v ? false : value.hideIdle })}
                 />
                 <FilterCheckbox
-                  label="Hide idle markets"
+                  label="Hide Idle (vault cash)"
                   checked={value.hideIdle}
                   disabled={value.onlyIdle}
                   onChange={(v) => update({ hideIdle: v, onlyIdle: v ? false : value.onlyIdle })}

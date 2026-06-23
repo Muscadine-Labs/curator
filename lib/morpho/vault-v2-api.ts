@@ -1,4 +1,5 @@
 import { gql } from 'graphql-request';
+import { formatVaultV2FunctionTitle } from '@/lib/morpho/vault-v2-timelocks';
 
 /** Shared Morpho Blue API queries for Vault V2 parameters and pending timelocked actions. */
 
@@ -17,6 +18,7 @@ export const VAULT_V2_PARAMETERS_QUERY = gql`
         selector
         functionName
         duration
+        abdicatedAt
       }
     }
   }
@@ -128,6 +130,37 @@ export function formatRelativeCapWad(relativeCap: string): string {
     return `${percent.toFixed(2)}%`;
   } catch {
     return relativeCap;
+  }
+}
+
+import { SECONDS_PER_YEAR } from '@/lib/constants';
+export function formatMaxRateApr(
+  maxRate: string | number | bigint | null | undefined
+): string {
+  if (maxRate == null || maxRate === '') return '—';
+  try {
+    const perSecond = BigInt(maxRate);
+    const aprScaled = perSecond * BigInt(SECONDS_PER_YEAR);
+    const percent = Number(aprScaled) / 1e16;
+    return `${percent.toFixed(2)}%`;
+  } catch {
+    return '—';
+  }
+}
+
+/** WAD-scaled force-deallocate penalty (0–2% max on-chain). */
+export function formatForceDeallocatePenaltyWad(
+  wad: string | number | bigint | null | undefined
+): string {
+  if (wad == null || wad === '') return '0%';
+  try {
+    const scaled = BigInt(wad);
+    if (scaled === 0n) return '0%';
+    const percent = Number(scaled) / 1e16;
+    if (percent >= 0.01) return `${percent.toFixed(2)}%`;
+    return `${percent.toFixed(4)}%`;
+  } catch {
+    return String(wad);
   }
 }
 
@@ -245,7 +278,7 @@ export function mapPendingDecoded(
 export function describePendingDecoded(decoded: VaultV2PendingDecoded): string {
   switch (decoded.type) {
     case 'Abdicate':
-      return `Abdicate timelock on ${decoded.functionName}`;
+      return `Abdicate ${formatVaultV2FunctionTitle(decoded.functionName)} — permanently disable this function`;
     case 'Adapter':
       return `Adapter ${decoded.adapterAddress}`;
     case 'IncreaseCap':
@@ -253,7 +286,7 @@ export function describePendingDecoded(decoded: VaultV2PendingDecoded): string {
     case 'SetAdapterRegistry':
       return `Registry ${decoded.adapterRegistry}`;
     case 'SetForceDeallocatePenalty':
-      return `Penalty on ${decoded.adapterAddress}`;
+      return `Force penalty → ${formatForceDeallocatePenaltyWad(decoded.forceDeallocatePenalty)} on ${decoded.adapterAddress}`;
     case 'SetIsAllocator':
       return `${decoded.isAllocator ? 'Grant' : 'Revoke'} allocator ${decoded.account}`;
     case 'SetManagementFee':

@@ -1,202 +1,171 @@
-import { Address, Abi } from 'viem';
+import { Address, Abi, parseAbi, zeroAddress } from 'viem';
 import { publicClient, safeContractRead } from '@/lib/onchain/client';
 
-// Chainlink AggregatorV3Interface ABI
-const CHAINLINK_ORACLE_ABI = [
-  {
-    name: 'latestRoundData',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [
-      { name: 'roundId', type: 'uint80' },
-      { name: 'answer', type: 'int256' },
-      { name: 'startedAt', type: 'uint256' },
-      { name: 'updatedAt', type: 'uint256' },
-      { name: 'answeredInRound', type: 'uint80' },
-    ],
-  },
-] as const;
+const CHAINLINK_AGGREGATOR_ABI = parseAbi([
+  'function latestRoundData() view returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)',
+]);
 
-// Morpho oracle ABI - MorphoChainlinkOracleV2 uses getBaseFeed(uint256 index)
-const MORPHO_ORACLE_ABI_PATTERNS = [
-  // Primary: getBaseFeed(uint256) - MorphoChainlinkOracleV2 standard function
-  {
-    name: 'getBaseFeed',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'index', type: 'uint256' }],
-    outputs: [{ name: '', type: 'address' }],
-  },
-  // Fallback patterns for other oracle types
-  {
-    name: 'baseFeed',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'address' }],
-  },
-  {
-    name: 'feeds',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: '', type: 'uint256' }],
-    outputs: [{ name: '', type: 'address' }],
-  },
-  {
-    name: 'baseFeeds',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: '', type: 'uint256' }],
-    outputs: [{ name: '', type: 'address' }],
-  },
-] as const;
+const MORPHO_CHAINLINK_ORACLE_ABI = parseAbi([
+  'function BASE_FEED_1() view returns (address)',
+  'function BASE_FEED_2() view returns (address)',
+  'function QUOTE_FEED_1() view returns (address)',
+  'function QUOTE_FEED_2() view returns (address)',
+]);
+
+const ZERO = zeroAddress.toLowerCase();
 
 export interface OracleTimestampData {
   chainlinkAddress: Address | null;
-  updatedAt: number | null; // Unix timestamp in seconds
-  ageSeconds: number | null; // Age of the update in seconds
+  updatedAt: number | null;
+  ageSeconds: number | null;
 }
 
-/**
- * Try to resolve the Chainlink feed address from a Morpho oracle contract.
- * Attempts multiple function patterns to find the underlying Chainlink aggregator.
- */
-async function resolveChainlinkFeed(oracleAddress: Address): Promise<Address | null> {
-  // Primary: Try getBaseFeed(1) - MorphoChainlinkOracleV2 standard function for "base feed 1"
-  const getBaseFeed1Result = await safeContractRead<Address>(
-    oracleAddress,
-    MORPHO_ORACLE_ABI_PATTERNS.filter((f) => f.name === 'getBaseFeed') as Abi,
-    'getBaseFeed',
-    [1]
-  );
-  if (getBaseFeed1Result && getBaseFeed1Result !== '0x0000000000000000000000000000000000000000') {
-    return getBaseFeed1Result;
-  }
+export type OracleFeedHints = {
+  baseFeedOne?: Address | null;
+  baseFeedTwo?: Address | null;
+  quoteFeedOne?: Address | null;
+  quoteFeedTwo?: Address | null;
+};
 
-  // Fallback: Try getBaseFeed(0) - sometimes index 0
-  const getBaseFeed0Result = await safeContractRead<Address>(
-    oracleAddress,
-    MORPHO_ORACLE_ABI_PATTERNS.filter((f) => f.name === 'getBaseFeed') as Abi,
-    'getBaseFeed',
-    [0]
-  );
-  if (getBaseFeed0Result && getBaseFeed0Result !== '0x0000000000000000000000000000000000000000') {
-    return getBaseFeed0Result;
-  }
+type OracleDataFragment = {
+  baseFeedOne?: { address: string } | null;
+  baseFeedTwo?: { address: string } | null;
+  quoteFeedOne?: { address: string } | null;
+  quoteFeedTwo?: { address: string } | null;
+} | null;
 
-  // Fallback patterns for other oracle types
-  const baseFeedResult = await safeContractRead<Address>(
-    oracleAddress,
-    MORPHO_ORACLE_ABI_PATTERNS.filter((f) => f.name === 'baseFeed') as Abi,
-    'baseFeed',
-    []
-  );
-  if (baseFeedResult && baseFeedResult !== '0x0000000000000000000000000000000000000000') {
-    return baseFeedResult;
-  }
+export function getOracleFeedHintsFromMarket(market: {
+  oracle?: { data?: OracleDataFragment } | null;
+}): OracleFeedHints | undefined {
+  const data = market.oracle?.data;
+  if (!data) return undefined;
 
-  // Try feeds(1)
-  const feeds1Result = await safeContractRead<Address>(
-    oracleAddress,
-    MORPHO_ORACLE_ABI_PATTERNS.filter((f) => f.name === 'feeds') as Abi,
-    'feeds',
-    [1]
-  );
-  if (feeds1Result && feeds1Result !== '0x0000000000000000000000000000000000000000') {
-    return feeds1Result;
-  }
-
-  // Try baseFeeds(1)
-  const baseFeeds1Result = await safeContractRead<Address>(
-    oracleAddress,
-    MORPHO_ORACLE_ABI_PATTERNS.filter((f) => f.name === 'baseFeeds') as Abi,
-    'baseFeeds',
-    [1]
-  );
-  if (baseFeeds1Result && baseFeeds1Result !== '0x0000000000000000000000000000000000000000') {
-    return baseFeeds1Result;
-  }
-
-  return null;
+  return {
+    baseFeedOne: data.baseFeedOne?.address as Address | undefined,
+    baseFeedTwo: data.baseFeedTwo?.address as Address | undefined,
+    quoteFeedOne: data.quoteFeedOne?.address as Address | undefined,
+    quoteFeedTwo: data.quoteFeedTwo?.address as Address | undefined,
+  };
 }
 
-/**
- * Get the last update timestamp from a Chainlink oracle.
- * Returns null if the contract doesn't implement latestRoundData.
- */
+function isValidFeedAddress(address: string | null | undefined): address is Address {
+  return Boolean(address && address.toLowerCase() !== ZERO);
+}
+
+async function collectFeedCandidates(
+  oracleAddress: Address,
+  hints?: OracleFeedHints
+): Promise<Address[]> {
+  const seen = new Set<string>();
+  const candidates: Address[] = [];
+
+  const add = (addr: string | null | undefined) => {
+    if (!isValidFeedAddress(addr)) return;
+    const key = addr.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    candidates.push(addr);
+  };
+
+  add(hints?.baseFeedOne);
+  add(hints?.baseFeedTwo);
+  add(hints?.quoteFeedOne);
+  add(hints?.quoteFeedTwo);
+
+  const onChainReads = await Promise.all([
+    safeContractRead<Address>(oracleAddress, MORPHO_CHAINLINK_ORACLE_ABI as Abi, 'BASE_FEED_1', []),
+    safeContractRead<Address>(oracleAddress, MORPHO_CHAINLINK_ORACLE_ABI as Abi, 'BASE_FEED_2', []),
+    safeContractRead<Address>(oracleAddress, MORPHO_CHAINLINK_ORACLE_ABI as Abi, 'QUOTE_FEED_1', []),
+    safeContractRead<Address>(oracleAddress, MORPHO_CHAINLINK_ORACLE_ABI as Abi, 'QUOTE_FEED_2', []),
+  ]);
+
+  for (const addr of onChainReads) {
+    add(addr);
+  }
+
+  return candidates;
+}
+
 async function getChainlinkTimestamp(chainlinkAddress: Address): Promise<number | null> {
   try {
     const result = await publicClient.readContract({
       address: chainlinkAddress,
-      abi: CHAINLINK_ORACLE_ABI as Abi,
+      abi: CHAINLINK_AGGREGATOR_ABI,
       functionName: 'latestRoundData',
-    }) as [bigint, bigint, bigint, bigint, bigint];
+    });
 
-    const [, , , updatedAt] = result;
-    return Number(updatedAt);
+    const updatedAt = Number(result[3]);
+    return updatedAt > 0 ? updatedAt : null;
   } catch {
     return null;
   }
 }
 
+async function getStalestFeedTimestamp(
+  feeds: Address[]
+): Promise<{ chainlinkAddress: Address; updatedAt: number } | null> {
+  if (feeds.length === 0) return null;
+
+  const timestamps = await Promise.all(
+    feeds.map(async (feed) => {
+      const updatedAt = await getChainlinkTimestamp(feed);
+      return { feed, updatedAt };
+    })
+  );
+
+  let stalest: { chainlinkAddress: Address; updatedAt: number } | null = null;
+
+  for (const { feed, updatedAt } of timestamps) {
+    if (updatedAt === null) continue;
+    if (!stalest || updatedAt < stalest.updatedAt) {
+      stalest = { chainlinkAddress: feed, updatedAt };
+    }
+  }
+
+  return stalest;
+}
+
 /**
  * Get oracle timestamp data for a Morpho oracle address.
- * 
- * Flow:
- * 1. Get baseFeedOne address (prefer GraphQL oracle.data.baseFeedOne.address if available, otherwise resolve on-chain)
- * 2. Query the Chainlink feed (baseFeedOne) for latestRoundData() to get updatedAt timestamp
- * 3. Calculate age from current time
- * 
- * @param oracleAddress - The Morpho oracle contract address
- * @param baseFeedOneAddress - Optional: baseFeedOne address from GraphQL oracle.data (more efficient than on-chain resolution)
+ * Prefers GraphQL feed hints, then reads BASE_FEED_1/2 and QUOTE_FEED_1/2 immutables on-chain.
  */
 export async function getOracleTimestampData(
   oracleAddress: Address | null,
-  baseFeedOneAddress?: Address | null
+  feedHints?: OracleFeedHints | Address | null
 ): Promise<OracleTimestampData> {
-  if (!oracleAddress || oracleAddress.toLowerCase() === '0x0000000000000000000000000000000000000000') {
-    return {
-      chainlinkAddress: null,
-      updatedAt: null,
-      ageSeconds: null,
-    };
+  if (!oracleAddress || oracleAddress.toLowerCase() === ZERO) {
+    return { chainlinkAddress: null, updatedAt: null, ageSeconds: null };
   }
 
-  // First, try to use baseFeedOne from GraphQL if provided (more efficient)
-  let chainlinkAddress: Address | null = null;
-  
-  if (baseFeedOneAddress && baseFeedOneAddress.toLowerCase() !== '0x0000000000000000000000000000000000000000') {
-    chainlinkAddress = baseFeedOneAddress;
-  } else {
-    // Fallback: Try to resolve Chainlink feed on-chain
-    chainlinkAddress = await resolveChainlinkFeed(oracleAddress);
+  const hints: OracleFeedHints | undefined =
+    typeof feedHints === 'string' || feedHints === null
+      ? feedHints
+        ? { baseFeedOne: feedHints }
+        : undefined
+      : feedHints ?? undefined;
+
+  const feeds = await collectFeedCandidates(oracleAddress, hints);
+
+  if (feeds.length === 0) {
+    return { chainlinkAddress: null, updatedAt: null, ageSeconds: null };
   }
 
-  if (!chainlinkAddress) {
-    return {
-      chainlinkAddress: null,
-      updatedAt: null,
-      ageSeconds: null,
-    };
-  }
+  const stalest = await getStalestFeedTimestamp(feeds);
 
-  // Get timestamp from Chainlink feed (baseFeedOne)
-  const updatedAt = await getChainlinkTimestamp(chainlinkAddress);
-  if (updatedAt === null) {
+  if (!stalest) {
     return {
-      chainlinkAddress,
+      chainlinkAddress: feeds[0] ?? null,
       updatedAt: null,
       ageSeconds: null,
     };
   }
 
   const now = Math.floor(Date.now() / 1000);
-  const ageSeconds = now - updatedAt;
+  const ageSeconds = now - stalest.updatedAt;
 
   return {
-    chainlinkAddress,
-    updatedAt,
+    chainlinkAddress: stalest.chainlinkAddress,
+    updatedAt: stalest.updatedAt,
     ageSeconds,
   };
 }

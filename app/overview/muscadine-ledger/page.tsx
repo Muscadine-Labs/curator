@@ -10,34 +10,18 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { formatCompactUSD } from '@/lib/format/number';
 import { Alert } from '@/components/ui/alert';
 import { Filter, ChevronDown, ChevronUp } from 'lucide-react';
+import { DevelopmentLinksSection } from '@/components/overview/DevelopmentLinksSection';
 import { logger } from '@/lib/utils/logger';
+import {
+  MUSCADINE_LEDGER_SHEET_GIDS,
+  MUSCADINE_LEDGER_SHEET_IDS,
+  MUSCADINE_LEDGER_SHEET_NAMES,
+  getMuscadineLedgerYears,
+} from '@/lib/constants';
 
 interface GoogleSheetsData {
   rows: Array<Record<string, string>>;
 }
-
-// Pre-configured Google Sheet IDs by state and year
-// Wyoming: existing ledgers
-// Georgia: GA LLC ledger (https://docs.google.com/spreadsheets/d/183cy9VlCD9csxmz2_5ocEIGfNbckdeR-tZLiGggxGns)
-const GOOGLE_SHEET_IDS: Record<string, Record<string, string>> = {
-  Georgia: {
-    '2025': '183cy9VlCD9csxmz2_5ocEIGfNbckdeR-tZLiGggxGns',
-    '2026': '183cy9VlCD9csxmz2_5ocEIGfNbckdeR-tZLiGggxGns',
-  },
-  Wyoming: {
-    '2025': '1Hr2i6WcfN4I6xRmyMtbk1NNmiWfOfBYsegBVX3nd13w',
-    '2026': '1jAhmmt2pte6ClciasZma--_I0IPIn4u0AvHDeU31rGM',
-  },
-};
-
-// Map sheet names to their GIDs (Google Sheet tab IDs)
-// You can find GID in the URL when viewing a specific tab: #gid=0
-const SHEET_GIDS: Record<string, string> = {
-  'Expenses': '0',
-  'Income': '0',
-};
-
-const ALL_SHEET_NAMES = ['Expenses', 'Income'];
 
 type LedgerState = 'Georgia' | 'Wyoming';
 
@@ -51,11 +35,20 @@ export default function MuscadineLedgerPage() {
   const [expensesVisibleColumns, setExpensesVisibleColumns] = useState<Record<string, boolean>>({});
   const [incomeVisibleColumns, setIncomeVisibleColumns] = useState<Record<string, boolean>>({});
 
+  const availableYears = useMemo(
+    () => getMuscadineLedgerYears(selectedState),
+    [selectedState]
+  );
+
+  useEffect(() => {
+    if (availableYears.length > 0 && !availableYears.includes(selectedYear)) {
+      setSelectedYear(availableYears[0]!);
+    }
+  }, [availableYears, selectedYear]);
+
   // Get the current sheet ID based on selected state and year
   const currentSheetId =
-    GOOGLE_SHEET_IDS[selectedState]?.[selectedYear] ??
-    GOOGLE_SHEET_IDS['Georgia']?.['2026'] ??
-    '';
+    MUSCADINE_LEDGER_SHEET_IDS[selectedState]?.[selectedYear] ?? '';
 
   // Fetch Expenses and Income sheets when "All" is selected
   const { data: allSheetsData, isLoading: isAllSheetsLoading } = useQuery<Record<string, GoogleSheetsData>>({
@@ -63,7 +56,7 @@ export default function MuscadineLedgerPage() {
     queryFn: async () => {
       const results: Record<string, GoogleSheetsData> = {};
       await Promise.all(
-        ALL_SHEET_NAMES.map(async (name) => {
+        MUSCADINE_LEDGER_SHEET_NAMES.map(async (name) => {
           try {
             const params = new URLSearchParams({ sheetId: currentSheetId, sheetName: name });
             const response = await fetch(`/api/google-sheets?${params.toString()}`, {
@@ -450,7 +443,7 @@ export default function MuscadineLedgerPage() {
     if (sheetName === 'All') {
       return `https://docs.google.com/spreadsheets/d/${currentSheetId}/edit?usp=sharing`;
     }
-    const gid = SHEET_GIDS[sheetName] || '0';
+    const gid = MUSCADINE_LEDGER_SHEET_GIDS[sheetName] || '0';
     return `https://docs.google.com/spreadsheets/d/${currentSheetId}/edit?usp=sharing#gid=${gid}`;
   }, [sheetName, currentSheetId]);
 
@@ -481,8 +474,9 @@ export default function MuscadineLedgerPage() {
                   }}
                   className="px-3 py-2 text-sm border border-slate-300 rounded-md dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="2025">2025</option>
-                  <option value="2026">2026</option>
+                  {availableYears.map((year) => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
                 </select>
                 <select
                   value={sheetName}
@@ -868,6 +862,8 @@ export default function MuscadineLedgerPage() {
             </Tabs>
           </CardContent>
         </Card>
+
+        <DevelopmentLinksSection />
       </div>
     </AppShell>
   );

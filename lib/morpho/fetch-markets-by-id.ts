@@ -13,34 +13,55 @@ const MARKETS_FOR_CAPS_QUERY = gql`
         loanAsset {
           address
           symbol
+          decimals
         }
         collateralAsset {
           address
           symbol
+          decimals
         }
         oracleAddress
         irmAddress
         lltv
+        state {
+          supplyApy
+          borrowApy
+          utilization
+          liquidityAssetsUsd
+        }
       }
     }
   }
 `;
 
+export type MarketStateSnapshot = {
+  supplyApy?: number | null;
+  borrowApy?: number | null;
+  utilization?: number | null;
+  liquidityAssetsUsd?: number | null;
+};
+
 type GraphMarketItem = {
   marketId?: string | null;
   id?: string | null;
-  loanAsset?: { address?: string | null; symbol?: string | null } | null;
-  collateralAsset?: { address?: string | null; symbol?: string | null } | null;
+  loanAsset?: { address?: string | null; symbol?: string | null; decimals?: number | null } | null;
+  collateralAsset?: { address?: string | null; symbol?: string | null; decimals?: number | null } | null;
   oracleAddress?: string | null;
   irmAddress?: string | null;
   lltv?: string | number | null;
+  state?: MarketStateSnapshot | null;
+};
+
+export type MarketLookupEntry = {
+  params: NonNullable<CapInfo['marketParams']>;
+  state: MarketStateSnapshot | null;
 };
 
 export type MarketParamsLookup = Map<string, NonNullable<CapInfo['marketParams']>>;
+export type MarketLookup = Map<string, MarketLookupEntry>;
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-let cachedLookup: { chainId: number; fetchedAt: number; map: MarketParamsLookup } | null =
-  null;
+let cachedLookup: { chainId: number; fetchedAt: number; map: MarketLookup } | null = null;
 
 function keysForMarket(item: GraphMarketItem): string[] {
   return [item.marketId, item.id]
@@ -48,26 +69,30 @@ function keysForMarket(item: GraphMarketItem): string[] {
     .map((k) => k.toLowerCase());
 }
 
-function graphMarketToParams(item: GraphMarketItem): NonNullable<CapInfo['marketParams']> | null {
+function graphMarketToEntry(item: GraphMarketItem): MarketLookupEntry | null {
   if (!item.loanAsset?.address || !item.collateralAsset?.address) return null;
   return {
-    loanAsset: {
-      address: item.loanAsset.address,
-      symbol: item.loanAsset.symbol ?? null,
+    params: {
+      loanAsset: {
+        address: item.loanAsset.address,
+        symbol: item.loanAsset.symbol ?? null,
+        decimals: item.loanAsset.decimals ?? null,
+      },
+      collateralAsset: {
+        address: item.collateralAsset.address,
+        symbol: item.collateralAsset.symbol ?? null,
+        decimals: item.collateralAsset.decimals ?? null,
+      },
+      oracleAddress: item.oracleAddress ?? null,
+      irmAddress: item.irmAddress ?? null,
+      lltv: item.lltv != null ? String(item.lltv) : null,
+      state: item.state ?? null,
     },
-    collateralAsset: {
-      address: item.collateralAsset.address,
-      symbol: item.collateralAsset.symbol ?? null,
-    },
-    oracleAddress: item.oracleAddress ?? null,
-    irmAddress: item.irmAddress ?? null,
-    lltv: item.lltv != null ? String(item.lltv) : null,
+    state: item.state ?? null,
   };
 }
 
-export async function fetchMarketParamsLookup(
-  chainId: number = BASE_CHAIN_ID
-): Promise<MarketParamsLookup> {
+export async function fetchMarketLookup(chainId: number = BASE_CHAIN_ID): Promise<MarketLookup> {
   const now = Date.now();
   if (
     cachedLookup &&
@@ -81,17 +106,28 @@ export async function fetchMarketParamsLookup(
     markets?: { items?: Array<GraphMarketItem | null> | null } | null;
   }>(MARKETS_FOR_CAPS_QUERY, { first: GRAPHQL_FIRST_LIMIT, chainId });
 
-  const map: MarketParamsLookup = new Map();
+  const map: MarketLookup = new Map();
   for (const item of data.markets?.items ?? []) {
     if (!item) continue;
-    const params = graphMarketToParams(item);
-    if (!params) continue;
+    const entry = graphMarketToEntry(item);
+    if (!entry) continue;
     for (const key of keysForMarket(item)) {
-      map.set(key, params);
+      map.set(key, entry);
     }
   }
 
   cachedLookup = { chainId, fetchedAt: now, map };
+  return map;
+}
+
+export async function fetchMarketParamsLookup(
+  chainId: number = BASE_CHAIN_ID
+): Promise<MarketParamsLookup> {
+  const lookup = await fetchMarketLookup(chainId);
+  const map: MarketParamsLookup = new Map();
+  for (const [key, entry] of lookup) {
+    map.set(key, entry.params);
+  }
   return map;
 }
 
@@ -105,23 +141,42 @@ function hasCompleteMarketParams(params: CapInfo['marketParams']): boolean {
   );
 }
 
-function capNeedsMarketEnrichment(cap: CapInfo): boolean {
-  return isMarketCap(cap) && Boolean(cap.marketKey) && !hasCompleteMarketParams(cap.marketParams);
-}
-
-/** Fill marketParams on market caps from Morpho Blue market index (incl. zero-allocation caps). */
+/** Fill marketParams (and spot state) on market caps from Morpho Blue market index. */
 export async function enrichMarketCapParams(
   caps: CapInfo[],
   chainId: number
 ): Promise<CapInfo[]> {
-  if (!caps.some(capNeedsMarketEnrichment)) return caps;
+  const needsLookup = caps.some(
+    (cap) => isMarketCap(cap) && Boolean(cap.marketKey)
+  );
+  if (!needsLookup) return caps;
 
-  const lookup = await fetchMarketParamsLookup(chainId);
+  const lookup = await fetchMarketLookup(chainId);
   return caps.map((cap) => {
-    if (!capNeedsMarketEnrichment(cap) || !cap.marketKey) return cap;
+    if (!isMarketCap(cap) || !cap.marketKey) return cap;
     const found = lookup.get(cap.marketKey.toLowerCase());
     if (!found) return cap;
-    return { ...cap, marketParams: found };
+
+    const existing = cap.marketParams;
+    const params = hasCompleteMarketParams(existing)
+      ? {
+          ...existing!,
+          loanAsset: {
+            address: existing!.loanAsset!.address,
+            symbol: existing!.loanAsset?.symbol ?? found.params.loanAsset?.symbol ?? null,
+            decimals: existing!.loanAsset?.decimals ?? found.params.loanAsset?.decimals ?? null,
+          },
+          collateralAsset: {
+            address: existing!.collateralAsset!.address,
+            symbol: existing!.collateralAsset?.symbol ?? found.params.collateralAsset?.symbol ?? null,
+            decimals:
+              existing!.collateralAsset?.decimals ?? found.params.collateralAsset?.decimals ?? null,
+          },
+          state: existing?.state ?? found.state ?? found.params.state ?? null,
+        }
+      : { ...found.params, state: found.state ?? found.params.state ?? null };
+
+    return { ...cap, marketParams: params };
   });
 }
 
