@@ -9,6 +9,11 @@ import { BASE_CHAIN_ID, BPS_PER_ONE, getScanUrlForChain, GRAPHQL_FIRST_LIMIT } f
 import { handleApiError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
 import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
+import { computeTreasuryStatement } from '@/lib/morpho/compute-treasury-statement';
+import {
+  aggregateTreasuryRevenueByVault,
+  treasuryRevenueAllTimeForVault,
+} from '@/lib/morpho/treasury-statement';
 import { gql } from 'graphql-request';
 import { getAddress } from 'viem';
 import { logger } from '@/lib/utils/logger';
@@ -48,21 +53,8 @@ export async function GET(request: Request) {
     const addresses = vaultConfigs.map((v) => getAddress(v.address));
     const configuredAddressSet = new Set(addresses.map((a) => a.toLowerCase()));
 
-    // Fetch monthly statement by vault in parallel for revenue data
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin;
-    const revenueByVaultPromise = fetch(`${baseUrl}/api/monthly-statement-morphoql?perVault=true`, {
-      headers: { 'Content-Type': 'application/json' },
-    })
-      .then((res) => (res.ok ? res.json() : { vaults: [] }))
-      .then((data: { vaults?: Array<{ vaultAddress: string; usd: number }> }) => {
-        const map: Record<string, number> = {};
-        for (const v of data.vaults ?? []) {
-          const addr = v.vaultAddress?.toLowerCase();
-          if (!addr) continue;
-          map[addr] = (map[addr] ?? 0) + (v.usd ?? 0);
-        }
-        return map;
-      })
+    const revenueByVaultPromise = computeTreasuryStatement()
+      .then((data) => aggregateTreasuryRevenueByVault(data.vaults))
       .catch(() => ({} as Record<string, number>));
 
     // Build queries for both V1 and V2 vaults
@@ -240,7 +232,7 @@ export async function GET(request: Request) {
         apy: v.state?.avgNetApy != null ? v.state.avgNetApy * 100 :
              v.state?.netApy != null ? v.state.netApy * 100 : null,
         depositors: depositorCounts[v.address.toLowerCase()] ?? 0,
-        revenueAllTime: revenueByVault[v.address.toLowerCase()] ?? null,
+        revenueAllTime: treasuryRevenueAllTimeForVault(revenueByVault, v.address),
         feesAllTime: null,
         lastHarvest: null,
         });
@@ -262,7 +254,7 @@ export async function GET(request: Request) {
           apy: v.avgNetApy != null ? v.avgNetApy * 100 :
                v.apy != null ? v.apy * 100 : null,
           depositors: depositorCounts[v.address.toLowerCase()] ?? 0,
-          revenueAllTime: revenueByVault[v.address.toLowerCase()] ?? null,
+          revenueAllTime: treasuryRevenueAllTimeForVault(revenueByVault, v.address),
           feesAllTime: null,
           lastHarvest: null,
         });

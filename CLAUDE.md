@@ -293,10 +293,17 @@ Overview → Roles → Adapters → Caps → Timelocks → Allocation → Sentin
 7. **Sentinel** — `VaultV2Sentinel.tsx` (Morpho Curator–style; **only tab with
    sentinel writes**). Sections:
    - **Allocation Overview** — stacked bar + per-target token amounts and `%`.
-   - **Vault Pending Actions** — read-only; empty state “No pending actions”.
+   - **Vault Pending Actions** — embedded `VaultV2Pending` with **Revoke** per row
+     (`allowRevoke`). Each item has a stable `rowId` (list index) so per-row tx
+     state does not bleed when multiple pending actions share the same `data`
+     bytes (e.g. batched cap increases). Only the active row shows loading/error.
    - **Decrease Caps** — adapter / collateral / market tables; radio pick
-     absolute vs relative per row; new value input; single **Decrease Caps**
-     button (multicall when multiple). Uses `resolveCapIdData` + `parseHumanTokenInput`.
+     absolute vs relative per row; new value input; **Clear** resets the row form
+     only; **Decrease** submits a single-row `decreaseAbsoluteCap` /
+     `decreaseRelativeCap`. Per-row `activeRowKey` — only one write in flight.
+     Market/collateral labels and cap `idData` resolve from governance
+     `marketParams` + Morpho market index (`lib/morpho/fetch-markets-by-id.ts`)
+     even when allocation is zero. Uses `resolveCapIdData` + `parseHumanTokenInput`.
      New cap must be **≤ current** cap. `TransactionButton` uses
      `suppressConnectPrompt` (wallet connect is in the topbar only).
    - **Deallocate to Idle** — table (Idle row display-only) with amount + Max
@@ -307,8 +314,9 @@ Overview → Roles → Adapters → Caps → Timelocks → Allocation → Sentin
 9. Submits use `v2WriteConfigs.allocate/deallocate` wrapped in
    `v2WriteConfigs.multicall` when multiple moves are planned.
 
-`VaultRiskV2.tsx` remains in the codebase for reference but is **not** a main
-vault tab. V1 vault pages use a separate tab set (see V1 route if present).
+`VaultRiskV2.tsx` and `MarketRiskDetailCard.tsx` were removed — risk scoring
+math remains in `lib/morpho/compute-v1-market-risk.ts` for API routes; there is
+no dedicated Risk tab on V2 vault pages today.
 
 ### 4.3 Caching
 
@@ -318,8 +326,8 @@ All GET-style API routes return JSON consumed by React Query. Query keys:
 - `['vault-history', address]`
 - `['vault-v1-market-risk', address]`
 - `['vault-v2-risk', address]`
-- `['vault-v2-governance', address]`
-- `['vault-v2-pending', address]`
+- `['vault-v2-governance', address, 'market-params']`
+- `['vault-v2-pending', address, 'row-id']`
 - `['vault-v1-pending', address]`
 - `['vault-v1-parameters', address]`, `['vault-v2-parameters', address]`
 - `['vault-caps', address]`, `['vault-queues', address]`, `['vault-roles', address]`
@@ -558,48 +566,37 @@ Adapter count KPI = `adapters.length + 1`. Total allocated display =
 ### 4.6 Monthly income statement (treasury wallet)
 
 **UI** — `app/overview/monthly-statement/page.tsx` (tabs: **By Treasury Wallet** /
-**DefiLlama**). Treasury view modes: **By Revenue** (default — From Vaults vs
-Miscellaneous Income), Total, By Token, By Vault. Dashboard overview can toggle
-the same treasury source via `lib/RevenueSourceContext.tsx` (default: treasury).
+**DefiLlama**). Treasury view modes: **Total** (default), By Token, By Vault.
+Dashboard overview shows a single **Total Revenue** KPI from treasury net
+month-over-month change (`app/page.tsx`). Toggle treasury vs DefiLlama via
+`lib/RevenueSourceContext.tsx` (default: treasury).
 
-**Treasury API** — `GET /api/monthly-statement-morphoql`
-(`lib/morpho/treasury-statement.ts` + route handler).
+**Treasury API** — `GET /api/monthly-statement-morphoql` thin wrapper around
+`computeTreasuryStatement()` in `lib/morpho/compute-treasury-statement.ts`
+(shared types/helpers in `lib/morpho/treasury-statement.ts`).
 
 | Field | Meaning |
 | ----- | ------- |
-| `assets` / `total` | Net **positive** growth in treasury vault share balances (month-over-month) |
-| `miscellaneous` | Capital **deposits + incoming share transfers** into treasury positions (tx-indexed) |
-| `vaultFees` | `assets − miscellaneous` — performance fee accrual / residual growth not explained by capital inflows |
+| `assets` / `total` | Net month-over-month change in treasury vault share balances (positive and negative deltas) |
+
+There is **no** miscellaneous vs vault-fees split in the current UI or API
+response. Revenue is the full net position change across all tracked vaults.
 
 **Treasury wallet:** `TREASURY_ADDRESS` in `lib/morpho/treasury-statement.ts`
-(`0x057f…266A`, Base Safe). **Vaults:** six business vaults from
+(`0x057f…266A`, Base Safe). **Vaults:** business vaults from
 `getVaultAddressesForBusinessViews()`. **Start date:** `2025-11-01`.
 
-**Gross revenue (position-based):** For each vault position, compare share `assets`
-at end of previous month vs end of current month. Only **positive** token deltas count.
-USD uses end-of-period price on **new tokens only** (same as before).
-
-**Miscellaneous (transaction-based):** Morpho GraphQL tx index, **not** position deltas.
-
-| Vault | Included tx types | Rule |
-| ----- | ----------------- | ---- |
-| V1 | `vaultV1Transactions` — `Deposit`, `Transfer` | Deposit: `onBehalf` = treasury; Transfer: `to` = treasury (`assets` on tx root) |
-| V2 | `vaultV2transactions` — `Deposit`, `Transfer` | Same as V1 (`VaultV2DepositData` / `VaultV2TransferData`) |
-
-Do **not** use legacy `transactions` + `MetaMorphoDeposit` for V1 — it indexes fee events under
-`userAddress_in` and misses share transfers into the treasury. Use `vaultV1Transactions` with
-`type_in: [Deposit, Transfer]`, `timestamp_gte`, and **cursor** pagination (`endCursor` →
-`txHash` + `logIndex`). V1 does **not** support `skip`.
-
-Explicitly **excluded** from miscellaneous: `MetaMorphoFee` (V1), withdrawals, outgoing
-transfers. V2 fee accrual has no dedicated tx type — it remains in `vaultFees` as the
-residual after subtracting misc from position growth.
+**Computation:** For each vault position, compare share `assets` at end of
+previous month vs end of current month. Sum token deltas (signed) per asset;
+USD values use end-of-period pricing. Vault list/history routes call
+`computeTreasuryStatement()` directly for `revenueAllTime` (no self-fetch).
 
 **DefiLlama tab** — `GET /api/monthly-statement-defillama` (protocol-level fees/revenue;
-unrelated to treasury wallet deposits).
+unrelated to treasury wallet positions).
 
-**Do not regress:** Do not treat treasury **deposits/transfers in** as vault performance
-fees. When changing statement logic, keep `vaultFees + miscellaneous ≈ total` per month.
+**Do not regress:** Do not reintroduce a vault-fees vs miscellaneous split in
+the treasury dashboard without restoring the tx-classification pipeline in
+`treasury-statement.ts`.
 
 ---
 
@@ -911,8 +908,8 @@ npm run build
 | V2 Sentinel UI + writes          | `components/morpho/VaultV2Sentinel.tsx`                  |
 | V2 cap idData encoding           | `lib/morpho/v2-id-data.ts` (`resolveCapIdData`, …)       |
 | V2 cap display helpers           | `lib/morpho/v2-cap-format.ts`                            |
-| V2 risk UI (incl. idle count)    | `components/morpho/VaultRiskV2.tsx`, `MarketRiskDetailCard.tsx` |
 | Market risk scoring (shared)     | `lib/morpho/compute-v1-market-risk.ts`, `lib/morpho/irm-utils.ts`, `lib/morpho/oracle-utils.ts` |
+| V2 risk API                      | `app/api/vaults/v2/[id]/risk/route.ts` |
 | Morpho app deep links            | `lib/morpho/morpho-app-links.ts`                         |
 | V2 pending UI                    | `components/morpho/VaultV2Pending.tsx`                    |
 | V1 pending UI                    | `components/morpho/VaultV1Pending.tsx`                    |
@@ -932,13 +929,13 @@ npm run build
 | V2 caps API                      | `app/api/vaults/v2/[id]/governance/route.ts`             |
 | Vault overview + history chart   | `components/morpho/VaultOverviewPanel.tsx`, `VaultOverviewHistoryChart.tsx` |
 | Vault history BFF                | `app/api/vaults/[id]/history/route.ts`, `lib/morpho/vault-history.ts` |
-| Treasury monthly statement       | `app/api/monthly-statement-morphoql/route.ts`, `lib/morpho/treasury-statement.ts`, `app/overview/monthly-statement/page.tsx` |
+| Treasury monthly statement       | `app/api/monthly-statement-morphoql/route.ts`, `lib/morpho/compute-treasury-statement.ts`, `lib/morpho/treasury-statement.ts`, `app/overview/monthly-statement/page.tsx` |
+| V2 cap market enrichment         | `lib/morpho/fetch-markets-by-id.ts` (`enrichMarketCapParams`, `enrichCollateralCapSymbols`) |
 | Vault overview analytics         | `lib/morpho/vault-analytics.ts`                          |
 | Chart metric / unit filters      | `components/charts/MetricModeFilter.tsx`, `UsdTokenModeFilter.tsx` |
 | Asset decimals + allocation fmt  | `lib/format/asset-decimals.ts`, `allocation-display.ts` |
 | V1 parameters API                | `app/api/vaults/v1/[id]/parameters/route.ts`             |
 | V2 cap helpers                   | `lib/morpho/cap-utils.ts`, `lib/morpho/vault-v2-governance-map.ts` |
-| V2 risk API                      | `app/api/vaults/v2/[id]/risk/route.ts`                   |
 | V1 market risk API               | `app/api/vaults/v1/[id]/market-risk/route.ts`            |
 | Vault list API                   | `app/api/vaults/route.ts`, `app/api/vaults/[id]/route.ts`|
 | Vault history + share price      | `lib/morpho/vault-history.ts`, `useVaultHistory.ts`, `VaultOverviewHistoryChart.tsx` |
@@ -1160,9 +1157,7 @@ wagmi transformed via `transformIgnorePatterns`. Run with `npm test` (or
 | Suite | What it asserts |
 | ---------------------------------------------------------- | --------------- |
 | `lib/onchain/__tests__/reallocation.test.ts`               | `buildV1ReallocationPlan` ordering (withdrawals first, deposits after) and `maxUint256` catcher (default largest deposit + explicit `catcherKey` from dust recipient). |
-| `lib/morpho/__tests__/utilization-risk.test.ts`          | `scoreUtilizationRatio`: 100 at target (90%), flat below, decays above. |
 | `lib/format/__tests__/asset-decimals.test.ts`            | Known symbol decimals (USDC 6, cbBTC 8, WETH 18) and `resolveAssetDecimals` / `getTokenDisplayDecimals`. |
-| `lib/morpho/__tests__/vault-history.test.ts`             | `computeSharePriceUsdSeries`, `normalizeVaultHistoryResponse` / share price mapping. |
 When adding write builders in `vault-writes.ts`, add or restore ABI round-trip
 tests under `lib/onchain/__tests__/vault-writes.test.ts`.
 
@@ -1177,7 +1172,7 @@ tests under `lib/onchain/__tests__/vault-writes.test.ts`.
 
 ---
 
-_Last updated: 2026-06-22 (v1.0.8). When you change reallocation logic, allocation
+_Last updated: 2026-06-23 (v1.1.3). When you change reallocation logic, allocation
 list/filters (§5), caps/adapters display, V2 idData/Sentinel (§3.2, §4.2), Morpho
 GraphQL field names (§4.4.1), vault list/sidebar (§4.3.1), vault overview/history
 (share price in §4.4), risk scoring (§4.5), V2 idle/MetaMorpho/Blue display,

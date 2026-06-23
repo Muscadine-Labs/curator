@@ -10,7 +10,14 @@ export type GraphCap = {
     | {
         __typename?: 'MarketV1CapData';
         adapterAddress?: string | null;
-        market?: { marketId?: string | null } | null;
+        market?: {
+          marketId?: string | null;
+          loanAsset?: { address?: string | null; symbol?: string | null } | null;
+          collateralAsset?: { address?: string | null; symbol?: string | null } | null;
+          oracleAddress?: string | null;
+          irmAddress?: string | null;
+          lltv?: string | number | null;
+        } | null;
       }
     | { __typename?: 'CollateralCapData'; collateralAddress?: string | null }
     | { __typename?: string | null }
@@ -52,12 +59,37 @@ export function mapCap(graph: GraphCap | null | undefined): CapInfo | null {
     const marketData = graph.data as {
       __typename?: string | null;
       adapterAddress?: string | null;
-      market?: { marketId?: string | null } | null;
+      market?: {
+        marketId?: string | null;
+        loanAsset?: { address?: string | null; symbol?: string | null } | null;
+        collateralAsset?: { address?: string | null; symbol?: string | null } | null;
+        oracleAddress?: string | null;
+        irmAddress?: string | null;
+        lltv?: string | number | null;
+      } | null;
     };
+    const m = marketData.market;
+    const marketParams =
+      m?.loanAsset?.address && m?.collateralAsset?.address
+        ? {
+            loanAsset: {
+              address: m.loanAsset.address,
+              symbol: m.loanAsset.symbol ?? null,
+            },
+            collateralAsset: {
+              address: m.collateralAsset.address,
+              symbol: m.collateralAsset.symbol ?? null,
+            },
+            oracleAddress: m.oracleAddress ?? null,
+            irmAddress: m.irmAddress ?? null,
+            lltv: m.lltv != null ? String(m.lltv) : null,
+          }
+        : null;
     return {
       ...base,
       adapterAddress: marketData.adapterAddress ?? null,
-      marketKey: marketData.market?.marketId ?? null,
+      marketKey: m?.marketId ?? null,
+      marketParams,
     };
   }
 

@@ -24,6 +24,7 @@ import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
 import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
 import {
   buildAdapterLabelMap,
+  capLltvPill,
   capDisplayLabel,
   capRowKey,
   formatCapRelative,
@@ -48,12 +49,10 @@ import {
 } from '@/lib/format/asset-decimals';
 import { marketKeyFromGraphQL } from '@/lib/morpho/morpho-app-links';
 import { VAULT_VERSION_MAP } from '@/lib/morpho/treasury-statement';
-import { vaultV2Abi } from '@/lib/onchain/abis';
 import type { CapInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governance/route';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
 import type { VaultV2PendingResponse } from '@/app/api/vaults/v2/[id]/pending/route';
 import type { Address, Hex } from 'viem';
-import { encodeFunctionData } from 'viem';
 
 interface VaultV2SentinelProps {
   vaultAddress: string;
@@ -256,7 +255,18 @@ function DecreaseCapsPanel({
 }) {
   const [selections, setSelections] = useState<Record<string, CapDecreaseMode>>({});
   const [newValues, setNewValues] = useState<Record<string, string>>({});
+  const [activeRowKey, setActiveRowKey] = useState<string | null>(null);
   const write = useVaultWrite();
+  const writeInFlight = write.isLoading && activeRowKey !== null;
+
+  const beginWrite = useCallback(
+    (rowKey: string, config: Parameters<typeof write.write>[0]) => {
+      write.reset();
+      setActiveRowKey(rowKey);
+      write.write(config);
+    },
+    [write]
+  );
 
   const setSelection = (rowKey: string, mode: CapDecreaseMode) => {
     setSelections((prev) => ({ ...prev, [rowKey]: mode }));
@@ -273,7 +283,8 @@ function DecreaseCapsPanel({
         const parsed = parseHumanTokenInput(valueStr, assetSymbol, chainDecimals);
         const current = BigInt(cap.absoluteCap);
         if (parsed > current) return;
-        write.write(
+        beginWrite(
+          rowKey,
           v2WriteConfigs.decreaseAbsoluteCap(vaultAddress as Address, idData, parsed)
         );
         return;
@@ -284,38 +295,28 @@ function DecreaseCapsPanel({
       const wad = BigInt(Math.round(pct * 1e16));
       const current = BigInt(cap.relativeCap);
       if (wad > current) return;
-      write.write(
+      beginWrite(
+        rowKey,
         v2WriteConfigs.decreaseRelativeCap(vaultAddress as Address, idData, wad)
       );
     },
-    [assetSymbol, chainDecimals, grouped, risk, vaultAddress, write]
+    [assetSymbol, beginWrite, chainDecimals, grouped, risk, vaultAddress]
   );
 
-  const clearCap = useCallback(
-    (rowKey: string) => {
-      const cap = findCapByRowKey(rowKey, grouped);
-      if (!cap) return;
-      const idData = resolveCapIdData(cap, risk);
-      if (!idData) return;
+  const clearRowInput = (rowKey: string) => {
+    setSelections((prev) => {
+      const next = { ...prev };
+      delete next[rowKey];
+      return next;
+    });
+    setNewValues((prev) => {
+      const next = { ...prev };
+      delete next[rowKey];
+      return next;
+    });
+  };
 
-      const calls: Hex[] = [
-        encodeFunctionData({
-          abi: vaultV2Abi,
-          functionName: 'decreaseAbsoluteCap',
-          args: [idData, 0n],
-        }),
-        encodeFunctionData({
-          abi: vaultV2Abi,
-          functionName: 'decreaseRelativeCap',
-          args: [idData, 0n],
-        }),
-      ];
-      write.write(v2WriteConfigs.multicall(vaultAddress as Address, calls));
-    },
-    [grouped, risk, vaultAddress, write]
-  );
-
-  const setClearValue = (rowKey: string, mode: CapDecreaseMode) => {
+  const setPresetZero = (rowKey: string, mode: CapDecreaseMode) => {
     setSelection(rowKey, mode);
     setNewValues((prev) => ({ ...prev, [rowKey]: '0' }));
   };
@@ -360,8 +361,8 @@ function DecreaseCapsPanel({
           <Info className="h-4 w-4 text-slate-400" aria-hidden />
         </CardTitle>
         <CardDescription className="mt-1">
-          Pick absolute or relative cap, enter a new value (must be ≤ current), then Decrease. Clear
-          sets both caps to 0 (disables new allocations to that target).
+          Pick absolute or relative cap, enter a new value (must be ≤ current), then Decrease. Use 0
+          to preset zero; Clear resets the row input.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-8">
@@ -393,11 +394,11 @@ function DecreaseCapsPanel({
                         const rowKey = capRowKey(cap, idx);
                         const label = capDisplayLabel(cap, risk, adapterLabels);
                         const lltv =
-                          section.showLltv && cap.marketKey
-                            ? resolveLltv(cap.marketKey, risk)
-                            : null;
+                          section.showLltv && cap.marketKey ? capLltvPill(cap, risk) : null;
                         const idData = resolveCapIdData(cap, risk);
                         const mode = selections[rowKey] ?? null;
+                        const isActiveRow = activeRowKey === rowKey;
+                        const isOtherRowBusy = writeInFlight && !isActiveRow;
 
                         return (
                           <TableRow key={rowKey}>
@@ -452,7 +453,7 @@ function DecreaseCapsPanel({
                                   className="h-8 min-w-[90px] flex-1"
                                   placeholder={mode === 'relative' ? '0–100' : 'New cap'}
                                   value={newValues[rowKey] ?? ''}
-                                  disabled={!mode || !idData}
+                                  disabled={!mode || !idData || isOtherRowBusy}
                                   onChange={(e) =>
                                     setNewValues((prev) => ({ ...prev, [rowKey]: e.target.value }))
                                   }
@@ -461,8 +462,8 @@ function DecreaseCapsPanel({
                                   type="button"
                                   size="sm"
                                   variant="outline"
-                                  disabled={!idData}
-                                  onClick={() => setClearValue(rowKey, mode ?? 'absolute')}
+                                  disabled={!idData || isOtherRowBusy}
+                                  onClick={() => setPresetZero(rowKey, mode ?? 'absolute')}
                                 >
                                   0
                                 </Button>
@@ -470,8 +471,8 @@ function DecreaseCapsPanel({
                                   type="button"
                                   size="sm"
                                   variant="outline"
-                                  disabled={!idData}
-                                  onClick={() => clearCap(rowKey)}
+                                  disabled={!idData || isOtherRowBusy}
+                                  onClick={() => clearRowInput(rowKey)}
                                 >
                                   Clear
                                 </Button>
@@ -479,15 +480,20 @@ function DecreaseCapsPanel({
                                   label="Decrease"
                                   size="sm"
                                   suppressConnectPrompt
-                                  disabled={!idData || !mode || !(newValues[rowKey]?.trim())}
+                                  disabled={
+                                    !idData ||
+                                    !mode ||
+                                    !(newValues[rowKey]?.trim()) ||
+                                    isOtherRowBusy
+                                  }
                                   onClick={() =>
                                     mode &&
                                     submitRowDecrease(rowKey, mode, newValues[rowKey] ?? '')
                                   }
-                                  isLoading={write.isLoading}
-                                  isSuccess={write.isSuccess}
-                                  error={write.error}
-                                  txHash={write.txHash}
+                                  isLoading={isActiveRow && write.isLoading}
+                                  isSuccess={isActiveRow && write.isSuccess}
+                                  error={isActiveRow ? write.error : null}
+                                  txHash={isActiveRow ? write.txHash : undefined}
                                 />
                               </div>
                             </TableCell>
@@ -522,7 +528,18 @@ function DeallocatePanel({
   displayDecimals: number;
 }) {
   const [amounts, setAmounts] = useState<Record<string, string>>({});
+  const [activeRowKey, setActiveRowKey] = useState<string | null>(null);
   const write = useVaultWrite();
+  const writeInFlight = write.isLoading && activeRowKey !== null;
+
+  const beginWrite = useCallback(
+    (rowKey: string, config: Parameters<typeof write.write>[0]) => {
+      write.reset();
+      setActiveRowKey(rowKey);
+      write.write(config);
+    },
+    [write]
+  );
 
   const setAmount = (key: string, value: string) => {
     setAmounts((prev) => ({ ...prev, [key]: value }));
@@ -549,7 +566,8 @@ function DeallocatePanel({
       }
       parsed = clampDeallocateAmount(parsed, row.currentRaw);
       if (parsed <= 0n) return;
-      write.write(
+      beginWrite(
+        row.key,
         v2WriteConfigs.deallocate(
           vaultAddress as Address,
           row.adapterAddress as Address,
@@ -558,7 +576,7 @@ function DeallocatePanel({
         )
       );
     },
-    [amounts, assetSymbol, chainDecimals, vaultAddress, write]
+    [amounts, assetSymbol, beginWrite, chainDecimals, vaultAddress]
   );
 
   return (
@@ -597,6 +615,9 @@ function DeallocatePanel({
                     chainDecimals,
                     displayDecimals
                   );
+                  const isActiveRow = activeRowKey === row.key;
+                  const isOtherRowBusy = writeInFlight && !isActiveRow;
+
                   return (
                     <TableRow key={row.key}>
                       <TableCell>
@@ -643,6 +664,7 @@ function DeallocatePanel({
                               className="h-8 min-w-[100px] flex-1"
                               placeholder={maxLabel}
                               value={amounts[row.key] ?? ''}
+                              disabled={isOtherRowBusy}
                               onChange={(e) => setAmount(row.key, e.target.value)}
                             />
                             <Button
@@ -650,6 +672,7 @@ function DeallocatePanel({
                               size="sm"
                               variant="outline"
                               className="shrink-0 px-2"
+                              disabled={isOtherRowBusy}
                               onClick={() => zeroOutRow(row)}
                             >
                               Zero out
@@ -658,12 +681,12 @@ function DeallocatePanel({
                               label="Deallocate"
                               size="sm"
                               suppressConnectPrompt
-                              disabled={!amounts[row.key]?.trim()}
+                              disabled={!amounts[row.key]?.trim() || isOtherRowBusy}
                               onClick={() => deallocateRow(row)}
-                              isLoading={write.isLoading}
-                              isSuccess={write.isSuccess}
-                              error={write.error}
-                              txHash={write.txHash}
+                              isLoading={isActiveRow && write.isLoading}
+                              isSuccess={isActiveRow && write.isSuccess}
+                              error={isActiveRow ? write.error : null}
+                              txHash={isActiveRow ? write.txHash : undefined}
                             />
                           </div>
                         ) : (
@@ -677,11 +700,6 @@ function DeallocatePanel({
             </TableBody>
           </Table>
         </div>
-        {write.error && (
-          <p className="mt-3 text-sm text-red-600 dark:text-red-400">
-            {write.error.message}
-          </p>
-        )}
       </CardContent>
     </Card>
   );
@@ -699,19 +717,6 @@ function findCapByRowKey(
   }
   for (let i = 0; i < grouped.market.length; i++) {
     if (capRowKey(grouped.market[i], i) === rowKey) return grouped.market[i];
-  }
-  return null;
-}
-
-function resolveLltv(marketKey: string, risk: V2VaultRiskResponse): string | null {
-  const needle = marketKey.toLowerCase();
-  for (const adapter of risk.adapters ?? []) {
-    for (const m of adapter.markets ?? []) {
-      const key = marketKeyFromGraphQL(m.market);
-      if (key?.toLowerCase() === needle) {
-        return formatLltvPill(m.market?.lltv ?? null);
-      }
-    }
   }
   return null;
 }

@@ -19,7 +19,7 @@ async function fetchVaultV2Pending(vaultAddress: string): Promise<VaultV2Pending
 
 export function useVaultV2Pending(vaultAddress: string | null | undefined) {
   return useQuery({
-    queryKey: ['vault-v2-pending', vaultAddress],
+    queryKey: ['vault-v2-pending', vaultAddress, 'row-id'],
     queryFn: () => {
       if (!vaultAddress) {
         throw new Error('Vault address is required');

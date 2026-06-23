@@ -7,7 +7,7 @@ import {
 import { isAdapterCap, isCollateralCap, isMarketCap } from '@/lib/morpho/cap-utils';
 import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
-import { formatMarketPairLabel } from '@/components/morpho/AllocationListView';
+import { formatLltvPill, formatMarketPairLabel } from '@/components/morpho/AllocationListView';
 import { marketKeyFromGraphQL } from '@/lib/morpho/morpho-app-links';
 
 export function formatCapTokenAmount(
@@ -47,12 +47,13 @@ export function capDisplayLabel(
   }
 
   if (isCollateralCap(cap) && cap.collateralAddress) {
+    if (cap.collateralSymbol) return cap.collateralSymbol;
     const sym = resolveCollateralSymbol(cap.collateralAddress, risk);
     return sym ?? truncateHex(cap.collateralAddress);
   }
 
   if (isMarketCap(cap) && cap.marketKey) {
-    const pair = resolveMarketPair(cap.marketKey, risk);
+    const pair = resolveMarketPair(cap.marketKey, risk, cap.marketParams);
     if (pair) return pair;
     return truncateHex(cap.marketKey);
   }
@@ -81,7 +82,8 @@ function resolveCollateralSymbol(
 
 function resolveMarketPair(
   marketKey: string,
-  risk: V2VaultRiskResponse | null | undefined
+  risk: V2VaultRiskResponse | null | undefined,
+  marketParams?: CapInfo['marketParams']
 ): string | null {
   const needle = marketKey.toLowerCase();
   for (const adapter of risk?.adapters ?? []) {
@@ -92,6 +94,30 @@ function resolveMarketPair(
           m.market?.collateralAsset?.symbol,
           m.market?.loanAsset?.symbol
         );
+      }
+    }
+  }
+  if (marketParams?.loanAsset?.address && marketParams?.collateralAsset?.address) {
+    return formatMarketPairLabel(
+      marketParams.collateralAsset.symbol,
+      marketParams.loanAsset.symbol
+    );
+  }
+  return null;
+}
+
+export function capLltvPill(
+  cap: CapInfo,
+  risk: V2VaultRiskResponse | null | undefined
+): string | null {
+  if (!isMarketCap(cap) || !cap.marketKey) return null;
+  if (cap.marketParams?.lltv) return formatLltvPill(cap.marketParams.lltv);
+  const needle = cap.marketKey.toLowerCase();
+  for (const adapter of risk?.adapters ?? []) {
+    for (const m of adapter.markets ?? []) {
+      const key = marketKeyFromGraphQL(m.market);
+      if (key?.toLowerCase() === needle) {
+        return formatLltvPill(m.market?.lltv ?? null);
       }
     }
   }

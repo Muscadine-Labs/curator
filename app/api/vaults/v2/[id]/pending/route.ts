@@ -29,6 +29,8 @@ type GraphResponse = {
 };
 
 export type VaultV2PendingItem = {
+  /** Stable list index for per-row UI state (multiple items may share `data` / `txHash`). */
+  rowId: number;
   data: string;
   functionName: string;
   txHash: string;
@@ -92,7 +94,7 @@ export async function GET(
     const pending: VaultV2PendingItem[] =
       data.vault.pendingConfigs?.items
         ?.filter((item): item is GraphPendingItem => Boolean(item?.data && item?.functionName))
-        .map((item) => {
+        .map((item, index) => {
           const validAt =
             item.validAt == null
               ? 0
@@ -102,6 +104,7 @@ export async function GET(
           const decoded = mapPendingDecoded(item.decodedData);
 
           return {
+            rowId: index,
             data: item.data!,
             functionName: item.functionName!,
             txHash: item.txHash ?? '',

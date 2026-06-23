@@ -4,6 +4,12 @@ import { BPS_PER_ONE, GRAPHQL_FIRST_LIMIT, GRAPHQL_TRANSACTIONS_LIMIT, getDaysAg
 import { handleApiError, AppError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
 import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
+import { computeTreasuryStatement } from '@/lib/morpho/compute-treasury-statement';
+import {
+  aggregateTreasuryRevenueByVault,
+  treasuryRevenueAllTimeForVault,
+  treasuryRevenueYtdForVault,
+} from '@/lib/morpho/treasury-statement';
 import { gql } from 'graphql-request';
 import { getAddress, isAddress } from 'viem';
 import { logger } from '@/lib/utils/logger';
@@ -318,26 +324,13 @@ export async function GET(
 
     const query = isV2 ? v2Query : v1Query;
 
-    // Fetch vault detail and monthly statement revenue in parallel
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin;
-    const revenuePromise = fetch(`${baseUrl}/api/monthly-statement-morphoql?perVault=true`, {
-      headers: { 'Content-Type': 'application/json' },
-    })
-      .then((res) => (res.ok ? res.json() : { vaults: [] }))
-      .then((d: { vaults?: Array<{ vaultAddress: string; month: string; usd: number }> }) => {
-        const addr = address.toLowerCase();
-        let total = 0;
-        let ytd = 0;
-        let found = false;
-        const currentYear = new Date().getFullYear().toString();
-        for (const v of d.vaults ?? []) {
-          if (v.vaultAddress?.toLowerCase() === addr) {
-            found = true;
-            total += v.usd ?? 0;
-            if (v.month?.startsWith(currentYear)) ytd += v.usd ?? 0;
-          }
-        }
-        return { revenueAllTime: found ? total : null, feesYtd: found ? ytd : null };
+    const revenuePromise = computeTreasuryStatement()
+      .then((data) => {
+        const revenueByVault = aggregateTreasuryRevenueByVault(data.vaults);
+        return {
+          revenueAllTime: treasuryRevenueAllTimeForVault(revenueByVault, address),
+          feesYtd: treasuryRevenueYtdForVault(data.vaults, address),
+        };
       })
       .catch(() => ({ revenueAllTime: null, feesYtd: null }));
 

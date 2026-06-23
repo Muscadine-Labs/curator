@@ -21,7 +21,7 @@ async function fetchVaultV2Governance(vaultAddress: string): Promise<VaultV2Gove
 
 export function useVaultV2Governance(vaultAddress: string | null | undefined) {
   return useQuery({
-    queryKey: ['vault-v2-governance', vaultAddress],
+    queryKey: ['vault-v2-governance', vaultAddress, 'market-params'],
     queryFn: () => {
       if (!vaultAddress) {
         throw new Error('Vault address is required');

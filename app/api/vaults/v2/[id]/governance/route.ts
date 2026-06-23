@@ -7,6 +7,7 @@ import { handleApiError, AppError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { mapCap, type GraphCap } from '@/lib/morpho/vault-v2-governance-map';
+import { enrichCollateralCapSymbols, enrichMarketCapParams } from '@/lib/morpho/fetch-markets-by-id';
 
 type GraphAdapter = {
   __typename?: 'MetaMorphoAdapter' | 'MorphoMarketV1Adapter' | string | null;
@@ -65,6 +66,15 @@ export type CapInfo = {
   adapterAddress?: string | null;
   marketKey?: string | null;
   collateralAddress?: string | null;
+  collateralSymbol?: string | null;
+  /** Full Blue market params from governance (for caps with no current allocation). */
+  marketParams?: {
+    loanAsset?: { address: string; symbol?: string | null } | null;
+    collateralAsset?: { address: string; symbol?: string | null } | null;
+    oracleAddress?: string | null;
+    irmAddress?: string | null;
+    lltv?: string | null;
+  } | null;
 };
 
 export type TimelockInfo = {
@@ -132,7 +142,14 @@ const VAULT_V2_GOVERNANCE_QUERY = gql`
             }
             ... on MarketV1CapData {
               adapterAddress
-              market { marketId }
+              market {
+                marketId
+                loanAsset { address symbol }
+                collateralAsset { address symbol }
+                oracleAddress
+                irmAddress
+                lltv
+              }
             }
             ... on CollateralCapData {
               collateralAddress
@@ -242,10 +259,15 @@ export async function GET(
 
     const liquidityAdapter = mapAdapter(data.vault.liquidityAdapter);
 
-    const caps =
+    const capsRaw =
       data.vault.caps?.items
         ?.map(mapCap)
         .filter((c): c is CapInfo => c !== null) ?? [];
+
+    const caps = await enrichCollateralCapSymbols(
+      await enrichMarketCapParams(capsRaw, chainId),
+      chainId
+    );
 
     const timelocks =
       data.vault.timelocks

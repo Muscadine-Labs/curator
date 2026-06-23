@@ -1,0 +1,211 @@
+import { gql } from 'graphql-request';
+import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
+import { BASE_CHAIN_ID, GRAPHQL_FIRST_LIMIT } from '@/lib/constants';
+import { isAdapterCap, isCollateralCap, isMarketCap } from '@/lib/morpho/cap-utils';
+import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
+
+const MARKETS_FOR_CAPS_QUERY = gql`
+  query MarketsForCapLookup($first: Int!, $chainId: Int!) {
+    markets(first: $first, where: { chainId_in: [$chainId] }) {
+      items {
+        marketId
+        id
+        loanAsset {
+          address
+          symbol
+        }
+        collateralAsset {
+          address
+          symbol
+        }
+        oracleAddress
+        irmAddress
+        lltv
+      }
+    }
+  }
+`;
+
+type GraphMarketItem = {
+  marketId?: string | null;
+  id?: string | null;
+  loanAsset?: { address?: string | null; symbol?: string | null } | null;
+  collateralAsset?: { address?: string | null; symbol?: string | null } | null;
+  oracleAddress?: string | null;
+  irmAddress?: string | null;
+  lltv?: string | number | null;
+};
+
+export type MarketParamsLookup = Map<string, NonNullable<CapInfo['marketParams']>>;
+
+const CACHE_TTL_MS = 5 * 60 * 1000;
+let cachedLookup: { chainId: number; fetchedAt: number; map: MarketParamsLookup } | null =
+  null;
+
+function keysForMarket(item: GraphMarketItem): string[] {
+  return [item.marketId, item.id]
+    .filter((k): k is string => Boolean(k))
+    .map((k) => k.toLowerCase());
+}
+
+function graphMarketToParams(item: GraphMarketItem): NonNullable<CapInfo['marketParams']> | null {
+  if (!item.loanAsset?.address || !item.collateralAsset?.address) return null;
+  return {
+    loanAsset: {
+      address: item.loanAsset.address,
+      symbol: item.loanAsset.symbol ?? null,
+    },
+    collateralAsset: {
+      address: item.collateralAsset.address,
+      symbol: item.collateralAsset.symbol ?? null,
+    },
+    oracleAddress: item.oracleAddress ?? null,
+    irmAddress: item.irmAddress ?? null,
+    lltv: item.lltv != null ? String(item.lltv) : null,
+  };
+}
+
+export async function fetchMarketParamsLookup(
+  chainId: number = BASE_CHAIN_ID
+): Promise<MarketParamsLookup> {
+  const now = Date.now();
+  if (
+    cachedLookup &&
+    cachedLookup.chainId === chainId &&
+    now - cachedLookup.fetchedAt < CACHE_TTL_MS
+  ) {
+    return cachedLookup.map;
+  }
+
+  const data = await morphoGraphQLClient.request<{
+    markets?: { items?: Array<GraphMarketItem | null> | null } | null;
+  }>(MARKETS_FOR_CAPS_QUERY, { first: GRAPHQL_FIRST_LIMIT, chainId });
+
+  const map: MarketParamsLookup = new Map();
+  for (const item of data.markets?.items ?? []) {
+    if (!item) continue;
+    const params = graphMarketToParams(item);
+    if (!params) continue;
+    for (const key of keysForMarket(item)) {
+      map.set(key, params);
+    }
+  }
+
+  cachedLookup = { chainId, fetchedAt: now, map };
+  return map;
+}
+
+function hasCompleteMarketParams(params: CapInfo['marketParams']): boolean {
+  return Boolean(
+    params?.loanAsset?.address &&
+      params?.collateralAsset?.address &&
+      params?.oracleAddress &&
+      params?.irmAddress &&
+      params?.lltv
+  );
+}
+
+function capNeedsMarketEnrichment(cap: CapInfo): boolean {
+  return isMarketCap(cap) && Boolean(cap.marketKey) && !hasCompleteMarketParams(cap.marketParams);
+}
+
+/** Fill marketParams on market caps from Morpho Blue market index (incl. zero-allocation caps). */
+export async function enrichMarketCapParams(
+  caps: CapInfo[],
+  chainId: number
+): Promise<CapInfo[]> {
+  if (!caps.some(capNeedsMarketEnrichment)) return caps;
+
+  const lookup = await fetchMarketParamsLookup(chainId);
+  return caps.map((cap) => {
+    if (!capNeedsMarketEnrichment(cap) || !cap.marketKey) return cap;
+    const found = lookup.get(cap.marketKey.toLowerCase());
+    if (!found) return cap;
+    return { ...cap, marketParams: found };
+  });
+}
+
+async function fetchTokenSymbolLookup(chainId: number): Promise<Map<string, string>> {
+  const paramsLookup = await fetchMarketParamsLookup(chainId);
+  const symbols = new Map<string, string>();
+  for (const params of paramsLookup.values()) {
+    const loan = params.loanAsset;
+    const col = params.collateralAsset;
+    if (loan?.address && loan.symbol) {
+      symbols.set(loan.address.toLowerCase(), loan.symbol);
+    }
+    if (col?.address && col.symbol) {
+      symbols.set(col.address.toLowerCase(), col.symbol);
+    }
+  }
+  return symbols;
+}
+
+const ASSET_SYMBOLS_QUERY = gql`
+  query AssetSymbols($chainId: Int!, $addresses: [String!]!) {
+    assets(where: { chainId_in: [$chainId], address_in: $addresses }) {
+      items {
+        address
+        symbol
+      }
+    }
+  }
+`;
+
+async function fetchAssetSymbols(
+  addresses: string[],
+  chainId: number
+): Promise<Map<string, string>> {
+  if (addresses.length === 0) return new Map();
+
+  const data = await morphoGraphQLClient.request<{
+    assets?: { items?: Array<{ address?: string | null; symbol?: string | null } | null> | null } | null;
+  }>(ASSET_SYMBOLS_QUERY, { chainId, addresses });
+
+  const symbols = new Map<string, string>();
+  for (const item of data.assets?.items ?? []) {
+    if (item?.address && item.symbol) {
+      symbols.set(item.address.toLowerCase(), item.symbol);
+    }
+  }
+  return symbols;
+}
+
+/** Resolve collateral cap labels from Morpho Blue market token index. */
+export async function enrichCollateralCapSymbols(
+  caps: CapInfo[],
+  chainId: number
+): Promise<CapInfo[]> {
+  const needsEnrichment = caps.some(
+    (cap) => isCollateralCap(cap) && cap.collateralAddress && !cap.collateralSymbol
+  );
+  if (!needsEnrichment) return caps;
+
+  const lookup = await fetchTokenSymbolLookup(chainId);
+  let enriched = caps.map((cap) => {
+    if (!isCollateralCap(cap) || !cap.collateralAddress || cap.collateralSymbol) return cap;
+    const symbol = lookup.get(cap.collateralAddress.toLowerCase());
+    return symbol ? { ...cap, collateralSymbol: symbol } : cap;
+  });
+
+  const missingAddresses = [
+    ...new Set(
+      enriched
+        .filter(
+          (cap) =>
+            isCollateralCap(cap) && cap.collateralAddress && !cap.collateralSymbol
+        )
+        .map((cap) => cap.collateralAddress as string)
+    ),
+  ];
+  if (missingAddresses.length === 0) return enriched;
+
+  const assetSymbols = await fetchAssetSymbols(missingAddresses, chainId);
+  enriched = enriched.map((cap) => {
+    if (!isCollateralCap(cap) || !cap.collateralAddress || cap.collateralSymbol) return cap;
+    const symbol = assetSymbols.get(cap.collateralAddress.toLowerCase());
+    return symbol ? { ...cap, collateralSymbol: symbol } : cap;
+  });
+
+  return enriched;
+}

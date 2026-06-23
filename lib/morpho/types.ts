@@ -62,4 +62,3 @@ export type MorphoMarketsResponse = {
   timestamp: string;
   markets: MorphoMarketMetrics[];
 };
-
