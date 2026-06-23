@@ -183,6 +183,20 @@ select {
   font-size: 12.5px;
 }
 
+/*
+ * iOS Safari auto-zooms the page when a focused input is below 16px and the
+ * zoom often persists through modals (allocation / sentinel / tx preview).
+ * Keep compact fields on desktop; enforce 16px on coarse-pointer touch devices.
+ */
+@media (hover: none) and (pointer: coarse) {
+  [data-slot='input'],
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='hidden']),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 /* Badges — tight "label" styling. */
 [data-slot='badge'] {
   font-size: 10.5px;

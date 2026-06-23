@@ -51,7 +51,10 @@ export function AppShell({ title, description, actions, children }: AppShellProp
               ) : null}
             </div>
           </header>
-          <main className="flex-1 overflow-y-auto px-4 pb-12 pt-4 sm:px-6 sm:pt-6">
+          <main
+            id="app-main"
+            className="flex-1 overflow-y-auto px-4 pb-12 pt-4 sm:px-6 sm:pt-6"
+          >
             {children}
           </main>
         </div>

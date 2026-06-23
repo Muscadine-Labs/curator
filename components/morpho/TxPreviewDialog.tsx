@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowRight, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -80,6 +81,11 @@ export function TxPreviewDialog({
   confirmLabel = 'Confirm & sign',
 }: TxPreviewDialogProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -91,17 +97,36 @@ export function TxPreviewDialog({
   }, [open, isLoading, onOpenChange]);
 
   useEffect(() => {
-    if (open) panelRef.current?.focus();
+    if (!open) return;
+
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement ||
+      active instanceof HTMLSelectElement
+    ) {
+      active.blur();
+    }
+
+    const main = document.getElementById('app-main');
+    const prevMainOverflow = main?.style.overflow ?? '';
+    if (main) main.style.overflow = 'hidden';
+
+    panelRef.current?.focus({ preventScroll: true });
+
+    return () => {
+      if (main) main.style.overflow = prevMainOverflow;
+    };
   }, [open]);
 
-  if (!open || !preview) return null;
+  if (!mounted || !open || !preview) return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center">
       <button
         type="button"
         aria-label="Close preview"
-        className="absolute inset-0 bg-black/50 backdrop-blur-[1px]"
+        className="absolute inset-0 bg-black/50"
         disabled={isLoading}
         onClick={() => !isLoading && onOpenChange(false)}
       />
@@ -160,6 +185,7 @@ export function TxPreviewDialog({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
