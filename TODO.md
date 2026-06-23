@@ -1,12 +1,4 @@
 *TO work on today:
-- On allocation, have the columns be in this order instead from left to right:
-Util.
-Liquidity
-Eff. Abs. Cap
-Rate
-Allocation
-% Alloc
-
 
 **To work on another day:
 
