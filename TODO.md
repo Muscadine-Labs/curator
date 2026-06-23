@@ -1,14 +1,13 @@
 *TO work on today:
-- [ ] Add V1→V2 fee migration tx hashes to `TREASURY_MISC_EXCLUDED_TX_HASHES` in `lib/morpho/treasury-statement.ts` when known. Also, Revenue on overview is incorrect.
-- [ ] Deallocate to Idle on sentinel does not work. It should be amount and I can press zero (not max) and itll go to idle liqudity. I dont even know what your directions even mean on that. For this function research on morpho docs and specs on how to do it. 
-- [ ] Decrease Caps on sentinel do not work, have also for sentinel a clear function. For this function research on morpho docs and specs on how to do it. 
-- [ ] Vault Pending Actions on sentinel be able to stop these actions. For this function research on morpho docs and specs on how to do it.
-- [ ] On Allocations, when I press max to reallocate, transcaction fails. Also, remeber for max or zero to include all zeros/decimals of the asset. For this function research on morpho docs and specs on how to do it.
-- [ ] On Allocation, the defult dust recenpeant should be the liquidty adaptor (or market). Please make sure your work is correct. 
+- [x] Revenue on overview: per-vault fees now subtract treasury capital inflows (not gross deposits). Add V1→V2 migration tx hashes to `TREASURY_MISC_EXCLUDED_TX_HASHES` when known.
+- [x] Sentinel deallocate: per-row amount + Zero out (full precision) + Deallocate.
+- [x] Sentinel decrease caps: per-row Decrease, 0 preset, Clear (both caps → 0).
+- [x] Sentinel pending: Revoke button (`vault.revoke`).
+- [x] Allocation Max uses full chain decimals; deallocate uses exact `current` when target is 0.
+- [x] Default dust recipient = liquidity adapter from governance.
 
 ///
-- [x] Run lint, build and test
-- Bump version to 1.0.9 on next GitHub push (currently 1.0.8)
+- [x] Run lint, build and test. Review all work.
 
 
 **To work on another day:

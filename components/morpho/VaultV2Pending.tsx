@@ -1,14 +1,19 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { format, formatDistanceToNow } from 'date-fns';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useVaultV2Pending } from '@/lib/hooks/useVaultV2Pending';
+import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
+import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
 import { getScanUrlForChain } from '@/lib/constants';
+import { TransactionButton } from '@/components/TransactionButton';
 import type { VaultV2PendingResponse } from '@/app/api/vaults/v2/[id]/pending/route';
+import type { Address, Hex } from 'viem';
 
 interface VaultV2PendingProps {
   vaultAddress: string;
@@ -18,6 +23,8 @@ interface VaultV2PendingProps {
   embedded?: boolean;
   /** Simpler empty state for Sentinel page */
   sentinelEmpty?: boolean;
+  /** Show revoke button (Sentinel / curator) */
+  allowRevoke?: boolean;
 }
 
 type PendingFilter = 'all' | 'ready' | 'waiting';
@@ -35,17 +42,45 @@ export function VaultV2Pending({
   preloadedData,
   embedded,
   sentinelEmpty,
+  allowRevoke,
 }: VaultV2PendingProps) {
   const { data: fetchedData, isLoading, error } = useVaultV2Pending(vaultAddress);
   const data = preloadedData ?? fetchedData;
   const [filter, setFilter] = useState<PendingFilter>('all');
+  const [activeRowId, setActiveRowId] = useState<number | null>(null);
+  const revokeWrite = useVaultWrite();
+  const queryClient = useQueryClient();
+
+  const pending = useMemo(
+    () =>
+      (data?.pending ?? []).map((item, index) => ({
+        ...item,
+        rowId: item.rowId ?? index,
+      })),
+    [data?.pending]
+  );
 
   const filtered = useMemo(() => {
-    const items = data?.pending ?? [];
-    if (filter === 'ready') return items.filter((p) => p.status === 'ready');
-    if (filter === 'waiting') return items.filter((p) => p.status === 'waiting');
-    return items;
-  }, [data?.pending, filter]);
+    if (filter === 'ready') return pending.filter((p) => p.status === 'ready');
+    if (filter === 'waiting') return pending.filter((p) => p.status === 'waiting');
+    return pending;
+  }, [pending, filter]);
+
+  const revokeInFlight = revokeWrite.isLoading && activeRowId !== null;
+
+  useEffect(() => {
+    if (!revokeWrite.isSuccess || activeRowId === null) return;
+    void queryClient.invalidateQueries({ queryKey: ['vault-v2-pending', vaultAddress] });
+    setActiveRowId(null);
+  }, [revokeWrite.isSuccess, activeRowId, queryClient, vaultAddress]);
+
+  const handleRevoke = (rowId: number, dataHex: string) => {
+    revokeWrite.reset();
+    setActiveRowId(rowId);
+    revokeWrite.write(
+      v2WriteConfigs.revoke(vaultAddress as Address, dataHex as Hex)
+    );
+  };
 
   if (!preloadedData && isLoading) {
     const skeleton = (
@@ -105,9 +140,14 @@ export function VaultV2Pending({
         </p>
       ) : (
         <div className="space-y-3">
-          {filtered.map((item) => (
+          {filtered.map((item) => {
+            const rowId = item.rowId;
+            const isActiveRevoke = activeRowId === rowId;
+            const isOtherRevokeBusy = revokeInFlight && !isActiveRevoke;
+
+            return (
             <div
-              key={item.data}
+              key={rowId}
               className="rounded-md border border-slate-200 p-4 dark:border-slate-800"
             >
               <div className="flex flex-wrap items-start justify-between gap-2">
@@ -115,9 +155,25 @@ export function VaultV2Pending({
                   <p className="font-medium text-slate-900 dark:text-slate-100">{item.functionName}</p>
                   <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{item.summary}</p>
                 </div>
-                <Badge variant={item.status === 'ready' ? 'default' : 'secondary'}>
-                  {item.status === 'ready' ? 'Executable' : 'Pending'}
-                </Badge>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={item.status === 'ready' ? 'default' : 'secondary'}>
+                    {item.status === 'ready' ? 'Executable' : 'Pending'}
+                  </Badge>
+                  {allowRevoke && (
+                    <TransactionButton
+                      label="Revoke"
+                      size="sm"
+                      variant="outline"
+                      suppressConnectPrompt
+                      disabled={isOtherRevokeBusy}
+                      onClick={() => handleRevoke(rowId, item.data)}
+                      isLoading={isActiveRevoke && revokeWrite.isLoading}
+                      isSuccess={isActiveRevoke && revokeWrite.isSuccess}
+                      error={isActiveRevoke ? revokeWrite.error : null}
+                      txHash={isActiveRevoke ? revokeWrite.txHash : undefined}
+                    />
+                  )}
+                </div>
               </div>
               <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-4">
                 <div>
@@ -145,14 +201,15 @@ export function VaultV2Pending({
                 </div>
               </dl>
             </div>
-          ))}
+          );
+          })}
         </div>
       )}
   </>
   );
 
   if (embedded) {
-    if (sentinelEmpty && (data?.pending?.length ?? 0) === 0) {
+    if (sentinelEmpty && pending.length === 0) {
       return (
         <p className="text-sm text-slate-600 dark:text-slate-400">No pending actions</p>
       );
@@ -162,7 +219,7 @@ export function VaultV2Pending({
         {!sentinelEmpty && (
           <div>
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Vault Pending Actions ({data.pending.length})
+              Vault Pending Actions ({pending.length})
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Pending timelock actions queued on this vault.
@@ -177,9 +234,10 @@ export function VaultV2Pending({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Vault Pending Actions ({data.pending.length})</CardTitle>
+        <CardTitle>Vault Pending Actions ({pending.length})</CardTitle>
         <CardDescription>
-          Pending timelock actions queued on this vault. View status and details below.
+          Pending timelock actions queued on this vault. Revoke cancels a queued action before it
+          executes.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">{body}</CardContent>

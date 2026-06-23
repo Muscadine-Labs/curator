@@ -85,7 +85,7 @@ function parseConfigOverrides(
   ];
 
   numericKeys.forEach((key) => {
-    const value = params.get(key);
+    const value = params.get(String(key));
     if (value !== null) {
       const parsed = Number(value);
       if (Number.isFinite(parsed)) {

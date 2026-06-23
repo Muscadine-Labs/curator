@@ -124,20 +124,26 @@ export function resolveCapIdData(
     return encodeCollateralCapIdData(cap.collateralAddress);
   }
 
-  if (isMarketCap(cap) && cap.marketKey && cap.adapterAddress && risk) {
-    const match = findMarketByKey(risk, cap.marketKey);
-    if (match) {
-      return encodeMarketCapIdData(match.adapterAddress, match.market);
+  if (isMarketCap(cap) && cap.marketKey && cap.adapterAddress) {
+    if (cap.marketParams) {
+      return encodeMarketCapIdData(cap.adapterAddress, cap.marketParams);
     }
-    // Fallback: scan adapter from cap.adapterAddress when findMarketByKey misses
-    for (const adapter of risk.adapters ?? []) {
-      if (adapter.adapterAddress.toLowerCase() !== cap.adapterAddress.toLowerCase()) {
-        continue;
+
+    if (risk) {
+      const match = findMarketByKey(risk, cap.marketKey);
+      if (match) {
+        return encodeMarketCapIdData(match.adapterAddress, match.market);
       }
-      for (const m of adapter.markets ?? []) {
-        const key = marketKeyFromGraphQL(m.market);
-        if (key?.toLowerCase() === cap.marketKey.toLowerCase()) {
-          return encodeMarketCapIdData(adapter.adapterAddress, m.market);
+      // Fallback: scan adapter from cap.adapterAddress when findMarketByKey misses
+      for (const adapter of risk.adapters ?? []) {
+        if (adapter.adapterAddress.toLowerCase() !== cap.adapterAddress.toLowerCase()) {
+          continue;
+        }
+        for (const m of adapter.markets ?? []) {
+          const key = marketKeyFromGraphQL(m.market);
+          if (key?.toLowerCase() === cap.marketKey.toLowerCase()) {
+            return encodeMarketCapIdData(adapter.adapterAddress, m.market);
+          }
         }
       }
     }

@@ -1,5 +1,7 @@
 # AGENTS.md — Working Instructions for AI Assistants
 
+_Current app version: **1.1.3** (`package.json`)._
+
 This file is the quick-start contract for any AI agent working in this repo.
 The full architecture reference lives in **`CLAUDE.md`** — read it before
 touching vault mechanics, allocations, Morpho GraphQL queries, or formatting.
@@ -44,5 +46,9 @@ would pass 9, roll over to the next decimal:
 - **V2 vault tabs** (Morpho Curator order): Overview → Roles → Adapters → Caps →
   Timelocks → Allocation → Sentinel → Emergency. Pending actions embed in Caps;
   Sentinel is the only tab with sentinel writes (decrease caps, deallocate).
+- **V2 pending revoke** — per-row `rowId` + `activeRowId`; never key tx state by
+  `item.data` alone (batched pending actions can share calldata).
+- **V2 cap labels / idData** — governance `marketParams` + `fetch-markets-by-id.ts`
+  enrichment for zero-allocation market and collateral caps.
 - **No server-side private keys** — all writes go through the connected wallet.
 - Keep `CLAUDE.md`, `AGENTS.md`, and `TODO.md` in sync with behavior changes.

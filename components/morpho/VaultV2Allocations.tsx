@@ -28,9 +28,11 @@ import {
 import {
   allocationInputWidthCh,
   formatAllocationEditInput,
+  formatAllocationEditInputExact,
   formatAllocationTableAmount,
   formatCapDisplayAmount,
   parseHumanTokenInput,
+  clampDeallocateAmount,
 } from '@/lib/format/allocation-display';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
 import type { VaultV2GovernanceResponse, CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
@@ -544,15 +546,27 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
   const [inputValues, setInputValues] = useState<string[]>([]);
   const [filters, setFilters] = useState<AllocationFilterState>(DEFAULT_FILTER_STATE);
   /** Where unallocated remainder goes: 'auto' = implicit Idle, or a target index. */
+  const liquidityAdapterAddress = governance?.liquidityAdapter?.address?.toLowerCase() ?? null;
+
+  const defaultDustRecipientKey = useMemo((): DustRecipientChoice => {
+    if (!liquidityAdapterAddress) return 'auto';
+    const idx = targetsWithCaps.findIndex(
+      (t) =>
+        !t.isVaultIdle &&
+        t.adapterAddress.toLowerCase() === liquidityAdapterAddress
+    );
+    return idx >= 0 ? String(idx) : 'auto';
+  }, [liquidityAdapterAddress, targetsWithCaps]);
+
   const [dustRecipientKey, setDustRecipientKey] = useState<DustRecipientChoice>('auto');
   const multicallWrite = useVaultWrite();
 
   const startEditing = useCallback(() => {
     setInputMode('tokens');
     setInputValues(targetsWithCaps.map(() => ''));
-    setDustRecipientKey('auto');
+    setDustRecipientKey(defaultDustRecipientKey);
     setEditing(true);
-  }, [targetsWithCaps]);
+  }, [targetsWithCaps, defaultDustRecipientKey]);
 
   const cancelEditing = useCallback(() => {
     setEditing(false);
@@ -623,7 +637,7 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
           if (max > maxRel) max = maxRel;
         }
         const next = [...values];
-        next[targetIdx] = formatRawAsInput(max, t);
+        next[targetIdx] = formatAllocationEditInputExact(max, t.symbol, t.decimals);
         return next;
       });
     },
@@ -840,7 +854,11 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
       if (r.target.isVaultIdle) continue;
       if (r.assets === r.current) continue;
       if (r.assets < r.current) {
-        const delta = r.current - r.assets;
+        const delta =
+          r.assets === 0n
+            ? r.current
+            : clampDeallocateAmount(r.current - r.assets, r.current);
+        if (delta <= 0n) continue;
         deallocCalls.push(v2WriteConfigs.encodeDeallocate(
           r.target.adapterAddress as Address,
           r.target.data,
@@ -872,11 +890,15 @@ export function VaultV2Allocations({ vaultAddress, preloadedData, preloadedRisk 
           r.assets - r.current
         ));
       } else {
+        const delta = r.current - r.assets;
+        const safeDelta =
+          r.assets === 0n ? r.current : clampDeallocateAmount(delta, r.current);
+        if (safeDelta <= 0n) return;
         multicallWrite.write(v2WriteConfigs.deallocate(
           vaultAddress as Address,
           r.target.adapterAddress as Address,
           r.target.data,
-          r.current - r.assets
+          safeDelta
         ));
       }
     } else {

@@ -34,8 +34,6 @@ interface MonthlyStatementResponse {
   statements: Array<{
     month: string;
     total: { usd: number };
-    vaultFeesTotal?: { usd: number };
-    miscellaneousTotal?: { usd: number };
   }>;
   daily?: Array<{ date: string; value: number }>;
 }
@@ -45,7 +43,7 @@ export default function Home() {
   const { revenueSource, setRevenueSource } = useRevenueSource();
 
   const { data: monthlyData, isLoading: isTreasuryLoading } = useQuery<MonthlyStatementResponse>({
-    queryKey: ['monthly-statement'],
+    queryKey: ['monthly-statement', 'wallet-balance'],
     queryFn: async () => {
       const res = await fetch('/api/monthly-statement-morphoql', { credentials: 'omit' });
       if (!res.ok) throw new Error('Failed to fetch monthly statement');
@@ -73,25 +71,15 @@ export default function Home() {
     });
   }, [treasuryRevenueDaily]);
 
-  const treasuryRevenueTotals = useMemo(() => {
+  const treasuryRevenueTotal = useMemo(() => {
     const statements = monthlyData?.statements ?? [];
-    const fromVaults = statements.reduce((sum, s) => sum + (s.vaultFeesTotal?.usd ?? 0), 0);
-    const miscellaneous = statements.reduce((sum, s) => sum + (s.miscellaneousTotal?.usd ?? 0), 0);
-    // Total revenue = performance fees only; miscellaneous is external capital, not revenue.
-    const total = fromVaults;
-    return { total, fromVaults, miscellaneous };
+    return statements.reduce((sum, s) => sum + s.total.usd, 0);
   }, [monthlyData?.statements]);
 
   const revenueTotal =
     revenueSource === 'treasury'
-      ? treasuryRevenueTotals.total
+      ? treasuryRevenueTotal
       : (stats?.totalFeesGenerated ?? 0);
-  const revenueFromVaults =
-    revenueSource === 'treasury'
-      ? treasuryRevenueTotals.fromVaults
-      : (stats?.totalFeesGenerated ?? 0);
-  const revenueMiscellaneous =
-    revenueSource === 'treasury' ? treasuryRevenueTotals.miscellaneous : 0;
   const isRevenueLoading =
     revenueSource === 'treasury' ? isTreasuryLoading : isLoading;
 
@@ -147,32 +135,16 @@ export default function Home() {
 
           <div className="border-t border-border/60" />
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 gap-2">
             <p className="col-span-full text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
               Revenue
               <span className="ml-1.5 font-normal normal-case tracking-normal text-muted-foreground/80">
-                · {revenueSource === 'treasury' ? 'Treasury' : 'DefiLlama'}
+                · {revenueSource === 'treasury' ? 'Treasury wallet' : 'DefiLlama'}
               </span>
             </p>
             <KpiCard
               title="Total Revenue"
               value={revenueTotal}
-              isLoading={isRevenueLoading}
-              format="usd"
-              compact
-              className="border-0 bg-muted/40 shadow-none py-2"
-            />
-            <KpiCard
-              title="From Vaults"
-              value={revenueFromVaults}
-              isLoading={isRevenueLoading}
-              format="usd"
-              compact
-              className="border-0 bg-muted/40 shadow-none py-2"
-            />
-            <KpiCard
-              title="Miscellaneous"
-              value={revenueMiscellaneous}
               isLoading={isRevenueLoading}
               format="usd"
               compact
