@@ -24,7 +24,7 @@ import {
   type MarketRiskScores,
 } from '@/lib/morpho/compute-v1-market-risk';
 import { getIRMTargetUtilizationWithFallback } from '@/lib/morpho/irm-utils';
-import { getOracleTimestampData, type OracleTimestampData } from '@/lib/morpho/oracle-utils';
+import { getOracleTimestampData, getOracleFeedHintsFromMarket, type OracleTimestampData } from '@/lib/morpho/oracle-utils';
 import type { Address } from 'viem';
 
 type AdapterType = 'MetaMorphoAdapter' | 'MorphoMarketV1Adapter' | 'Unknown';
@@ -75,6 +75,8 @@ export type V2MarketRiskData = {
   allocationUsd: number;
   allocationAssets: string | null;
   oracleTimestampData?: OracleTimestampData | null;
+  absoluteCap?: string | null;
+  relativeCap?: string | null;
 };
 
 export type V2UnderlyingVaultStats = {
@@ -96,6 +98,8 @@ export type V2AdapterRiskData = {
   markets: V2MarketRiskData[];
   underlyingVaultAddress?: string | null;
   underlyingVaultStats?: V2UnderlyingVaultStats | null;
+  absoluteCap?: string | null;
+  relativeCap?: string | null;
 };
 
 export type V2VaultRiskResponse = {
@@ -149,6 +153,16 @@ const VAULT_V2_RISK_QUERY = gql`
                   loanAsset { symbol decimals address }
                   collateralAsset { symbol decimals address }
                   oracleAddress
+                  oracle {
+                    data {
+                      ... on MorphoChainlinkOracleV2Data {
+                        baseFeedOne { address }
+                      }
+                      ... on MorphoChainlinkOracleData {
+                        baseFeedOne { address }
+                      }
+                    }
+                  }
                   irmAddress
                   lltv
                   realizedBadDebt { usd }
@@ -221,14 +235,12 @@ async function buildMarketRisk(
   supplyUsd: number | null | undefined,
   supplyAssets?: string | null
 ): Promise<V2MarketRiskData> {
-  const baseFeedOneAddress = market.oracle?.data?.baseFeedOne?.address
-    ? (market.oracle.data.baseFeedOne.address as Address)
-    : null;
+  const baseFeedHints = getOracleFeedHintsFromMarket(market);
 
   const [oracleTimestampData, targetUtilization] = await Promise.all([
     getOracleTimestampData(
       market.oracleAddress ? (market.oracleAddress as Address) : null,
-      baseFeedOneAddress
+      baseFeedHints
     ),
     getIRMTargetUtilizationWithFallback(
       market.irmAddress ? (market.irmAddress as Address) : null
@@ -390,7 +402,15 @@ async function buildBlueAdapterMarketRisks(
     }
 
     if (!market) continue;
-    marketRisks.push(await buildMarketRisk(market, supplyUsd, supplyAssets));
+
+    const capFields = cap
+      ? { absoluteCap: cap.absoluteCap, relativeCap: cap.relativeCap }
+      : {};
+
+    marketRisks.push({
+      ...(await buildMarketRisk(market, supplyUsd, supplyAssets)),
+      ...capFields,
+    });
   }
 
   return marketRisks;

@@ -106,34 +106,34 @@ export default function V2VaultPage() {
       }
     >
       <div className="space-y-4">
-        <Tabs defaultValue="overview" className="vault-detail-tabs space-y-3">
-          <div className="-mx-4 overflow-x-auto px-4 scrollbar-hide sm:mx-0 sm:px-0">
-            <TabsList className="w-max min-w-full">
-              <TabsTrigger value="overview" className="!flex-none shrink-0 !px-4 !py-2 !text-sm">
+        <Tabs defaultValue="overview" className="space-y-3">
+          <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide sm:overflow-visible">
+            <TabsList className="inline-flex w-auto min-w-full sm:min-w-0 sm:w-full justify-start gap-1">
+              <TabsTrigger value="overview" className="sm:flex-1 flex-shrink-0 min-w-fit">
                 Overview
               </TabsTrigger>
-              <TabsTrigger value="risk" className="!flex-none shrink-0 !px-4 !py-2 !text-sm">
+              <TabsTrigger value="risk" className="sm:flex-1 flex-shrink-0 min-w-fit">
                 Risk
               </TabsTrigger>
-              <TabsTrigger value="roles" className="!flex-none shrink-0 !px-4 !py-2 !text-sm">
+              <TabsTrigger value="roles" className="sm:flex-1 flex-shrink-0 min-w-fit">
                 Roles
               </TabsTrigger>
-              <TabsTrigger value="adapters" className="!flex-none shrink-0 !px-4 !py-2 !text-sm">
+              <TabsTrigger value="adapters" className="sm:flex-1 flex-shrink-0 min-w-fit">
                 Adapters
               </TabsTrigger>
-              <TabsTrigger value="allocations" className="!flex-none shrink-0 !px-4 !py-2 !text-sm">
+              <TabsTrigger value="allocations" className="sm:flex-1 flex-shrink-0 min-w-fit">
                 Allocation
               </TabsTrigger>
-              <TabsTrigger value="caps" className="!flex-none shrink-0 !px-4 !py-2 !text-sm">
+              <TabsTrigger value="caps" className="sm:flex-1 flex-shrink-0 min-w-fit">
                 Caps{hasPending ? ` (${pending!.pending.length})` : ''}
               </TabsTrigger>
-              <TabsTrigger value="timelocks" className="!flex-none shrink-0 !px-4 !py-2 !text-sm">
+              <TabsTrigger value="timelocks" className="sm:flex-1 flex-shrink-0 min-w-fit">
                 Timelocks
               </TabsTrigger>
-              <TabsTrigger value="sentinel" className="!flex-none shrink-0 !px-4 !py-2 !text-sm">
+              <TabsTrigger value="sentinel" className="sm:flex-1 flex-shrink-0 min-w-fit">
                 Sentinel
               </TabsTrigger>
-              <TabsTrigger value="emergency" className="!flex-none shrink-0 !px-4 !py-2 !text-sm">
+              <TabsTrigger value="emergency" className="sm:flex-1 flex-shrink-0 min-w-fit">
                 Emergency
               </TabsTrigger>
             </TabsList>

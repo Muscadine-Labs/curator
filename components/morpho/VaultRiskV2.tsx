@@ -12,60 +12,14 @@ import {
   getTokenDisplayDecimals,
   resolveAssetDecimals,
 } from '@/lib/format/asset-decimals';
-import type { MarketRiskGrade } from '@/lib/morpho/compute-v1-market-risk';
 import { MarketRiskDetailCard } from '@/components/morpho/MarketRiskDetailCard';
 import { morphoVaultHref } from '@/lib/morpho/morpho-app-links';
+import { shouldShowAdapterEntry, shouldShowMarketEntry } from '@/lib/morpho/format-risk';
+import { getGradeColor, getScoreColor } from '@/lib/morpho/market-risk-display';
 
 interface VaultRiskV2Props {
   vaultAddress: string;
   preloadedData?: import('@/app/api/vaults/v2/[id]/risk/route').V2VaultRiskResponse | null;
-}
-
-function getGradeColor(grade: MarketRiskGrade): string {
-  switch (grade) {
-    case 'A+':
-    case 'A':
-    case 'A−':
-      return 'border-emerald-500/30 bg-emerald-500/15 text-emerald-600 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-300';
-    case 'B+':
-    case 'B':
-    case 'B−':
-      return 'border-sky-500/30 bg-sky-500/15 text-sky-600 dark:border-sky-400/20 dark:bg-sky-500/10 dark:text-sky-300';
-    case 'C+':
-    case 'C':
-    case 'C−':
-      return 'border-amber-500/30 bg-amber-500/15 text-amber-600 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-300';
-    case 'D':
-      return 'border-orange-500/30 bg-orange-500/15 text-orange-600 dark:border-orange-400/20 dark:bg-orange-500/10 dark:text-orange-300';
-    case 'F':
-      return 'border-rose-500/30 bg-rose-500/15 text-rose-600 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-300';
-    default:
-      return 'border-gray-500/30 bg-gray-500/15 text-gray-600 dark:border-gray-400/20 dark:bg-gray-500/10 dark:text-gray-300';
-  }
-}
-
-function getScoreColor(score: number): string {
-  if (score >= 80) return 'text-emerald-600 dark:text-emerald-400';
-  if (score >= 60) return 'text-sky-600 dark:text-sky-400';
-  if (score >= 40) return 'text-amber-600 dark:text-amber-400';
-  if (score >= 20) return 'text-orange-600 dark:text-orange-400';
-  return 'text-rose-600 dark:text-rose-400';
-}
-
-function adapterHasRiskContent(
-  adapter: import('@/app/api/vaults/v2/[id]/risk/route').V2AdapterRiskData
-): boolean {
-  return (adapter.markets?.length ?? 0) > 0 || (adapter.allocationUsd ?? 0) > 0;
-}
-
-function formatMarketIdentifier(
-  loanAsset: string | undefined,
-  collateralAsset: string | undefined
-): string {
-  if (loanAsset && collateralAsset) return `${collateralAsset}/${loanAsset}`;
-  if (loanAsset) return loanAsset;
-  if (collateralAsset) return collateralAsset;
-  return 'Unknown Market';
 }
 
 export function VaultRiskV2({ vaultAddress, preloadedData }: VaultRiskV2Props) {
@@ -76,7 +30,23 @@ export function VaultRiskV2({ vaultAddress, preloadedData }: VaultRiskV2Props) {
   const sortedAdapters = useMemo(() => {
     if (!data?.adapters) return [];
     return [...data.adapters]
-      .filter(adapterHasRiskContent)
+      .filter((adapter) => {
+        const markets = (adapter.markets ?? []).filter((m) =>
+          shouldShowMarketEntry(
+            m.allocationUsd,
+            m.allocationAssets,
+            m.absoluteCap,
+            m.relativeCap
+          )
+        );
+        return shouldShowAdapterEntry(
+          adapter.allocationUsd,
+          adapter.allocationAssets,
+          adapter.absoluteCap,
+          adapter.relativeCap,
+          markets.length > 0
+        );
+      })
       .sort((a, b) => (b.allocationUsd ?? 0) - (a.allocationUsd ?? 0));
   }, [data?.adapters]);
 
@@ -182,7 +152,7 @@ export function VaultRiskV2({ vaultAddress, preloadedData }: VaultRiskV2Props) {
             Risk
           </CardTitle>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Weighted average across strategy adapters. Per-market cards list every capped Blue market.
+            Weighted average across strategy adapters. Markets with a non-zero cap or allocation are shown.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -244,10 +214,16 @@ export function VaultRiskV2({ vaultAddress, preloadedData }: VaultRiskV2Props) {
                 ? (adapter.allocationUsd / totalVaultAllocatedUsd) * 100
                 : 0;
             const isMetaMorpho = adapter.adapterType === 'MetaMorphoAdapter';
-            const markets = [...adapter.markets].sort(
-              (a, b) => (b.allocationUsd ?? 0) - (a.allocationUsd ?? 0)
-            );
-            const totalMarketAlloc = markets.reduce((sum, m) => sum + (m.allocationUsd ?? 0), 0);
+            const markets = [...adapter.markets]
+              .filter((m) =>
+                shouldShowMarketEntry(
+                  m.allocationUsd,
+                  m.allocationAssets,
+                  m.absoluteCap,
+                  m.relativeCap
+                )
+              )
+              .sort((a, b) => (b.allocationUsd ?? 0) - (a.allocationUsd ?? 0));
 
             return (
               <div
@@ -373,27 +349,17 @@ export function VaultRiskV2({ vaultAddress, preloadedData }: VaultRiskV2Props) {
                       </div>
                     </div>
                   )}
-                  {markets.map((m) => {
-                    const allocPct =
-                      totalMarketAlloc > 0
-                        ? (m.allocationUsd / totalMarketAlloc) * 100
-                        : 0;
-                    const marketName = formatMarketIdentifier(
-                      m.market.loanAsset?.symbol,
-                      m.market.collateralAsset?.symbol
-                    );
-
-                    return (
+                  {markets.map((m) => (
                       <MarketRiskDetailCard
                         key={m.market.uniqueKey || m.market.id}
                         market={m.market}
                         scores={m.scores}
                         oracleTimestampData={m.oracleTimestampData}
-                        allocationSubtitle={`Adapter allocation: ${formatCompactUSD(m.allocationUsd)} · ${formatPercentage(allocPct, 2)} of adapter · ${marketName}`}
+                        supplyUsd={m.allocationUsd}
+                        vaultTotalUsd={totalVaultAllocatedUsd}
                         className="shadow-none"
                       />
-                    );
-                  })}
+                    ))}
                 </div>
               </div>
             );

@@ -190,7 +190,7 @@ select {
   letter-spacing: 0.01em;
 }
 
-/* Tabs — tighter strip (default). Vault detail page overrides via .vault-detail-tabs. */
+/* Tabs — tighter strip. */
 [data-slot='tabs-list'] {
   padding: 2px;
   gap: 2px;
@@ -198,25 +198,6 @@ select {
 [data-slot='tabs-trigger'] {
   font-size: 12px;
   padding: 3px 8px;
-}
-
-/* Vault detail — single-row scroll, readable tap targets. */
-.vault-detail-tabs [data-slot='tabs-list'] {
-  display: inline-flex;
-  flex-wrap: nowrap;
-  width: max-content;
-  min-width: 100%;
-  height: auto;
-  min-height: 2.75rem;
-  padding: 5px;
-  gap: 5px;
-}
-.vault-detail-tabs [data-slot='tabs-trigger'] {
-  flex: none !important;
-  font-size: 14px !important;
-  padding: 8px 16px !important;
-  white-space: nowrap;
-  line-height: 1.25;
 }
 
 /* Sidebar — compact nav, portal feel. */
