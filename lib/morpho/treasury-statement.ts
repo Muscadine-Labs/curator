@@ -301,6 +301,59 @@ function addMiscEntry(
   byMonth.set(monthKey, existing);
 }
 
+export type PerVaultCapitalUsd = {
+  externalUsd: number;
+  internalUsd: number;
+  externalTokens: number;
+  internalTokens: number;
+};
+
+/** vault address (lowercase) → month key → capital inflows to subtract from position growth */
+export type PerVaultCapitalByMonth = Map<string, Map<string, PerVaultCapitalUsd>>;
+
+function bumpPerVaultCapital(
+  map: PerVaultCapitalByMonth,
+  vaultLower: string,
+  monthKey: string,
+  kind: 'external' | 'internal',
+  tokens: number,
+  usd: number
+) {
+  if (tokens <= 0 && usd <= 0) return;
+  const byMonth = map.get(vaultLower) ?? new Map<string, PerVaultCapitalUsd>();
+  const row = byMonth.get(monthKey) ?? {
+    externalUsd: 0,
+    internalUsd: 0,
+    externalTokens: 0,
+    internalTokens: 0,
+  };
+  if (kind === 'external') {
+    row.externalUsd += usd;
+    row.externalTokens += tokens;
+  } else {
+    row.internalUsd += usd;
+    row.internalTokens += tokens;
+  }
+  byMonth.set(monthKey, row);
+  map.set(vaultLower, byMonth);
+}
+
+export function netVaultFeeFromGrowth(
+  grossTokens: number,
+  grossUsd: number,
+  capital: PerVaultCapitalUsd | undefined
+): { tokens: number; usd: number } {
+  if (!capital) {
+    return { tokens: Math.max(0, grossTokens), usd: Math.max(0, grossUsd) };
+  }
+  const deductTokens = capital.externalTokens + capital.internalTokens;
+  const deductUsd = capital.externalUsd + capital.internalUsd;
+  return {
+    tokens: Math.max(0, grossTokens - deductTokens),
+    usd: Math.max(0, grossUsd - deductUsd),
+  };
+}
+
 function resolveMiscUsd(
   asset: TreasuryAssetKey,
   tokens: number,
@@ -414,10 +467,12 @@ export async function fetchTreasuryCapitalByMonth(
 ): Promise<{
   external: Map<string, TreasuryAssetBreakdown>;
   internal: Map<string, TreasuryAssetBreakdown>;
+  perVault: PerVaultCapitalByMonth;
 }> {
   const treasuryLower = getAddress(TREASURY_ADDRESS).toLowerCase();
   const external = new Map<string, TreasuryAssetBreakdown>();
   const internal = new Map<string, TreasuryAssetBreakdown>();
+  const perVault = new Map<string, Map<string, PerVaultCapitalUsd>>();
 
   for (const vaultAddress of vaultAddresses) {
     const vaultLower = vaultAddress.toLowerCase();
@@ -451,8 +506,10 @@ export async function fetchTreasuryCapitalByMonth(
         const monthKey = monthKeyFromTimestamp(ts);
         if (kind === 'internal') {
           addMiscEntry(internal, monthKey, asset, tokens, usd);
+          bumpPerVaultCapital(perVault, vaultLower, monthKey, 'internal', tokens, usd);
         } else {
           addMiscEntry(external, monthKey, asset, tokens, usd);
+          bumpPerVaultCapital(perVault, vaultLower, monthKey, 'external', tokens, usd);
         }
       }
     } catch (error) {
@@ -464,7 +521,7 @@ export async function fetchTreasuryCapitalByMonth(
     }
   }
 
-  return { external, internal };
+  return { external, internal, perVault };
 }
 
 /** External capital only (legacy helper). */
@@ -478,7 +535,7 @@ export async function fetchTreasuryMiscellaneousByMonth(
     vaultAddressLower: string
   ) => number | null
 ): Promise<Map<string, TreasuryAssetBreakdown>> {
-  const { external } = await fetchTreasuryCapitalByMonth(
+  const { external, internal } = await fetchTreasuryCapitalByMonth(
     vaultAddresses,
     chainId,
     startTimestampSec,

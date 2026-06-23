@@ -29,8 +29,17 @@ export function formatAllocationEditInput(
   symbol: string | null | undefined,
   apiDecimals: number
 ): string {
+  return formatAllocationEditInputExact(raw, symbol, apiDecimals, false);
+}
+
+/** Full chain-decimal string for Max / exact on-chain amounts (no display trimming). */
+export function formatAllocationEditInputExact(
+  raw: bigint,
+  symbol: string | null | undefined,
+  apiDecimals: number,
+  trimTrailingZeros = true
+): string {
   const chain = resolveAssetDecimals(symbol, apiDecimals);
-  const display = getTokenDisplayDecimals(symbol, chain);
   if (raw === 0n) return '0';
 
   const negative = raw < 0n;
@@ -40,15 +49,26 @@ export function formatAllocationEditInput(
   const whole = raw / base;
   const frac = raw % base;
   const fracPadded = frac.toString().padStart(chain, '0');
-  let fracTrimmed =
-    display < chain ? fracPadded.slice(0, display) : fracPadded;
-  while (fracTrimmed.length > 1 && fracTrimmed.endsWith('0')) {
-    fracTrimmed = fracTrimmed.slice(0, -1);
+
+  let fracTrimmed = fracPadded;
+  if (trimTrailingZeros) {
+    const display = getTokenDisplayDecimals(symbol, chain);
+    fracTrimmed =
+      display < chain ? fracPadded.slice(0, display) : fracPadded;
+    while (fracTrimmed.length > 1 && fracTrimmed.endsWith('0')) {
+      fracTrimmed = fracTrimmed.slice(0, -1);
+    }
   }
 
   const out =
     fracTrimmed.length > 0 ? `${whole.toString()}.${fracTrimmed}` : whole.toString();
   return negative ? `-${out}` : out;
+}
+
+/** Clamp a parsed deallocate amount to on-chain position size. */
+export function clampDeallocateAmount(parsed: bigint, currentRaw: bigint): bigint {
+  if (parsed <= 0n) return 0n;
+  return parsed > currentRaw ? currentRaw : parsed;
 }
 
 /** Table display for allocation / liquidity cells. */

@@ -12,6 +12,7 @@ import {
   emptyTreasuryAssetBreakdown,
   fetchTreasuryMiscellaneousByMonth,
   fetchTreasuryCapitalByMonth,
+  netVaultFeeFromGrowth,
   subtractTreasuryBreakdowns,
   sumTreasuryBreakdownUsd,
   type TreasuryAssetBreakdown,
@@ -681,13 +682,21 @@ export async function GET(request: Request) {
       return null;
     };
 
-    const { external: miscellaneousByMonth, internal: internalMovesByMonth } =
+    const { external: miscellaneousByMonth, internal: internalMovesByMonth, perVault } =
       await fetchTreasuryCapitalByMonth(
       addresses,
       BASE_CHAIN_ID,
       startTimestampSec,
       pricePerTokenAt
     );
+
+    // Per-vault overview revenue = position growth minus treasury capital inflows (not gross deposits).
+    for (let i = 0; i < vaultMonthlyData.length; i++) {
+      const row = vaultMonthlyData[i];
+      const capital = perVault.get(row.vaultAddress.toLowerCase())?.get(row.month);
+      const net = netVaultFeeFromGrowth(row.tokens, row.usd, capital);
+      vaultMonthlyData[i] = { ...row, tokens: net.tokens, usd: net.usd };
+    }
 
     // Convert to array format
     const now = new Date();
@@ -747,9 +756,9 @@ export async function GET(request: Request) {
 
     // Check if client wants per-vault data via query parameter
     const url = new URL(request.url);
-    const perVault = url.searchParams.get('perVault') === 'true';
+    const wantPerVault = url.searchParams.get('perVault') === 'true';
 
-    if (perVault) {
+    if (wantPerVault) {
       return NextResponse.json({ vaults: vaultMonthlyData, daily }, { headers: responseHeaders });
     }
 

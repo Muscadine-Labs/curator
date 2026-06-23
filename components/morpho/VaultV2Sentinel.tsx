@@ -38,7 +38,9 @@ import {
 import { formatFullUSD, formatPercentage, formatRawTokenAmount } from '@/lib/format/number';
 import {
   formatAllocationTableAmount,
+  formatAllocationEditInputExact,
   parseHumanTokenInput,
+  clampDeallocateAmount,
 } from '@/lib/format/allocation-display';
 import {
   getTokenDisplayDecimals,
@@ -208,6 +210,7 @@ export function VaultV2Sentinel({
             preloadedData={preloadedPending}
             embedded
             sentinelEmpty
+            allowRevoke
           />
         </CardContent>
       </Card>
@@ -259,61 +262,63 @@ function DecreaseCapsPanel({
     setSelections((prev) => ({ ...prev, [rowKey]: mode }));
   };
 
-  const submitDecrease = useCallback(() => {
-    const calls: Hex[] = [];
-
-    for (const [rowKey, mode] of Object.entries(selections)) {
-      const valueStr = newValues[rowKey]?.trim();
-      if (!valueStr) continue;
-
+  const submitRowDecrease = useCallback(
+    (rowKey: string, mode: CapDecreaseMode, valueStr: string) => {
       const cap = findCapByRowKey(rowKey, grouped);
-      if (!cap) continue;
-
+      if (!cap) return;
       const idData = resolveCapIdData(cap, risk);
-      if (!idData) continue;
+      if (!idData) return;
 
       if (mode === 'absolute') {
-        try {
-          const parsed = parseHumanTokenInput(valueStr, assetSymbol, chainDecimals);
-          const current = BigInt(cap.absoluteCap);
-          if (parsed > current) continue;
-          calls.push(
-            encodeFunctionData({
-              abi: vaultV2Abi,
-              functionName: 'decreaseAbsoluteCap',
-              args: [idData, parsed],
-            })
-          );
-        } catch {
-          continue;
-        }
-      } else {
-        try {
-          const pct = Number(valueStr);
-          if (!Number.isFinite(pct) || pct < 0 || pct > 100) continue;
-          const wad = BigInt(Math.round(pct * 1e16));
-          const current = BigInt(cap.relativeCap);
-          if (wad > current) continue;
-          calls.push(
-            encodeFunctionData({
-              abi: vaultV2Abi,
-              functionName: 'decreaseRelativeCap',
-              args: [idData, wad],
-            })
-          );
-        } catch {
-          continue;
-        }
+        const parsed = parseHumanTokenInput(valueStr, assetSymbol, chainDecimals);
+        const current = BigInt(cap.absoluteCap);
+        if (parsed > current) return;
+        write.write(
+          v2WriteConfigs.decreaseAbsoluteCap(vaultAddress as Address, idData, parsed)
+        );
+        return;
       }
-    }
 
-    if (calls.length === 0) return;
-    write.write(v2WriteConfigs.multicall(vaultAddress as Address, calls));
-  }, [assetSymbol, chainDecimals, grouped, newValues, risk, selections, vaultAddress, write]);
-
-  const hasPendingSubmit = Object.entries(selections).some(
-    ([key, mode]) => selections[key] === mode && (newValues[key]?.trim() ?? '').length > 0
+      const pct = Number(valueStr);
+      if (!Number.isFinite(pct) || pct < 0 || pct > 100) return;
+      const wad = BigInt(Math.round(pct * 1e16));
+      const current = BigInt(cap.relativeCap);
+      if (wad > current) return;
+      write.write(
+        v2WriteConfigs.decreaseRelativeCap(vaultAddress as Address, idData, wad)
+      );
+    },
+    [assetSymbol, chainDecimals, grouped, risk, vaultAddress, write]
   );
+
+  const clearCap = useCallback(
+    (rowKey: string) => {
+      const cap = findCapByRowKey(rowKey, grouped);
+      if (!cap) return;
+      const idData = resolveCapIdData(cap, risk);
+      if (!idData) return;
+
+      const calls: Hex[] = [
+        encodeFunctionData({
+          abi: vaultV2Abi,
+          functionName: 'decreaseAbsoluteCap',
+          args: [idData, 0n],
+        }),
+        encodeFunctionData({
+          abi: vaultV2Abi,
+          functionName: 'decreaseRelativeCap',
+          args: [idData, 0n],
+        }),
+      ];
+      write.write(v2WriteConfigs.multicall(vaultAddress as Address, calls));
+    },
+    [grouped, risk, vaultAddress, write]
+  );
+
+  const setClearValue = (rowKey: string, mode: CapDecreaseMode) => {
+    setSelection(rowKey, mode);
+    setNewValues((prev) => ({ ...prev, [rowKey]: '0' }));
+  };
 
   const sections: Array<{
     title: string;
@@ -349,27 +354,15 @@ function DecreaseCapsPanel({
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
-        <div>
-          <CardTitle className="flex items-center gap-2">
-            Decrease Caps
-            <Info className="h-4 w-4 text-slate-400" aria-hidden />
-          </CardTitle>
-          <CardDescription className="mt-1">
-            Sentinels can decrease caps instantly without a timelock. Select a cap type, enter a new
-            value below the current cap, then submit.
-          </CardDescription>
-        </div>
-        <TransactionButton
-          label="Decrease Caps"
-          suppressConnectPrompt
-          onClick={submitDecrease}
-          disabled={!hasPendingSubmit || totalCaps === 0}
-          isLoading={write.isLoading}
-          isSuccess={write.isSuccess}
-          error={write.error}
-          txHash={write.txHash}
-        />
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          Decrease Caps
+          <Info className="h-4 w-4 text-slate-400" aria-hidden />
+        </CardTitle>
+        <CardDescription className="mt-1">
+          Pick absolute or relative cap, enter a new value (must be ≤ current), then Decrease. Clear
+          sets both caps to 0 (disables new allocations to that target).
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-8">
         {totalCaps === 0 ? (
@@ -392,7 +385,7 @@ function DecreaseCapsPanel({
                         <TableHead className="text-right">Allocation</TableHead>
                         <TableHead className="text-right">Absolute Cap</TableHead>
                         <TableHead className="text-right">Relative Cap</TableHead>
-                        <TableHead className="min-w-[120px]">New value</TableHead>
+                        <TableHead className="min-w-[200px]">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -453,19 +446,50 @@ function DecreaseCapsPanel({
                               </label>
                             </TableCell>
                             <TableCell>
-                              {mode ? (
+                              <div className="flex flex-wrap items-center gap-2">
                                 <Input
                                   type="text"
-                                  className="h-8"
-                                  placeholder={mode === 'absolute' ? 'New absolute' : 'New %'}
+                                  className="h-8 min-w-[90px] flex-1"
+                                  placeholder={mode === 'relative' ? '0–100' : 'New cap'}
                                   value={newValues[rowKey] ?? ''}
+                                  disabled={!mode || !idData}
                                   onChange={(e) =>
                                     setNewValues((prev) => ({ ...prev, [rowKey]: e.target.value }))
                                   }
                                 />
-                              ) : (
-                                <span className="text-xs text-slate-400">Select cap type</span>
-                              )}
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={!idData}
+                                  onClick={() => setClearValue(rowKey, mode ?? 'absolute')}
+                                >
+                                  0
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={!idData}
+                                  onClick={() => clearCap(rowKey)}
+                                >
+                                  Clear
+                                </Button>
+                                <TransactionButton
+                                  label="Decrease"
+                                  size="sm"
+                                  suppressConnectPrompt
+                                  disabled={!idData || !mode || !(newValues[rowKey]?.trim())}
+                                  onClick={() =>
+                                    mode &&
+                                    submitRowDecrease(rowKey, mode, newValues[rowKey] ?? '')
+                                  }
+                                  isLoading={write.isLoading}
+                                  isSuccess={write.isSuccess}
+                                  error={write.error}
+                                  txHash={write.txHash}
+                                />
+                              </div>
                             </TableCell>
                           </TableRow>
                         );
@@ -504,43 +528,27 @@ function DeallocatePanel({
     setAmounts((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleDeallocate = useCallback(() => {
-    const calls: Hex[] = [];
+  const zeroOutRow = (row: DeallocateRow) => {
+    if (!row.canDeallocate || row.currentRaw === 0n) return;
+    setAmount(
+      row.key,
+      formatAllocationEditInputExact(row.currentRaw, assetSymbol, assetDecimals ?? chainDecimals)
+    );
+  };
 
-    for (const row of rows) {
-      if (!row.canDeallocate) continue;
-      const raw = amounts[row.key]?.trim();
-      if (!raw) continue;
+  const deallocateRow = useCallback(
+    (row: DeallocateRow) => {
+      if (!row.canDeallocate || row.currentRaw === 0n) return;
+      const rawInput = amounts[row.key]?.trim();
+      if (!rawInput) return;
+      let parsed: bigint;
       try {
-        const parsed = parseHumanTokenInput(raw, assetSymbol, chainDecimals);
-        if (parsed <= 0n || parsed > row.currentRaw) continue;
-        calls.push(
-          v2WriteConfigs.encodeDeallocate(
-            row.adapterAddress as Address,
-            row.idData,
-            parsed
-          )
-        );
+        parsed = parseHumanTokenInput(rawInput, assetSymbol, chainDecimals);
       } catch {
-        continue;
+        return;
       }
-    }
-
-    if (calls.length === 0) return;
-
-    if (calls.length === 1) {
-      const row = rows.find((r) => {
-        const raw = amounts[r.key]?.trim();
-        if (!raw || !r.canDeallocate) return false;
-        try {
-          const parsed = parseHumanTokenInput(raw, assetSymbol, chainDecimals);
-          return parsed > 0n && parsed <= r.currentRaw;
-        } catch {
-          return false;
-        }
-      });
-      if (!row) return;
-      const parsed = parseHumanTokenInput(amounts[row.key], assetSymbol, chainDecimals);
+      parsed = clampDeallocateAmount(parsed, row.currentRaw);
+      if (parsed <= 0n) return;
       write.write(
         v2WriteConfigs.deallocate(
           vaultAddress as Address,
@@ -549,43 +557,17 @@ function DeallocatePanel({
           parsed
         )
       );
-      return;
-    }
-
-    write.write(v2WriteConfigs.multicall(vaultAddress as Address, calls));
-  }, [amounts, assetSymbol, chainDecimals, rows, vaultAddress, write]);
-
-  const hasAmount = rows.some((row) => {
-    if (!row.canDeallocate) return false;
-    const raw = amounts[row.key]?.trim();
-    if (!raw) return false;
-    try {
-      const parsed = parseHumanTokenInput(raw, assetSymbol, chainDecimals);
-      return parsed > 0n && parsed <= row.currentRaw;
-    } catch {
-      return false;
-    }
-  });
+    },
+    [amounts, assetSymbol, chainDecimals, vaultAddress, write]
+  );
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
-        <div>
-          <CardTitle>Deallocate to Idle</CardTitle>
-          <CardDescription>
-            Move assets from strategy positions back to vault idle cash.
-          </CardDescription>
-        </div>
-        <TransactionButton
-          label="Deallocate"
-          suppressConnectPrompt
-          onClick={handleDeallocate}
-          disabled={!hasAmount}
-          isLoading={write.isLoading}
-          isSuccess={write.isSuccess}
-          error={write.error}
-          txHash={write.txHash}
-        />
+      <CardHeader>
+        <CardTitle>Deallocate to Idle</CardTitle>
+        <CardDescription>
+          Enter an amount and Deallocate, or Zero out to move the full position to idle cash.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto rounded-md border border-slate-200 dark:border-slate-800">
@@ -598,7 +580,7 @@ function DeallocatePanel({
                 <TableHead className="text-right">Effective Rel. Cap</TableHead>
                 <TableHead className="text-right">Rate</TableHead>
                 <TableHead className="text-right">Liquidity</TableHead>
-                <TableHead className="min-w-[140px]">Amount</TableHead>
+                <TableHead className="min-w-[220px]">Amount</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -655,11 +637,11 @@ function DeallocatePanel({
                       </TableCell>
                       <TableCell>
                         {row.canDeallocate ? (
-                          <div className="flex items-center gap-1">
+                          <div className="flex flex-wrap items-center gap-1">
                             <Input
                               type="text"
-                              className="h-8 min-w-[100px]"
-                              placeholder={`Max ${maxLabel}`}
+                              className="h-8 min-w-[100px] flex-1"
+                              placeholder={maxLabel}
                               value={amounts[row.key] ?? ''}
                               onChange={(e) => setAmount(row.key, e.target.value)}
                             />
@@ -668,19 +650,21 @@ function DeallocatePanel({
                               size="sm"
                               variant="outline"
                               className="shrink-0 px-2"
-                              onClick={() =>
-                                setAmount(
-                                  row.key,
-                                  formatRawTokenAmount(
-                                    row.currentRaw,
-                                    chainDecimals,
-                                    displayDecimals
-                                  ).replace(/,/g, '')
-                                )
-                              }
+                              onClick={() => zeroOutRow(row)}
                             >
-                              Max
+                              Zero out
                             </Button>
+                            <TransactionButton
+                              label="Deallocate"
+                              size="sm"
+                              suppressConnectPrompt
+                              disabled={!amounts[row.key]?.trim()}
+                              onClick={() => deallocateRow(row)}
+                              isLoading={write.isLoading}
+                              isSuccess={write.isSuccess}
+                              error={write.error}
+                              txHash={write.txHash}
+                            />
                           </div>
                         ) : (
                           <span className="text-xs text-slate-400">—</span>
@@ -693,6 +677,11 @@ function DeallocatePanel({
             </TableBody>
           </Table>
         </div>
+        {write.error && (
+          <p className="mt-3 text-sm text-red-600 dark:text-red-400">
+            {write.error.message}
+          </p>
+        )}
       </CardContent>
     </Card>
   );
