@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Info } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -20,6 +21,7 @@ import { TxPreviewDialog } from '@/components/morpho/TxPreviewDialog';
 import { formatLltvPill, formatMarketPairLabel } from '@/components/morpho/AllocationListView';
 import { CapLabel } from '@/components/morpho/CapLabel';
 import { VaultV2Pending } from '@/components/morpho/VaultV2Pending';
+import { SentinelHistory } from '@/components/morpho/SentinelHistory';
 import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
 import { useVaultV2Risk } from '@/lib/hooks/useVaultV2Risk';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
@@ -149,8 +151,8 @@ export function VaultV2Sentinel({
 }: VaultV2SentinelProps) {
   const { data: fetchedGov, isLoading: govLoading } = useVaultV2Governance(vaultAddress);
   const { data: fetchedRisk, isLoading: riskLoading } = useVaultV2Risk(vaultAddress);
-  const governance = preloadedGovernance ?? fetchedGov;
-  const risk = preloadedRisk ?? fetchedRisk;
+  const governance = fetchedGov ?? preloadedGovernance;
+  const risk = fetchedRisk ?? preloadedRisk;
 
   const chainDecimals = resolveAssetDecimals(assetSymbol ?? undefined, assetDecimals ?? undefined);
   const displayDecimals = getTokenDisplayDecimals(assetSymbol ?? undefined, chainDecimals);
@@ -267,10 +269,18 @@ export function VaultV2Sentinel({
       <DeallocatePanel
         rows={deallocateRows}
         vaultAddress={vaultAddress}
+        chainId={chainId}
         assetSymbol={assetSymbol}
         assetDecimals={assetDecimals}
         chainDecimals={chainDecimals}
         displayDecimals={displayDecimals}
+      />
+
+      <SentinelHistory
+        vaultAddress={vaultAddress}
+        chainId={chainId}
+        assetDecimals={assetDecimals}
+        assetSymbol={assetSymbol}
       />
     </div>
   );
@@ -301,22 +311,36 @@ function DecreaseCapsPanel({
   const [previewOpen, setPreviewOpen] = useState(false);
   const [txPreview, setTxPreview] = useState<TxPreview | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
-  const pendingConfirmRef = useRef<(() => void) | null>(null);
-  const write = useVaultWrite();
+  const pendingConfirmRef = useRef<(() => Promise<void>) | null>(null);
+  const queryClient = useQueryClient();
+  const write = useVaultWrite({ chainId });
   const writeInFlight = write.isLoading && activeRowKey !== null;
 
   useEffect(() => {
     if (!write.isSuccess) return;
+    void queryClient.refetchQueries({ queryKey: ['vault-v2-risk', vaultAddress] });
+    void queryClient.refetchQueries({ queryKey: ['vault-v2-governance', vaultAddress] });
+    void queryClient.refetchQueries({ queryKey: ['vault-reallocations', vaultAddress] });
+    void queryClient.refetchQueries({ queryKey: ['vault-sentinel-history', vaultAddress] });
     setPreviewOpen(false);
     setTxPreview(null);
     pendingConfirmRef.current = null;
-  }, [write.isSuccess]);
+    setActiveRowKey(null);
+  }, [write.isSuccess, queryClient, vaultAddress]);
 
   const beginWrite = useCallback(
-    (rowKey: string, config: Parameters<typeof write.write>[0]) => {
+    async (rowKey: string, config: Parameters<typeof write.write>[0]) => {
       write.reset();
       setActiveRowKey(rowKey);
-      write.write(config);
+      try {
+        await write.write(config);
+      } catch (e) {
+        setActiveRowKey(null);
+        setRowErrors((prev) => ({
+          ...prev,
+          [rowKey]: e instanceof Error ? e.message : 'Failed to submit transaction.',
+        }));
+      }
     },
     [write]
   );
@@ -332,11 +356,20 @@ function DecreaseCapsPanel({
   };
 
   const submitRowDecrease = useCallback(
-    (rowKey: string, mode: CapDecreaseMode, valueStr: string) => {
+    async (rowKey: string, mode: CapDecreaseMode, valueStr: string) => {
       const cap = findCapByRowKey(rowKey, grouped);
-      if (!cap) return;
+      if (!cap) {
+        setRowErrors((prev) => ({ ...prev, [rowKey]: 'Cap row not found.' }));
+        return;
+      }
       const idData = resolveCapIdData(cap, risk);
-      if (!idData) return;
+      if (!idData) {
+        setRowErrors((prev) => ({
+          ...prev,
+          [rowKey]: 'Cap idData unavailable — cannot submit decrease.',
+        }));
+        return;
+      }
 
       const parsed = parseCapDecreaseInput({
         mode,
@@ -346,17 +379,20 @@ function DecreaseCapsPanel({
         assetSymbol,
         chainDecimals,
       });
-      if (!parsed.ok) return;
+      if (!parsed.ok) {
+        setRowErrors((prev) => ({ ...prev, [rowKey]: parsed.error }));
+        return;
+      }
 
       if (parsed.mode === 'absolute') {
-        beginWrite(
+        await beginWrite(
           rowKey,
           v2WriteConfigs.decreaseAbsoluteCap(vaultAddress as Address, idData, parsed.value)
         );
         return;
       }
 
-      beginWrite(
+      await beginWrite(
         rowKey,
         v2WriteConfigs.decreaseRelativeCap(vaultAddress as Address, idData, parsed.value)
       );
@@ -409,9 +445,18 @@ function DecreaseCapsPanel({
     [adapterLabels, assetDecimals, assetSymbol, chainDecimals, grouped, risk, submitRowDecrease]
   );
 
-  const confirmPreview = useCallback(() => {
-    pendingConfirmRef.current?.();
-  }, []);
+  const confirmPreview = useCallback(async () => {
+    try {
+      await pendingConfirmRef.current?.();
+    } catch (e) {
+      if (activeRowKey) {
+        setRowErrors((prev) => ({
+          ...prev,
+          [activeRowKey]: e instanceof Error ? e.message : 'Failed to submit transaction.',
+        }));
+      }
+    }
+  }, [activeRowKey]);
 
   const clearRowInput = (rowKey: string) => {
     setSelections((prev) => {
@@ -651,6 +696,7 @@ function DecreaseCapsPanel({
         }}
         onConfirm={confirmPreview}
         isLoading={writeInFlight}
+        error={write.error}
         confirmLabel="Confirm decrease"
       />
     </Card>
@@ -660,6 +706,7 @@ function DecreaseCapsPanel({
 function DeallocatePanel({
   rows,
   vaultAddress,
+  chainId,
   assetSymbol,
   assetDecimals,
   chainDecimals,
@@ -667,6 +714,7 @@ function DeallocatePanel({
 }: {
   rows: DeallocateRow[];
   vaultAddress: string;
+  chainId: number;
   assetSymbol?: string | null;
   assetDecimals?: number | null;
   chainDecimals: number;
@@ -677,22 +725,36 @@ function DeallocatePanel({
   const [previewOpen, setPreviewOpen] = useState(false);
   const [txPreview, setTxPreview] = useState<TxPreview | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
-  const pendingConfirmRef = useRef<(() => void) | null>(null);
-  const write = useVaultWrite();
+  const pendingConfirmRef = useRef<(() => Promise<void>) | null>(null);
+  const queryClient = useQueryClient();
+  const write = useVaultWrite({ chainId });
   const writeInFlight = write.isLoading && activeRowKey !== null;
 
   useEffect(() => {
     if (!write.isSuccess) return;
+    void queryClient.refetchQueries({ queryKey: ['vault-v2-risk', vaultAddress] });
+    void queryClient.refetchQueries({ queryKey: ['vault-v2-governance', vaultAddress] });
+    void queryClient.refetchQueries({ queryKey: ['vault-reallocations', vaultAddress] });
+    void queryClient.refetchQueries({ queryKey: ['vault-sentinel-history', vaultAddress] });
     setPreviewOpen(false);
     setTxPreview(null);
     pendingConfirmRef.current = null;
-  }, [write.isSuccess]);
+    setActiveRowKey(null);
+  }, [write.isSuccess, queryClient, vaultAddress]);
 
   const beginWrite = useCallback(
-    (rowKey: string, config: Parameters<typeof write.write>[0]) => {
+    async (rowKey: string, config: Parameters<typeof write.write>[0]) => {
       write.reset();
       setActiveRowKey(rowKey);
-      write.write(config);
+      try {
+        await write.write(config);
+      } catch (e) {
+        setActiveRowKey(null);
+        setRowErrors((prev) => ({
+          ...prev,
+          [rowKey]: e instanceof Error ? e.message : 'Failed to submit transaction.',
+        }));
+      }
     },
     [write]
   );
@@ -716,29 +778,19 @@ function DeallocatePanel({
   };
 
   const deallocateRow = useCallback(
-    (row: DeallocateRow) => {
-      if (!row.canDeallocate || row.currentRaw === 0n) return;
-      const rawInput = amounts[row.key]?.trim();
-      if (!rawInput) return;
-      let parsed: bigint;
-      try {
-        parsed = parseHumanTokenInput(rawInput, assetSymbol, chainDecimals);
-      } catch {
-        return;
-      }
-      parsed = clampDeallocateAmount(parsed, row.currentRaw);
-      if (parsed <= 0n) return;
-      beginWrite(
+    async (row: DeallocateRow, amountRaw: bigint) => {
+      if (!row.canDeallocate || row.currentRaw === 0n || amountRaw <= 0n) return;
+      await beginWrite(
         row.key,
         v2WriteConfigs.deallocate(
           vaultAddress as Address,
           row.adapterAddress as Address,
           row.idData,
-          parsed
+          amountRaw
         )
       );
     },
-    [amounts, assetSymbol, beginWrite, chainDecimals, vaultAddress]
+    [beginWrite, vaultAddress]
   );
 
   const requestDeallocate = useCallback(
@@ -785,16 +837,25 @@ function DeallocatePanel({
         delete next[row.key];
         return next;
       });
-      pendingConfirmRef.current = () => deallocateRow(row);
+      pendingConfirmRef.current = () => deallocateRow(row, parsed);
       setTxPreview(result.preview);
       setPreviewOpen(true);
     },
     [amounts, assetDecimals, assetSymbol, chainDecimals, deallocateRow]
   );
 
-  const confirmPreview = useCallback(() => {
-    pendingConfirmRef.current?.();
-  }, []);
+  const confirmPreview = useCallback(async () => {
+    try {
+      await pendingConfirmRef.current?.();
+    } catch (e) {
+      if (activeRowKey) {
+        setRowErrors((prev) => ({
+          ...prev,
+          [activeRowKey]: e instanceof Error ? e.message : 'Failed to submit transaction.',
+        }));
+      }
+    }
+  }, [activeRowKey]);
 
   return (
     <Card>
@@ -940,6 +1001,7 @@ function DeallocatePanel({
         }}
         onConfirm={confirmPreview}
         isLoading={writeInFlight}
+        error={write.error}
         confirmLabel="Confirm deallocate"
       />
     </Card>

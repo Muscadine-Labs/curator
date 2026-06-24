@@ -8,7 +8,9 @@ import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } 
 import { BASE_CHAIN_ID, VAULT_V2_GRAPHQL_ADAPTER_LIMIT, VAULT_V2_GRAPHQL_CAPS_LIMIT } from '@/lib/constants';
 import { mapCap, type GraphCap } from '@/lib/morpho/vault-v2-governance-map';
 import { enrichCollateralCapSymbols, enrichMarketCapParams } from '@/lib/morpho/fetch-markets-by-id';
+import { overlayV2OnChainCaps } from '@/lib/morpho/overlay-v2-onchain-caps';
 import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
+import { logger } from '@/lib/utils/logger';
 
 type GraphAdapter = {
   __typename?: 'MetaMorphoAdapter' | 'MorphoMarketV1Adapter' | string | null;
@@ -407,10 +409,20 @@ export async function GET(
         ?.map(mapCap)
         .filter((c): c is CapInfo => c !== null) ?? [];
 
-    const caps = await enrichCollateralCapSymbols(
+    const enrichedCaps = await enrichCollateralCapSymbols(
       await enrichMarketCapParams(capsRaw, chainId),
       chainId
     );
+
+    let caps = enrichedCaps;
+    try {
+      caps = await overlayV2OnChainCaps(address, enrichedCaps);
+    } catch (overlayError) {
+      logger.warn('On-chain cap overlay failed; returning GraphQL caps', {
+        vaultAddress: address,
+        error: overlayError instanceof Error ? overlayError : new Error(String(overlayError)),
+      });
+    }
 
     const timelocks =
       data.vault.timelocks

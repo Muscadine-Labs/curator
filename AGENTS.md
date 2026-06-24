@@ -1,6 +1,6 @@
 # AGENTS.md — Working Instructions for AI Assistants
 
-_Current app version: **1.1.7** (`package.json`)._
+_Current app version: **1.1.8** (`package.json`)._
 
 This file is the quick-start contract for any AI agent working in this repo.
 The full architecture reference lives in **`CLAUDE.md`** — read it before

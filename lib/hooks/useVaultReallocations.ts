@@ -30,6 +30,6 @@ export function useVaultReallocations(vaultAddress: string | null | undefined, f
       return fetchVaultReallocations(vaultAddress, first);
     },
     enabled: Boolean(vaultAddress),
-    staleTime: 30_000,
+    staleTime: 15_000,
   });
 }
