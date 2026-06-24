@@ -110,6 +110,37 @@ function allocationUsdFromRaw(raw: bigint, totalAssetsRaw: bigint, totalAssetsUs
   return (Number(raw) / Number(totalAssetsRaw)) * totalAssetsUsd;
 }
 
+function parseAllocationBigInt(value: string | null | undefined): bigint | null {
+  if (value == null) return null;
+  try {
+    return BigInt(value);
+  } catch {
+    return null;
+  }
+}
+
+function resolveAllocationRaw(
+  vaultAddress: string,
+  idKey: string,
+  onChainById: Map<string, bigint>,
+  graphQlAssets: string | null | undefined,
+  context: string
+): bigint {
+  if (onChainById.has(idKey)) {
+    return onChainById.get(idKey)!;
+  }
+  const fallback = parseAllocationBigInt(graphQlAssets);
+  if (fallback != null) {
+    logger.warn('On-chain allocation read unavailable; using GraphQL allocation', {
+      vaultAddress,
+      id: idKey,
+      context,
+    });
+    return fallback;
+  }
+  return 0n;
+}
+
 function adapterAllocationId(adapter: V2AdapterRiskData): string {
   return keccak256(encodeAdapterCapIdData(adapter.adapterAddress)).toLowerCase();
 }
@@ -230,7 +261,14 @@ export async function overlayV2OnChainAllocations(
 
   const adapters = (risk.adapters ?? []).map((adapter): V2AdapterRiskData => {
     if (adapter.adapterType === 'MetaMorphoAdapter') {
-      const raw = allocationById.get(adapterAllocationId(adapter)) ?? 0n;
+      const idKey = adapterAllocationId(adapter);
+      const raw = resolveAllocationRaw(
+        vaultAddress,
+        idKey,
+        allocationById,
+        adapter.allocationAssets,
+        `MetaMorpho ${adapter.adapterAddress}`
+      );
       strategySum += raw;
       return {
         ...adapter,
@@ -241,8 +279,17 @@ export async function overlayV2OnChainAllocations(
 
     let adapterSum = 0n;
     const markets = (adapter.markets ?? []).map((m): V2MarketRiskData => {
+      const idKey = m.market
+        ? marketAllocationId(adapter.adapterAddress, m.market)
+        : '';
       const raw = m.market
-        ? allocationById.get(marketAllocationId(adapter.adapterAddress, m.market)) ?? 0n
+        ? resolveAllocationRaw(
+            vaultAddress,
+            idKey,
+            allocationById,
+            m.allocationAssets,
+            `market ${idKey}`
+          )
         : 0n;
       adapterSum += raw;
       return {

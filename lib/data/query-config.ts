@@ -1,5 +1,5 @@
-/** Poll dashboard / indexed Morpho queries every 60s. */
-export const CURATOR_REFETCH_INTERVAL_MS = 60_000;
+/** Poll dashboard / indexed Morpho queries every 20s. */
+export const CURATOR_REFETCH_INTERVAL_MS = 20_000;
 
 /**
  * Vault caps + allocation amounts come from on-chain multicall (expensive).

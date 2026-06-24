@@ -13,6 +13,7 @@ import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
 import { TransactionButton } from '@/components/TransactionButton';
 import { TxPreviewDialog } from '@/components/morpho/TxPreviewDialog';
 import { buildAllocationRebalancePreview } from '@/lib/morpho/tx-preview';
+import type { TxPreview } from '@/lib/morpho/tx-preview';
 import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
 import type { Address, Hex } from 'viem';
 import {
@@ -63,14 +64,15 @@ import {
   type DustRecipientChoice,
 } from '@/lib/onchain/allocation-dust';
 import {
-  applySubmitTimeSurplus,
   buildRebalanceMulticallData,
   clampPlanToFundableIdle,
+  CLAMP_TO_FUNDABLE_WARNING,
   computeDeployableIdle,
   computeIdleTargetFromStrategyPlan,
+  finalizeRebalancePlan,
   maxTargetFromIdleDeploy,
+  percentInputToRaw,
   rawToPercentInput,
-  refreshPlanRowsFromChain,
   trimPlanToVaultTotal,
   validateIdleFunding,
   type RebalancePlanRow,
@@ -229,12 +231,11 @@ function resolveTargetAssetsFromInput(
     return { assets: t.currentAssets, error: null };
   }
   if (inputMode === 'percentage') {
-    const pct = parseFloat(v);
-    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+    const parsed = percentInputToRaw(v, totalRaw);
+    if (parsed.error) {
       return { assets: t.currentAssets, error: `Invalid percentage for ${t.label}` };
     }
-    const assets = (totalRaw * BigInt(Math.round(pct * 1e10))) / BigInt(1e12);
-    return { assets, error: null };
+    return { assets: parsed.assets, error: null };
   }
   try {
     const assets = parseHumanTokenInput(v, t.symbol, t.decimals);
@@ -278,6 +279,26 @@ interface AllocTarget {
   absoluteCapRaw: bigint | null;
   /** Relative cap as WAD (1e18 = 100%). Null when unknown. */
   relativeCapWad: bigint | null;
+}
+
+function mapResultsToPlanRows(
+  results: ReadonlyArray<{ target: AllocTarget; assets: bigint; current: bigint }>
+): RebalancePlanRow[] {
+  return results.map((r) => ({
+    target: {
+      label: r.target.label,
+      adapterAddress: r.target.adapterAddress,
+      data: r.target.data,
+      capIdHash: r.target.capIdHash,
+      isVaultIdle: r.target.isVaultIdle,
+      absoluteCapRaw: r.target.absoluteCapRaw,
+      relativeCapWad: r.target.relativeCapWad,
+      symbol: r.target.symbol,
+      decimals: r.target.decimals,
+    },
+    assets: r.assets,
+    current: r.current,
+  }));
 }
 
 type InputMode = 'tokens' | 'percentage';
@@ -389,14 +410,15 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     [capByIdHash, governance?.caps]
   );
 
-  const { rows, totalUsd, targets, totalRawAssets, vaultDecimals, vaultDisplayDecimals, vaultSymbol } =
+  const { rows, totalUsd, targets, planningTotalRaw, chainTotalRaw, vaultDecimals, vaultDisplayDecimals, vaultSymbol } =
     useMemo(() => {
     if (!risk) {
       return {
         rows: [] as RowType[],
         totalUsd: 0,
         targets: [] as AllocTarget[],
-        totalRawAssets: BigInt(0),
+        planningTotalRaw: BigInt(0),
+        chainTotalRaw: BigInt(0),
         vaultDecimals: 18,
         vaultDisplayDecimals: 6,
         vaultSymbol: '',
@@ -618,12 +640,13 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       searchHaystack: 'idle',
     });
 
-    let totalRawAssets = totalRaw;
+    const planningTotalRaw = totalRaw;
+    let chainTotalRaw = planningTotalRaw;
     if (risk.totalAssets) {
       try {
-        totalRawAssets = BigInt(risk.totalAssets);
+        chainTotalRaw = BigInt(risk.totalAssets);
       } catch {
-        /* keep row sum */
+        /* keep planning total */
       }
     }
 
@@ -631,7 +654,8 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       rows,
       totalUsd,
       targets,
-      totalRawAssets,
+      planningTotalRaw,
+      chainTotalRaw,
       vaultDecimals: dec,
       vaultDisplayDecimals: displayDec,
       vaultSymbol: sym,
@@ -683,36 +707,14 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [filters, setFilters] = usePersistedAllocationFilters(vaultAddress);
   /** Where unallocated remainder goes: 'auto' = implicit Idle, or a target index. */
-  const liquidityAdapterAddress = governance?.liquidityAdapter?.address?.toLowerCase() ?? null;
-
-  const defaultDustRecipientKey = useMemo((): DustRecipientChoice => {
-    if (!liquidityAdapterAddress) return 'auto';
-
-    let liquidityDataHex: string | null = null;
-    const liquidityData = governance?.liquidityData;
-    if (liquidityData?.kind === 'market' && liquidityData.marketParams) {
-      try {
-        liquidityDataHex = encodeMarketParamsData(liquidityData.marketParams).toLowerCase();
-      } catch {
-        liquidityDataHex = null;
-      }
-    } else if (liquidityData?.kind === 'metaMorpho') {
-      liquidityDataHex = '0x';
-    }
-
-    const idx = targetsWithCaps.findIndex((t) => {
-      if (t.isVaultIdle) return false;
-      if (t.adapterAddress.toLowerCase() !== liquidityAdapterAddress) return false;
-      if (liquidityDataHex && !t.isMetaMorpho) {
-        return t.data.toLowerCase() === liquidityDataHex;
-      }
-      return true;
-    });
-    return idx >= 0 ? String(idx) : 'auto';
-  }, [liquidityAdapterAddress, governance?.liquidityData, targetsWithCaps]);
-
   const [dustRecipientKey, setDustRecipientKey] = useState<DustRecipientChoice>('auto');
   const [rebalancePreviewOpen, setRebalancePreviewOpen] = useState(false);
+  const [preparingPreview, setPreparingPreview] = useState(false);
+  const [preparedSubmit, setPreparedSubmit] = useState<{
+    rows: RebalancePlanRow[];
+    preview: TxPreview;
+    clampWarning: string | null;
+  } | null>(null);
   const multicallWrite = useVaultWrite({ chainId: chainId ?? BASE_CHAIN_ID });
   const publicClient = usePublicClient({ chainId: chainId ?? BASE_CHAIN_ID });
   const { address: walletAddress } = useAccount();
@@ -723,15 +725,17 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     void queryClient.refetchQueries({ queryKey: ['vault-v2-governance', vaultAddress] });
     void queryClient.refetchQueries({ queryKey: ['vault-reallocations', vaultAddress] });
     setRebalancePreviewOpen(false);
+    setPreparedSubmit(null);
   }, [multicallWrite.isSuccess, queryClient, vaultAddress]);
 
   const startEditing = useCallback(() => {
     setInputMode('tokens');
     setInputValues(targetsWithCaps.map(() => ''));
     setSubmitError(null);
-    setDustRecipientKey(defaultDustRecipientKey);
+    setDustRecipientKey('auto');
+    setPreparedSubmit(null);
     setEditing(true);
-  }, [targetsWithCaps, defaultDustRecipientKey]);
+  }, [targetsWithCaps]);
 
   const cancelEditing = useCallback(() => {
     setEditing(false);
@@ -751,20 +755,20 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
         val,
         inputMode,
         targetsWithCaps,
-        totalRawAssets
+        planningTotalRaw
       ).assets;
     },
-    [inputMode, targetsWithCaps, totalRawAssets]
+    [inputMode, targetsWithCaps, planningTotalRaw]
   );
 
   const formatRawAsInput = useCallback(
     (raw: bigint, t: AllocTarget): string => {
       if (inputMode === 'percentage') {
-        return rawToPercentInput(raw, totalRawAssets);
+        return rawToPercentInput(raw, planningTotalRaw);
       }
       return formatAllocationEditInput(raw, t.symbol, t.decimals);
     },
-    [inputMode, totalRawAssets]
+    [inputMode, planningTotalRaw]
   );
 
   const switchInputMode = useCallback(
@@ -778,11 +782,11 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
             values[i] ?? '',
             inputMode,
             targetsWithCaps,
-            totalRawAssets
+            planningTotalRaw
           ).assets
         );
         if (mode === 'percentage') {
-          return resolvedAssets.map((raw) => rawToPercentInput(raw, totalRawAssets));
+          return resolvedAssets.map((raw) => rawToPercentInput(raw, planningTotalRaw));
         }
         return resolvedAssets.map((raw, i) => {
           const t = targetsWithCaps[i]!;
@@ -793,7 +797,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       setInputMode(mode);
       setSubmitError(null);
     },
-    [inputMode, targetsWithCaps, totalRawAssets]
+    [inputMode, targetsWithCaps, planningTotalRaw]
   );
 
   const setRowZero = useCallback(
@@ -814,7 +818,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
           values[idx] ?? '',
           inputMode,
           targetsWithCaps,
-          totalRawAssets
+          planningTotalRaw
         ).assets;
 
       const idleIdx = targetsWithCaps.findIndex((row) => row.isVaultIdle);
@@ -833,12 +837,12 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
 
         if (t.isVaultIdle) {
           const idleTarget = computeIdleTargetFromStrategyPlan(
-            totalRawAssets,
+            planningTotalRaw,
             targetsWithCaps.map((row) => ({ isVaultIdle: row.isVaultIdle })),
             (idx) => resolveRowAssets(idx, values)
           );
           if (inputMode === 'percentage') {
-            values[targetIdx] = rawToPercentInput(idleTarget, totalRawAssets);
+            values[targetIdx] = rawToPercentInput(idleTarget, planningTotalRaw);
           } else {
             values[targetIdx] = formatAllocationEditInputExact(
               idleTarget,
@@ -853,12 +857,12 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
         const maxTarget = maxTargetFromIdleDeploy(
           t.currentAssets,
           t,
-          totalRawAssets,
+          planningTotalRaw,
           deployableIdle
         );
 
         if (inputMode === 'percentage') {
-          values[targetIdx] = rawToPercentInput(maxTarget, totalRawAssets);
+          values[targetIdx] = rawToPercentInput(maxTarget, planningTotalRaw);
         } else {
           values[targetIdx] = formatAllocationEditInputExact(
             maxTarget,
@@ -871,7 +875,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
         if (idleIdx >= 0) {
           const nextValues = [...values];
           const idleTarget = computeIdleTargetFromStrategyPlan(
-            totalRawAssets,
+            planningTotalRaw,
             targetsWithCaps.map((row) => ({ isVaultIdle: row.isVaultIdle })),
             (idx) =>
               idx === targetIdx
@@ -879,7 +883,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
                 : resolveRowAssets(idx, nextValues)
           );
           if (inputMode === 'percentage') {
-            nextValues[idleIdx] = rawToPercentInput(idleTarget, totalRawAssets);
+            nextValues[idleIdx] = rawToPercentInput(idleTarget, planningTotalRaw);
           } else {
             const idleRow = targetsWithCaps[idleIdx]!;
             nextValues[idleIdx] = formatAllocationEditInputExact(
@@ -895,7 +899,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
         return values;
       });
     },
-    [inputMode, targetsWithCaps, totalRawAssets]
+    [inputMode, targetsWithCaps, planningTotalRaw]
   );
 
   const resolvedAllocations = useMemo(() => {
@@ -916,7 +920,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
         v,
         inputMode,
         targetsWithCaps,
-        totalRawAssets
+        planningTotalRaw
       );
       if (resolved.error) {
         errorMsg = resolved.error;
@@ -955,13 +959,14 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     }
 
     const inputSum = results.reduce((s, r) => s + r.assets, BigInt(0));
-    const diff = totalRawAssets - inputSum;
+    const diff = planningTotalRaw - inputSum;
     const overshoot = diff < BigInt(0);
     const idleIdx = results.findIndex((r) => r.target.isVaultIdle);
 
     let adjustedResults = results;
     let dustDiff = BigInt(0);
     let dustRecipientIdx: number | null = null;
+    let clampWarning: string | null = null;
 
     // Explicit dust recipient: curator picked a strategy target to absorb the
     // unallocated remainder. Cap validation below still applies to the
@@ -979,7 +984,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     ) {
       const dustResult = applyPlanningDust(
         results,
-        totalRawAssets,
+        planningTotalRaw,
         explicitRecipientIdx,
         (r) => r.assets,
         (r, assets) => ({ ...r, assets })
@@ -1008,7 +1013,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     ) {
       const dustResult = applyPlanningDust(
         results,
-        totalRawAssets,
+        planningTotalRaw,
         idleIdx,
         (r) => r.assets,
         (r, assets) => ({ ...r, assets })
@@ -1032,7 +1037,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
 
     let sumAssets = adjustedResults.reduce((s, r) => s + r.assets, BigInt(0));
 
-    if (sumAssets > totalRawAssets) {
+    if (sumAssets > planningTotalRaw) {
       const trimmed = trimPlanToVaultTotal(
         adjustedResults.map((r) => ({
           target: {
@@ -1047,7 +1052,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
           assets: r.assets,
           current: r.current,
         })),
-        totalRawAssets
+        planningTotalRaw
       );
       adjustedResults = trimmed.map((row, i) => ({
         target: adjustedResults[i]!.target,
@@ -1057,7 +1062,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       sumAssets = adjustedResults.reduce((s, r) => s + r.assets, BigInt(0));
     }
 
-    const fundingPlan = clampPlanToFundableIdle(
+    const fundingResult = clampPlanToFundableIdle(
       adjustedResults.map((r) => ({
         target: {
           label: r.target.label,
@@ -1067,12 +1072,17 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
           isVaultIdle: r.target.isVaultIdle,
           absoluteCapRaw: r.target.absoluteCapRaw,
           relativeCapWad: r.target.relativeCapWad,
+          symbol: r.target.symbol,
+          decimals: r.target.decimals,
         },
         assets: r.assets,
         current: r.current,
       }))
     );
-    adjustedResults = fundingPlan.map((row, i) => ({
+    if (fundingResult.reduced) {
+      clampWarning = CLAMP_TO_FUNDABLE_WARNING;
+    }
+    adjustedResults = fundingResult.rows.map((row, i) => ({
       target: adjustedResults[i]!.target,
       assets: row.assets,
       current: row.current,
@@ -1141,10 +1151,10 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
           dustRecipientIdx,
         };
       }
-      if (t.relativeCapWad != null && totalRawAssets > BigInt(0)) {
-        // allocation <= firstTotalAssets * relativeCap / 1e18 — we use totalRawAssets as proxy for firstTotalAssets.
+      if (t.relativeCapWad != null && chainTotalRaw > BigInt(0)) {
+        // allocation <= firstTotalAssets * relativeCap / 1e18 — chain total at tx start.
         const wad = BigInt('1000000000000000000');
-        const maxAllowed = (totalRawAssets * t.relativeCapWad) / wad;
+        const maxAllowed = (chainTotalRaw * t.relativeCapWad) / wad;
         if (t.relativeCapWad < wad && r.assets > maxAllowed) {
           return {
             valid: false as const,
@@ -1212,57 +1222,95 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       sumAssets,
       dustDiff,
       dustRecipientIdx,
+      clampWarning,
     };
-  }, [editing, inputValues, targetsWithCaps, inputMode, totalRawAssets, vaultDecimals, vaultDisplayDecimals, vaultSymbol, dustRecipientKey, governance, govError]);
+  }, [editing, inputValues, targetsWithCaps, inputMode, planningTotalRaw, chainTotalRaw, vaultDecimals, vaultDisplayDecimals, vaultSymbol, dustRecipientKey, governance, govError]);
+
+  useEffect(() => {
+    setPreparedSubmit(null);
+  }, [resolvedAllocations]);
+
+  const openRebalancePreview = useCallback(async () => {
+    if (!resolvedAllocations?.valid || !publicClient) return;
+
+    setPreparingPreview(true);
+    setSubmitError(null);
+
+    try {
+      const vault = getAddress(vaultAddress);
+      const chainTotal = (await publicClient.readContract({
+        address: vault,
+        abi: vaultV2Abi,
+        functionName: 'totalAssets',
+      })) as bigint;
+
+      const planRows = mapResultsToPlanRows(resolvedAllocations.results);
+      const finalized = await finalizeRebalancePlan(
+        publicClient,
+        vaultAddress,
+        planRows,
+        chainTotal
+      );
+
+      if (finalized.error) {
+        setSubmitError(finalized.error);
+        return;
+      }
+
+      const basePreview = buildAllocationRebalancePreview(
+        finalized.rows.map((r) => ({
+          label: r.target.label,
+          symbol: r.target.symbol ?? vaultSymbol,
+          decimals: r.target.decimals ?? vaultDecimals,
+          isVaultIdle: r.target.isVaultIdle,
+          currentAssets: r.current,
+          assets: r.assets,
+        })),
+        vaultSymbol
+      );
+
+      if (!basePreview) {
+        setSubmitError('No on-chain allocation changes to submit.');
+        return;
+      }
+
+      const preview =
+        finalized.clampWarning != null
+          ? {
+              ...basePreview,
+              footnote: [basePreview.footnote, finalized.clampWarning]
+                .filter(Boolean)
+                .join(' '),
+            }
+          : basePreview;
+
+      setPreparedSubmit({
+        rows: finalized.rows,
+        preview,
+        clampWarning: finalized.clampWarning,
+      });
+      setRebalancePreviewOpen(true);
+    } catch {
+      setSubmitError('Could not prepare rebalance preview — try again.');
+    } finally {
+      setPreparingPreview(false);
+    }
+  }, [
+    resolvedAllocations,
+    publicClient,
+    vaultAddress,
+    vaultSymbol,
+    vaultDecimals,
+  ]);
 
   const handleRebalance = useCallback(async () => {
-    if (!resolvedAllocations?.valid || !publicClient) return;
+    if (!preparedSubmit || !publicClient) return;
 
     multicallWrite.reset();
     setSubmitError(null);
 
     const vault = getAddress(vaultAddress);
-    let chainTotal: bigint;
-    try {
-      chainTotal = (await publicClient.readContract({
-        address: vault,
-        abi: vaultV2Abi,
-        functionName: 'totalAssets',
-      })) as bigint;
-    } catch {
-      setSubmitError('Could not read on-chain vault total — try again.');
-      return;
-    }
-
-    const planRows: RebalancePlanRow[] = resolvedAllocations.results.map((r) => ({
-      target: {
-        label: r.target.label,
-        adapterAddress: r.target.adapterAddress,
-        data: r.target.data,
-        capIdHash: r.target.capIdHash,
-        isVaultIdle: r.target.isVaultIdle,
-        absoluteCapRaw: r.target.absoluteCapRaw,
-        relativeCapWad: r.target.relativeCapWad,
-      },
-      assets: r.assets,
-      current: r.current,
-    }));
-
-    let submitRows = await refreshPlanRowsFromChain(publicClient, vaultAddress, planRows);
-
-    const surplusResult = applySubmitTimeSurplus(submitRows, chainTotal);
-    if (surplusResult.error) {
-      setSubmitError(surplusResult.error);
-      return;
-    }
-
-    submitRows = clampPlanToFundableIdle(surplusResult.rows);
-
-    const idleError = validateIdleFunding(submitRows);
-    if (idleError) {
-      setSubmitError(idleError);
-      return;
-    }
+    const submitRows = preparedSubmit.rows;
 
     const { deallocCalls, allocCalls } = buildRebalanceMulticallData(submitRows);
     const allCalls = [...deallocCalls, ...allocCalls];
@@ -1331,7 +1379,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       setSubmitError(formatWriteError(error));
     }
   }, [
-    resolvedAllocations,
+    preparedSubmit,
     vaultAddress,
     multicallWrite,
     publicClient,
@@ -1344,8 +1392,8 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       if (!t) return { raw: BigInt(0), pct: 0, usd: 0 };
       const raw = parseInputToRaw(targetIdx, inputValues[targetIdx] ?? '');
       const pct =
-        totalRawAssets > BigInt(0)
-          ? Number((raw * BigInt(10000)) / totalRawAssets) / 100
+        planningTotalRaw > BigInt(0)
+          ? Number((raw * BigInt(10000)) / planningTotalRaw) / 100
           : 0;
       const usd =
         t.currentAssets > BigInt(0)
@@ -1353,42 +1401,22 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
           : 0;
       return { raw, pct, usd };
     },
-    [inputValues, parseInputToRaw, targetsWithCaps, totalRawAssets]
+    [inputValues, parseInputToRaw, targetsWithCaps, planningTotalRaw]
   );
-
-  const rebalancePreview = useMemo(() => {
-    if (!resolvedAllocations?.valid) return null;
-    return buildAllocationRebalancePreview(
-      resolvedAllocations.results.map((r) => ({
-        label: r.target.label,
-        symbol: r.target.symbol,
-        decimals: r.target.decimals,
-        isVaultIdle: r.target.isVaultIdle,
-        currentAssets: r.current,
-        assets: r.assets,
-      })),
-      vaultSymbol
-    );
-  }, [resolvedAllocations, vaultSymbol]);
-
-  const openRebalancePreview = useCallback(() => {
-    if (!rebalancePreview) return;
-    setRebalancePreviewOpen(true);
-  }, [rebalancePreview]);
 
   const getRowPercent = useCallback(
     (targetIdx: number): number => {
       const t = targetsWithCaps[targetIdx];
       if (!t) return 0;
       if (!editing) {
-        return totalRawAssets > BigInt(0)
-          ? Number((t.currentAssets * BigInt(10000)) / totalRawAssets) / 100
+        return planningTotalRaw > BigInt(0)
+          ? Number((t.currentAssets * BigInt(10000)) / planningTotalRaw) / 100
           : 0;
       }
       const v = inputValues[targetIdx]?.trim() ?? '';
       if (!v) {
-        return totalRawAssets > BigInt(0)
-          ? Number((t.currentAssets * BigInt(10000)) / totalRawAssets) / 100
+        return planningTotalRaw > BigInt(0)
+          ? Number((t.currentAssets * BigInt(10000)) / planningTotalRaw) / 100
           : 0;
       }
       if (inputMode === 'percentage') {
@@ -1396,11 +1424,11 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
         return Number.isFinite(pct) ? pct : 0;
       }
       const raw = parseInputToRaw(targetIdx, v);
-      return totalRawAssets > BigInt(0)
-        ? Number((raw * BigInt(10000)) / totalRawAssets) / 100
+      return planningTotalRaw > BigInt(0)
+        ? Number((raw * BigInt(10000)) / planningTotalRaw) / 100
         : 0;
     },
-    [editing, inputMode, inputValues, parseInputToRaw, targetsWithCaps, totalRawAssets]
+    [editing, inputMode, inputValues, parseInputToRaw, targetsWithCaps, planningTotalRaw]
   );
 
   if (!risk && isLoading) {
@@ -1477,7 +1505,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     if (filters.hideZero && t.currentAssets === BigInt(0)) show = false;
     if (filters.hideIdle && isIdleRow) show = false;
     if (filters.onlyWithCapacity) {
-      if (t.isVaultIdle || !hasRemainingCapacity(t, totalRawAssets)) show = false;
+      if (t.isVaultIdle || !hasRemainingCapacity(t, chainTotalRaw)) show = false;
     }
     if (editing && filters.onlyEdited && !isEdited) show = false;
     showTarget.set(r.targetIdx, show);
@@ -1532,7 +1560,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
   }
 
   const plannedSum = resolvedAllocations?.inputSum ?? BigInt(0);
-  const remainingRaw = editing ? totalRawAssets - plannedSum : BigInt(0);
+  const remainingRaw = editing ? planningTotalRaw - plannedSum : BigInt(0);
   const hasEditingInputs = editing && inputValues.some((v) => v.trim() !== '');
 
   // Strategy targets the curator can route unallocated remainder to ('auto' = Idle).
@@ -1584,7 +1612,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
                 r.allocSymbol ?? t.symbol,
                 r.allocDecimals ?? t.decimals,
                 totalUsd,
-                totalRawAssets,
+                planningTotalRaw,
                 filters.liquidityUnit
               );
         case 'utilization':
@@ -1713,7 +1741,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
               Total:{' '}
               {filters.amountUnit === 'usd'
                 ? formatFullUSD(totalUsd, 2)
-                : `${formatRawTokenAmount(totalRawAssets, vaultDecimals, vaultDisplayDecimals)} ${vaultSymbol}`}
+                : `${formatRawTokenAmount(planningTotalRaw, vaultDecimals, vaultDisplayDecimals)} ${vaultSymbol}`}
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -1769,7 +1797,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
         {editing && hasEditingInputs && (
           <div className="mb-3 space-y-2">
             <RemainingBanner
-              totalRaw={totalRawAssets}
+              totalRaw={planningTotalRaw}
               plannedRaw={plannedSum}
               remainingRaw={remainingRaw}
               decimals={vaultDecimals}
@@ -1779,6 +1807,14 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
               dustRecipientLabel={dustRecipientLabel}
               parseError={resolvedAllocations?.error ?? null}
             />
+            {resolvedAllocations?.clampWarning && (
+              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <p className="text-xs text-amber-800 dark:text-amber-200">
+                  {resolvedAllocations.clampWarning} Confirm preview before signing.
+                </p>
+              </div>
+            )}
             <DustRecipientSelect
               value={dustRecipientKey}
               onChange={setDustRecipientKey}
@@ -1847,10 +1883,16 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
             )}
 
             <TransactionButton
-              label={multicallWrite.isLoading ? 'Confirming...' : 'Rebalance'}
-              onClick={openRebalancePreview}
-              disabled={!resolvedAllocations?.valid || !rebalancePreview}
-              isLoading={multicallWrite.isLoading}
+              label={
+                preparingPreview
+                  ? 'Preparing…'
+                  : multicallWrite.isLoading
+                    ? 'Confirming...'
+                    : 'Rebalance'
+              }
+              onClick={() => void openRebalancePreview()}
+              disabled={!resolvedAllocations?.valid || preparingPreview}
+              isLoading={multicallWrite.isLoading || preparingPreview}
               isSuccess={multicallWrite.isSuccess}
               error={multicallWrite.error}
               txHash={multicallWrite.txHash}
@@ -1858,8 +1900,11 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
 
             <TxPreviewDialog
               open={rebalancePreviewOpen}
-              preview={rebalancePreview}
-              onOpenChange={setRebalancePreviewOpen}
+              preview={preparedSubmit?.preview ?? null}
+              onOpenChange={(open) => {
+                setRebalancePreviewOpen(open);
+                if (!open) setPreparedSubmit(null);
+              }}
               onConfirm={handleRebalance}
               isLoading={multicallWrite.isLoading}
               error={submitError ? new Error(submitError) : multicallWrite.error}

@@ -151,8 +151,8 @@ Getting those semantics wrong is the #1 source of reverts.
 
 - Contract: Vault V2 (`lib/onchain/abis.ts: vaultV2Abi`)
 - Write entrypoints (per adapter):
-  - `allocate(address adapter, bytes idData, uint256 assets, uint256 maxAssets)`
-  - `deallocate(address adapter, bytes idData, uint256 assets, uint256 minAssets)`
+  - `allocate(address adapter, bytes data, uint256 assets)`
+  - `deallocate(address adapter, bytes data, uint256 assets)`
   - `multicall(bytes[] calls)` for batching
 - Semantics:
   1. `assets` is the **delta** to move (not a target). Calls are independent.
@@ -185,10 +185,15 @@ Getting those semantics wrong is the #1 source of reverts.
   Reference: [Morpho market listing docs](https://docs.morpho.org/curate/tutorials-v2/market-listing/).
 - **No max-catcher needed** — V2 is delta-based so interest drift doesn't cause
   a balancing revert; the allocator simply chooses deltas.
-- **Idle (vault cash)** — V2 holds unallocated assets in the vault contract
-  (`idleAssets` / `idleAssetsUsd` from Morpho GraphQL). This is **not** a
-  strategy adapter contract, but the UI treats it as a first-class rebalance
-  target alongside `MetaMorphoAdapter` and `MorphoMarketV1Adapter` rows:
+- **Idle (vault cash)** — V2 holds unallocated assets in the vault contract.
+  **Deployable idle** comes from Morpho GraphQL `idleAssets` / `idleAssetsUsd`
+  (via `overlay-v2-onchain-caps.ts`), **not** from `totalAssets − Σ allocation(id)`.
+  That residual can include **interest accrual** in `totalAssets()` that is not
+  withdrawable cash — treating it as idle caused phantom ~8 USDC buffers and
+  `TransferReverted` on allocate. Planning totals use Σ row currents + GraphQL
+  idle; relative cap checks use on-chain `totalAssets` (`chainTotalRaw`). This is
+  **not** a strategy adapter contract, but the UI treats idle as a first-class
+  rebalance target alongside `MetaMorphoAdapter` and `MorphoMarketV1Adapter` rows:
   - **Adapters tab** (`VaultV2Adapters.tsx`): always show an **Idle Adapter**
     row (even at $0).
   - **Allocations tab** (`VaultV2Allocations.tsx`): idle is an editable target
