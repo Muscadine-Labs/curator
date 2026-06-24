@@ -48,9 +48,6 @@ export default function V2VaultPage() {
       if (!ON_CHAIN_REFRESH_TABS.has(tab)) return;
       void queryClient.refetchQueries({ queryKey: ['vault-v2-governance', address] });
       void queryClient.refetchQueries({ queryKey: ['vault-v2-risk', address] });
-      if (tab === 'sentinel') {
-        void queryClient.refetchQueries({ queryKey: ['vault-sentinel-history', address] });
-      }
     },
     [address, queryClient]
   );

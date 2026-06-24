@@ -13,9 +13,6 @@ vault mechanics, contract wiring, or the data flow.
 - **Review `TODO.md` at the start of every session.** It is the running task list
  for the repo. Work the "TO work on today" section top-to-bottom unless the user
  directs otherwise; leave "To work on another day" items alone unless asked.
-- **Version bump on every push to GitHub:** increment `package.json` `version` by
- 0.0.1 per push. When the last digit would pass 9, roll it over to the next
- decimal (0.2.9 → 0.3.0, 1.9.9 → 2.0.0).
 - **Before pushing:** run `npm run lint` and `npm run build` and make sure all pass.
 
 ---

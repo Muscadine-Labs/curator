@@ -21,7 +21,6 @@ import { TxPreviewDialog } from '@/components/morpho/TxPreviewDialog';
 import { formatLltvPill, formatMarketPairLabel } from '@/components/morpho/AllocationListView';
 import { CapLabel } from '@/components/morpho/CapLabel';
 import { VaultV2Pending } from '@/components/morpho/VaultV2Pending';
-import { SentinelHistory } from '@/components/morpho/SentinelHistory';
 import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
 import { useVaultV2Risk } from '@/lib/hooks/useVaultV2Risk';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
@@ -276,12 +275,6 @@ export function VaultV2Sentinel({
         displayDecimals={displayDecimals}
       />
 
-      <SentinelHistory
-        vaultAddress={vaultAddress}
-        chainId={chainId}
-        assetDecimals={assetDecimals}
-        assetSymbol={assetSymbol}
-      />
     </div>
   );
 }
@@ -321,7 +314,6 @@ function DecreaseCapsPanel({
     void queryClient.refetchQueries({ queryKey: ['vault-v2-risk', vaultAddress] });
     void queryClient.refetchQueries({ queryKey: ['vault-v2-governance', vaultAddress] });
     void queryClient.refetchQueries({ queryKey: ['vault-reallocations', vaultAddress] });
-    void queryClient.refetchQueries({ queryKey: ['vault-sentinel-history', vaultAddress] });
     setPreviewOpen(false);
     setTxPreview(null);
     pendingConfirmRef.current = null;
@@ -735,7 +727,6 @@ function DeallocatePanel({
     void queryClient.refetchQueries({ queryKey: ['vault-v2-risk', vaultAddress] });
     void queryClient.refetchQueries({ queryKey: ['vault-v2-governance', vaultAddress] });
     void queryClient.refetchQueries({ queryKey: ['vault-reallocations', vaultAddress] });
-    void queryClient.refetchQueries({ queryKey: ['vault-sentinel-history', vaultAddress] });
     setPreviewOpen(false);
     setTxPreview(null);
     pendingConfirmRef.current = null;

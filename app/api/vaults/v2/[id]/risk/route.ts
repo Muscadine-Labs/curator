@@ -108,6 +108,8 @@ export type V2AdapterRiskData = {
 
 export type V2VaultRiskResponse = {
   vaultAddress: string;
+  /** On-chain totalAssets (raw underlying units); set by allocation overlay when available. */
+  totalAssets?: string | null;
   totalAdapterAssetsUsd: number;
   idleAssets: string | null;
   idleAssetsUsd: number | null;
