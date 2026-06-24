@@ -1,14 +1,17 @@
 'use client';
 
-import { useMemo, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { useMemo, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { AlertTriangle, CheckCircle2, Pencil } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2, Pencil } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useVaultV2Risk } from '@/lib/hooks/useVaultV2Risk';
-import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
+import {
+  useVaultV2Governance,
+  vaultV2GovernanceQueryKey,
+} from '@/lib/hooks/useVaultV2Governance';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
 import { TransactionButton } from '@/components/TransactionButton';
 import { TxPreviewDialog } from '@/components/morpho/TxPreviewDialog';
@@ -360,11 +363,17 @@ function rowSection(r: TargetRow, t: AllocTarget): AllocationSection {
 
 export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, preloadedRisk }: VaultV2AllocationsProps) {
   const queryClient = useQueryClient();
-  const { data: fetchedRisk, isLoading, error } = useVaultV2Risk(vaultAddress);
+  const {
+    data: fetchedRisk,
+    isLoading,
+    error,
+    refetch: refetchRisk,
+  } = useVaultV2Risk(vaultAddress);
   const {
     data: fetchedGov,
     isLoading: govLoading,
     error: govError,
+    refetch: refetchGov,
   } = useVaultV2Governance(vaultAddress);
   const risk = fetchedRisk ?? preloadedRisk;
   const governance = fetchedGov ?? preloadedData;
@@ -694,7 +703,13 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     });
   }, [targets, capsForTarget, risk?.adapters, governance?.caps]);
 
+  const targetsWithCapsRef = useRef(targetsWithCaps);
+  targetsWithCapsRef.current = targetsWithCaps;
+
   const [editing, setEditing] = useState(false);
+  const [refreshingForEdit, setRefreshingForEdit] = useState(false);
+  const [editGeneration, setEditGeneration] = useState(0);
+  const [rebalanceRefreshError, setRebalanceRefreshError] = useState<string | null>(null);
   const [inputMode, setInputMode] = useState<InputMode>('tokens');
   const [inputValues, setInputValues] = useState<string[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -715,25 +730,59 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
   useEffect(() => {
     if (!multicallWrite.isSuccess) return;
     void queryClient.refetchQueries({ queryKey: ['vault-v2-risk', vaultAddress] });
-    void queryClient.refetchQueries({ queryKey: ['vault-v2-governance', vaultAddress] });
+    void queryClient.refetchQueries({ queryKey: vaultV2GovernanceQueryKey(vaultAddress) });
     void queryClient.refetchQueries({ queryKey: ['vault-reallocations', vaultAddress] });
     void queryClient.refetchQueries({ queryKey: ['vault', vaultAddress] });
     setRebalancePreviewOpen(false);
     setPreparedSubmit(null);
   }, [multicallWrite.isSuccess, queryClient, vaultAddress]);
 
-  const startEditing = useCallback(() => {
-    setInputMode('tokens');
-    setInputValues(targetsWithCaps.map(() => ''));
+  const beginRebalance = useCallback(async () => {
+    setRefreshingForEdit(true);
     setSubmitError(null);
+    setRebalanceRefreshError(null);
+    try {
+      const [riskResult, govResult] = await Promise.all([refetchRisk(), refetchGov()]);
+      const formatErr = (error: unknown) =>
+        error instanceof Error ? error.message : 'Unknown error';
+
+      if (riskResult.isError && !fetchedRisk && !preloadedRisk) {
+        setRebalanceRefreshError(`Could not load allocations: ${formatErr(riskResult.error)}`);
+        return;
+      }
+
+      const warnings: string[] = [];
+      if (riskResult.isError) {
+        warnings.push(`allocations (${formatErr(riskResult.error)})`);
+      }
+      if (govResult.isError) {
+        warnings.push(`governance caps (${formatErr(govResult.error)})`);
+      }
+      if (warnings.length > 0) {
+        setSubmitError(`Could not refresh ${warnings.join(' and ')}. Edit mode uses last loaded data.`);
+      }
+
+      setEditGeneration((g) => g + 1);
+    } finally {
+      setRefreshingForEdit(false);
+    }
+  }, [refetchRisk, refetchGov, fetchedRisk, preloadedRisk]);
+
+  useEffect(() => {
+    if (editGeneration === 0) return;
+
+    const caps = targetsWithCapsRef.current;
+    setInputMode('tokens');
+    setInputValues(caps.map(() => ''));
     setDustRecipientKey('auto');
     setPreparedSubmit(null);
     setEditing(true);
-  }, [targetsWithCaps]);
+  }, [editGeneration]);
 
   const cancelEditing = useCallback(() => {
     setEditing(false);
     setSubmitError(null);
+    setRebalanceRefreshError(null);
     multicallWrite.reset();
   }, [multicallWrite]);
 
@@ -1730,8 +1779,19 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
               editing={editing}
             />
             {!editing ? (
-              <Button variant="outline" size="sm" onClick={startEditing} className="flex items-center gap-1.5">
-                <Pencil className="h-3.5 w-3.5" /> Rebalance
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={beginRebalance}
+                disabled={refreshingForEdit}
+                className="flex items-center gap-1.5"
+              >
+                {refreshingForEdit ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Pencil className="h-3.5 w-3.5" />
+                )}
+                {refreshingForEdit ? 'Refreshing…' : 'Rebalance'}
               </Button>
             ) : (
               <div className="flex items-center gap-2">
@@ -1771,6 +1831,12 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
         )}
         {capsUnavailable && !govError && (
           <div className="mb-3 text-xs text-muted-foreground">Loading governance caps…</div>
+        )}
+        {rebalanceRefreshError && !editing && (
+          <div className="mb-3 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950/30">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
+            <p className="text-xs text-red-700 dark:text-red-300">{rebalanceRefreshError}</p>
+          </div>
         )}
         {editing && hasEditingInputs && (
           <div className="mb-3 space-y-2">

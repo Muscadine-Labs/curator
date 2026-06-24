@@ -21,7 +21,7 @@ import { TxPreviewDialog } from '@/components/morpho/TxPreviewDialog';
 import { formatLltvPill, formatMarketPairLabel } from '@/components/morpho/AllocationListView';
 import { CapLabel } from '@/components/morpho/CapLabel';
 import { VaultV2Pending } from '@/components/morpho/VaultV2Pending';
-import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
+import { useVaultV2Governance, vaultV2GovernanceQueryKey } from '@/lib/hooks/useVaultV2Governance';
 import { useVaultV2Risk } from '@/lib/hooks/useVaultV2Risk';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
 import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
@@ -310,7 +310,7 @@ function DecreaseCapsPanel({
   useEffect(() => {
     if (!write.isSuccess) return;
     void queryClient.refetchQueries({ queryKey: ['vault-v2-risk', vaultAddress] });
-    void queryClient.refetchQueries({ queryKey: ['vault-v2-governance', vaultAddress] });
+    void queryClient.refetchQueries({ queryKey: vaultV2GovernanceQueryKey(vaultAddress) });
     void queryClient.refetchQueries({ queryKey: ['vault-reallocations', vaultAddress] });
     void queryClient.refetchQueries({ queryKey: ['vault', vaultAddress] });
     setPreviewOpen(false);
@@ -724,7 +724,7 @@ function DeallocatePanel({
   useEffect(() => {
     if (!write.isSuccess) return;
     void queryClient.refetchQueries({ queryKey: ['vault-v2-risk', vaultAddress] });
-    void queryClient.refetchQueries({ queryKey: ['vault-v2-governance', vaultAddress] });
+    void queryClient.refetchQueries({ queryKey: vaultV2GovernanceQueryKey(vaultAddress) });
     void queryClient.refetchQueries({ queryKey: ['vault-reallocations', vaultAddress] });
     void queryClient.refetchQueries({ queryKey: ['vault', vaultAddress] });
     setPreviewOpen(false);

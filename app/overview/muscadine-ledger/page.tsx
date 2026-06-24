@@ -10,7 +10,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { formatCompactUSD } from '@/lib/format/number';
 import { Alert } from '@/components/ui/alert';
 import { Filter, ChevronDown, ChevronUp } from 'lucide-react';
-import { DevelopmentLinksSection } from '@/components/overview/DevelopmentLinksSection';
 import { logger } from '@/lib/utils/logger';
 import { apiFetch } from '@/lib/data/api-fetch';
 import {
@@ -863,8 +862,6 @@ export default function MuscadineLedgerPage() {
             </Tabs>
           </CardContent>
         </Card>
-
-        <DevelopmentLinksSection />
       </div>
     </AppShell>
   );

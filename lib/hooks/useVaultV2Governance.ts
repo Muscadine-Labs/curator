@@ -3,6 +3,10 @@ import type { VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governa
 import { apiFetch } from '@/lib/data/api-fetch';
 import { ON_CHAIN_VAULT_QUERY_OPTIONS } from '@/lib/data/query-config';
 
+export function vaultV2GovernanceQueryKey(vaultAddress: string | null | undefined) {
+  return ['vault-v2-governance', vaultAddress, 'caps-state-v2'] as const;
+}
+
 async function fetchVaultV2Governance(vaultAddress: string): Promise<VaultV2GovernanceResponse> {
   const res = await apiFetch(`/api/vaults/v2/${vaultAddress}/governance`, {
     credentials: 'omit',
@@ -23,7 +27,7 @@ async function fetchVaultV2Governance(vaultAddress: string): Promise<VaultV2Gove
 
 export function useVaultV2Governance(vaultAddress: string | null | undefined) {
   return useQuery({
-    queryKey: ['vault-v2-governance', vaultAddress, 'caps-state-v2'],
+    queryKey: vaultV2GovernanceQueryKey(vaultAddress),
     queryFn: () => {
       if (!vaultAddress) {
         throw new Error('Vault address is required');

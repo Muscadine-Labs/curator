@@ -7,6 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Shield } from 'lucide-react';
 import { getScanUrlForChain, getScanNameForChain } from '@/lib/constants';
 import { useVaultV2Complete } from '@/lib/hooks/useVaultV2Complete';
+import { vaultV2GovernanceQueryKey } from '@/lib/hooks/useVaultV2Governance';
 import { getVaultCategory } from '@/lib/config/vaults';
 import { AppShell } from '@/components/layout/AppShell';
 import { VaultOverviewPanel } from '@/components/morpho/VaultOverviewPanel';
@@ -46,7 +47,7 @@ export default function V2VaultPage() {
   const handleVaultTabChange = useCallback(
     (tab: string) => {
       if (!ON_CHAIN_REFRESH_TABS.has(tab)) return;
-      void queryClient.refetchQueries({ queryKey: ['vault-v2-governance', address] });
+      void queryClient.refetchQueries({ queryKey: vaultV2GovernanceQueryKey(address) });
       void queryClient.refetchQueries({ queryKey: ['vault-v2-risk', address] });
     },
     [address, queryClient]
