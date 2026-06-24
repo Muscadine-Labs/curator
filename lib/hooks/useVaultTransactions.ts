@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import type { VaultTransactionsResponse } from '@/app/api/vaults/[id]/transactions/route';
 import { apiFetch } from '@/lib/data/api-fetch';
+import { INDEXED_VAULT_QUERY_OPTIONS } from '@/lib/data/query-config';
 
 async function fetchVaultTransactions(
   vaultAddress: string,
@@ -30,6 +31,6 @@ export function useVaultTransactions(vaultAddress: string | null | undefined, fi
       return fetchVaultTransactions(vaultAddress, first);
     },
     enabled: Boolean(vaultAddress),
-    staleTime: 30_000,
+    ...INDEXED_VAULT_QUERY_OPTIONS,
   });
 }

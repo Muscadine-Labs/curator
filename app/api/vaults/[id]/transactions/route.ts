@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { gql } from 'graphql-request';
 import { getAddress, isAddress } from 'viem';
 import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
-import { getVaultByAddress, shouldUseV2Query } from '@/lib/config/vaults';
+import { getVaultByAddress } from '@/lib/config/vaults';
 import { handleApiError, AppError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
 import { BASE_CHAIN_ID } from '@/lib/constants';
@@ -21,42 +21,13 @@ export type VaultTransaction = {
 
 export type VaultTransactionsResponse = {
   vaultAddress: string;
-  version: 'v1' | 'v2';
+  version: 'v2';
   asset: {
     symbol: string | null;
     decimals: number | null;
   };
   transactions: VaultTransaction[];
 };
-
-const V1_TRANSACTIONS_QUERY = gql`
-  query V1VaultTransactions($first: Int!, $skip: Int!, $vaultAddress: [String!]!, $chainIds: [Int!]) {
-    transactions(
-      first: $first
-      skip: $skip
-      orderBy: Timestamp
-      orderDirection: Desc
-      where: { vaultAddress_in: $vaultAddress, chainId_in: $chainIds }
-    ) {
-      items {
-        hash
-        blockNumber
-        timestamp
-        type
-        user {
-          address
-        }
-        data {
-          ... on VaultTransactionData {
-            shares
-            assets
-            assetsUsd
-          }
-        }
-      }
-    }
-  }
-`;
 
 const V2_TRANSACTIONS_QUERY = gql`
   query V2VaultTransactions(
@@ -111,19 +82,6 @@ const V2_TRANSACTIONS_QUERY = gql`
     }
   }
 `;
-
-type V1GraphResponse = {
-  transactions?: {
-    items?: Array<{
-      hash?: string | null;
-      blockNumber?: number | string | null;
-      timestamp?: number | string | null;
-      type?: string | null;
-      user?: { address?: string | null } | null;
-      data?: { shares?: string | null; assets?: string | null; assetsUsd?: number | null } | null;
-    } | null> | null;
-  } | null;
-};
 
 type V2TxData =
   | {
@@ -271,77 +229,54 @@ export async function GET(
       throw new AppError('Vault not found', 404, 'VAULT_NOT_FOUND');
     }
 
+    if (vaultConfig.morphoVersion !== 'v2') {
+      throw new AppError('Vault not found', 404, 'VAULT_NOT_FOUND');
+    }
+
     const url = new URL(request.url);
     const first = parseFirst(url.searchParams.get('first'), 100, 200);
     const skip = parseFirst(url.searchParams.get('skip'), 0, 10_000);
 
-    const isV2 = shouldUseV2Query(null, vaultAddress);
     const chainIds = [vaultConfig.chainId ?? BASE_CHAIN_ID];
 
-    let transactions: VaultTransaction[] = [];
-    let assetSymbol: string | null = null;
-    let assetDecimals: number | null = null;
-
-    if (isV2) {
-      const data = await morphoGraphQLClient.request<V2GraphResponse>(V2_TRANSACTIONS_QUERY, {
-        address: vaultAddress,
-        chainId: chainIds[0],
-        first,
-        skip,
-        vaultAddress: [vaultAddress.toLowerCase()],
-        chainIds,
-      });
-      assetSymbol = data.vaultV2ByAddress?.asset?.symbol ?? null;
-      assetDecimals = data.vaultV2ByAddress?.asset?.decimals ?? null;
-      const totalAssets = parseBigIntSafe(data.vaultV2ByAddress?.totalAssets);
-      const totalSupply = parseBigIntSafe(data.vaultV2ByAddress?.totalSupply);
-      const totalAssetsUsd = data.vaultV2ByAddress?.totalAssetsUsd ?? null;
-      const items = data.vaultV2transactions?.items ?? [];
-      transactions = items
-        .filter((x): x is NonNullable<typeof x> => x !== null && Boolean(x.txHash))
-        .map((tx) => {
-          const { user, assets } = mapV2TransactionData(
-            tx.data ?? null,
-            tx.shares,
-            totalAssets,
-            totalSupply
-          );
-          return {
-            hash: String(tx.txHash),
-            blockNumber: tx.blockNumber != null ? Number(tx.blockNumber) : null,
-            timestamp: tx.timestamp != null ? Number(tx.timestamp) : null,
-            type: tx.type ?? 'Unknown',
-            user,
-            shares: tx.shares ?? null,
-            assets,
-            assetsUsd: assetsToUsd(assets, totalAssets, totalAssetsUsd),
-          };
-        });
-    } else {
-      const data = await morphoGraphQLClient.request<V1GraphResponse>(V1_TRANSACTIONS_QUERY, {
-        first,
-        skip,
-        vaultAddress: [vaultAddress.toLowerCase()],
-        chainIds,
-      });
-      const items = data.transactions?.items ?? [];
-      transactions = items
-        .filter((x): x is NonNullable<typeof x> => x !== null && Boolean(x.hash))
-        .map((tx) => ({
-          hash: String(tx.hash),
+    const data = await morphoGraphQLClient.request<V2GraphResponse>(V2_TRANSACTIONS_QUERY, {
+      address: vaultAddress,
+      chainId: chainIds[0],
+      first,
+      skip,
+      vaultAddress: [vaultAddress.toLowerCase()],
+      chainIds,
+    });
+    const assetSymbol = data.vaultV2ByAddress?.asset?.symbol ?? null;
+    const assetDecimals = data.vaultV2ByAddress?.asset?.decimals ?? null;
+    const totalAssets = parseBigIntSafe(data.vaultV2ByAddress?.totalAssets);
+    const totalSupply = parseBigIntSafe(data.vaultV2ByAddress?.totalSupply);
+    const totalAssetsUsd = data.vaultV2ByAddress?.totalAssetsUsd ?? null;
+    const items = data.vaultV2transactions?.items ?? [];
+    const transactions = items
+      .filter((x): x is NonNullable<typeof x> => x !== null && Boolean(x.txHash))
+      .map((tx) => {
+        const { user, assets } = mapV2TransactionData(
+          tx.data ?? null,
+          tx.shares,
+          totalAssets,
+          totalSupply
+        );
+        return {
+          hash: String(tx.txHash),
           blockNumber: tx.blockNumber != null ? Number(tx.blockNumber) : null,
           timestamp: tx.timestamp != null ? Number(tx.timestamp) : null,
           type: tx.type ?? 'Unknown',
-          user: tx.user?.address ?? null,
-          shares: tx.data?.shares ?? null,
-          assets: tx.data?.assets ?? null,
-          assetsUsd: tx.data?.assetsUsd ?? null,
-        }));
-    }
+          user,
+          shares: tx.shares ?? null,
+          assets,
+          assetsUsd: assetsToUsd(assets, totalAssets, totalAssetsUsd),
+        };
+      });
 
     const response: VaultTransactionsResponse = {
       vaultAddress,
-      version: isV2 ? 'v2' : 'v1',
+      version: 'v2',
       asset: {
         symbol: assetSymbol,
         decimals: assetDecimals,

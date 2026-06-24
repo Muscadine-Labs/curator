@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Shield, X, FileText, LayoutGrid, Book, ChevronDown, ChevronRight } from 'lucide-react';
 import { getVaultCategory } from '@/lib/config/vaults';
-import { useVaultList } from '@/lib/hooks/useProtocolStats';
+import { useVaultList, SIDEBAR_VAULT_LIST_FILTERS } from '@/lib/hooks/useProtocolStats';
 import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
 import { Button } from '@/components/ui/button';
 import { SIDEBAR_NETWORKS } from '@/lib/constants';
@@ -63,7 +63,7 @@ type SidebarProps = {
 export function Sidebar({ onClose }: SidebarProps) {
   const pathname = usePathname();
   const { role } = useCuratorAuth();
-  const { data: vaults = [], isLoading } = useVaultList({ sidebar: true });
+  const { data: vaults = [], isLoading } = useVaultList(SIDEBAR_VAULT_LIST_FILTERS);
   const [expandedNetworks, setExpandedNetworks] = useState<Set<number>>(() =>
     new Set(SIDEBAR_NETWORKS.map((n) => n.chainId))
   );

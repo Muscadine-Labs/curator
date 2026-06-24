@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import type { ReallocationsResponse } from '@/app/api/vaults/[id]/reallocations/route';
 import { apiFetch } from '@/lib/data/api-fetch';
+import { INDEXED_VAULT_QUERY_OPTIONS } from '@/lib/data/query-config';
 
 async function fetchVaultReallocations(
   vaultAddress: string,
@@ -30,6 +31,6 @@ export function useVaultReallocations(vaultAddress: string | null | undefined, f
       return fetchVaultReallocations(vaultAddress, first);
     },
     enabled: Boolean(vaultAddress),
-    staleTime: 30_000,
+    ...INDEXED_VAULT_QUERY_OPTIONS,
   });
 }

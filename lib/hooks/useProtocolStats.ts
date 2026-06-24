@@ -1,5 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/data/api-fetch';
+import {
+  DASHBOARD_QUERY_OPTIONS,
+  INDEXED_VAULT_QUERY_OPTIONS,
+} from '@/lib/data/query-config';
 
 export interface ProtocolStats {
   totalDeposited: number;
@@ -35,8 +39,8 @@ export interface VaultWithData {
   riskTier: 'low' | 'medium' | 'high';
   createdAt: string;
   description?: string;
-  version?: 'v1' | 'v2';
-  listCategory?: 'prime' | 'vineyard' | 'frontier' | 'v1' | 'test' | null;
+  version?: 'v2';
+  listCategory?: 'prime' | 'vineyard' | 'frontier' | 'test' | null;
   tvl: number | null;
   apy: number | null;
   depositors: number;
@@ -160,8 +164,11 @@ export const useProtocolStats = () => {
       if (!response.ok) throw new Error('Failed to fetch protocol stats');
       return response.json();
     },
+    ...DASHBOARD_QUERY_OPTIONS,
   });
 };
+
+const SIDEBAR_VAULT_LIST_FILTERS = { sidebar: true as const };
 
 // Vault list hook
 export const useVaultList = (filters?: {
@@ -171,7 +178,7 @@ export const useVaultList = (filters?: {
   search?: string;
   /** When true, includes test vaults that are excluded from business views. */
   includeAll?: boolean;
-  /** When true, only active V2 vaults for sidebar (excludes V1 and test). */
+  /** When true, only active V2 vaults for sidebar (excludes test). */
   sidebar?: boolean;
 }) => {
   return useQuery<VaultWithData[]>({
@@ -191,6 +198,7 @@ export const useVaultList = (filters?: {
       if (!response.ok) throw new Error('Failed to fetch vaults');
       return response.json();
     },
+    ...DASHBOARD_QUERY_OPTIONS,
   });
 };
 
@@ -206,6 +214,10 @@ export const useVault = (id: string) => {
       return response.json();
     },
     enabled: !!id,
+    ...INDEXED_VAULT_QUERY_OPTIONS,
   });
 };
+
+/** Stable filters object for sidebar vault list (avoids query-key churn). */
+export { SIDEBAR_VAULT_LIST_FILTERS };
 

@@ -13,6 +13,7 @@ import { getAddress } from 'viem';
 import Link from 'next/link';
 import { Info } from 'lucide-react';
 import { apiFetch } from '@/lib/data/api-fetch';
+import { STATEMENT_QUERY_OPTIONS } from '@/lib/data/query-config';
 
 interface TreasuryAssetBreakdown {
   USDC: { tokens: number; usd: number };
@@ -33,7 +34,6 @@ interface MonthlyStatementData {
 interface VaultMonthlyData {
   vaultAddress: string;
   asset: 'USDC' | 'cbBTC' | 'WETH';
-  version: 'v1' | 'v2';
   month: string;
   tokens: number;
   usd: number;
@@ -69,13 +69,10 @@ type TreasuryPeriodMode = 'month' | 'quarter' | 'year';
 
 // Vault address to name mapping
 const VAULT_NAMES: Record<string, string> = {
-  '0xf7e26fa48a568b8b0038e104dfd8abdf0f99074f': 'USDC V1',
-  '0x89712980cb434ef5ae4ab29349419eb976b0b496': 'USDC V2 Prime',
-  '0x314fd07319ef645ba7d548915ccd91f4788a1839': 'USDC V2 Frontier',
-  '0xaecc8113a7bd0cfaf7000ea7a31affd4691ff3e9': 'cbBTC V1',
-  '0x99dcd0d75822ba398f13b2a8852b07c7e137ec70': 'cbBTC V2',
-  '0x21e0d366272798da3a977feba699fcb91959d120': 'WETH V1',
-  '0xd6dcad2f7da91fbb27bda471540d9770c97a5a43': 'WETH V2',
+  '0x89712980cb434ef5ae4ab29349419eb976b0b496': 'USDC Prime',
+  '0x314fd07319ef645ba7d548915ccd91f4788a1839': 'USDC Frontier',
+  '0x99dcd0d75822ba398f13b2a8852b07c7e137ec70': 'cbBTC Prime',
+  '0xd6dcad2f7da91fbb27bda471540d9770c97a5a43': 'WETH Prime',
 };
 
 export default function MonthlyStatementPage() {
@@ -106,6 +103,7 @@ export default function MonthlyStatementPage() {
       if (!response.ok) throw new Error('Failed to fetch monthly statement');
       return response.json();
     },
+    ...STATEMENT_QUERY_OPTIONS,
   });
 
   const { data: vaultData, isLoading: isVaultDataLoading } = useQuery<VaultStatementResponse>({
@@ -118,6 +116,7 @@ export default function MonthlyStatementPage() {
       return response.json();
     },
     enabled: viewMode === 'byVault' && activeTab === 'treasury',
+    ...STATEMENT_QUERY_OPTIONS,
   });
 
   const { data: defiLlamaData, isLoading: isDefiLlamaLoading, error: defiLlamaError } = useQuery<DefiLlamaStatementResponse>({
@@ -464,23 +463,17 @@ export default function MonthlyStatementPage() {
     });
   }, [aggregatedVaultData, treasuryPeriodMode]);
 
-  // Get unique vault addresses (normalized to lowercase)
-  // Ordered: USDC V1, cbBTC V1, WETH V1, USDC V2, cbBTC V2, WETH V2
   const vaultAddresses = useMemo(() => {
-    const addresses = new Set(aggregatedVaultData.map(v => v.vaultAddress.toLowerCase()));
+    const addresses = new Set(aggregatedVaultData.map((v) => v.vaultAddress.toLowerCase()));
     const addressArray = Array.from(addresses);
-    
-    // Define the desired order
+
     const order: string[] = [
-      '0xf7e26fa48a568b8b0038e104dfd8abdf0f99074f', // USDC V1
-      '0xaecc8113a7bd0cfaf7000ea7a31affd4691ff3e9', // cbBTC V1
-      '0x21e0d366272798da3a977feba699fcb91959d120', // WETH V1
-      '0x89712980cb434ef5ae4ab29349419eb976b0b496', // USDC V2
-      '0x99dcd0d75822ba398f13b2a8852b07c7e137ec70', // cbBTC V2
-      '0xd6dcad2f7da91fbb27bda471540d9770c97a5a43', // WETH V2
+      '0x89712980cb434ef5ae4ab29349419eb976b0b496',
+      '0x314fd07319ef645ba7d548915ccd91f4788a1839',
+      '0x99dcd0d75822ba398f13b2a8852b07c7e137ec70',
+      '0xd6dcad2f7da91fbb27bda471540d9770c97a5a43',
     ];
-    
-    // Sort by the defined order, with any unknown addresses at the end
+
     return addressArray.sort((a, b) => {
       const indexA = order.indexOf(a);
       const indexB = order.indexOf(b);

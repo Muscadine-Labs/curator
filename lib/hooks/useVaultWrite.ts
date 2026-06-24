@@ -1,8 +1,16 @@
 'use client';
 
 import { useCallback } from 'react';
-import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import type { Abi, Address } from 'viem';
+import {
+  useAccount,
+  useChainId,
+  useSwitchChain,
+  useWriteContract,
+  useWaitForTransactionReceipt,
+} from 'wagmi';
+import type { Abi, Address, Chain } from 'viem';
+import { chains } from '@/lib/wallet/config';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 
 interface WriteContractConfig {
   address: Address;
@@ -11,9 +19,22 @@ interface WriteContractConfig {
   args: readonly unknown[];
 }
 
-export function useVaultWrite() {
+type UseVaultWriteOptions = {
+  /** Vault chain — switches wallet before signing when mismatched. */
+  chainId?: number;
+};
+
+function resolveChain(chainId: number): Chain | undefined {
+  return chains.find((c) => c.id === chainId);
+}
+
+export function useVaultWrite(options?: UseVaultWriteOptions) {
+  const requiredChainId = options?.chainId ?? BASE_CHAIN_ID;
+  const { address, isConnected } = useAccount();
+  const activeChainId = useChainId();
+  const { switchChainAsync } = useSwitchChain();
   const {
-    writeContract,
+    writeContractAsync,
     data: txHash,
     isPending: isWriting,
     error: writeError,
@@ -26,18 +47,36 @@ export function useVaultWrite() {
     error: confirmError,
   } = useWaitForTransactionReceipt({
     hash: txHash,
+    chainId: requiredChainId,
   });
 
   const write = useCallback(
-    (config: WriteContractConfig) => {
-      writeContract({
+    async (config: WriteContractConfig) => {
+      if (!isConnected || !address) {
+        throw new Error('Connect your wallet using the button in the top bar.');
+      }
+
+      const targetChainId = requiredChainId;
+      const chain = resolveChain(targetChainId);
+      if (!chain) {
+        throw new Error(`Unsupported chain ${targetChainId}.`);
+      }
+
+      if (activeChainId !== targetChainId) {
+        await switchChainAsync({ chainId: targetChainId });
+      }
+
+      return writeContractAsync({
+        account: address,
         address: config.address,
         abi: config.abi as Abi,
         functionName: config.functionName,
         args: config.args as unknown[],
+        chain,
+        chainId: targetChainId,
       });
     },
-    [writeContract]
+    [activeChainId, address, isConnected, requiredChainId, switchChainAsync, writeContractAsync]
   );
 
   return {

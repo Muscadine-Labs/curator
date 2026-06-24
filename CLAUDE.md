@@ -13,9 +13,6 @@ vault mechanics, contract wiring, or the data flow.
 - **Review `TODO.md` at the start of every session.** It is the running task list
  for the repo. Work the "TO work on today" section top-to-bottom unless the user
  directs otherwise; leave "To work on another day" items alone unless asked.
-- **Version bump on every push to GitHub:** increment `package.json` `version` by
- 0.0.1 per push. When the last digit would pass 9, roll it over to the next
- decimal (0.2.9 → 0.3.0, 1.9.9 → 2.0.0).
 - **Before pushing:** run `npm run lint` and `npm run build` and make sure all pass.
 
 ---
@@ -154,8 +151,8 @@ Getting those semantics wrong is the #1 source of reverts.
 
 - Contract: Vault V2 (`lib/onchain/abis.ts: vaultV2Abi`)
 - Write entrypoints (per adapter):
-  - `allocate(address adapter, bytes idData, uint256 assets, uint256 maxAssets)`
-  - `deallocate(address adapter, bytes idData, uint256 assets, uint256 minAssets)`
+  - `allocate(address adapter, bytes data, uint256 assets)`
+  - `deallocate(address adapter, bytes data, uint256 assets)`
   - `multicall(bytes[] calls)` for batching
 - Semantics:
   1. `assets` is the **delta** to move (not a target). Calls are independent.
@@ -188,10 +185,15 @@ Getting those semantics wrong is the #1 source of reverts.
   Reference: [Morpho market listing docs](https://docs.morpho.org/curate/tutorials-v2/market-listing/).
 - **No max-catcher needed** — V2 is delta-based so interest drift doesn't cause
   a balancing revert; the allocator simply chooses deltas.
-- **Idle (vault cash)** — V2 holds unallocated assets in the vault contract
-  (`idleAssets` / `idleAssetsUsd` from Morpho GraphQL). This is **not** a
-  strategy adapter contract, but the UI treats it as a first-class rebalance
-  target alongside `MetaMorphoAdapter` and `MorphoMarketV1Adapter` rows:
+- **Idle (vault cash)** — V2 holds unallocated assets in the vault contract.
+  **Deployable idle** comes from Morpho GraphQL `idleAssets` / `idleAssetsUsd`
+  (via `overlay-v2-onchain-caps.ts`), **not** from `totalAssets − Σ allocation(id)`.
+  That residual can include **interest accrual** in `totalAssets()` that is not
+  withdrawable cash — treating it as idle caused phantom ~8 USDC buffers and
+  `TransferReverted` on allocate. Planning totals use Σ row currents + GraphQL
+  idle; relative cap checks use on-chain `totalAssets` (`chainTotalRaw`). This is
+  **not** a strategy adapter contract, but the UI treats idle as a first-class
+  rebalance target alongside `MetaMorphoAdapter` and `MorphoMarketV1Adapter` rows:
   - **Adapters tab** (`VaultV2Adapters.tsx`): always show an **Idle Adapter**
     row (even at $0).
   - **Allocations tab** (`VaultV2Allocations.tsx`): idle is an editable target
@@ -266,15 +268,12 @@ Overview → Roles → Adapters → Caps → Timelocks → Allocation → Sentin
 6. **Allocation** — `VaultV2Allocations.tsx` receives `preloadedData`
    (governance) **and** `preloadedRisk`. Caps are resolved via
    `keccak256(idData)` using helpers in `lib/morpho/v2-id-data.ts` (see §3.2).
-   **List layout** (same shell as V1):
-   sections in order **Idle → V1 Vault → Morpho Blue Market** (MetaMorpho rows
-   show a **V1**/**V2** pill from `VAULT_VERSION_MAP` on the underlying vault
-   address). No per-row type labels (section headers carry context). No token
-   icons. Row types:
-   - **MetaMorphoAdapter** — one row per wrapped V1/V2 vault (not per underlying
-     Blue market). Pair label uses `formatMarketPairLabel` (`cbBTC / USDC`).
-     Metrics from `underlyingVaultStats` on the risk API.
-   - **MorphoMarketV1Adapter** — one row per Blue market position. LLTV pill
+   **List layout**:
+   sections in order **Idle → Wrapped Vault → Morpho Blue Market**. MetaMorpho rows
+   are one row per wrapped vault (not per underlying Morpho Blue market). Row types:
+   - **MetaMorphoAdapter** — wrapped vault adapter. Pair label uses `formatMarketPairLabel`
+     where applicable. Metrics from `underlyingVaultStats` on the risk API.
+   - **MorphoMarketV1Adapter** — one row per Morpho Blue market position. LLTV pill
      next to name. Utilization, borrow/supply APY, liquidity from `market.state`.
      APY/utilization GraphQL values are **decimals**; multiply by 100 before
      `formatPercentage`.
@@ -339,10 +338,8 @@ from `lib/config/vaults.ts` with:
 is business vaults only.
 
 **Sidebar** (`components/layout/Sidebar.tsx`) uses `useVaultList({ includeAll: true })`.
-Section order under each network (Base only today): **V2 Prime → V1 Vaults → V2
-Vineyard → V2 Test**. All sidebar vault links route to `/vault/v2/{address}`
-(V1-labeled rows included — the V2 page loads whatever vault Morpho returns for
-that address).
+Section order under each network (Base only today): **V2 Prime → V2 Frontier → V2
+Vineyard → V2 Test**. All sidebar vault links route to `/vault/v2/{address}`.
 
 Ethereum appears in `SIDEBAR_NETWORKS` but has no configured vaults — expand
 **Base**, not Ethereum, to see vault links.
@@ -544,7 +541,8 @@ Adapter count KPI = `adapters.length + 1`. Total allocated display =
 set `Cache-Control` via `mergeApiCacheHeaders()` in `lib/api/response-cache.ts`
 (default `s-maxage=30`, stale-while-revalidate=60; some routes pass 60–300s).
 Client hooks bypass the browser HTTP cache with `apiFetch` (`cache: 'no-store'`)
-and poll every `CURATOR_REFETCH_INTERVAL_MS` (30s).
+and poll every `CURATOR_REFETCH_INTERVAL_MS` (60s) on dashboard hooks only; indexed
+vault queries do not background-poll (`lib/data/query-config.ts`).
 
 #### Do not regress
 
@@ -600,7 +598,7 @@ These rules are baked into `VaultV2Allocations.tsx`, `VaultV2Sentinel.tsx`,
 ### 5.1 List layout (`AllocationListView.tsx`)
 
 - Morpho-style card: header **Allocation | Allocation** (name left, amount right).
-- **Sections** (fixed order on V2): Idle → V1 Vault → Morpho Blue Market.
+- **Sections** (fixed order on V2): Idle → Wrapped Vault → Morpho Blue Market.
   Section headers replace per-row type labels.
 - **No token icons.** LLTV on Blue rows is a gray pill (`86%`) via
   `formatLltvPill`, not “LLTV 86%”.

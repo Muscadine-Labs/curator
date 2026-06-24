@@ -11,7 +11,7 @@ interface DustRecipientSelectProps {
   value: DustRecipientChoice;
   onChange: (value: DustRecipientChoice) => void;
   options: ReadonlyArray<DustRecipientOption>;
-  /** Label for the 'auto' option. V1 default: largest target. V2 passes 'Idle'. */
+  /** Label for the 'auto' option. V2 default: Idle. */
   autoLabel?: string;
 }
 

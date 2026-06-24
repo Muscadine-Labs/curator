@@ -28,39 +28,6 @@ export type VaultHistorySeries = {
 /** ERC-4626 vault shares use 18 decimals on Morpho historical `totalSupply`. */
 export const VAULT_SHARE_DECIMALS = 18;
 
-export const VAULT_V1_HISTORY_QUERY = gql`
-  query VaultV1History($address: String!, $chainId: Int!, $options: TimeseriesOptions) {
-    vault: vaultByAddress(address: $address, chainId: $chainId) {
-      asset {
-        symbol
-        decimals
-      }
-      historicalState {
-        totalAssets(options: $options) {
-          x
-          y
-        }
-        totalAssetsUsd(options: $options) {
-          x
-          y
-        }
-        netApy(options: $options) {
-          x
-          y
-        }
-        sharePriceNumber(options: $options) {
-          x
-          y
-        }
-        sharePriceUsd(options: $options) {
-          x
-          y
-        }
-      }
-    }
-  }
-`;
-
 export const VAULT_V2_HISTORY_QUERY = gql`
   query VaultV2History($address: String!, $chainId: Int!, $options: TimeseriesOptions) {
     vault: vaultV2ByAddress(address: $address, chainId: $chainId) {
@@ -173,24 +140,6 @@ export function computeSharePriceUsdSeries(
   }
 
   return result;
-}
-
-export function buildV1HistorySeries(historicalState?: {
-  totalAssets?: MorphoTimeseriesPoint[] | null;
-  totalAssetsUsd?: MorphoTimeseriesPoint[] | null;
-  netApy?: MorphoTimeseriesPoint[] | null;
-  sharePriceNumber?: MorphoTimeseriesPoint[] | null;
-  sharePriceUsd?: MorphoTimeseriesPoint[] | null;
-} | null): VaultHistorySeries {
-  return {
-    supplied: mapMorphoTimeseriesRaw(historicalState?.totalAssets),
-    suppliedUsd: mapMorphoTimeseries(historicalState?.totalAssetsUsd),
-    liquidityUsd: [],
-    liquidity: [],
-    apy: mapMorphoTimeseries(historicalState?.netApy, (y) => y * 100),
-    sharePrice: mapMorphoTimeseries(historicalState?.sharePriceNumber),
-    sharePriceUsd: mapMorphoTimeseries(historicalState?.sharePriceUsd),
-  };
 }
 
 export function buildV2HistorySeries(historicalState?: {

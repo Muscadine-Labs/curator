@@ -125,6 +125,26 @@ export const vaultV2Abi = [
       { name: "executableAt", type: "uint256", indexed: false },
     ],
   },
+  {
+    type: "event",
+    name: "DecreaseAbsoluteCap",
+    inputs: [
+      { name: "sender", type: "address", indexed: true },
+      { name: "id", type: "bytes32", indexed: true },
+      { name: "idData", type: "bytes", indexed: false },
+      { name: "newAbsoluteCap", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "DecreaseRelativeCap",
+    inputs: [
+      { name: "sender", type: "address", indexed: true },
+      { name: "id", type: "bytes32", indexed: true },
+      { name: "idData", type: "bytes", indexed: false },
+      { name: "newRelativeCap", type: "uint256", indexed: false },
+    ],
+  },
 
   // ===== Write Functions =====
   {

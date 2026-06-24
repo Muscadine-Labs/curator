@@ -32,10 +32,7 @@ interface VaultHoldersProps {
   /** How many holders to show per page. Default 10. */
   pageSize?: number;
   /**
-   * Asset decimals / symbol from the parent page. Used as a fallback when the
-   * holders endpoint doesn't return asset info (the V1 GraphQL query doesn't).
-   * Without this, V1 vaults render all token amounts as "0.000" because we'd
-   * default to 18-decimals while USDC is 6-decimals.
+   * Asset decimals / symbol from the parent page when the holders API omits them.
    */
   assetDecimals?: number | null;
   assetSymbol?: string | null;

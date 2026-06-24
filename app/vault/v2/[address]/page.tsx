@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Shield } from 'lucide-react';
 import { getScanUrlForChain, getScanNameForChain } from '@/lib/constants';
 import { useVaultV2Complete } from '@/lib/hooks/useVaultV2Complete';
@@ -31,11 +33,24 @@ const CATEGORY_BADGE: Record<string, string> = {
   test: 'V2 Test',
 };
 
+/** Tabs that show on-chain caps / allocation amounts — refetch when opened. */
+const ON_CHAIN_REFRESH_TABS = new Set(['allocations', 'caps', 'sentinel', 'adapters']);
+
 export default function V2VaultPage() {
   const params = useParams();
   const address = params.address as string;
+  const queryClient = useQueryClient();
   const { vault, risk, governance, pending, vaultIsLoading, isError, error } =
     useVaultV2Complete(address);
+
+  const handleVaultTabChange = useCallback(
+    (tab: string) => {
+      if (!ON_CHAIN_REFRESH_TABS.has(tab)) return;
+      void queryClient.refetchQueries({ queryKey: ['vault-v2-governance', address] });
+      void queryClient.refetchQueries({ queryKey: ['vault-v2-risk', address] });
+    },
+    [address, queryClient]
+  );
 
   if (vaultIsLoading) {
     return (
@@ -106,7 +121,7 @@ export default function V2VaultPage() {
       }
     >
       <div className="space-y-4">
-        <Tabs defaultValue="overview" className="space-y-3">
+        <Tabs defaultValue="overview" className="space-y-3" onValueChange={handleVaultTabChange}>
           <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide sm:overflow-visible">
             <TabsList className="inline-flex w-auto min-w-full sm:min-w-0 sm:w-full justify-start gap-1">
               <TabsTrigger value="overview" className="sm:flex-1 flex-shrink-0 min-w-fit">
@@ -184,6 +199,7 @@ export default function V2VaultPage() {
           <TabsContent value="allocations" className="space-y-6">
             <VaultV2Allocations
               vaultAddress={vault.address}
+              chainId={vault.chainId}
               preloadedData={governance}
               preloadedRisk={risk}
             />

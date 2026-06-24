@@ -12,8 +12,9 @@ interface TxPreviewDialogProps {
   open: boolean;
   preview: TxPreview | null;
   onOpenChange: (open: boolean) => void;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   isLoading?: boolean;
+  error?: Error | null;
   confirmLabel?: string;
 }
 
@@ -78,6 +79,7 @@ export function TxPreviewDialog({
   onOpenChange,
   onConfirm,
   isLoading = false,
+  error = null,
   confirmLabel = 'Confirm & sign',
 }: TxPreviewDialogProps) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -168,6 +170,12 @@ export function TxPreviewDialog({
         {preview.footnote && (
           <p className="border-t border-slate-200 px-4 py-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
             {preview.footnote}
+          </p>
+        )}
+
+        {error && (
+          <p className="border-t border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+            {error.message?.slice(0, 400) ?? 'Transaction failed.'}
           </p>
         )}
 

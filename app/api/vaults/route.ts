@@ -58,33 +58,7 @@ export async function GET(request: Request) {
       .then((data) => aggregateTreasuryRevenueByVault(data.vaults))
       .catch(() => ({} as Record<string, number>));
 
-    // Build queries for both V1 and V2 vaults
-    const v1Query = gql`
-      query FetchV1Vaults($addresses: [String!]) {
-        vaults(
-          first: ${GRAPHQL_FIRST_LIMIT}
-          where: { address_in: $addresses, chainId_in: [${BASE_CHAIN_ID}] }
-        ) {
-          items {
-            address
-            name
-            symbol
-            listed
-            asset { address symbol decimals }
-            state {
-              totalAssetsUsd
-              avgNetApy
-              netApy
-              fee
-            }
-          }
-        }
-      }
-    `;
-
-    // For V2 vaults, we need to query individually since there's no vaultsV2 list query
-    // We'll try all addresses - non-V2 vaults will return null and be filtered out
-    // V2 vaults have positions nested directly on the vault, not in a separate query
+    // V2 vaults are queried individually (no vaultsV2 list query)
     const v2VaultPromises = addresses.map(async (address) => {
       try {
         const v2Query = gql`
@@ -121,8 +95,7 @@ export async function GET(request: Request) {
         }
         return null;
       } catch (error) {
-        // Silently skip non-V2 vaults - errors are expected for V1 addresses
-        logger.debug('V2 vault query failed (expected for V1 vaults)', {
+        logger.debug('V2 vault query failed', {
           address,
           error: error instanceof Error ? error.message : String(error),
         });
@@ -130,9 +103,7 @@ export async function GET(request: Request) {
       }
     });
 
-    // Fetch V1 vaults, V2 vaults, and revenue by vault in parallel
-    const [v1Data, v2Results, revenueByVault] = await Promise.all([
-      morphoGraphQLClient.request<{ vaults?: { items?: Array<{ address: string; name: string; listed?: boolean; asset?: { address?: string; symbol?: string; decimals?: number }; state?: { totalAssetsUsd?: number; avgNetApy?: number; netApy?: number; fee?: number } } | null> | null } | null }>(v1Query, { addresses }).catch(() => ({ vaults: { items: [] } })),
+    const [v2Results, revenueByVault] = await Promise.all([
       Promise.all(v2VaultPromises),
       revenueByVaultPromise,
     ]);
@@ -143,40 +114,8 @@ export async function GET(request: Request) {
       queried: v2Results.length,
     });
 
-    // Fetch positions for V1 vaults (V2 vaults already have positions in their query result)
-    const positionsQuery = gql`
-      query FetchPositions($addresses: [String!]) {
-        vaultPositions(
-          first: ${GRAPHQL_FIRST_LIMIT}
-          where: { vaultAddress_in: $addresses }
-        ) {
-          items {
-            vault { address }
-            user { address }
-          }
-        }
-      }
-    `;
-
-    const positionsData = await morphoGraphQLClient.request<{ vaultPositions?: { items?: Array<{ vault?: { address?: string } | null; user?: { address?: string } | null } | null> | null } | null }>(positionsQuery, { addresses }).catch(() => ({ vaultPositions: { items: [] } }));
-
-    const v1Vaults = (v1Data.vaults?.items?.filter((v): v is NonNullable<typeof v> => v !== null) ?? []) as Array<{ address: string; name: string; symbol?: string; listed?: boolean; asset?: { address?: string; symbol?: string; decimals?: number }; state?: { totalAssetsUsd?: number; avgNetApy?: number; netApy?: number; fee?: number } | null }>;
-    const v1Positions = (positionsData.vaultPositions?.items?.filter((p): p is NonNullable<typeof p> => p !== null) ?? []) as Array<{ vault?: { address?: string } | null; user?: { address?: string } | null }>;
-
-    // Compute depositors per vault (unique users per vault address)
-    const depositorsByVault: Record<string, Set<string>> = {};
-    
-    // Count unique users for V1 vaults
-    for (const pos of v1Positions) {
-      if (!pos || !pos.vault?.address || !pos.user?.address) continue;
-      const addr = pos.vault.address.toLowerCase();
-      if (!depositorsByVault[addr]) {
-        depositorsByVault[addr] = new Set<string>();
-      }
-      depositorsByVault[addr].add(pos.user.address.toLowerCase());
-    }
-
     // Count unique users for V2 vaults from nested positions
+    const depositorsByVault: Record<string, Set<string>> = {};
     for (const v2Vault of v2Vaults) {
       if (!v2Vault.address) continue;
       const addr = v2Vault.address.toLowerCase();
@@ -209,36 +148,12 @@ export async function GET(request: Request) {
       return {
         ...row,
         id: row.address,
-        version: cfg?.morphoVersion ?? ('v1' as const),
+        version: cfg?.morphoVersion ?? ('v2' as const),
         listCategory: cfg?.listCategory ?? null,
       };
     };
 
-    // Combine and format vaults from GraphQL
-    const allVaults = [
-      ...v1Vaults.map((v) => {
-        const chainId = getChainId(v.address);
-        return enrichFromConfig({
-          address: v.address,
-          name: v.name ?? 'Unknown Vault',
-          symbol: v.symbol ?? v.asset?.symbol ?? 'UNKNOWN',
-          asset: v.asset?.symbol ?? 'UNKNOWN',
-          chainId,
-          scanUrl: `${getScanUrlForChain(chainId)}/address/${v.address}`,
-        performanceFeeBps: v.state?.fee ? Math.round(v.state.fee * BPS_PER_ONE) : null,
-        status: v.listed ? 'active' as const : 'paused' as const,
-        riskTier: 'medium' as const,
-        createdAt: new Date().toISOString(),
-        tvl: v.state?.totalAssetsUsd ?? null,
-        apy: v.state?.avgNetApy != null ? v.state.avgNetApy * 100 :
-             v.state?.netApy != null ? v.state.netApy * 100 : null,
-        depositors: depositorCounts[v.address.toLowerCase()] ?? 0,
-        revenueAllTime: treasuryRevenueAllTimeForVault(revenueByVault, v.address),
-        feesAllTime: null,
-        lastHarvest: null,
-        });
-      }),
-      ...v2Vaults.map((v) => {
+    const allVaults = v2Vaults.map((v) => {
         const chainId = getChainId(v.address);
         return enrichFromConfig({
           address: v.address,
@@ -259,8 +174,7 @@ export async function GET(request: Request) {
           feesAllTime: null,
           lastHarvest: null,
         });
-      }),
-    ];
+    });
 
     // Filter to only include vaults from our configured addresses
     const merged = allVaults.filter(v => configuredAddressSet.has(v.address.toLowerCase()));

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import type { VaultHoldersResponse } from '@/app/api/vaults/[id]/holders/route';
 import { apiFetch } from '@/lib/data/api-fetch';
+import { INDEXED_VAULT_QUERY_OPTIONS } from '@/lib/data/query-config';
 
 async function fetchVaultHolders(
   vaultAddress: string,
@@ -30,6 +31,6 @@ export function useVaultHolders(vaultAddress: string | null | undefined, first =
       return fetchVaultHolders(vaultAddress, first);
     },
     enabled: Boolean(vaultAddress),
-    staleTime: 60_000,
+    ...INDEXED_VAULT_QUERY_OPTIONS,
   });
 }

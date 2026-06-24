@@ -33,11 +33,10 @@ export async function getMorphoMarketRatings(
   const rawMarkets = await fetchMorphoMarkets(limit, config);
 
   const filtered = marketId
-    ? rawMarkets.filter((market) => 
-        market.id === marketId ||
-        market.uniqueKey === marketId ||
-        (market as { marketId?: string }).marketId === marketId
-      )
+    ? rawMarkets.filter((market) => {
+        const id = (market as { marketId?: string }).marketId ?? market.id;
+        return id === marketId || market.uniqueKey === marketId;
+      })
     : rawMarkets;
 
   const metrics = filtered.map((market) =>

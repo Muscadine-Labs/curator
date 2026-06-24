@@ -169,11 +169,9 @@ export function VaultOverviewPanel({
                 <Badge variant="outline" className="text-xs">
                   {vaultAsset}
                 </Badge>
-                {vault.version && (
-                  <Badge variant="secondary" className="text-xs uppercase">
-                    {vault.version}
-                  </Badge>
-                )}
+                <Badge variant="secondary" className="text-xs uppercase">
+                  V2
+                </Badge>
               </div>
             </div>
             {warnings.length > 0 && (
@@ -256,7 +254,7 @@ export function VaultOverviewPanel({
         </Card>
       )}
 
-      <VaultOverviewHistoryChart vaultAddress={vault.address} version={vault.version} />
+      <VaultOverviewHistoryChart vaultAddress={vault.address} />
     </div>
   );
 }
