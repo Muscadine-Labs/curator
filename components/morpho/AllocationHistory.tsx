@@ -7,8 +7,9 @@ import {
   ChevronLeft,
   ExternalLink,
   RefreshCw,
+  ShieldAlert,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -17,12 +18,21 @@ import { formatRelativeTime, formatLtv, formatRawTokenAmount, formatAddress } fr
 import { getScanUrlForChain } from '@/lib/constants';
 import type { ReallocationGroup, ReallocationEvent } from '@/app/api/vaults/[id]/reallocations/route';
 
-interface AllocationHistoryProps {
+export interface AllocationHistoryProps {
   vaultAddress: string;
   chainId: number;
   assetDecimals?: number | null;
   assetSymbol?: string | null;
   pageSize?: number;
+  /** Card title override. */
+  title?: string;
+  /** Optional subtitle under the title. */
+  description?: string;
+  /** When set, only include events whose `type` matches (case-sensitive). */
+  filterEventTypes?: readonly string[];
+  /** Label for grouped tx rows. */
+  groupHeading?: string;
+  emptyMessage?: string;
 }
 
 function prettyType(type: string): string {
@@ -61,14 +71,20 @@ function GroupRow({
   scanUrl,
   assetDecimals,
   assetSymbol,
+  groupHeading,
+  sentinelStyle,
 }: {
   group: ReallocationGroup;
   scanUrl: string;
   assetDecimals: number;
   assetSymbol: string;
+  groupHeading: string;
+  sentinelStyle: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const timestampMs = group.timestamp * 1000;
+  const Icon = sentinelStyle ? ShieldAlert : RefreshCw;
+  const iconClass = sentinelStyle ? 'text-amber-600 dark:text-amber-400' : 'text-blue-500';
 
   return (
     <div className="border-b border-slate-100 dark:border-slate-800 last:border-0">
@@ -84,9 +100,9 @@ function GroupRow({
         )}
         <div className="flex flex-1 items-center justify-between gap-2 min-w-0">
           <div className="flex items-center gap-2 min-w-0">
-            <RefreshCw className="h-4 w-4 text-blue-500 shrink-0" />
+            <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />
             <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
-              Reallocation
+              {groupHeading}
             </span>
             <Badge variant="secondary" className="text-xs shrink-0">
               {group.events.length} position{group.events.length !== 1 ? 's' : ''}
@@ -170,18 +186,42 @@ function EventRow({
   );
 }
 
+function filterGroups(
+  groups: ReallocationGroup[],
+  filterEventTypes?: readonly string[]
+): ReallocationGroup[] {
+  if (!filterEventTypes?.length) return groups;
+  const allowed = new Set(filterEventTypes);
+  return groups
+    .map((group) => ({
+      ...group,
+      events: group.events.filter((ev) => allowed.has(ev.type)),
+    }))
+    .filter((group) => group.events.length > 0);
+}
+
 export function AllocationHistory({
   vaultAddress,
   chainId,
   assetDecimals,
   assetSymbol,
   pageSize = 10,
+  title = 'Allocation History',
+  description,
+  filterEventTypes,
+  groupHeading = 'Reallocation',
+  emptyMessage = 'No reallocation events found.',
 }: AllocationHistoryProps) {
   const { data, isLoading, error } = useVaultReallocations(vaultAddress, 200);
   const [page, setPage] = useState(0);
   const scanUrl = getScanUrlForChain(chainId);
+  const sentinelStyle = filterEventTypes?.length === 1 && filterEventTypes[0] === 'Deallocate';
 
-  const groups = data?.groups ?? [];
+  const groups = useMemo(
+    () => filterGroups(data?.groups ?? [], filterEventTypes),
+    [data?.groups, filterEventTypes]
+  );
+
   const totalPages = Math.max(1, Math.ceil(groups.length / pageSize));
   const safePage = Math.min(page, totalPages - 1);
   const paged = useMemo(
@@ -197,12 +237,17 @@ export function AllocationHistory({
     <Card>
       <CardHeader>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle className="flex items-center gap-2">
-            Allocation History
-            <Badge variant="secondary" className="text-xs">
-              {isLoading ? '…' : `${groups.length} event${groups.length === 1 ? '' : 's'}`}
-            </Badge>
-          </CardTitle>
+          <div className="space-y-1">
+            <CardTitle className="flex items-center gap-2">
+              {title}
+              <Badge variant="secondary" className="text-xs">
+                {isLoading ? '…' : `${groups.length} event${groups.length === 1 ? '' : 's'}`}
+              </Badge>
+            </CardTitle>
+            {description && (
+              <CardDescription className="text-xs">{description}</CardDescription>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -214,10 +259,10 @@ export function AllocationHistory({
           </div>
         ) : error ? (
           <p className="text-sm text-red-600 dark:text-red-400">
-            Failed to load allocation history: {error instanceof Error ? error.message : 'Unknown error'}
+            Failed to load history: {error instanceof Error ? error.message : 'Unknown error'}
           </p>
         ) : groups.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No reallocation events found.</p>
+          <p className="text-sm text-muted-foreground">{emptyMessage}</p>
         ) : (
           <>
             <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
@@ -228,6 +273,8 @@ export function AllocationHistory({
                   scanUrl={scanUrl}
                   assetDecimals={decimals}
                   assetSymbol={symbol}
+                  groupHeading={groupHeading}
+                  sentinelStyle={sentinelStyle}
                 />
               ))}
             </div>

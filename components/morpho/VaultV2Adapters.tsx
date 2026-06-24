@@ -42,8 +42,8 @@ export function VaultV2Adapters({
 }: VaultV2AdaptersProps) {
   const { data: fetchedGov, isLoading: govLoading, error: govError } = useVaultV2Governance(vaultAddress);
   const { data: fetchedRisk, isLoading: riskLoading } = useVaultV2Risk(vaultAddress);
-  const data = preloadedData ?? fetchedGov;
-  const risk = preloadedRisk ?? fetchedRisk;
+  const data = fetchedGov ?? preloadedData;
+  const risk = fetchedRisk ?? preloadedRisk;
   const [viewMode, setViewMode] = useState<ViewMode>('card');
 
   const liquidityAdapterAddress = data?.liquidityAdapter?.address?.toLowerCase();

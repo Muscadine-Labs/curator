@@ -15,7 +15,9 @@ import { isMarketCap } from '@/lib/morpho/cap-utils';
 import { isAllocatableMarketCap } from '@/lib/morpho/v2-allocation-targets';
 import { mapCap, type GraphCap } from '@/lib/morpho/vault-v2-governance-map';
 import { enrichMarketCapParams } from '@/lib/morpho/fetch-markets-by-id';
+import { overlayV2OnChainAllocations } from '@/lib/morpho/overlay-v2-onchain-caps';
 import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
+import { logger } from '@/lib/utils/logger';
 import { marketKeyFromGraphQL } from '@/lib/morpho/morpho-app-links';
 import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
 import {
@@ -614,11 +616,25 @@ export async function GET(
       adapters: adapterRisks,
     };
 
+    let responsePayload: V2VaultRiskResponse = response;
+    try {
+      responsePayload = await overlayV2OnChainAllocations(
+        address,
+        response,
+        data.vault.totalAssetsUsd ?? null
+      );
+    } catch (overlayError) {
+      logger.warn('On-chain allocation overlay failed; returning GraphQL allocations', {
+        vaultAddress: address,
+        error: overlayError instanceof Error ? overlayError : new Error(String(overlayError)),
+      });
+    }
+
     const responseHeaders = mergeApiCacheHeaders(rateLimitResult.headers);
 
-    return NextResponse.json(response, { headers: responseHeaders });
+    return NextResponse.json(responsePayload, { headers: responseHeaders });
   } catch (error) {
-    const { error: apiError, statusCode } = handleApiError(error);
+    const { error: apiError, statusCode } = handleApiError(error, 'Failed to fetch vault v2 risk data');
     return NextResponse.json(apiError, { status: statusCode });
   }
 }

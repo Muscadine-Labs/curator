@@ -37,8 +37,14 @@ export function TransactionButton({
   if (!isConnected) {
     if (suppressConnectPrompt) {
       return (
-        <Button variant={variant} size={size} disabled>
-          {label}
+        <Button
+          variant="outline"
+          size={size}
+          onClick={openConnectModal}
+          disabled={!openConnectModal}
+          title="Connect wallet in the top bar to submit"
+        >
+          Connect wallet
         </Button>
       );
     }

@@ -1,7 +1,13 @@
 'use client';
 
 import { useCallback } from 'react';
-import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import {
+  useAccount,
+  useChainId,
+  useSwitchChain,
+  useWriteContract,
+  useWaitForTransactionReceipt,
+} from 'wagmi';
 import type { Abi, Address } from 'viem';
 
 interface WriteContractConfig {
@@ -11,7 +17,16 @@ interface WriteContractConfig {
   args: readonly unknown[];
 }
 
-export function useVaultWrite() {
+type UseVaultWriteOptions = {
+  /** Vault chain — switches wallet before signing when mismatched. */
+  chainId?: number;
+};
+
+export function useVaultWrite(options?: UseVaultWriteOptions) {
+  const requiredChainId = options?.chainId;
+  const { isConnected } = useAccount();
+  const activeChainId = useChainId();
+  const { switchChainAsync } = useSwitchChain();
   const {
     writeContract,
     data: txHash,
@@ -29,15 +44,25 @@ export function useVaultWrite() {
   });
 
   const write = useCallback(
-    (config: WriteContractConfig) => {
+    async (config: WriteContractConfig) => {
+      if (!isConnected) {
+        throw new Error('Connect your wallet using the button in the top bar.');
+      }
+
+      const targetChainId = requiredChainId ?? activeChainId;
+      if (requiredChainId != null && activeChainId !== requiredChainId) {
+        await switchChainAsync({ chainId: requiredChainId });
+      }
+
       writeContract({
         address: config.address,
         abi: config.abi as Abi,
         functionName: config.functionName,
         args: config.args as unknown[],
+        chainId: targetChainId,
       });
     },
-    [writeContract]
+    [activeChainId, isConnected, requiredChainId, switchChainAsync, writeContract]
   );
 
   return {
