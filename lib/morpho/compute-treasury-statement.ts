@@ -5,7 +5,6 @@ import {
   STATEMENT_START_DATE,
   TREASURY_ADDRESS,
   VAULT_ASSET_MAP,
-  VAULT_VERSION_MAP,
   emptyTreasuryAssetBreakdown,
   sumTreasuryBreakdownUsd,
   type TreasuryAssetBreakdown,
@@ -31,7 +30,6 @@ export interface MonthlyStatementData {
 export interface VaultMonthlyData {
   vaultAddress: string;
   asset: 'USDC' | 'cbBTC' | 'WETH';
-  version: 'v1' | 'v2';
   month: string;
   tokens: number;
   usd: number;
@@ -151,7 +149,6 @@ type PositionWithHistory = {
   vaultAddress: string;
   asset: TreasuryAssetKey;
   assetDecimals: number;
-  isV1: boolean;
   historicalAssets: Array<{ x?: number; y?: number }>;
   historicalAssetsUsd: Array<{ x?: number; y?: number }>;
 };
@@ -259,79 +256,6 @@ export async function computeTreasuryStatement(): Promise<TreasuryStatementResul
       interval: 'DAY' as const,
     };
 
-    // V1 vault position query
-        const v1PositionQuery = gql`
-          query VaultV1Position($vaultAddress: String!, $userAddress: String!, $chainId: Int!, $options: TimeseriesOptions) {
-            vault: vaultByAddress(address: $vaultAddress, chainId: $chainId) {
-              address
-              asset {
-                symbol
-                decimals
-              }
-            }
-            position: vaultPositions(
-              first: 1
-              where: { 
-                vaultAddress_in: [$vaultAddress]
-                userAddress_in: [$userAddress]
-              }
-            ) {
-              items {
-                vault {
-                  address
-                }
-                user {
-                  address
-                }
-                state {
-                  shares
-                  assets
-                  assetsUsd
-                }
-                historicalState {
-                  shares(options: $options) {
-                    x
-                    y
-                  }
-                  assets(options: $options) {
-                    x
-                    y
-                  }
-                  assetsUsd(options: $options) {
-                    x
-                    y
-                  }
-                }
-              }
-            }
-          }
-        `;
-
-        type V1PositionResponse = {
-          vault?: {
-            address?: string | null;
-            asset?: { symbol?: string | null; decimals?: number | null } | null;
-          } | null;
-          position?: {
-            items?: Array<{
-              vault?: { address?: string | null } | null;
-              user?: { address?: string | null } | null;
-              state?: {
-                shares?: string | null;
-                assets?: string | null;
-                assetsUsd?: number | null;
-              } | null;
-              historicalState?: {
-                shares?: Array<{ x?: number; y?: number }> | null;
-                assets?: Array<{ x?: number; y?: number }> | null;
-                assetsUsd?: Array<{ x?: number; y?: number }> | null;
-              } | null;
-            } | null>;
-          } | null;
-        };
-
-    // V2 vault position query - V2 positions have a 'history' field (not 'historicalState')
-    // V2 history supports timeseriesOptions for daily granularity
     const v2PositionQuery = gql`
       query VaultV2Position($vaultAddress: String!, $userAddress: String!, $chainId: Int!, $options: TimeseriesOptions) {
         vaultV2: vaultV2ByAddress(address: $vaultAddress, chainId: $chainId) {
@@ -395,112 +319,43 @@ export async function computeTreasuryStatement(): Promise<TreasuryStatementResul
       try {
         const vaultAddr = vaultAddress.toLowerCase();
         const asset = VAULT_ASSET_MAP[vaultAddr];
-        const version = VAULT_VERSION_MAP[vaultAddr];
-        
-        if (!asset || !version) {
-          logger.warn('Vault address not in asset/version map', { address: vaultAddress });
+
+        if (!asset) {
+          logger.warn('Vault address not in asset map', { address: vaultAddress });
           return null;
         }
 
-        const queryVariables = {
-          vaultAddress,
-          userAddress: treasuryAddr,
-          chainId: BASE_CHAIN_ID,
-          options: timeseriesOptions,
-        };
+        const v2Result = await morphoGraphQLClient.request<V2PositionResponse>(
+          v2PositionQuery,
+          {
+            vaultAddress,
+            userAddress: treasuryAddr,
+            chainId: BASE_CHAIN_ID,
+            options: timeseriesOptions,
+          }
+        );
 
-        if (version === 'v1') {
-          // Query V1 vault position
-          const v1Result = await morphoGraphQLClient.request<V1PositionResponse>(
-            v1PositionQuery,
-            queryVariables
+        logger.debug('V2 vault query result', {
+          vaultAddress,
+          hasVault: !!v2Result.vaultV2,
+          hasUser: !!v2Result.user,
+          positionsCount: v2Result.user?.vaultV2Positions?.length ?? 0,
+        });
+
+        if (v2Result.user?.vaultV2Positions && v2Result.user.vaultV2Positions.length > 0) {
+          const position = v2Result.user.vaultV2Positions.find(
+            (p) => p?.vault?.address?.toLowerCase() === vaultAddr
           );
 
-          if (v1Result.position?.items && v1Result.position.items.length > 0) {
-            const position = v1Result.position.items[0];
-            if (position?.historicalState?.assets && position.historicalState.assetsUsd) {
-              const assetDecimals = v1Result.vault?.asset?.decimals ?? 18;
-              return {
-                vaultAddress: vaultAddr,
-                asset,
-                assetDecimals,
-                isV1: true,
-                historicalAssets: position.historicalState.assets,
-                historicalAssetsUsd: position.historicalState.assetsUsd,
-              };
-            }
-          }
-        } else {
-          // Query V2 vault position - V2 positions use 'history' field (not 'historicalState')
-          // V2 history supports timeseriesOptions for daily granularity
-          try {
-            const v2Result = await morphoGraphQLClient.request<V2PositionResponse>(
-              v2PositionQuery,
-              {
-                vaultAddress,
-                userAddress: treasuryAddr,
-                chainId: BASE_CHAIN_ID,
-                options: timeseriesOptions,
-              }
-            );
-
-            logger.debug('V2 vault query result', {
-              vaultAddress,
-              hasVault: !!v2Result.vaultV2,
-              hasUser: !!v2Result.user,
-              positionsCount: v2Result.user?.vaultV2Positions?.length ?? 0,
-            });
-
-            if (v2Result.user?.vaultV2Positions && v2Result.user.vaultV2Positions.length > 0) {
-              const position = v2Result.user.vaultV2Positions.find(
-                p => p?.vault?.address?.toLowerCase() === vaultAddr
-              );
-              
-              if (position?.history?.assets && position.history.assetsUsd) {
-                const assetDecimals = v2Result.vaultV2?.asset?.decimals ?? 18;
-                const assetsLength = position.history.assets.length;
-                const assetsUsdLength = position.history.assetsUsd.length;
-                const lastAssetPoint = assetsLength > 0 ? position.history.assets[assetsLength - 1] : null;
-                const lastUsdPoint = assetsUsdLength > 0 ? position.history.assetsUsd[assetsUsdLength - 1] : null;
-                
-                logger.debug('V2 position found with history', {
-                  vaultAddress,
-                  historyLength: assetsLength,
-                  assetsUsdLength,
-                  firstPoint: position.history.assets[0],
-                  lastAssetPoint,
-                  lastUsdPoint,
-                  currentTimestamp: Math.floor(Date.now() / 1000),
-                });
-                
-                return {
-                  vaultAddress: vaultAddr,
-                  asset,
-                  assetDecimals,
-                  isV1: false,
-                  historicalAssets: position.history.assets,
-                  historicalAssetsUsd: position.history.assetsUsd,
-                };
-              } else {
-                logger.warn('V2 position found but missing history data', {
-                  vaultAddress,
-                  hasHistory: !!position?.history,
-                  hasAssets: !!position?.history?.assets,
-                  hasAssetsUsd: !!position?.history?.assetsUsd,
-                });
-              }
-            } else {
-              logger.warn('No V2 positions found for user', {
-                vaultAddress,
-                userAddress: treasuryAddr,
-                hasUser: !!v2Result.user,
-              });
-            }
-          } catch (error) {
-            logger.warn('V2 query failed', {
-              vaultAddress,
-              error: error instanceof Error ? error.message : String(error),
-            });
+          if (position?.history?.assets && position.history.assetsUsd) {
+            const assetDecimals = v2Result.vaultV2?.asset?.decimals ?? 18;
+            return {
+              vaultAddress: vaultAddr,
+              asset,
+              assetDecimals,
+              historicalAssets: position.history.assets,
+              historicalAssetsUsd: position.history.assetsUsd,
+            };
           }
         }
 
@@ -535,8 +390,6 @@ export async function computeTreasuryStatement(): Promise<TreasuryStatementResul
     const currentMonth = now.getMonth() + 1;
 
     for (const position of validPositions) {
-      const vaultVersion = VAULT_VERSION_MAP[position.vaultAddress] || 'v1';
-
       for (const month of allMonths) {
         const { baseline, end } = getMonthTimestamps(month.year, month.month);
         const isCurrentMonth =
@@ -561,7 +414,6 @@ export async function computeTreasuryStatement(): Promise<TreasuryStatementResul
         vaultMonthlyData.push({
           vaultAddress: position.vaultAddress,
           asset: position.asset,
-          version: vaultVersion,
           month: month.key,
           tokens: tokenChange,
           usd: usdChange,

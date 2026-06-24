@@ -86,7 +86,6 @@ import {
   morphoMarketHref,
   morphoVaultHref,
 } from '@/lib/morpho/morpho-app-links';
-import { VAULT_VERSION_MAP } from '@/lib/morpho/treasury-statement';
 import {
   AllocationPctIndicator,
   AllocationListSection,
@@ -339,24 +338,23 @@ type TargetRow = {
   lltv: string | number | null;
   collateralSymbol: string | null;
   loanSymbol: string | null;
-  wrappedVaultVersion: 'v1' | 'v2' | null;
   /** For filtering */
   searchHaystack: string;
 };
 
 type RowType = TargetRow;
 
-type AllocationSection = 'idle' | 'vault' | 'blue';
+type AllocationSection = 'idle' | 'wrapped' | 'blue';
 
 const ALLOCATION_SECTIONS: { key: AllocationSection; title: string }[] = [
   { key: 'idle', title: 'Idle' },
-  { key: 'vault', title: 'V1 Vault' },
+  { key: 'wrapped', title: 'Wrapped Vault' },
   { key: 'blue', title: 'Morpho Blue Market' },
 ];
 
 function rowSection(r: TargetRow, t: AllocTarget): AllocationSection {
   if (t.isVaultIdle || r.isIdle) return 'idle';
-  if (t.isMetaMorpho) return 'vault';
+  if (t.isMetaMorpho) return 'wrapped';
   return 'blue';
 }
 
@@ -483,8 +481,6 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
         });
 
         const underlying = adapter.underlyingVaultStats;
-        const underlyingAddr = adapter.underlyingVaultAddress?.toLowerCase();
-        const wrappedVersion = underlyingAddr ? VAULT_VERSION_MAP[underlyingAddr] ?? null : null;
         const displayName = adapter.adapterLabel || 'MetaMorpho';
 
         const underlyingLiquidity = readMarketLiquidity(
@@ -518,7 +514,6 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
           lltv: null,
           collateralSymbol: allocSym || null,
           loanSymbol: null,
-          wrappedVaultVersion: wrappedVersion,
           searchHaystack: `${displayName} ${allocSym ?? ''} metamorpho`.toLowerCase(),
         });
       } else {
@@ -587,7 +582,6 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
             lltv: m.lltv ?? null,
             collateralSymbol: col ?? null,
             loanSymbol: loan ?? null,
-            wrappedVaultVersion: null,
             searchHaystack: `${label} ${allocSym ?? ''} ${formatLltvPill(m.lltv ?? null) ?? ''} morpho blue`.toLowerCase(),
           });
         }
@@ -636,7 +630,6 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       lltv: null,
       collateralSymbol: sym || null,
       loanSymbol: null,
-      wrappedVaultVersion: null,
       searchHaystack: 'idle',
     });
 
@@ -724,6 +717,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     void queryClient.refetchQueries({ queryKey: ['vault-v2-risk', vaultAddress] });
     void queryClient.refetchQueries({ queryKey: ['vault-v2-governance', vaultAddress] });
     void queryClient.refetchQueries({ queryKey: ['vault-reallocations', vaultAddress] });
+    void queryClient.refetchQueries({ queryKey: ['vault', vaultAddress] });
     setRebalancePreviewOpen(false);
     setPreparedSubmit(null);
   }, [multicallWrite.isSuccess, queryClient, vaultAddress]);
@@ -1576,12 +1570,6 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
 
   const sectionedRows = ALLOCATION_SECTIONS.map((section) => ({
     ...section,
-    title:
-      section.key === 'vault'
-        ? rowsToRender.some((r) => r.wrappedVaultVersion === 'v2')
-          ? 'V2 Vault'
-          : 'V1 Vault'
-        : section.title,
     rows: rowsToRender.filter((r) => {
       const t = targetsWithCaps[r.targetIdx];
       return t && rowSection(r, t) === section.key;
@@ -1631,10 +1619,6 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     const t = targetsWithCaps[r.targetIdx];
     const lltvPill = formatLltvPill(r.lltv);
     const isIdle = Boolean(t.isVaultIdle);
-    const versionPill =
-      r.wrappedVaultVersion != null ? (
-        <AllocationPill>{r.wrappedVaultVersion.toUpperCase()}</AllocationPill>
-      ) : null;
 
     const editedDisplay = editing ? getEditedAllocationDisplay(r.targetIdx) : null;
     const allocationAmount =
@@ -1656,12 +1640,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       <AllocationPctIndicator pct={getRowPercent(r.targetIdx)} />
     );
 
-    const tags = (
-      <>
-        {versionPill}
-        {lltvPill ? <AllocationPill>{lltvPill}</AllocationPill> : null}
-      </>
-    );
+    const tags = lltvPill ? <AllocationPill>{lltvPill}</AllocationPill> : null;
 
     return (
       <CuratorAllocationListRow
@@ -1676,7 +1655,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
             <MorphoAllocationLink href={r.morphoHref}>{r.market}</MorphoAllocationLink>
           )
         }
-        tags={versionPill || lltvPill ? tags : undefined}
+        tags={lltvPill ? tags : undefined}
         allocationAmount={allocationAmount}
         optionalCells={buildOptionalCells(r, t, isIdle)}
         percentAllocated={percentAllocated}

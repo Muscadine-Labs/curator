@@ -34,7 +34,6 @@ import {
 
 interface VaultOverviewHistoryChartProps {
   vaultAddress: string;
-  version?: 'v1' | 'v2';
 }
 
 const METRIC_TITLES: Record<VaultHistoryMetric, string> = {

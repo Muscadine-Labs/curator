@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAddress, isAddress } from 'viem';
 import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
 import {
-  VAULT_V1_HISTORY_QUERY,
   VAULT_V2_HISTORY_QUERY,
-  buildV1HistorySeries,
   buildV2HistorySeries,
 } from '@/lib/morpho/vault-history';
 import { resolveAssetDecimals } from '@/lib/format/asset-decimals';
@@ -21,12 +19,12 @@ const HISTORY_START_TIMESTAMP = Math.floor(new Date('2024-06-01').getTime() / 10
 
 export type VaultHistoryResponse = {
   vaultAddress: string;
-  version: 'v1' | 'v2';
+  version: 'v2';
   assetSymbol: string;
   assetDecimals: number;
   /** False — Morpho does not expose historical liquidity (withdrawable) timeseries. */
   liquidityHistoricalAvailable: boolean;
-  series: ReturnType<typeof buildV1HistorySeries>;
+  series: ReturnType<typeof buildV2HistorySeries>;
 };
 
 export async function GET(
@@ -65,51 +63,22 @@ export async function GET(
       throw new AppError('Vault not found in configuration', 404, 'VAULT_NOT_FOUND');
     }
 
-    const isV2 = cfg.morphoVersion === 'v2';
+    if (cfg.morphoVersion !== 'v2') {
+      throw new AppError('Vault not found', 404, 'VAULT_NOT_FOUND');
+    }
+
     const options = {
       startTimestamp: HISTORY_START_TIMESTAMP,
       endTimestamp: Math.floor(Date.now() / 1000),
       interval: 'DAY' as const,
     };
 
-    if (isV2) {
-      const data = await morphoGraphQLClient.request<{
-        vault?: {
-          asset?: { symbol?: string | null; decimals?: number | null } | null;
-          historicalState?: Parameters<typeof buildV2HistorySeries>[0];
-        } | null;
-      }>(VAULT_V2_HISTORY_QUERY, {
-        address,
-        chainId: cfg.chainId,
-        options,
-      });
-
-      if (!data.vault) {
-        throw new AppError('Vault not found in Morpho API', 404, 'VAULT_NOT_FOUND');
-      }
-
-      const response: VaultHistoryResponse = {
-        vaultAddress: address,
-        version: 'v2',
-        assetSymbol: data.vault.asset?.symbol ?? 'UNKNOWN',
-        assetDecimals: resolveAssetDecimals(
-          data.vault.asset?.symbol,
-          data.vault.asset?.decimals
-        ),
-        liquidityHistoricalAvailable: false,
-        series: buildV2HistorySeries(data.vault.historicalState),
-      };
-
-      const headers = mergeApiCacheHeaders(rateLimitResult.headers, 120);
-      return NextResponse.json(response, { headers });
-    }
-
     const data = await morphoGraphQLClient.request<{
       vault?: {
         asset?: { symbol?: string | null; decimals?: number | null } | null;
-        historicalState?: Parameters<typeof buildV1HistorySeries>[0];
+        historicalState?: Parameters<typeof buildV2HistorySeries>[0];
       } | null;
-    }>(VAULT_V1_HISTORY_QUERY, {
+    }>(VAULT_V2_HISTORY_QUERY, {
       address,
       chainId: cfg.chainId,
       options,
@@ -121,17 +90,20 @@ export async function GET(
 
     const response: VaultHistoryResponse = {
       vaultAddress: address,
-      version: 'v1',
+      version: 'v2',
       assetSymbol: data.vault.asset?.symbol ?? 'UNKNOWN',
-      assetDecimals: resolveAssetDecimals(data.vault.asset?.symbol, data.vault.asset?.decimals),
+      assetDecimals: resolveAssetDecimals(
+        data.vault.asset?.symbol,
+        data.vault.asset?.decimals
+      ),
       liquidityHistoricalAvailable: false,
-      series: buildV1HistorySeries(data.vault.historicalState),
+      series: buildV2HistorySeries(data.vault.historicalState),
     };
 
     const headers = mergeApiCacheHeaders(rateLimitResult.headers, 120);
     return NextResponse.json(response, { headers });
-  } catch (error) {
-    const { error: apiError, statusCode } = handleApiError(error, 'Failed to fetch vault history');
-    return NextResponse.json(apiError, { status: statusCode });
+  } catch (err) {
+    const { error, statusCode } = handleApiError(err, 'Failed to fetch vault history');
+    return NextResponse.json(error, { status: statusCode });
   }
 }

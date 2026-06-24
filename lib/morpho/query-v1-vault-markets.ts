@@ -3,7 +3,8 @@ import { morphoGraphQLClient } from './graphql-client';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 
 /**
- * GraphQL query to fetch markets for a V1 vault with all fields needed for market risk scoring
+ * GraphQL query for markets behind a MetaMorpho (wrapped) vault — used for
+ * underlying Blue market risk scoring on V2 adapter rows.
  */
 const VAULT_V1_MARKETS_QUERY = gql`
   query VaultV1Markets($address: String!, $chainId: Int!) {
@@ -21,7 +22,6 @@ const VAULT_V1_MARKETS_QUERY = gql`
           supplyAssets
           supplyAssetsUsd
           market {
-            id
             marketId
             loanAsset {
               symbol

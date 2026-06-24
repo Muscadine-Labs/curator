@@ -51,7 +51,6 @@ import {
   resolveAssetDecimals,
 } from '@/lib/format/asset-decimals';
 import { marketKeyFromGraphQL, morphoMarketHref, morphoVaultHref } from '@/lib/morpho/morpho-app-links';
-import { VAULT_VERSION_MAP } from '@/lib/morpho/treasury-statement';
 import type { CapInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governance/route';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
 import type { VaultV2PendingResponse } from '@/app/api/vaults/v2/[id]/pending/route';
@@ -78,7 +77,6 @@ type DeallocateRow = {
   label: string;
   morphoHref: string | null;
   lltv: string | null;
-  wrappedVaultVersion: 'v1' | 'v2' | null;
   adapterAddress: string;
   idData: Hex;
   currentRaw: bigint;
@@ -314,6 +312,7 @@ function DecreaseCapsPanel({
     void queryClient.refetchQueries({ queryKey: ['vault-v2-risk', vaultAddress] });
     void queryClient.refetchQueries({ queryKey: ['vault-v2-governance', vaultAddress] });
     void queryClient.refetchQueries({ queryKey: ['vault-reallocations', vaultAddress] });
+    void queryClient.refetchQueries({ queryKey: ['vault', vaultAddress] });
     setPreviewOpen(false);
     setTxPreview(null);
     pendingConfirmRef.current = null;
@@ -727,6 +726,7 @@ function DeallocatePanel({
     void queryClient.refetchQueries({ queryKey: ['vault-v2-risk', vaultAddress] });
     void queryClient.refetchQueries({ queryKey: ['vault-v2-governance', vaultAddress] });
     void queryClient.refetchQueries({ queryKey: ['vault-reallocations', vaultAddress] });
+    void queryClient.refetchQueries({ queryKey: ['vault', vaultAddress] });
     setPreviewOpen(false);
     setTxPreview(null);
     pendingConfirmRef.current = null;
@@ -896,11 +896,6 @@ function DeallocatePanel({
                             morphoHref={row.morphoHref}
                             className="font-medium"
                           />
-                          {row.wrappedVaultVersion && (
-                            <Badge variant="outline" className="text-xs uppercase">
-                              {row.wrappedVaultVersion}
-                            </Badge>
-                          )}
                           {row.lltv && (
                             <Badge variant="outline" className="text-xs">
                               {row.lltv}
@@ -1053,7 +1048,6 @@ function buildOverviewAndDeallocate(
     label: 'Idle',
     morphoHref: null,
     lltv: null,
-    wrappedVaultVersion: null,
     adapterAddress: '',
     idData: '0x',
     currentRaw: idleRaw,
@@ -1070,8 +1064,6 @@ function buildOverviewAndDeallocate(
       const raw = parseBig(adapter.allocationAssets);
       totalRaw += raw;
       const cap = capByAdapter.get(adapter.adapterAddress.toLowerCase());
-      const underlyingAddr = adapter.underlyingVaultAddress?.toLowerCase();
-      const wrappedVersion = underlyingAddr ? VAULT_VERSION_MAP[underlyingAddr] ?? 'v1' : 'v1';
 
       overviewSegments.push({
         key: `meta-${adapter.adapterAddress}`,
@@ -1087,7 +1079,6 @@ function buildOverviewAndDeallocate(
         label: adapter.adapterLabel || 'MetaMorpho',
         morphoHref: morphoVaultHref(adapter.underlyingVaultAddress),
         lltv: null,
-        wrappedVaultVersion: wrappedVersion,
         adapterAddress: adapter.adapterAddress,
         idData: METAMORPHO_ADAPTER_DATA,
         currentRaw: raw,
@@ -1124,7 +1115,6 @@ function buildOverviewAndDeallocate(
         label,
         morphoHref,
         lltv: formatLltvPill(m.market?.lltv ?? null),
-        wrappedVaultVersion: null,
         adapterAddress: adapter.adapterAddress,
         idData: m.market ? encodeMarketParamsData(m.market) : ('0x' as Hex),
         currentRaw: raw,

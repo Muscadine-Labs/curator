@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { VaultHistoryResponse } from '@/app/api/vaults/[id]/history/route';
 import type { VaultHistorySeries } from '@/lib/morpho/vault-history';
 import { apiFetch } from '@/lib/data/api-fetch';
+import { INDEXED_VAULT_QUERY_OPTIONS } from '@/lib/data/query-config';
 
 const EMPTY_HISTORY_SERIES: VaultHistorySeries = {
   supplied: [],
@@ -40,12 +41,12 @@ async function fetchVaultHistory(vaultAddress: string): Promise<VaultHistoryResp
 
 export function useVaultHistory(vaultAddress: string | null | undefined) {
   return useQuery({
-    queryKey: ['vault-history', vaultAddress, 'share-price-v1'],
+    queryKey: ['vault-history', vaultAddress, 'v2-share-price'],
     queryFn: () => {
       if (!vaultAddress) throw new Error('Vault address is required');
       return fetchVaultHistory(vaultAddress);
     },
     enabled: Boolean(vaultAddress),
-    staleTime: 120_000,
+    ...INDEXED_VAULT_QUERY_OPTIONS,
   });
 }

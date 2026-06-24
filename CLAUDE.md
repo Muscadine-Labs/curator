@@ -268,15 +268,12 @@ Overview → Roles → Adapters → Caps → Timelocks → Allocation → Sentin
 6. **Allocation** — `VaultV2Allocations.tsx` receives `preloadedData`
    (governance) **and** `preloadedRisk`. Caps are resolved via
    `keccak256(idData)` using helpers in `lib/morpho/v2-id-data.ts` (see §3.2).
-   **List layout** (same shell as V1):
-   sections in order **Idle → V1 Vault → Morpho Blue Market** (MetaMorpho rows
-   show a **V1**/**V2** pill from `VAULT_VERSION_MAP` on the underlying vault
-   address). No per-row type labels (section headers carry context). No token
-   icons. Row types:
-   - **MetaMorphoAdapter** — one row per wrapped V1/V2 vault (not per underlying
-     Blue market). Pair label uses `formatMarketPairLabel` (`cbBTC / USDC`).
-     Metrics from `underlyingVaultStats` on the risk API.
-   - **MorphoMarketV1Adapter** — one row per Blue market position. LLTV pill
+   **List layout**:
+   sections in order **Idle → Wrapped Vault → Morpho Blue Market**. MetaMorpho rows
+   are one row per wrapped vault (not per underlying Morpho Blue market). Row types:
+   - **MetaMorphoAdapter** — wrapped vault adapter. Pair label uses `formatMarketPairLabel`
+     where applicable. Metrics from `underlyingVaultStats` on the risk API.
+   - **MorphoMarketV1Adapter** — one row per Morpho Blue market position. LLTV pill
      next to name. Utilization, borrow/supply APY, liquidity from `market.state`.
      APY/utilization GraphQL values are **decimals**; multiply by 100 before
      `formatPercentage`.
@@ -341,10 +338,8 @@ from `lib/config/vaults.ts` with:
 is business vaults only.
 
 **Sidebar** (`components/layout/Sidebar.tsx`) uses `useVaultList({ includeAll: true })`.
-Section order under each network (Base only today): **V2 Prime → V1 Vaults → V2
-Vineyard → V2 Test**. All sidebar vault links route to `/vault/v2/{address}`
-(V1-labeled rows included — the V2 page loads whatever vault Morpho returns for
-that address).
+Section order under each network (Base only today): **V2 Prime → V2 Frontier → V2
+Vineyard → V2 Test**. All sidebar vault links route to `/vault/v2/{address}`.
 
 Ethereum appears in `SIDEBAR_NETWORKS` but has no configured vaults — expand
 **Base**, not Ethereum, to see vault links.
@@ -546,7 +541,8 @@ Adapter count KPI = `adapters.length + 1`. Total allocated display =
 set `Cache-Control` via `mergeApiCacheHeaders()` in `lib/api/response-cache.ts`
 (default `s-maxage=30`, stale-while-revalidate=60; some routes pass 60–300s).
 Client hooks bypass the browser HTTP cache with `apiFetch` (`cache: 'no-store'`)
-and poll every `CURATOR_REFETCH_INTERVAL_MS` (30s).
+and poll every `CURATOR_REFETCH_INTERVAL_MS` (60s) on dashboard hooks only; indexed
+vault queries do not background-poll (`lib/data/query-config.ts`).
 
 #### Do not regress
 
@@ -602,7 +598,7 @@ These rules are baked into `VaultV2Allocations.tsx`, `VaultV2Sentinel.tsx`,
 ### 5.1 List layout (`AllocationListView.tsx`)
 
 - Morpho-style card: header **Allocation | Allocation** (name left, amount right).
-- **Sections** (fixed order on V2): Idle → V1 Vault → Morpho Blue Market.
+- **Sections** (fixed order on V2): Idle → Wrapped Vault → Morpho Blue Market.
   Section headers replace per-row type labels.
 - **No token icons.** LLTV on Blue rows is a gray pill (`86%`) via
   `formatLltvPill`, not “LLTV 86%”.

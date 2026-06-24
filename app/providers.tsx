@@ -21,14 +21,18 @@ const ReactQueryDevtools = dynamic(
   { ssr: false }
 );
 
-import { CURATOR_REFETCH_INTERVAL_MS } from '@/lib/data/query-config';
+import {
+  CURATOR_DEFAULT_STALE_MS,
+  shouldRetryCuratorQuery,
+} from '@/lib/data/query-config';
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 0,
-      refetchInterval: CURATOR_REFETCH_INTERVAL_MS,
-      refetchOnWindowFocus: true,
+      staleTime: CURATOR_DEFAULT_STALE_MS,
+      refetchInterval: false,
+      refetchOnWindowFocus: false,
+      retry: shouldRetryCuratorQuery,
     },
   },
 });

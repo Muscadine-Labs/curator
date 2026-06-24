@@ -22,9 +22,11 @@ npm run build   # next build
 
 - **Auth:** the only login username is `admin` (role `'admin'`); password from
   `CURATOR_ADMIN_PASSWORD` (legacy `CURATOR_OWNER_PASSWORD` accepted).
-- **V2-only vault UI:** detail pages and on-chain writes are V2 only
-  (`app/vault/v2/[address]/page.tsx`). V1 vaults still appear in list/stats APIs
-  for reporting; manage V1 positions via Morpho Curator / app links.
+- **V2-only vault config:** all tracked vaults are Morpho V2 (`lib/config/vaults.ts`).
+  Detail pages and on-chain writes use `app/vault/v2/[address]/page.tsx` only.
+- **React Query polling** — dashboard hooks poll every 60s; indexed vault data
+  (history, reallocations, holders) does not background-poll. See
+  `lib/data/query-config.ts`.
 - **V2 allocate/deallocate** is delta-based; idle is never in calldata;
   unallocated remainder defaults to implicit Idle, with an optional explicit
   dust recipient (cap-validated).
@@ -43,6 +45,6 @@ npm run build   # next build
 - **V2 cap labels / idData** — governance `marketParams` + `fetch-markets-by-id.ts`
   enrichment for zero-allocation market and collateral caps.
 - **Client data freshness** — hooks use `apiFetch` (`cache: 'no-store'`) and
-  `CURATOR_REFETCH_INTERVAL_MS` (30s) from `lib/data/query-config.ts`.
+  `CURATOR_REFETCH_INTERVAL_MS` (60s) from `lib/data/query-config.ts`.
 - **No server-side private keys** — all writes go through the connected wallet.
 - Keep `CLAUDE.md`, `AGENTS.md`, and `TODO.md` in sync with behavior changes.

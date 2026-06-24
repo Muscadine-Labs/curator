@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { gql } from 'graphql-request';
 import { getAddress, isAddress } from 'viem';
 import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
-import { getVaultByAddress, shouldUseV2Query } from '@/lib/config/vaults';
+import { getVaultByAddress } from '@/lib/config/vaults';
 import { handleApiError, AppError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
 import { BASE_CHAIN_ID } from '@/lib/constants';
@@ -19,7 +19,7 @@ export type ReallocationEvent = {
   adapterAddress: string | null;
   allocationIds: string[];
   market: {
-    uniqueKey: string | null;
+    marketKey: string | null;
     loanAssetSymbol: string | null;
     collateralAssetSymbol: string | null;
     lltv: string | null;
@@ -35,39 +35,9 @@ export type ReallocationGroup = {
 
 export type ReallocationsResponse = {
   vaultAddress: string;
-  version: 'v1' | 'v2';
+  version: 'v2';
   groups: ReallocationGroup[];
 };
-
-const V1_REALLOCATIONS_QUERY = gql`
-  query V1VaultReallocations($first: Int!, $skip: Int!, $vaultAddress: [String!]!) {
-    vaultReallocates(
-      first: $first
-      skip: $skip
-      orderBy: Timestamp
-      orderDirection: Desc
-      where: { vaultAddress_in: $vaultAddress }
-    ) {
-      items {
-        hash
-        timestamp
-        blockNumber
-        assets
-        type
-        market {
-          marketId
-          lltv
-          loanAsset {
-            symbol
-          }
-          collateralAsset {
-            symbol
-          }
-        }
-      }
-    }
-  }
-`;
 
 const V2_REALLOCATIONS_QUERY = gql`
   query V2VaultReallocations(
@@ -97,24 +67,6 @@ const V2_REALLOCATIONS_QUERY = gql`
     }
   }
 `;
-
-type V1GraphResponse = {
-  vaultReallocates?: {
-    items?: Array<{
-      hash?: string | null;
-      timestamp?: number | string | null;
-      blockNumber?: number | string | null;
-      assets?: string | null;
-      type?: string | null;
-      market?: {
-        marketId?: string | null;
-        lltv?: string | null;
-        loanAsset?: { symbol?: string | null } | null;
-        collateralAsset?: { symbol?: string | null } | null;
-      } | null;
-    } | null> | null;
-  } | null;
-};
 
 type V2GraphResponse = {
   vaultV2AllocationTransactions?: {
@@ -176,79 +128,51 @@ export async function GET(
       throw new AppError('Vault not found', 404, 'VAULT_NOT_FOUND');
     }
 
+    if (vaultConfig.morphoVersion !== 'v2') {
+      throw new AppError('Vault not found', 404, 'VAULT_NOT_FOUND');
+    }
+
     const url = new URL(request.url);
     const first = Math.min(Number(url.searchParams.get('first') || '100'), 500);
     const skip = Math.min(Number(url.searchParams.get('skip') || '0'), 10_000);
 
-    const isV2 = shouldUseV2Query(null, vaultAddress);
-    let events: ReallocationEvent[] = [];
-
-    if (isV2) {
-      const chainId = vaultConfig.chainId ?? BASE_CHAIN_ID;
-      const data = await morphoGraphQLClient.request<V2GraphResponse>(V2_REALLOCATIONS_QUERY, {
-        vaultAddress,
-        chainId,
-        first,
-        skip,
-      });
-      const items = data.vaultV2AllocationTransactions?.items ?? [];
-      events = items
-        .filter((x): x is NonNullable<typeof x> => x !== null && Boolean(x.txHash))
-        .map((tx) => {
-          const allocationIds = (tx.ids ?? []).filter(Boolean) as string[];
-          return {
-            hash: String(tx.txHash),
-            timestamp: tx.timestamp != null ? Number(tx.timestamp) : null,
-            blockNumber: tx.blockNumber != null ? Number(tx.blockNumber) : null,
-            type: tx.type ?? 'Unknown',
-            assets: tx.assets != null ? String(tx.assets) : null,
-            change: tx.change != null ? String(tx.change) : null,
-            adapterAddress: tx.adapter ?? null,
-            allocationIds,
-            market: allocationIds[0]
-              ? {
-                  uniqueKey: allocationIds[0],
-                  loanAssetSymbol: null,
-                  collateralAssetSymbol: null,
-                  lltv: null,
-                }
-              : null,
-          };
-        });
-    } else {
-      const data = await morphoGraphQLClient.request<V1GraphResponse>(V1_REALLOCATIONS_QUERY, {
-        first,
-        skip,
-        vaultAddress: [vaultAddress.toLowerCase()],
-      });
-      const items = data.vaultReallocates?.items ?? [];
-      events = items
-        .filter((x): x is NonNullable<typeof x> => x !== null && Boolean(x.hash))
-        .map((tx) => ({
-          hash: String(tx.hash),
+    const chainId = vaultConfig.chainId ?? BASE_CHAIN_ID;
+    const data = await morphoGraphQLClient.request<V2GraphResponse>(V2_REALLOCATIONS_QUERY, {
+      vaultAddress,
+      chainId,
+      first,
+      skip,
+    });
+    const items = data.vaultV2AllocationTransactions?.items ?? [];
+    const events: ReallocationEvent[] = items
+      .filter((x): x is NonNullable<typeof x> => x !== null && Boolean(x.txHash))
+      .map((tx) => {
+        const allocationIds = (tx.ids ?? []).filter(Boolean) as string[];
+        return {
+          hash: String(tx.txHash),
           timestamp: tx.timestamp != null ? Number(tx.timestamp) : null,
           blockNumber: tx.blockNumber != null ? Number(tx.blockNumber) : null,
           type: tx.type ?? 'Unknown',
-          assets: tx.assets ?? null,
-          change: null,
-          adapterAddress: null,
-          allocationIds: [],
-          market: tx.market
+          assets: tx.assets != null ? String(tx.assets) : null,
+          change: tx.change != null ? String(tx.change) : null,
+          adapterAddress: tx.adapter ?? null,
+          allocationIds,
+          market: allocationIds[0]
             ? {
-                uniqueKey: tx.market.marketId ?? null,
-                loanAssetSymbol: tx.market.loanAsset?.symbol ?? null,
-                collateralAssetSymbol: tx.market.collateralAsset?.symbol ?? null,
-                lltv: tx.market.lltv ?? null,
+                marketKey: allocationIds[0],
+                loanAssetSymbol: null,
+                collateralAssetSymbol: null,
+                lltv: null,
               }
             : null,
-        }));
-    }
+        };
+      });
 
     const groups = groupByTransaction(events);
 
     const response: ReallocationsResponse = {
       vaultAddress,
-      version: isV2 ? 'v2' : 'v1',
+      version: 'v2',
       groups,
     };
 

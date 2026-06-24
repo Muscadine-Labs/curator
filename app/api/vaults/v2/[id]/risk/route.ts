@@ -154,7 +154,6 @@ const VAULT_V2_RISK_QUERY = gql`
                   supplyAssetsUsd
                 }
                 market {
-                  id
                   marketId
                   loanAsset { symbol decimals address }
                   collateralAsset { symbol decimals address }

@@ -9,7 +9,6 @@ const MARKETS_FOR_CAPS_QUERY = gql`
     markets(first: $first, where: { chainId_in: [$chainId] }) {
       items {
         marketId
-        id
         loanAsset {
           address
           symbol
@@ -45,7 +44,6 @@ export type MarketStateSnapshot = {
 
 type GraphMarketItem = {
   marketId?: string | null;
-  id?: string | null;
   loanAsset?: { address?: string | null; symbol?: string | null; decimals?: number | null } | null;
   collateralAsset?: { address?: string | null; symbol?: string | null; decimals?: number | null } | null;
   oracleAddress?: string | null;
@@ -66,7 +64,7 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 let cachedLookup: { chainId: number; fetchedAt: number; map: MarketLookup } | null = null;
 
 function keysForMarket(item: GraphMarketItem): string[] {
-  return [item.marketId, item.id]
+  return [item.marketId]
     .filter((k): k is string => Boolean(k))
     .map((k) => k.toLowerCase());
 }
