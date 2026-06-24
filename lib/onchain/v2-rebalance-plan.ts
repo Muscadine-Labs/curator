@@ -12,6 +12,8 @@ export type RebalanceTarget = {
   isVaultIdle?: boolean;
   absoluteCapRaw: bigint | null;
   relativeCapWad: bigint | null;
+  symbol?: string;
+  decimals?: number;
 };
 
 export type RebalancePlanRow = {
@@ -119,10 +121,29 @@ export function maxTargetFromIdleDeploy(
   return current + idleDeployAmount(current, t, totalRaw, deployableIdle);
 }
 
-/** Human percentage string for allocation edit inputs (two decimal places). */
+/** Scale factor for percentage inputs with two decimal places (100.00% → 10000). */
+const PCT_INPUT_SCALE = 10000n;
+
+/** Convert raw token amount to a percentage input string (two decimal places). */
 export function rawToPercentInput(raw: bigint, totalRaw: bigint): string {
-  if (totalRaw <= BigInt(0)) return '0';
-  return (Number((raw * BigInt(10000)) / totalRaw) / 100).toFixed(2);
+  if (totalRaw <= BigInt(0)) return '0.00';
+  const pctScaled = (raw * PCT_INPUT_SCALE) / totalRaw;
+  const whole = pctScaled / 100n;
+  const frac = pctScaled % 100n;
+  return `${whole.toString()}.${frac.toString().padStart(2, '0')}`;
+}
+
+/** Parse a human percentage string to raw token amount. */
+export function percentInputToRaw(
+  pctStr: string,
+  totalRaw: bigint
+): { assets: bigint; error: string | null } {
+  const pct = Number.parseFloat(pctStr.trim());
+  if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+    return { assets: BigInt(0), error: 'Invalid percentage' };
+  }
+  const pctScaled = BigInt(Math.round(pct * 100));
+  return { assets: (totalRaw * pctScaled) / PCT_INPUT_SCALE, error: null };
 }
 
 /** Trim planning overshoot (e.g. percentage rounding) so row targets sum to vault total. */
@@ -201,7 +222,7 @@ export function resolveDeployableIdleBase(
 export function clampPlanToFundableIdle(
   rows: ReadonlyArray<RebalancePlanRow>,
   deployableIdleBase?: bigint
-): RebalancePlanRow[] {
+): { rows: RebalancePlanRow[]; reduced: boolean } {
   const list = rows.map((r) => ({ ...r, target: { ...r.target } }));
   const idleBase = deployableIdleBase ?? resolveDeployableIdleBase(list);
 
@@ -225,7 +246,7 @@ export function clampPlanToFundableIdle(
   }
 
   const maxNetAllocate = idleBase + deallocateSum;
-  if (netAllocate <= maxNetAllocate) return list;
+  if (netAllocate <= maxNetAllocate) return { rows: list, reduced: false };
 
   let excess = netAllocate - maxNetAllocate;
   allocIndices.sort((a, b) => {
@@ -245,7 +266,7 @@ export function clampPlanToFundableIdle(
     excess -= step;
   }
 
-  return list;
+  return { rows: list, reduced: true };
 }
 
 /** Refresh strategy row `current` from live `allocation(id)` before building calldata. */
@@ -290,6 +311,43 @@ export async function refreshPlanRowsFromChain(
   });
 
   return list;
+}
+
+export const CLAMP_TO_FUNDABLE_WARNING =
+  'One or more allocate amounts were reduced to fit deployable idle plus deallocations in this transaction.';
+
+/** Refresh on-chain currents, validate total, and clamp to fundable idle (shared by preview + submit). */
+export async function finalizeRebalancePlan(
+  client: PublicClient,
+  vaultAddress: string,
+  rows: ReadonlyArray<RebalancePlanRow>,
+  chainTotalAssets: bigint
+): Promise<{
+  rows: RebalancePlanRow[];
+  error: string | null;
+  clampWarning: string | null;
+}> {
+  let plan = await refreshPlanRowsFromChain(client, vaultAddress, rows);
+
+  const surplusResult = applySubmitTimeSurplus(plan, chainTotalAssets);
+  if (surplusResult.error) {
+    return { rows: plan, error: surplusResult.error, clampWarning: null };
+  }
+  plan = surplusResult.rows;
+
+  const clamped = clampPlanToFundableIdle(plan);
+  plan = clamped.rows;
+
+  const fundingError = validateIdleFunding(plan);
+  if (fundingError) {
+    return { rows: plan, error: fundingError, clampWarning: null };
+  }
+
+  return {
+    rows: plan,
+    error: null,
+    clampWarning: clamped.reduced ? CLAMP_TO_FUNDABLE_WARNING : null,
+  };
 }
 
 /** Ensure allocate deltas can be funded from deployable idle after deallocations in the same multicall. */
