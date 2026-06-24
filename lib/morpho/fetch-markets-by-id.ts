@@ -1,3 +1,4 @@
+import { API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
 import { gql } from 'graphql-request';
 import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
 import { BASE_CHAIN_ID, GRAPHQL_FIRST_LIMIT } from '@/lib/constants';
@@ -60,7 +61,7 @@ export type MarketLookupEntry = {
 export type MarketParamsLookup = Map<string, NonNullable<CapInfo['marketParams']>>;
 export type MarketLookup = Map<string, MarketLookupEntry>;
 
-const CACHE_TTL_MS = 5 * 60 * 1000;
+const CACHE_TTL_MS = API_CACHE_MAX_AGE_MS;
 let cachedLookup: { chainId: number; fetchedAt: number; map: MarketLookup } | null = null;
 
 function keysForMarket(item: GraphMarketItem): string[] {

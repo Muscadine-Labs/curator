@@ -9,7 +9,7 @@ import { BASE_CHAIN_ID, VAULT_V2_GRAPHQL_ADAPTER_LIMIT, VAULT_V2_GRAPHQL_CAPS_LI
 import { mapCap, type GraphCap } from '@/lib/morpho/vault-v2-governance-map';
 import { enrichCollateralCapSymbols, enrichMarketCapParams } from '@/lib/morpho/fetch-markets-by-id';
 import { overlayV2OnChainCaps } from '@/lib/morpho/overlay-v2-onchain-caps';
-import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
+import { mergeApiOnChainVaultHeaders } from '@/lib/api/response-cache';
 import { logger } from '@/lib/utils/logger';
 
 type GraphAdapter = {
@@ -464,7 +464,7 @@ export async function GET(
       timelocks,
     };
 
-    const responseHeaders = mergeApiCacheHeaders(rateLimitResult.headers);
+    const responseHeaders = mergeApiOnChainVaultHeaders(rateLimitResult.headers);
 
     return NextResponse.json(response, { headers: responseHeaders });
   } catch (error) {

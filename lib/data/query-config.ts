@@ -1,8 +1,10 @@
-/** Poll dashboard KPIs (protocol stats, vault list) every 60s. */
-export const CURATOR_REFETCH_INTERVAL_MS = 60_000;
+import { API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
+
+/** Poll dashboard KPIs every 30s. */
+export const CURATOR_REFETCH_INTERVAL_MS = API_CACHE_MAX_AGE_MS;
 
 /** Default stale window before a query is considered outdated. */
-export const CURATOR_DEFAULT_STALE_MS = 60_000;
+export const CURATOR_DEFAULT_STALE_MS = API_CACHE_MAX_AGE_MS;
 
 /**
  * Vault caps + allocation amounts come from on-chain multicall (expensive).
@@ -11,7 +13,8 @@ export const CURATOR_DEFAULT_STALE_MS = 60_000;
 export const ON_CHAIN_VAULT_QUERY_OPTIONS = {
   refetchInterval: false as const,
   refetchOnWindowFocus: false as const,
-  staleTime: 60_000,
+  refetchOnMount: 'always' as const,
+  staleTime: 0,
 };
 
 /**
@@ -21,21 +24,21 @@ export const ON_CHAIN_VAULT_QUERY_OPTIONS = {
 export const INDEXED_VAULT_QUERY_OPTIONS = {
   refetchInterval: false as const,
   refetchOnWindowFocus: false as const,
-  staleTime: 60_000,
+  staleTime: CURATOR_DEFAULT_STALE_MS,
 };
 
 /** Dashboard aggregates (protocol stats, vault list). */
 export const DASHBOARD_QUERY_OPTIONS = {
   refetchInterval: CURATOR_REFETCH_INTERVAL_MS,
   refetchOnWindowFocus: false as const,
-  staleTime: 60_000,
+  staleTime: CURATOR_DEFAULT_STALE_MS,
 };
 
 /** Heavy statement / treasury queries — no background poll. */
 export const STATEMENT_QUERY_OPTIONS = {
   refetchInterval: false as const,
   refetchOnWindowFocus: false as const,
-  staleTime: 60_000,
+  staleTime: CURATOR_DEFAULT_STALE_MS,
 };
 
 /** Do not retry Morpho rate-limit errors — they amplify 429 storms. */

@@ -16,7 +16,7 @@ import { isAllocatableMarketCap } from '@/lib/morpho/v2-allocation-targets';
 import { mapCap, type GraphCap } from '@/lib/morpho/vault-v2-governance-map';
 import { enrichMarketCapParams } from '@/lib/morpho/fetch-markets-by-id';
 import { overlayV2OnChainAllocations } from '@/lib/morpho/overlay-v2-onchain-caps';
-import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
+import { mergeApiOnChainVaultHeaders } from '@/lib/api/response-cache';
 import { logger } from '@/lib/utils/logger';
 import { marketKeyFromGraphQL } from '@/lib/morpho/morpho-app-links';
 import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
@@ -631,7 +631,7 @@ export async function GET(
       });
     }
 
-    const responseHeaders = mergeApiCacheHeaders(rateLimitResult.headers);
+    const responseHeaders = mergeApiOnChainVaultHeaders(rateLimitResult.headers);
 
     return NextResponse.json(responsePayload, { headers: responseHeaders });
   } catch (error) {

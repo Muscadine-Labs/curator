@@ -1,3 +1,5 @@
+import { clampCacheTtlMs } from '@/lib/api/response-cache';
+
 type CacheEntry<T> = { data: T; expiresAt: number };
 
 const store = new Map<string, CacheEntry<unknown>>();
@@ -23,9 +25,10 @@ export async function withServerResponseCache<T>(
     return pending as Promise<T>;
   }
 
+  const ttl = clampCacheTtlMs(ttlMs);
   const promise = loader()
     .then((data) => {
-      store.set(key, { data, expiresAt: Date.now() + ttlMs });
+      store.set(key, { data, expiresAt: Date.now() + ttl });
       inflight.delete(key);
       return data;
     })

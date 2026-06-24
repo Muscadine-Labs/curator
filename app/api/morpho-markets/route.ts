@@ -9,7 +9,8 @@ import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
 // Ensure Node.js runtime for API routes (required for external API calls)
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const revalidate = 300;
+/** Must be a literal — Next.js segment config (capped at API_CACHE_MAX_AGE_SECONDS). */
+export const revalidate = 30;
 
 export async function GET(request: NextRequest) {
   // Rate limiting

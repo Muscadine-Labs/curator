@@ -308,17 +308,42 @@ no dedicated Risk tab on V2 vault pages today.
 
 ### 4.3 Caching
 
-All GET-style API routes return JSON consumed by React Query. Query keys:
+**TTL ceiling (30s):** BFF CDN cache, in-process server cache, React Query
+`staleTime`/poll intervals, and `fetch-markets-by-id` lookup reuse are all
+capped at **30 seconds** via `API_CACHE_MAX_AGE_SECONDS` / `API_CACHE_MAX_AGE_MS`
+in `lib/api/response-cache.ts` (`clampCacheMaxAgeSeconds`, `clampCacheTtlMs`).
+
+**BFF HTTP cache** — most routes use `mergeApiCacheHeaders()`:
+`public, s-maxage=N, stale-while-revalidate=30` where `N ≤ 30` (route arguments
+above 30 are clamped).
+
+**On-chain vault routes** — `GET /api/vaults/v2/[id]/risk` and
+`.../governance` use `mergeApiOnChainVaultHeaders()` → `private, no-store`
+(no CDN cache; each request runs GraphQL + RPC overlay).
+
+**In-process dedupe** — `withServerResponseCache()` (`lib/api/server-response-cache.ts`)
+for expensive handlers (e.g. `protocol-stats`); TTL clamped to 30s.
+
+**Client React Query** (`lib/data/query-config.ts`):
+
+| Tier | Hooks | Poll | staleTime | Refetch triggers |
+| ---- | ----- | ---- | --------- | ---------------- |
+| Dashboard | vault list, protocol stats | 30s | 30s | mount, poll |
+| Indexed vault | history, reallocations, holders, tx | none | 30s | mount, tab |
+| On-chain vault | `useVaultV2Risk`, `useVaultV2Governance` | none | 0 | mount (always), vault tab switch (allocations/caps/sentinel/adapters), post-tx, **Rebalance** click |
+
+Hooks use `apiFetch` (`cache: 'no-store'`) to bypass the browser HTTP cache.
+
+Query keys:
 
 - `['vault', address]`
 - `['vault-history', address]`
-- `['vault-v1-market-risk', address]`
 - `['vault-v2-risk', address]`
-- `['vault-v2-governance', address, 'market-params']`
+- `['vault-v2-governance', address, 'caps-state-v2']` — use
+  `vaultV2GovernanceQueryKey(address)` from `lib/hooks/useVaultV2Governance.ts`
+  for refetches/invalidations
 - `['vault-v2-pending', address, 'row-id']`
-- `['vault-v1-pending', address]`
-- `['vault-v1-parameters', address]`, `['vault-v2-parameters', address]`
-- `['vault-caps', address]`, `['vault-queues', address]`, `['vault-roles', address]`
+- `['vault-reallocations', address]`
 - `['markets']`, `['morpho-markets']`, `['protocol-stats']`
 
 Hooks live in `lib/hooks/` and should be the only entry points for reading
@@ -537,12 +562,12 @@ Adapter count KPI = `adapters.length + 1`. Total allocated display =
 `totalAdapterAssetsUsd + idleAssetsUsd`.
 
 **Hooks / cache:** `useVaultV2Risk`, `useVaultV2Governance`; keys
-`['vault-v2-risk', address]`, `['vault-v2-governance', address]`. BFF routes
-set `Cache-Control` via `mergeApiCacheHeaders()` in `lib/api/response-cache.ts`
-(default `s-maxage=30`, stale-while-revalidate=60; some routes pass 60–300s).
-Client hooks bypass the browser HTTP cache with `apiFetch` (`cache: 'no-store'`)
-and poll every `CURATOR_REFETCH_INTERVAL_MS` (60s) on dashboard hooks only; indexed
-vault queries do not background-poll (`lib/data/query-config.ts`).
+`['vault-v2-risk', address]` and `vaultV2GovernanceQueryKey(address)`. Risk and
+governance BFF routes use `mergeApiOnChainVaultHeaders()` (`no-store`). Other
+BFF routes use `mergeApiCacheHeaders()` (CDN `s-maxage` ≤ 30s). Client hooks
+use `apiFetch` (`cache: 'no-store'`); dashboard hooks poll every
+`CURATOR_REFETCH_INTERVAL_MS` (30s); on-chain vault hooks refetch on mount,
+tab switch, post-tx, and Rebalance (`lib/data/query-config.ts`).
 
 #### Do not regress
 
@@ -643,6 +668,11 @@ These rules are baked into `VaultV2Allocations.tsx`, `VaultV2Sentinel.tsx`,
    before `formatPercentage`.
 8. **Sentinel cap decreases** parse via `parseCapDecreaseInput`
    (`lib/morpho/cap-decrease-input.ts`) with inline row errors.
+9. **Rebalance freshness** — clicking **Rebalance** awaits
+   `refetchRisk()` + `refetchGov()` before edit mode (`beginRebalance` in
+   `VaultV2Allocations.tsx`). Partial refresh failure opens edit with a warning;
+   hard failure (no cached risk) shows an error and stays read-only. Tx preview
+   still calls `finalizeRebalancePlan` for a final on-chain read before sign.
 
 ### 5.4 Adapters & caps tabs
 
@@ -905,7 +935,8 @@ npm run build
 | V2 vault page (tabs)             | `app/vault/v2/[address]/page.tsx`                         |
 | Underlying V1 vault stats query  | `lib/morpho/query-v1-vault-markets.ts`                    |
 | Client fetch + refetch interval  | `lib/data/api-fetch.ts`, `lib/data/query-config.ts`      |
-| BFF cache headers                | `lib/api/response-cache.ts`                              |
+| BFF cache headers                | `lib/api/response-cache.ts`, `lib/api/server-response-cache.ts` |
+| Governance query key helper      | `vaultV2GovernanceQueryKey` in `lib/hooks/useVaultV2Governance.ts` |
 | Wallet / RainbowKit config       | `lib/wallet/config.ts`, `app/providers.tsx`, `components/ConnectWalletButton.tsx` |
 | Shared filters UI                | `components/morpho/AllocationFilters.tsx`               |
 | Number formatting                | `lib/format/number.ts`                                   |
@@ -1149,10 +1180,10 @@ High-value targets if Jest returns: `lib/morpho/cap-decrease-input.ts`,
 
 ---
 
-_Last updated: 2026-06-23 (v1.1.7). When you change reallocation logic, allocation
+_Last updated: 2026-06-24 (v1.1.8). When you change reallocation logic, allocation
 list/filters (§5), caps/adapters display, V2 idData/Sentinel (§3.2, §4.2), tx
-preview, client fetch/cache, Morpho GraphQL field names (§4.4.1), vault list/sidebar
-(§4.3.1), vault overview/history (share price in §4.4), risk scoring (§4.5), V2
-idle/MetaMorpho/Blue display, pending/emergency tabs, wallet stack, formatting,
-the CCTP flow, global density, or add a new vault interaction, update Sections 3–6,
-4.2–4.5, 9–10, 13, 15, and 16 accordingly._
+preview, client fetch/cache (§4.3), Morpho GraphQL field names (§4.4.1), vault
+list/sidebar (§4.3.1), vault overview/history (share price in §4.4), risk
+scoring (§4.5), V2 idle/MetaMorpho/Blue display, pending/emergency tabs, wallet
+stack, formatting, the CCTP flow, global density, or add a new vault interaction,
+update Sections 3–6, 4.2–4.5, 9–10, 13, 15, and 16 accordingly._

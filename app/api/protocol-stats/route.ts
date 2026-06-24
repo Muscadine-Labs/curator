@@ -14,7 +14,7 @@ import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
 import { gql } from 'graphql-request';
 import { getAddress } from 'viem';
 import { logger } from '@/lib/utils/logger';
-import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
+import { mergeApiCacheHeaders, API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
 import { withServerResponseCache } from '@/lib/api/server-response-cache';
 import {
   fetchDefiLlamaFees,
@@ -170,7 +170,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const stats = await withServerResponseCache('protocol-stats-v2', 60_000, async () => {
+    const stats = await withServerResponseCache('protocol-stats-v2', API_CACHE_MAX_AGE_MS, async () => {
     const businessVaults = getVaultAddressesForBusinessViews();
     const activeVaultsForStats = getActiveVaultAddressesForStats();
     const addresses = businessVaults.map((v) => getAddress(v.address));
