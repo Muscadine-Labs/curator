@@ -1053,7 +1053,6 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
         assets: row.assets,
         current: row.current,
       }));
-      sumAssets = adjustedResults.reduce((s, r) => s + r.assets, BigInt(0));
     }
 
     const fundingResult = clampPlanToFundableIdle(
