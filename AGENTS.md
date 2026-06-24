@@ -1,7 +1,5 @@
 # AGENTS.md — Working Instructions for AI Assistants
 
-_Current app version: **1.1.8** (`package.json`)._
-
 This file is the quick-start contract for any AI agent working in this repo.
 The full architecture reference lives in **`CLAUDE.md`** — read it before
 touching vault mechanics, allocations, Morpho GraphQL queries, or formatting.
@@ -19,14 +17,6 @@ touching vault mechanics, allocations, Morpho GraphQL queries, or formatting.
 npm run lint    # eslint . --max-warnings=0
 npm run build   # next build
 ```
-
-## Versioning rule (every GitHub push)
-
-Bump `package.json` `version` by **0.0.1 on each push**. When the last digit
-would pass 9, roll over to the next decimal:
-
-- `0.2.9` → `0.3.0`
-- `1.9.9` → `2.0.0`
 
 ## Key invariants (do not regress)
 

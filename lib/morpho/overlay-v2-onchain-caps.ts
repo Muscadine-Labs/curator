@@ -9,6 +9,7 @@ import { publicClient } from '@/lib/onchain/client';
 import { vaultV2Abi } from '@/lib/onchain/abis';
 import { resolveCapIdData, encodeAdapterCapIdData, encodeMarketCapIdData } from '@/lib/morpho/v2-id-data';
 import type { MarketRiskGrade } from '@/lib/morpho/compute-v1-market-risk';
+import { logger } from '@/lib/utils/logger';
 
 type CapReadContract = {
   address: Address;
@@ -260,13 +261,41 @@ export async function overlayV2OnChainAllocations(
     };
   });
 
-  const idleRaw = totalAssetsRaw > strategySum ? totalAssetsRaw - strategySum : 0n;
+  const computedResidual =
+    totalAssetsRaw > strategySum ? totalAssetsRaw - strategySum : 0n;
+
+  // Morpho GraphQL idleAssets is deployable vault cash. totalAssets − Σ allocation(id)
+  // can be higher (interest accrual in totalAssets not yet in per-id allocation counters).
+  let graphQlIdle: bigint | null = null;
+  if (risk.idleAssets != null) {
+    try {
+      graphQlIdle = BigInt(risk.idleAssets);
+    } catch {
+      graphQlIdle = null;
+    }
+  }
+
+  const idleRaw = graphQlIdle ?? computedResidual;
+
+  if (
+    graphQlIdle != null &&
+    computedResidual > graphQlIdle &&
+    computedResidual - graphQlIdle > 1000n
+  ) {
+    logger.debug('Allocation accrual gap (not deployable idle)', {
+      vaultAddress,
+      computedResidual: computedResidual.toString(),
+      idleAssets: graphQlIdle.toString(),
+    });
+  }
+
   const idleAssetsUsd = allocationUsdFromRaw(idleRaw, totalAssetsRaw, totalAssetsUsd);
   const headline = recomputeVaultRiskScore(adapters);
 
   return {
     ...risk,
     adapters,
+    totalAssets: totalAssetsRaw.toString(),
     idleAssets: idleRaw.toString(),
     idleAssetsUsd,
     ...headline,
