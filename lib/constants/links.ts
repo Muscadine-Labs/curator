@@ -1,5 +1,12 @@
 import type { ExternalLinkItem, MorphoAutomationBot } from '@/lib/constants/types';
 
+/** Safe Developer Dashboard — API keys, Transaction Service, app registration. */
+export const SAFE_DEVELOPER_DASHBOARD_URL = 'https://developer.safe.global/login';
+
+/** Muscadine Labs Safe{Wallet} space on app.safe.global. */
+export const MUSCADINE_SAFE_SPACE_URL =
+  'https://app.safe.global/spaces?spaceId=2510f9d4-505e-4da8-8e40-2d55d721ae0a';
+
 export const MUSCADINE_DOMAINS: readonly ExternalLinkItem[] = [
   { name: 'Muscadine', url: 'https://muscadine.io', description: 'Website' },
   { name: 'Analytics', url: 'https://analytics.muscadine.io', description: 'Analytics' },
@@ -24,6 +31,21 @@ export const MUSCADINE_DEVELOPMENT_LINKS: readonly ExternalLinkItem[] = [
 export const MUSCADINE_BUSINESS_SERVICES: readonly ExternalLinkItem[] = [
   { name: 'Georgia Secretary of State', url: 'https://ecorp.sos.ga.gov/', description: 'ecorp.sos.ga.gov' },
   { name: 'NameSilo', url: 'https://www.namesilo.com/', description: 'Domain registrar' },
+];
+
+export const MUSCADINE_SAFE_LINKS: readonly ExternalLinkItem[] = [
+  {
+    name: 'Safe Developer',
+    url: SAFE_DEVELOPER_DASHBOARD_URL,
+    description: 'API keys, Transaction Service, Safe App registration',
+    displayText: 'developer.safe.global',
+  },
+  {
+    name: 'Muscadine Safe Workspace',
+    url: MUSCADINE_SAFE_SPACE_URL,
+    description: 'Multisig workspace on Safe{Wallet}',
+    displayText: 'app.safe.global',
+  },
 ];
 
 export const COINBASE_DEV_LINKS: readonly ExternalLinkItem[] = [

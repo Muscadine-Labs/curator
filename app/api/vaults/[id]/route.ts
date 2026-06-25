@@ -200,9 +200,8 @@ function mapV2VaultDetail(
     caps: v2Caps,
   });
 
-  const performanceFeeBps = mv.performanceFee
-    ? Math.round(mv.performanceFee * BPS_PER_ONE)
-    : null;
+  const performanceFeeBps =
+    mv.performanceFee != null ? Math.round(mv.performanceFee * BPS_PER_ONE) : null;
 
   const txItems = (txs?.items ?? []).filter(
     (t): t is {
@@ -282,7 +281,7 @@ function mapV2VaultDetail(
     })),
     parameters: {
       performanceFeeBps: performanceFeeBps,
-      performanceFeePercent: performanceFeeBps ? performanceFeeBps / 100 : null,
+      performanceFeePercent: performanceFeeBps != null ? performanceFeeBps / 100 : null,
       maxDeposit: null,
       maxWithdrawal: null,
       strategyNotes: '',

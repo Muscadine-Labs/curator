@@ -34,7 +34,40 @@ const nextConfig: NextConfig = {
   },
   // Security headers
   async headers() {
+    const safeAppCorsHeaders = [
+      {
+        key: 'Access-Control-Allow-Origin',
+        value: '*',
+      },
+      {
+        key: 'Access-Control-Allow-Methods',
+        value: 'GET',
+      },
+      {
+        key: 'Access-Control-Allow-Headers',
+        value: 'X-Requested-With, content-type, Authorization',
+      },
+    ];
+
     return [
+      {
+        source: '/manifest.json',
+        headers: [
+          ...safeAppCorsHeaders,
+          {
+            key: 'Content-Security-Policy',
+            value: "frame-ancestors 'self' https://app.safe.global",
+          },
+        ],
+      },
+      {
+        source: '/muscadinelogo.svg',
+        headers: safeAppCorsHeaders,
+      },
+      {
+        source: '/muscadinelogo.jpg',
+        headers: safeAppCorsHeaders,
+      },
       {
         source: '/:path*',
         headers: [
@@ -47,8 +80,8 @@ const nextConfig: NextConfig = {
             value: 'max-age=63072000; includeSubDomains; preload',
           },
           {
-            key: 'X-Frame-Options',
-            value: 'SAMEORIGIN',
+            key: 'Content-Security-Policy',
+            value: "frame-ancestors 'self' https://app.safe.global",
           },
           {
             key: 'X-Content-Type-Options',

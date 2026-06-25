@@ -109,7 +109,7 @@ export function VaultOverviewPanel({
         title: 'Perf. fee',
         value:
           vault.parameters?.performanceFeePercent ??
-          (vault.parameters?.performanceFeeBps
+          (vault.parameters?.performanceFeeBps != null
             ? vault.parameters.performanceFeeBps / 100
             : null),
         subtitle: 'Curator rate',

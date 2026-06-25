@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -17,6 +18,9 @@ import { TransactionButton } from '@/components/TransactionButton';
 import { TxPreviewDialog } from '@/components/morpho/TxPreviewDialog';
 import { buildAllocationRebalancePreview } from '@/lib/morpho/tx-preview';
 import type { TxPreview } from '@/lib/morpho/tx-preview';
+import { queueVaultRebalanceInSafe } from '@/lib/safe/queue-vault-write';
+import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
+import { resolveAllocationWriteMode } from '@/lib/safe/vault-role-match';
 import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
 import type { Address, Hex } from 'viem';
 import {
@@ -718,6 +722,8 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
   const [dustRecipientKey, setDustRecipientKey] = useState<DustRecipientChoice>('auto');
   const [rebalancePreviewOpen, setRebalancePreviewOpen] = useState(false);
   const [preparingPreview, setPreparingPreview] = useState(false);
+  const [queueingSafe, setQueueingSafe] = useState(false);
+  const [queueSafeError, setQueueSafeError] = useState<string | null>(null);
   const [preparedSubmit, setPreparedSubmit] = useState<{
     rows: RebalancePlanRow[];
     preview: TxPreview;
@@ -726,6 +732,19 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
   const multicallWrite = useVaultWrite({ chainId: chainId ?? BASE_CHAIN_ID });
   const publicClient = usePublicClient({ chainId: chainId ?? BASE_CHAIN_ID });
   const { address: walletAddress } = useAccount();
+  const router = useRouter();
+  const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
+    useCuratorSafeApps();
+  const allocatorSafeAppSdk = useMemo(
+    () =>
+      safeAppConnected && safeAppSdk && safeAppRole === 'allocator' ? safeAppSdk : null,
+    [safeAppConnected, safeAppSdk, safeAppRole]
+  );
+
+  const allocationWriteMode = useMemo(
+    () => resolveAllocationWriteMode(governance?.allocators, walletAddress),
+    [governance?.allocators, walletAddress]
+  );
 
   useEffect(() => {
     if (!multicallWrite.isSuccess) return;
@@ -1428,6 +1447,32 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     walletAddress,
   ]);
 
+  const handleQueueInAllocatorSafe = useCallback(async () => {
+    if (!preparedSubmit) return;
+
+    setQueueingSafe(true);
+    setQueueSafeError(null);
+
+    try {
+      await queueVaultRebalanceInSafe({
+        vaultAddress: getAddress(vaultAddress),
+        submitRows: preparedSubmit.rows,
+        preview: preparedSubmit.preview,
+        vaultSymbol,
+        proposer: walletAddress ? getAddress(walletAddress) : undefined,
+        safeAppSdk: allocatorSafeAppSdk,
+      });
+      setRebalancePreviewOpen(false);
+      setPreparedSubmit(null);
+      setEditing(false);
+      router.push('/curator/safe/allocator');
+    } catch (error) {
+      setQueueSafeError(error instanceof Error ? error.message : 'Failed to queue Safe transaction.');
+    } finally {
+      setQueueingSafe(false);
+    }
+  }, [allocatorSafeAppSdk, preparedSubmit, vaultAddress, vaultSymbol, walletAddress, router]);
+
   const getEditedAllocationDisplay = useCallback(
     (targetIdx: number): { raw: bigint; pct: number; usd: number } => {
       const t = targetsWithCaps[targetIdx];
@@ -1947,12 +1992,44 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
               preview={preparedSubmit?.preview ?? null}
               onOpenChange={(open) => {
                 setRebalancePreviewOpen(open);
-                if (!open) setPreparedSubmit(null);
+                if (!open) {
+                  setPreparedSubmit(null);
+                  setQueueSafeError(null);
+                }
               }}
-              onConfirm={handleRebalance}
-              isLoading={multicallWrite.isLoading}
-              error={submitError ? new Error(submitError) : multicallWrite.error}
-              confirmLabel="Confirm rebalance"
+              writeMode={allocationWriteMode}
+              onConfirm={
+                allocationWriteMode === 'safe'
+                  ? () => void handleQueueInAllocatorSafe()
+                  : handleRebalance
+              }
+              isLoading={
+                allocationWriteMode === 'safe' ? queueingSafe : multicallWrite.isLoading
+              }
+              error={
+                allocationWriteMode === 'safe'
+                  ? queueSafeError
+                    ? new Error(queueSafeError)
+                    : null
+                  : submitError
+                    ? new Error(submitError)
+                    : multicallWrite.error
+              }
+              confirmLabel={
+                allocationWriteMode === 'safe'
+                  ? 'Queue in Allocator Safe'
+                  : 'Confirm rebalance'
+              }
+              secondaryLabel={
+                allocationWriteMode === 'both' ? 'Queue in Allocator Safe' : undefined
+              }
+              onSecondary={
+                allocationWriteMode === 'both'
+                  ? () => void handleQueueInAllocatorSafe()
+                  : undefined
+              }
+              secondaryLoading={queueingSafe}
+              secondaryError={queueSafeError ? new Error(queueSafeError) : null}
             />
 
             {multicallWrite.txHash && (

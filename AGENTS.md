@@ -55,4 +55,15 @@ npm run build   # next build
   `CURATOR_REFETCH_INTERVAL_MS` and default `staleTime` are **30s** (capped via
   `API_CACHE_MAX_AGE_MS` in `lib/api/response-cache.ts`).
 - **No server-side private keys** — all writes go through the connected wallet.
+- **Multisig Safe** — Muscadine Allocator/Sentinel Safes (`lib/safe/config.ts`):
+  queue from vault Allocation/Sentinel preview when governance lists the Safe as
+  role holder; sign + execute on `/curator/safe/[role]` with owner hot wallet.
+  **localStorage is always kept** (export/import); optional Transaction Service
+  sync via `NEXT_PUBLIC_SAFE_API_KEY` (`lib/safe/transaction-service.ts`,
+  `service-sync.ts`, rate limit in `transaction-service-rate-limit.ts` — manual
+  sync only, no polling). Safe Apps SDK embed via `CuratorSafeAppsProvider`
+  (`lib/safe/safe-apps-context.tsx`); manifest at `public/manifest.json`
+  (`muscadinelogo.jpg`). Post-execute refetch via
+  `refetch-vault-after-safe-execute.ts`; queue previews always shown (stored or
+  decoded calldata in `decode-vault-calldata-preview.ts`). See `CLAUDE.md` §13.
 - Keep `CLAUDE.md`, `AGENTS.md`, and `TODO.md` in sync with behavior changes.

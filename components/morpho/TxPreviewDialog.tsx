@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { TxPreview, TxPreviewChange } from '@/lib/morpho/tx-preview';
 import { txPreviewActionLabel } from '@/lib/morpho/tx-preview';
+import type { VaultWriteMode } from '@/lib/safe/vault-role-match';
+import { SAFE_QUEUE_FOOTNOTE } from '@/lib/safe/vault-role-match';
 
 interface TxPreviewDialogProps {
   open: boolean;
@@ -16,6 +18,11 @@ interface TxPreviewDialogProps {
   isLoading?: boolean;
   error?: Error | null;
   confirmLabel?: string;
+  writeMode?: VaultWriteMode;
+  secondaryLabel?: string;
+  onSecondary?: () => void | Promise<void>;
+  secondaryLoading?: boolean;
+  secondaryError?: Error | null;
 }
 
 function actionBadgeClass(action: TxPreviewChange['action']): string {
@@ -81,6 +88,11 @@ export function TxPreviewDialog({
   isLoading = false,
   error = null,
   confirmLabel = 'Confirm & sign',
+  writeMode = 'both',
+  secondaryLabel,
+  onSecondary,
+  secondaryLoading = false,
+  secondaryError = null,
 }: TxPreviewDialogProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
@@ -122,6 +134,14 @@ export function TxPreviewDialog({
   }, [open]);
 
   if (!mounted || !open || !preview) return null;
+
+  const showSecondaryQueue =
+    writeMode === 'both' && Boolean(onSecondary && secondaryLabel);
+  const showPrimaryButton =
+    writeMode === 'wallet' || writeMode === 'both' || writeMode === 'safe';
+  const footnoteText = [preview.footnote, writeMode === 'safe' ? SAFE_QUEUE_FOOTNOTE : null]
+    .filter(Boolean)
+    .join(' ');
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center">
@@ -167,15 +187,15 @@ export function TxPreviewDialog({
           ))}
         </div>
 
-        {preview.footnote && (
+        {footnoteText && (
           <p className="border-t border-slate-200 px-4 py-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-            {preview.footnote}
+            {footnoteText}
           </p>
         )}
 
-        {error && (
+        {(error || secondaryError) && (
           <p className="border-t border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
-            {error.message?.slice(0, 400) ?? 'Transaction failed.'}
+            {(error ?? secondaryError)?.message?.slice(0, 400) ?? 'Transaction failed.'}
           </p>
         )}
 
@@ -183,14 +203,26 @@ export function TxPreviewDialog({
           <Button
             type="button"
             variant="outline"
-            disabled={isLoading}
+            disabled={isLoading || secondaryLoading}
             onClick={() => onOpenChange(false)}
           >
             Cancel
           </Button>
-          <Button type="button" disabled={isLoading} onClick={onConfirm}>
-            {isLoading ? 'Confirming…' : confirmLabel}
-          </Button>
+          {showSecondaryQueue && (
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={isLoading || secondaryLoading}
+              onClick={onSecondary}
+            >
+              {secondaryLoading ? 'Queuing…' : secondaryLabel}
+            </Button>
+          )}
+          {showPrimaryButton && (
+            <Button type="button" disabled={isLoading || secondaryLoading} onClick={onConfirm}>
+              {isLoading ? (writeMode === 'safe' ? 'Queuing…' : 'Confirming…') : confirmLabel}
+            </Button>
+          )}
         </div>
       </div>
     </div>,

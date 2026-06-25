@@ -1,7 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
+import { useAccount } from 'wagmi';
 import { Info } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -61,6 +63,12 @@ import {
 import { parseCapDecreaseInput } from '@/lib/morpho/cap-decrease-input';
 import type { TxPreview } from '@/lib/morpho/tx-preview';
 import type { Address, Hex } from 'viem';
+import { getAddress } from 'viem';
+import { queueVaultWriteInSafe } from '@/lib/safe/queue-vault-write';
+import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
+import { SENTINEL_SAFE_ROLE } from '@/lib/safe/config';
+import { resolveSentinelWriteMode } from '@/lib/safe/vault-role-match';
+import { vaultWriteToCalldata } from '@/lib/safe/encode-vault-write';
 
 interface VaultV2SentinelProps {
   vaultAddress: string;
@@ -261,6 +269,7 @@ export function VaultV2Sentinel({
         assetSymbol={assetSymbol}
         assetDecimals={assetDecimals}
         chainDecimals={chainDecimals}
+        sentinels={governance.sentinels}
       />
 
       <DeallocatePanel
@@ -271,6 +280,7 @@ export function VaultV2Sentinel({
         assetDecimals={assetDecimals}
         chainDecimals={chainDecimals}
         displayDecimals={displayDecimals}
+        sentinels={governance.sentinels}
       />
 
     </div>
@@ -286,6 +296,7 @@ function DecreaseCapsPanel({
   assetSymbol,
   assetDecimals,
   chainDecimals,
+  sentinels,
 }: {
   grouped: ReturnType<typeof groupCaps>;
   risk: V2VaultRiskResponse;
@@ -295,6 +306,7 @@ function DecreaseCapsPanel({
   assetSymbol?: string | null;
   assetDecimals?: number | null;
   chainDecimals: number;
+  sentinels: string[];
 }) {
   const [selections, setSelections] = useState<Record<string, CapDecreaseMode>>({});
   const [newValues, setNewValues] = useState<Record<string, string>>({});
@@ -302,8 +314,24 @@ function DecreaseCapsPanel({
   const [previewOpen, setPreviewOpen] = useState(false);
   const [txPreview, setTxPreview] = useState<TxPreview | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
+  const [queueingSafe, setQueueingSafe] = useState(false);
+  const [queueSafeError, setQueueSafeError] = useState<string | null>(null);
   const pendingConfirmRef = useRef<(() => Promise<void>) | null>(null);
+  const pendingCalldataRef = useRef<{ to: Address; data: Hex } | null>(null);
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const { address: walletAddress } = useAccount();
+  const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
+    useCuratorSafeApps();
+  const sentinelSafeAppSdk = useMemo(
+    () =>
+      safeAppConnected && safeAppSdk && safeAppRole === 'sentinel' ? safeAppSdk : null,
+    [safeAppConnected, safeAppSdk, safeAppRole]
+  );
+  const sentinelWriteMode = useMemo(
+    () => resolveSentinelWriteMode(sentinels, walletAddress),
+    [sentinels, walletAddress]
+  );
   const write = useVaultWrite({ chainId });
   const writeInFlight = write.isLoading && activeRowKey !== null;
 
@@ -316,6 +344,7 @@ function DecreaseCapsPanel({
     setPreviewOpen(false);
     setTxPreview(null);
     pendingConfirmRef.current = null;
+    pendingCalldataRef.current = null;
     setActiveRowKey(null);
   }, [write.isSuccess, queryClient, vaultAddress]);
 
@@ -423,6 +452,38 @@ function DecreaseCapsPanel({
         return;
       }
 
+      const idData = resolveCapIdData(cap, risk);
+      if (!idData) return;
+
+      const parsed = parseCapDecreaseInput({
+        mode,
+        valueStr,
+        currentAbsoluteRaw: cap.absoluteCap,
+        currentRelativeRaw: cap.relativeCap,
+        assetSymbol,
+        chainDecimals,
+      });
+      if (!parsed.ok) return;
+
+      const writeConfig =
+        parsed.mode === 'absolute'
+          ? v2WriteConfigs.decreaseAbsoluteCap(
+              vaultAddress as Address,
+              idData,
+              parsed.value
+            )
+          : v2WriteConfigs.decreaseRelativeCap(
+              vaultAddress as Address,
+              idData,
+              parsed.value
+            );
+
+      pendingCalldataRef.current = vaultWriteToCalldata({
+        address: writeConfig.address,
+        functionName: writeConfig.functionName,
+        args: writeConfig.args,
+      });
+
       setRowErrors((prev) => {
         if (!prev[rowKey]) return prev;
         const next = { ...prev };
@@ -448,6 +509,41 @@ function DecreaseCapsPanel({
       }
     }
   }, [activeRowKey]);
+
+  const handleQueueInSentinelSafe = useCallback(async () => {
+    if (!txPreview || !pendingCalldataRef.current) return;
+
+    setQueueingSafe(true);
+    setQueueSafeError(null);
+
+    try {
+      await queueVaultWriteInSafe({
+        safeRole: SENTINEL_SAFE_ROLE,
+        calldata: pendingCalldataRef.current,
+        description: `Sentinel cap decrease — ${assetSymbol ?? vaultAddress}`,
+        preview: txPreview,
+        source: {
+          type: 'sentinel',
+          action: 'decrease_cap',
+          vaultAddress: getAddress(vaultAddress),
+          vaultSymbol: assetSymbol ?? undefined,
+        },
+        proposer: walletAddress ? getAddress(walletAddress) : undefined,
+        safeAppSdk: sentinelSafeAppSdk,
+      });
+      setPreviewOpen(false);
+      setTxPreview(null);
+      pendingConfirmRef.current = null;
+      pendingCalldataRef.current = null;
+      router.push('/curator/safe/sentinel');
+    } catch (error) {
+      setQueueSafeError(
+        error instanceof Error ? error.message : 'Failed to queue Safe transaction.'
+      );
+    } finally {
+      setQueueingSafe(false);
+    }
+  }, [assetSymbol, router, sentinelSafeAppSdk, txPreview, vaultAddress, walletAddress]);
 
   const clearRowInput = (rowKey: string) => {
     setSelections((prev) => {
@@ -678,17 +774,42 @@ function DecreaseCapsPanel({
         open={previewOpen}
         preview={txPreview}
         onOpenChange={(open) => {
-          if (writeInFlight) return;
+          if (writeInFlight || queueingSafe) return;
           setPreviewOpen(open);
           if (!open) {
             setTxPreview(null);
             pendingConfirmRef.current = null;
+            pendingCalldataRef.current = null;
+            setQueueSafeError(null);
           }
         }}
-        onConfirm={confirmPreview}
-        isLoading={writeInFlight}
-        error={write.error}
-        confirmLabel="Confirm decrease"
+        writeMode={sentinelWriteMode}
+        onConfirm={
+          sentinelWriteMode === 'safe'
+            ? () => void handleQueueInSentinelSafe()
+            : confirmPreview
+        }
+        isLoading={sentinelWriteMode === 'safe' ? queueingSafe : writeInFlight}
+        error={
+          sentinelWriteMode === 'safe'
+            ? queueSafeError
+              ? new Error(queueSafeError)
+              : null
+            : write.error
+        }
+        confirmLabel={
+          sentinelWriteMode === 'safe' ? 'Queue in Sentinel Safe' : 'Confirm decrease'
+        }
+        secondaryLabel={
+          sentinelWriteMode === 'both' ? 'Queue in Sentinel Safe' : undefined
+        }
+        onSecondary={
+          sentinelWriteMode === 'both'
+            ? () => void handleQueueInSentinelSafe()
+            : undefined
+        }
+        secondaryLoading={queueingSafe}
+        secondaryError={queueSafeError ? new Error(queueSafeError) : null}
       />
     </Card>
   );
@@ -702,6 +823,7 @@ function DeallocatePanel({
   assetDecimals,
   chainDecimals,
   displayDecimals,
+  sentinels,
 }: {
   rows: DeallocateRow[];
   vaultAddress: string;
@@ -710,14 +832,31 @@ function DeallocatePanel({
   assetDecimals?: number | null;
   chainDecimals: number;
   displayDecimals: number;
+  sentinels: string[];
 }) {
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [activeRowKey, setActiveRowKey] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [txPreview, setTxPreview] = useState<TxPreview | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
+  const [queueingSafe, setQueueingSafe] = useState(false);
+  const [queueSafeError, setQueueSafeError] = useState<string | null>(null);
   const pendingConfirmRef = useRef<(() => Promise<void>) | null>(null);
+  const pendingCalldataRef = useRef<{ to: Address; data: Hex } | null>(null);
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const { address: walletAddress } = useAccount();
+  const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
+    useCuratorSafeApps();
+  const sentinelSafeAppSdk = useMemo(
+    () =>
+      safeAppConnected && safeAppSdk && safeAppRole === 'sentinel' ? safeAppSdk : null,
+    [safeAppConnected, safeAppSdk, safeAppRole]
+  );
+  const sentinelWriteMode = useMemo(
+    () => resolveSentinelWriteMode(sentinels, walletAddress),
+    [sentinels, walletAddress]
+  );
   const write = useVaultWrite({ chainId });
   const writeInFlight = write.isLoading && activeRowKey !== null;
 
@@ -730,6 +869,7 @@ function DeallocatePanel({
     setPreviewOpen(false);
     setTxPreview(null);
     pendingConfirmRef.current = null;
+    pendingCalldataRef.current = null;
     setActiveRowKey(null);
   }, [write.isSuccess, queryClient, vaultAddress]);
 
@@ -828,6 +968,19 @@ function DeallocatePanel({
         delete next[row.key];
         return next;
       });
+
+      const writeConfig = v2WriteConfigs.deallocate(
+        vaultAddress as Address,
+        row.adapterAddress as Address,
+        row.idData,
+        parsed
+      );
+      pendingCalldataRef.current = vaultWriteToCalldata({
+        address: writeConfig.address,
+        functionName: writeConfig.functionName,
+        args: writeConfig.args,
+      });
+
       pendingConfirmRef.current = () => deallocateRow(row, parsed);
       setTxPreview(result.preview);
       setPreviewOpen(true);
@@ -847,6 +1000,41 @@ function DeallocatePanel({
       }
     }
   }, [activeRowKey]);
+
+  const handleQueueInSentinelSafe = useCallback(async () => {
+    if (!txPreview || !pendingCalldataRef.current) return;
+
+    setQueueingSafe(true);
+    setQueueSafeError(null);
+
+    try {
+      await queueVaultWriteInSafe({
+        safeRole: SENTINEL_SAFE_ROLE,
+        calldata: pendingCalldataRef.current,
+        description: `Sentinel deallocate — ${assetSymbol ?? vaultAddress}`,
+        preview: txPreview,
+        source: {
+          type: 'sentinel',
+          action: 'deallocate',
+          vaultAddress: getAddress(vaultAddress),
+          vaultSymbol: assetSymbol ?? undefined,
+        },
+        proposer: walletAddress ? getAddress(walletAddress) : undefined,
+        safeAppSdk: sentinelSafeAppSdk,
+      });
+      setPreviewOpen(false);
+      setTxPreview(null);
+      pendingConfirmRef.current = null;
+      pendingCalldataRef.current = null;
+      router.push('/curator/safe/sentinel');
+    } catch (error) {
+      setQueueSafeError(
+        error instanceof Error ? error.message : 'Failed to queue Safe transaction.'
+      );
+    } finally {
+      setQueueingSafe(false);
+    }
+  }, [assetSymbol, router, sentinelSafeAppSdk, txPreview, vaultAddress, walletAddress]);
 
   return (
     <Card>
@@ -978,17 +1166,42 @@ function DeallocatePanel({
         open={previewOpen}
         preview={txPreview}
         onOpenChange={(open) => {
-          if (writeInFlight) return;
+          if (writeInFlight || queueingSafe) return;
           setPreviewOpen(open);
           if (!open) {
             setTxPreview(null);
             pendingConfirmRef.current = null;
+            pendingCalldataRef.current = null;
+            setQueueSafeError(null);
           }
         }}
-        onConfirm={confirmPreview}
-        isLoading={writeInFlight}
-        error={write.error}
-        confirmLabel="Confirm deallocate"
+        writeMode={sentinelWriteMode}
+        onConfirm={
+          sentinelWriteMode === 'safe'
+            ? () => void handleQueueInSentinelSafe()
+            : confirmPreview
+        }
+        isLoading={sentinelWriteMode === 'safe' ? queueingSafe : writeInFlight}
+        error={
+          sentinelWriteMode === 'safe'
+            ? queueSafeError
+              ? new Error(queueSafeError)
+              : null
+            : write.error
+        }
+        confirmLabel={
+          sentinelWriteMode === 'safe' ? 'Queue in Sentinel Safe' : 'Confirm deallocate'
+        }
+        secondaryLabel={
+          sentinelWriteMode === 'both' ? 'Queue in Sentinel Safe' : undefined
+        }
+        onSecondary={
+          sentinelWriteMode === 'both'
+            ? () => void handleQueueInSentinelSafe()
+            : undefined
+        }
+        secondaryLoading={queueingSafe}
+        secondaryError={queueSafeError ? new Error(queueSafeError) : null}
       />
     </Card>
   );

@@ -65,13 +65,15 @@ app/
     monthly-statement-* Statement generators
     google-sheets/     Sheets export
     auth/              Session verify
-  curator/             Curator-only tools (morpho, safe)
+    safe/[address]/    GET /api/safe/[address]/info (owners, threshold, nonce, ETH)
+  curator/             Curator-only tools (morpho, safe multisig)
   overview/            Aggregate dashboards
   vault/v2/[address]/  V2 vault detail page (only vault detail route)
 
 components/
   morpho/              VaultV2Allocations, VaultV2Caps, VaultV2Sentinel,
                        TxPreviewDialog, AllocationListView, …
+  safe/                SafeOverviewPanel, SafeTransactionQueue, workspace link
   layout/              AppShell, Sidebar, Topbar
   ui/                  Primitive components (button, card, input, table, ...)
 
@@ -83,6 +85,8 @@ lib/
   format/number.ts     Central number/BigInt formatting helpers
   hooks/               React Query hooks for vault data
   morpho/              GraphQL queries, tx-preview, cap-decrease-input, …
+  safe/                Muscadine role Safe config, Protocol Kit client,
+                       localStorage pending queue, vault calldata builders
   onchain/
     abis.ts            Vault V2 ABI only
     vault-writes.ts    V2 write config builders
@@ -751,6 +755,10 @@ components.
 - **All on-chain writes** (V1/V2 reallocate, caps, CCTP, etc.) go through
   **RainbowKit → connected wallet** (`useVaultWrite` / wagmi `writeContract`).
   Do not add server-side private keys for allocation flows.
+- **Multisig Safe writes** — when a vault's on-chain allocator/sentinel is a
+  Muscadine Safe (`lib/safe/config.ts`), queue proposals from Allocation /
+  Sentinel preview dialogs; owners sign EIP-712 on `/curator/safe/[role]`.
+  Direct wallet confirm remains for EOA role holders only (`lib/safe/vault-role-match.ts`).
 - Wallet connect lives in the **topbar** (`ConnectWalletButton` / RainbowKit
   `ConnectButton`). Recommended wallets are configured in
   `lib/wallet/config.ts` (`wallets` array on `getDefaultConfig`). Chain
@@ -973,16 +981,116 @@ npm run build
 | Vault transactions (paginated)   | `components/morpho/VaultTransactions.tsx`                |
 | Holders API (V1/V2)              | `app/api/vaults/[id]/holders/route.ts`                   |
 | Transactions API                 | `app/api/vaults/[id]/transactions/route.ts`              |
+| Multisig Safe UI + queue         | `app/curator/safe/`, `components/safe/*`                 |
+| Safe config + Protocol Kit       | `lib/safe/config.ts`, `lib/safe/protocol-kit-client.ts`  |
+| Safe pending store (localStorage)| `lib/safe/pending-store.ts`, `lib/safe/queue-vault-write.ts` |
+| Safe Transaction Service         | `lib/safe/transaction-service.ts`, `lib/safe/service-sync.ts` |
+| Safe API rate limit (client)     | `lib/safe/transaction-service-rate-limit.ts`             |
+| Safe Apps SDK                    | `lib/safe/safe-apps-context.tsx`, `public/manifest.json` |
+| Safe vault write routing         | `lib/safe/vault-role-match.ts`, `lib/safe/build-vault-calldata.ts` |
+| Safe calldata preview            | `lib/safe/decode-vault-calldata-preview.ts`              |
+| Safe post-execute refetch        | `lib/safe/refetch-vault-after-safe-execute.ts`           |
+| Safe on-chain info API           | `app/api/safe/[address]/info/route.ts`, `lib/safe/onchain-reads.ts` |
 
 ---
 
-## 13. CCTP (Circle Cross-Chain Transfer) Page
+## 13. Multisig Safe (Curator)
+
+`/curator/safe` manages Muscadine role Safes on Base. Default tab:
+`/curator/safe/allocator`. Sidebar link: **Multisig Safe** (above Morpho).
+
+### 13.1 Role Safes (`lib/safe/config.ts`)
+
+| Role | Purpose |
+| ---- | ------- |
+| Owner | Owner multisig |
+| Curator | Curator multisig |
+| Allocator | Vault rebalances queued here |
+| Sentinel | Cap decreases + deallocations queued here |
+| Treasury | Treasury multisig |
+
+Workspace link: Muscadine Labs on `app.safe.global` (`lib/safe/links.ts`).
+
+### 13.2 Transaction flow
+
+1. **Queue** — From a vault **Allocation** or **Sentinel** tab, use the tx
+   preview dialog. When governance lists the Muscadine Allocator/Sentinel Safe as
+   the vault role holder, the dialog is **Safe-only** (`vault-role-match.ts`).
+   Queue builds a Safe meta-tx via Protocol Kit (RPC) and stores it in
+   **browser localStorage** (`pending-store.ts`). With `NEXT_PUBLIC_SAFE_API_KEY`
+   and a connected proposer wallet, auto-share also signs EIP-712 and proposes
+   to the Transaction Service; Safe App embed uses `sdk.txs.send` instead.
+2. **Sign** — On `/curator/safe/[role]`, connect a **Safe owner** hot wallet in
+   the topbar. **Sign (EIP-712)** adds owner signatures locally.
+3. **Execute** — Once signatures ≥ threshold, **Execute on-chain** submits
+   `execTransaction`; the **Safe address** calls the vault contract. On success,
+   Curator refetches vault risk, governance, pending, reallocations, and overview
+   (`refetch-vault-after-safe-execute.ts`).
+
+Export/import JSON shares proposals between owners/browsers.
+
+**Dual storage model** — localStorage is always the source of truth in Curator;
+Transaction Service is an optional sync layer:
+
+1. **Queue** always writes to localStorage first.
+2. **Auto-share** (when `NEXT_PUBLIC_SAFE_API_KEY` is set and a proposer wallet is
+   connected): signs EIP-712 and calls `proposeTransaction` via `@safe-global/api-kit`.
+3. **Safe App embed** (`CuratorSafeAppsProvider`): when opened inside
+   `app.safe.global`, queue can call `sdk.txs.send` after building the same
+   meta-tx locally; marks `serviceSynced`.
+4. **Sync from service** on `/curator/safe/[role]` merges pending txs from the
+   Transaction Service into localStorage (signatures included).
+5. **Share with owners** on unsynced rows re-proposes to the service.
+6. **Sign** posts `confirmTransaction` to the service when `serviceSynced` is true.
+
+`public/manifest.json` uses `iconPath`: `muscadinelogo.svg` (embedded JPEG, same
+pixels as `muscadinelogo.jpg`) + CSP `frame-ancestors`
+allow Safe App listing. Env: `NEXT_PUBLIC_SAFE_API_KEY` (https://developer.safe.global).
+Free tier is **5 req/s** and **50K req/month** — Curator only calls the service on
+queue (propose), sign (confirm), share, and manual **Sync from service** (no polling);
+client serializes calls with ≥210ms spacing.
+
+### 13.3 API
+
+- `GET /api/safe/[address]/info` — owners, threshold, nonce, version, native
+  ETH balance (`ethBalance` raw string), and Transaction Service **proposers**
+  (delegates who can propose without being owners). Proposers require
+  `NEXT_PUBLIC_SAFE_API_KEY`; returns `proposersConfigured: false` when unset.
+  Cached ≤15s.
+
+### 13.4 Key files
+
+| Concern | File |
+| ------- | ---- |
+| Queue from vault | `lib/safe/queue-vault-write.ts`, `build-vault-calldata.ts` |
+| Calldata preview decode | `lib/safe/decode-vault-calldata-preview.ts` |
+| Post-execute refetch | `lib/safe/refetch-vault-after-safe-execute.ts` |
+| Sign / execute | `lib/safe/protocol-kit-client.ts` |
+| Transaction Service sync | `lib/safe/transaction-service.ts`, `lib/safe/service-sync.ts` |
+| API rate limit | `lib/safe/transaction-service-rate-limit.ts` |
+| Safe Apps SDK | `lib/safe/safe-apps-context.tsx`, `public/manifest.json` |
+| UI queue | `components/safe/SafeTransactionQueue.tsx` |
+| Hooks | `useSafeInfo`, `useSafePending`, `useSafeTransactionActions` |
+
+### 13.5 Do not regress
+
+- Rebuild Safe tx with stored nonce/gas before execute; verify `safeTxHash`.
+- V2 calldata: deallocates before allocates in multicall batches.
+- Cap preview amounts use asset display decimals (`formatCapRawAmount` in
+  `allocation-display.ts`), not zero decimal places.
+- localStorage remains authoritative; Transaction Service sync is additive.
+- Do not drop export/import when adding service features.
+- Queue cards always show a tx preview — stored preview or decoded vault calldata.
+
+---
+
+## 14. CCTP (Circle Cross-Chain Transfer) Page
 
 `app/curator/cctp/page.tsx` provides a step-by-step USDC bridge using Circle's
 **CCTP V2**. No third-party bridge, no wrapping. Supports Fast Transfer
 (~seconds) and Standard Transfer (~minutes).
 
-### 13.1 Architecture
+### 14.1 Architecture
 
 | Aspect | CCTP V2 |
 |---|---|
@@ -992,7 +1100,7 @@ npm run build
 | Transfer speed | Fast (`minFinalityThreshold=1000`, ~seconds) or Standard (`2000`, ~minutes) |
 | Fees | Standard: gas only. Fast: variable fee via `/v2/burn/USDC/fees/{src}/{dst}` |
 
-### 13.2 Supported chains
+### 14.2 Supported chains
 
 `lib/cctp/constants.ts :: CCTP_CHAINS` lists every chain. All EVM chains use
 the same V2 CREATE2 contract addresses.
@@ -1007,7 +1115,7 @@ V2 contracts (same on every chain):
 - `TokenMessengerV2`: `0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d`
 - `MessageTransmitterV2`: `0x81D40F21F12A8F0E3252Bccb954D722d4c464B64`
 
-### 13.3 Flow
+### 14.3 Flow
 
 ```
 [User]            [Source chain]                   [Circle Iris API]      [Dest chain]
@@ -1027,7 +1135,7 @@ V2 contracts (same on every chain):
   │                                                                          │  mints USDC
 ```
 
-### 13.4 UI features
+### 14.4 UI features
 
 - **Speed selector** — Fast (~seconds, may incur a fee) or Standard (~minutes,
   gas only).
@@ -1037,14 +1145,14 @@ V2 contracts (same on every chain):
 - **Persisted state** — `localStorage` saves speed + transfer state so it
   survives page refresh.
 
-### 13.5 Key utilities
+### 14.5 Key utilities
 
 - `addressToBytes32(addr)` — 20-byte address → bytes32 `mintRecipient`.
 - `fetchAttestationV2(sourceDomain, txHash)` — single-call message +
   attestation via `/v2/messages/{domain}?transactionHash={hash}`.
 - `fetchTransferFee(srcDomain, dstDomain)` — fee estimate.
 
-### 13.6 Notes when extending
+### 14.6 Notes when extending
 
 - If Circle adds a new chain, add it to `CCTP_CHAINS` with
   `tokenMessenger` and `messageTransmitter` addresses **and** to
@@ -1056,7 +1164,7 @@ V2 contracts (same on every chain):
 
 ---
 
-## 14. Repo Hygiene — Known Dead Code / Bloat
+## 15. Repo Hygiene — Known Dead Code / Bloat
 
 `knip` was run on 2026-04-24 to audit imports. Summary:
 
@@ -1086,9 +1194,9 @@ flag is a _signal_, not a mandate to delete.
 
 ---
 
-## 15. Theme & Visual Density
+## 16. Theme & Visual Density
 
-### 15.1 Themes
+### 16.1 Themes
 
 The app supports three themes: `light`, `dark`, and `system` (follows OS).
 They live in `lib/theme/ThemeContext.tsx` and are switched by
@@ -1099,7 +1207,7 @@ the legacy `'y2k'` value in `localStorage` and silently migrates those users to
 `'system'`. The migration list (`LEGACY_THEMES`) is the place to add any
 future retired themes.
 
-### 15.2 Global compactness
+### 16.2 Global compactness
 
 The density that used to be scoped to the Y2K theme is now applied to every
 theme through global CSS in `app/globals.css`:
@@ -1123,7 +1231,7 @@ Rules:
 - When a component genuinely needs more breathing room (e.g. a chart tooltip
   or a modal header), add a local class rather than weakening the globals.
 
-### 15.3 Chart filters
+### 16.3 Chart filters
 
 Dashboard charts (`ChartTvl`, `ChartInflows`, `ChartRevenue`, `ChartFees`)
 expose at most two filter dropdowns:
@@ -1142,7 +1250,7 @@ label, and a `ChevronDown`, opening a popover of options. Keep it consistent
 — don't regress to a row of inline buttons; it breaks the header density
 we're aiming for.
 
-### 15.4 Holders & transactions pagination
+### 16.4 Holders & transactions pagination
 
 Both `components/morpho/VaultHolders.tsx` and
 `components/morpho/VaultTransactions.tsx` paginate locally at **10 rows per
@@ -1166,7 +1274,7 @@ When adding new paginated tables, reuse the same 10/page pattern and the
 
 ---
 
-## 16. Tests
+## 17. Tests
 
 Jest is **not** configured in this branch. Before pushing substantive changes,
 run `npm run lint` and `npm run build`.
@@ -1180,10 +1288,11 @@ High-value targets if Jest returns: `lib/morpho/cap-decrease-input.ts`,
 
 ---
 
-_Last updated: 2026-06-24 (v1.1.8). When you change reallocation logic, allocation
+_Last updated: 2026-06-25 (v1.2.0). When you change reallocation logic, allocation
 list/filters (§5), caps/adapters display, V2 idData/Sentinel (§3.2, §4.2), tx
 preview, client fetch/cache (§4.3), Morpho GraphQL field names (§4.4.1), vault
 list/sidebar (§4.3.1), vault overview/history (share price in §4.4), risk
 scoring (§4.5), V2 idle/MetaMorpho/Blue display, pending/emergency tabs, wallet
-stack, formatting, the CCTP flow, global density, or add a new vault interaction,
-update Sections 3–6, 4.2–4.5, 9–10, 13, 15, and 16 accordingly._
+stack, Multisig Safe (§13), formatting, the CCTP flow (§14), global density (§16),
+or add a new vault interaction, update Sections 3–6, 4.2–4.5, 9–10, 13–14, 16,
+and 17 accordingly._

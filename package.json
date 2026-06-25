@@ -1,6 +1,6 @@
 {
   "name": "curator",
-  "version": "1.1.8",
+  "version": "1.2.0",
   "license": "MIT",
   "private": true,
   "scripts": {
@@ -17,6 +17,11 @@
     "@radix-ui/react-tabs": "^1.1.15",
     "@rainbow-me/rainbowkit": "^2.2.11",
     "@reduxjs/toolkit": "^2.12.0",
+    "@safe-global/api-kit": "^4.2.0",
+    "@safe-global/protocol-kit": "^8.0.1",
+    "@safe-global/safe-apps-react-sdk": "^4.7.2",
+    "@safe-global/safe-apps-sdk": "^9.1.0",
+    "@safe-global/types-kit": "^4.0.1",
     "@tanstack/react-query": "^5.101.1",
     "@tanstack/react-query-devtools": "^5.101.1",
     "@vercel/analytics": "^2.0.1",
@@ -43,7 +48,7 @@
     "@eslint/js": "^9.39.4",
     "@swc/helpers": "^0.5.23",
     "@tailwindcss/postcss": "^4.3.1",
-    "@types/node": "^26.0.0",
+    "@types/node": "^26.0.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "eslint": "^9.39.4",

@@ -209,6 +209,18 @@ export function Sidebar({ onClose }: SidebarProps) {
             </p>
             <div className="space-y-1">
               <Link
+                href="/curator/safe"
+                onClick={handleLinkClick}
+                className={`flex min-h-[44px] w-full touch-manipulation items-center gap-2 rounded-lg px-2 py-2 text-slate-700 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 ${
+                  isActive('/curator/safe') || pathname.startsWith('/curator/safe/')
+                    ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                    : ''
+                }`}
+              >
+                <Shield className="h-4 w-4 shrink-0" />
+                <span className="truncate min-w-0">Multisig Safe</span>
+              </Link>
+              <Link
                 href="/curator/morpho"
                 onClick={handleLinkClick}
                 className={`flex min-h-[44px] w-full touch-manipulation items-center gap-2 rounded-lg px-2 py-2 text-slate-700 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 ${
@@ -217,16 +229,6 @@ export function Sidebar({ onClose }: SidebarProps) {
               >
                 <Shield className="h-4 w-4 shrink-0" />
                 <span className="truncate min-w-0">Morpho</span>
-              </Link>
-              <Link
-                href="/curator/safe"
-                onClick={handleLinkClick}
-                className={`flex min-h-[44px] w-full touch-manipulation items-center gap-2 rounded-lg px-2 py-2 text-slate-700 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 ${
-                  isActive('/curator/safe') ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : ''
-                }`}
-              >
-                <Shield className="h-4 w-4 shrink-0" />
-                <span className="truncate min-w-0">Multisig Safe</span>
               </Link>
             </div>
           </div>

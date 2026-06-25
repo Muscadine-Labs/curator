@@ -112,7 +112,8 @@ export function formatCapRawAmount(
   apiDecimals: number
 ): string {
   const chain = resolveAssetDecimals(symbol, apiDecimals);
-  return formatRawTokenAmount(capRaw, chain, 0);
+  const display = getTokenDisplayDecimals(symbol, chain);
+  return formatRawTokenAmount(capRaw, chain, display);
 }
 
 export function formatCapDisplayAmount(

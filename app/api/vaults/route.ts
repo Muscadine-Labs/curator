@@ -162,7 +162,8 @@ export async function GET(request: Request) {
           asset: v.asset?.symbol ?? 'UNKNOWN',
           chainId,
           scanUrl: `${getScanUrlForChain(chainId)}/address/${v.address}`,
-          performanceFeeBps: v.performanceFee ? Math.round(v.performanceFee * BPS_PER_ONE) : null,
+          performanceFeeBps:
+            v.performanceFee != null ? Math.round(v.performanceFee * BPS_PER_ONE) : null,
           status: v.listed ? 'active' as const : 'paused' as const,
           riskTier: 'medium' as const,
           createdAt: new Date().toISOString(),

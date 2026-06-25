@@ -15,6 +15,7 @@ import { CuratorAuthProvider } from '@/lib/auth/CuratorAuthContext';
 import { AuthGuard } from '@/components/AuthGuard';
 import { ThemeProvider } from '@/lib/theme/ThemeContext';
 import { RevenueSourceProvider } from '@/lib/RevenueSourceContext';
+import { CuratorSafeAppsProvider } from '@/lib/safe/safe-apps-context';
 
 const ReactQueryDevtools = dynamic(
   () => import('@tanstack/react-query-devtools').then((mod) => mod.ReactQueryDevtools),
@@ -85,7 +86,9 @@ export function Providers({
             <CuratorAuthProvider>
               <AuthGuard>
                 <RevenueSourceProvider>
-                  <ErrorBoundary>{children}</ErrorBoundary>
+                  <CuratorSafeAppsProvider>
+                    <ErrorBoundary>{children}</ErrorBoundary>
+                  </CuratorSafeAppsProvider>
                 </RevenueSourceProvider>
               </AuthGuard>
             </CuratorAuthProvider>
