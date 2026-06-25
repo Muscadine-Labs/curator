@@ -14,7 +14,7 @@ touching vault mechanics, allocations, Morpho GraphQL queries, or formatting.
 3. After substantive changes, run and pass:
 
 ```bash
-npm run lint    # eslint . --max-warnings=0
+npm run lint    # eslint . --max-warnings=0 (ESLint 9 + eslint-config-next — see CLAUDE.md §11)
 npm run build   # next build
 ```
 
@@ -63,7 +63,10 @@ npm run build   # next build
   `service-sync.ts`, rate limit in `transaction-service-rate-limit.ts` — manual
   sync only, no polling). Safe Apps SDK embed via `CuratorSafeAppsProvider`
   (`lib/safe/safe-apps-context.tsx`); manifest at `public/manifest.json`
-  (`muscadinelogo.jpg`). Post-execute refetch via
+  (`muscadinelogo.svg`). Post-execute refetch via
   `refetch-vault-after-safe-execute.ts`; queue previews always shown (stored or
   decoded calldata in `decode-vault-calldata-preview.ts`). See `CLAUDE.md` §13.
+- **ESLint** — stay on **v9.39.x** with `eslint-config-next` flat config in
+  `eslint.config.mjs`; do not bump to ESLint 10 until upstream plugins support it
+  (§11).
 - Keep `CLAUDE.md`, `AGENTS.md`, and `TODO.md` in sync with behavior changes.

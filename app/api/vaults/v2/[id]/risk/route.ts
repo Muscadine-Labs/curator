@@ -281,23 +281,6 @@ function sumPositionSupplyAssetsUsd(
   return positions.reduce((sum, p) => sum + (p?.state?.supplyAssetsUsd ?? 0), 0);
 }
 
-function sumPositionSupplyAssetsRaw(
-  positions: NonNullable<GraphAdapter['positions']>['items']
-): string | null {
-  if (!positions?.length) return null;
-  try {
-    let total = 0n;
-    for (const p of positions) {
-      const raw = p?.state?.supplyAssets;
-      if (raw == null) continue;
-      total += BigInt(raw);
-    }
-    return total.toString();
-  } catch {
-    return null;
-  }
-}
-
 function capToV1VaultMarketData(cap: CapInfo): V1VaultMarketData | null {
   if (!cap.marketKey || !cap.marketParams) return null;
   const loan = cap.marketParams.loanAsset;

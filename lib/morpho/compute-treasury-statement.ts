@@ -208,7 +208,7 @@ function getDailyTreasuryRevenue(
   const now = new Date();
   const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
 
-  let d = new Date(start);
+  const d = new Date(start);
   d.setUTCHours(0, 0, 0, 0);
 
   const nowSec = Math.floor(Date.now() / 1000);

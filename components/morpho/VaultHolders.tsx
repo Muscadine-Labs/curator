@@ -49,7 +49,7 @@ export function VaultHolders({
   const { data, isLoading, error } = useVaultHolders(vaultAddress, limit);
   const scanUrl = getScanUrlForChain(chainId);
 
-  const holders = data?.holders ?? [];
+  const holders = useMemo(() => data?.holders ?? [], [data?.holders]);
   const totalHolders = data?.totalHolders ?? 0;
   // Prefer API-reported asset info; fall back to parent-provided props.
   const decimals = data?.asset.decimals ?? assetDecimals ?? 18;

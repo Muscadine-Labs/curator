@@ -907,6 +907,18 @@ npm run typecheck      # or: npx tsc --noEmit
 npm run build
 ```
 
+### ESLint
+
+- **Pin ESLint 9** — `eslint@^9.39.4` and `@eslint/js@^9.39.4`. Do **not** upgrade to
+  ESLint 10 while using `eslint-config-next`; transitive plugins (`eslint-plugin-react`,
+  etc.) still break on removed ESLint 10 APIs.
+- **`eslint.config.mjs`** — official Next.js flat config:
+  `eslint-config-next/core-web-vitals` + `eslint-config-next/typescript` (lints all
+  `.ts`/`.tsx`, not just `.js`).
+- **React Compiler advisory rules** (`react-hooks/set-state-in-effect`, `purity`, …)
+  are **off** in `eslint.config.mjs` until a deliberate compiler migration.
+- **`npm run lint`** fails on any warning (`--max-warnings=0`).
+
 ### Conventions
 
 - Keep components typed. Prefer `ReadonlyArray<T>` for inputs and explicit
@@ -1173,8 +1185,8 @@ V2 contracts (same on every chain):
   migration (wallet stack is `@rainbow-me/rainbowkit` + `wagmi`).
 - **Unused test/lint devDeps** — `fake-indexeddb` is required for the SSR
   indexedDB polyfill (`lib/wallet/polyfill-indexeddb.ts`), not for Jest.
-  `@eslint/*` and `eslint-config-next` are used via config files. **Don't remove
-  `fake-indexeddb`.**
+  `@eslint/*` and `eslint-config-next` are wired in `eslint.config.mjs` (ESLint 9
+  flat config — see §11). **Don't remove `fake-indexeddb`.**
 - **Jest** — not configured in this branch (`npm test` absent). Reintroduce
   Jest + pure `lib/` unit tests before restoring allocation write regressions.
 - **Unused exports** — a number of helpers are exported but not yet consumed
@@ -1288,7 +1300,7 @@ High-value targets if Jest returns: `lib/morpho/cap-decrease-input.ts`,
 
 ---
 
-_Last updated: 2026-06-25 (v1.2.0). When you change reallocation logic, allocation
+_Last updated: 2026-06-25 (v1.2.1). When you change reallocation logic, allocation
 list/filters (§5), caps/adapters display, V2 idData/Sentinel (§3.2, §4.2), tx
 preview, client fetch/cache (§4.3), Morpho GraphQL field names (§4.4.1), vault
 list/sidebar (§4.3.1), vault overview/history (share price in §4.4), risk

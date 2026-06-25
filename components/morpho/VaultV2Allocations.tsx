@@ -1285,7 +1285,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       dustRecipientIdx,
       clampWarning,
     };
-  }, [editing, inputValues, targetsWithCaps, inputMode, planningTotalRaw, chainTotalRaw, vaultDecimals, vaultDisplayDecimals, vaultSymbol, dustRecipientKey, governance, govError]);
+  }, [editing, inputValues, targetsWithCaps, inputMode, planningTotalRaw, chainTotalRaw, dustRecipientKey, governance, govError]);
 
   useEffect(() => {
     setPreparedSubmit(null);

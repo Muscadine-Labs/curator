@@ -27,7 +27,7 @@ export function applyPlanningDust<T>(
     };
   }
 
-  let sum = list.reduce((s, t) => s + getAssets(t), BigInt(0));
+  const sum = list.reduce((s, t) => s + getAssets(t), BigInt(0));
   const diff = totalRaw - sum;
   if (diff === BigInt(0)) {
     return { items: list, sum, diff: BigInt(0), error: null };

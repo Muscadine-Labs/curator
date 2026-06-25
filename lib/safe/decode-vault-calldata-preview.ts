@@ -12,14 +12,6 @@ type DecodedVaultCall = {
   args: readonly unknown[];
 };
 
-const DEFAULT_VAULT_DECIMALS: Record<string, number> = {
-  '0x89712980cb434ef5ae4ab29349419eb976b0b496': 6,
-  '0x314fd07319ef645ba7d548915ccd91f4788a1839': 6,
-  '0xd6dcad2f7da91fbb27bda471540d9770c97a5a43': 18,
-  '0x99dcd0d75822ba398f13b2a8852b07c7e137ec70': 8,
-  '0xb15a51f46a53cf7dbb378a459a552f342bc54815': 8,
-};
-
 function shortAddress(address: string): string {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }

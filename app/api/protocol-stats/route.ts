@@ -183,7 +183,7 @@ export async function GET(request: Request) {
 
     const tvlByVault = tvlByVaultResults.map(padSinglePointSeries);
 
-    let totalDeposited = tvlByVaultResults.reduce((sum, vault) => {
+    const totalDeposited = tvlByVaultResults.reduce((sum, vault) => {
       const latest = vault.data[vault.data.length - 1];
       return sum + (latest?.value ?? 0);
     }, 0);

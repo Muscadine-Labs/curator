@@ -1,37 +1,28 @@
-// Minimal ESLint flat config (ESLint 10+)
-import js from "@eslint/js";
+import { defineConfig, globalIgnores } from 'eslint/config';
+import nextVitals from 'eslint-config-next/core-web-vitals';
+import nextTypescript from 'eslint-config-next/typescript';
 
-export default [
-  js.configs.recommended,
+const eslintConfig = defineConfig([
+  ...nextVitals,
+  ...nextTypescript,
   {
-    files: ["**/*.{js,mjs,cjs}"],
-    languageOptions: {
-      globals: {
-        require: "readonly",
-        module: "readonly",
-        exports: "readonly",
-        __dirname: "readonly",
-        __filename: "readonly",
-        process: "readonly",
-        console: "readonly",
-        Buffer: "readonly",
-        global: "readonly",
-      },
-    },
     rules: {
-      "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
+      // React Compiler advisory rules (react-hooks v7) — opt in when migrating to the compiler.
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/purity': 'off',
+      'react-hooks/preserve-manual-memoization': 'off',
+      'react-hooks/static-components': 'off',
+      'react-hooks/immutability': 'off',
+      'react-hooks/refs': 'off',
     },
   },
-  {
-    ignores: [
-      "node_modules/**",
-      ".next/**",
-      "out/**",
-      "build/**",
-      "coverage/**",
-      "next-env.d.ts",
-      "__tests__/**/*.test.tsx",
-      "jest.setup.js",
-    ],
-  },
-];
+  globalIgnores([
+    '.next/**',
+    'out/**',
+    'build/**',
+    'coverage/**',
+    'next-env.d.ts',
+  ]),
+]);
+
+export default eslintConfig;

@@ -494,7 +494,7 @@ function DecreaseCapsPanel({
       setTxPreview(result.preview);
       setPreviewOpen(true);
     },
-    [adapterLabels, assetDecimals, assetSymbol, chainDecimals, grouped, risk, submitRowDecrease]
+    [adapterLabels, assetDecimals, assetSymbol, chainDecimals, grouped, risk, submitRowDecrease, vaultAddress]
   );
 
   const confirmPreview = useCallback(async () => {
@@ -985,7 +985,7 @@ function DeallocatePanel({
       setTxPreview(result.preview);
       setPreviewOpen(true);
     },
-    [amounts, assetDecimals, assetSymbol, chainDecimals, deallocateRow]
+    [amounts, assetDecimals, assetSymbol, chainDecimals, deallocateRow, vaultAddress]
   );
 
   const confirmPreview = useCallback(async () => {
@@ -1240,7 +1240,7 @@ function buildOverviewAndDeallocate(
     }
   }
 
-  let idleRaw = parseBig(risk.idleAssets);
+  const idleRaw = parseBig(risk.idleAssets);
   let totalRaw = idleRaw;
   const overviewSegments: OverviewSegment[] = [];
   const deallocateRows: DeallocateRow[] = [];

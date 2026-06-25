@@ -96,7 +96,7 @@ export function VaultTransactions({
   const [page, setPage] = useState(0);
   const scanUrl = getScanUrlForChain(chainId);
 
-  const txs = data?.transactions ?? [];
+  const txs = useMemo(() => data?.transactions ?? [], [data?.transactions]);
   const filtered = useMemo(() => {
     if (filter === 'all') return txs;
     return txs.filter((t) => classifyType(t.type) === filter);

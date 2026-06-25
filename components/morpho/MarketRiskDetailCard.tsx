@@ -4,7 +4,7 @@ import { Info } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { formatAddress, formatCompactUSD, formatPercentage } from '@/lib/format/number';
-import type { MarketRiskGrade, MarketRiskScores } from '@/lib/morpho/compute-v1-market-risk';
+import type { MarketRiskScores } from '@/lib/morpho/compute-v1-market-risk';
 import { isMarketIdle } from '@/lib/morpho/compute-v1-market-risk';
 import type { V1VaultMarketData } from '@/lib/morpho/query-v1-vault-markets';
 import { morphoMarketHref } from '@/lib/morpho/morpho-app-links';

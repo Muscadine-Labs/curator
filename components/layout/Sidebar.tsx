@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { Shield, X, FileText, LayoutGrid, Book, ChevronDown, ChevronRight } from 'lucide-react';
 import { getVaultCategory } from '@/lib/config/vaults';
@@ -92,9 +93,11 @@ export function Sidebar({ onClose }: SidebarProps) {
           onClick={handleLinkClick}
           className="flex items-center gap-2 text-lg font-semibold text-slate-900 dark:text-slate-100"
         >
-          <img
+          <Image
             src="/muscadinelogo.jpg"
             alt="Muscadine"
+            width={36}
+            height={36}
             className="h-9 w-9 shrink-0 rounded-xl object-cover"
           />
           Curator

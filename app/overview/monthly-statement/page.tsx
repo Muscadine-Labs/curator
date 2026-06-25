@@ -3,13 +3,12 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AppShell } from '@/components/layout/AppShell';
-import { Card, CardContent, CardHeader, CardTitle, CardAction, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardAction } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { formatCompactUSD } from '@/lib/format/number';
-import { getAddress } from 'viem';
 import Link from 'next/link';
 import { Info } from 'lucide-react';
 import { apiFetch } from '@/lib/data/api-fetch';
@@ -131,7 +130,7 @@ export default function MonthlyStatementPage() {
     enabled: activeTab === 'defillama',
   });
 
-  const formatMonth = (monthKey: string, periodMode?: TreasuryPeriodMode) => {
+  const formatMonth = (monthKey: string) => {
     // Handle period keys (Q1, Q2, etc. or year-only)
     if (monthKey.includes('Q')) {
       const [year, quarter] = monthKey.split('-Q');
@@ -302,7 +301,7 @@ export default function MonthlyStatementPage() {
   };
 
   // Check if a period is complete (works for both treasury and defillama)
-  const isPeriodComplete = (periodKey: string, periodMode?: TreasuryPeriodMode | DefiLlamaViewMode): boolean => {
+  const isPeriodComplete = (periodKey: string): boolean => {
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1; // JavaScript months are 0-indexed, convert to 1-indexed
@@ -352,7 +351,7 @@ export default function MonthlyStatementPage() {
       // For month mode, check if each month is complete
       return filteredStatements.map(statement => ({
         ...statement,
-        isComplete: isPeriodComplete(statement.month, treasuryPeriodMode),
+        isComplete: isPeriodComplete(statement.month),
       }));
     }
 
@@ -371,7 +370,7 @@ export default function MonthlyStatementPage() {
       }
 
       const existing = aggregated.get(periodKey);
-      const periodIsComplete = isPeriodComplete(periodKey, treasuryPeriodMode);
+      const periodIsComplete = isPeriodComplete(periodKey);
       
       if (existing) {
         const assets = mergeAssetBreakdown(existing.assets, statement.assets);
@@ -908,8 +907,8 @@ export default function MonthlyStatementPage() {
                       {statements.map((statement) => (
                         <TableRow key={statement.month}>
                           <TableCell className="font-medium">
-                            {formatMonth(statement.month, treasuryPeriodMode)}
-                            {!isPeriodComplete(statement.month, treasuryPeriodMode) && (
+                            {formatMonth(statement.month)}
+                            {!isPeriodComplete(statement.month) && (
                               <span className="ml-2 text-amber-500">*</span>
                             )}
                           </TableCell>
@@ -951,8 +950,8 @@ export default function MonthlyStatementPage() {
                       {statements.map((statement) => (
                         <TableRow key={statement.month}>
                           <TableCell className="font-medium">
-                            {formatMonth(statement.month, treasuryPeriodMode)}
-                            {!isPeriodComplete(statement.month, treasuryPeriodMode) && (
+                            {formatMonth(statement.month)}
+                            {!isPeriodComplete(statement.month) && (
                               <span className="ml-2 text-amber-500">*</span>
                             )}
                           </TableCell>
@@ -1020,8 +1019,8 @@ export default function MonthlyStatementPage() {
                           return (
                             <TableRow key={month}>
                             <TableCell className="font-medium">
-                              {formatMonth(month, treasuryPeriodMode)}
-                              {!isPeriodComplete(month, treasuryPeriodMode) && (
+                              {formatMonth(month)}
+                              {!isPeriodComplete(month) && (
                                 <span className="ml-2 text-amber-500">*</span>
                               )}
                             </TableCell>
@@ -1126,7 +1125,7 @@ export default function MonthlyStatementPage() {
                           <TableRow key={statement.month}>
                             <TableCell className="font-medium">
                               {formatPeriod(statement.month)}
-                              {!isPeriodComplete(statement.month, defiLlamaViewMode) && (
+                              {!isPeriodComplete(statement.month) && (
                                 <span className="ml-2 text-amber-500">*</span>
                               )}
                             </TableCell>
