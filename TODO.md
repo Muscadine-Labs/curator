@@ -1,4 +1,6 @@
 *TO work on today:
+- On allocations for a vault, allocation does not upade to the most recent token amounts since the last allocation. See why that is, and if morpho ql would be better to show on ui and correct amount.
+
 
 **To work on another day:
 
