@@ -41,7 +41,9 @@ export function VaultV2Adapters({
   assetDecimals,
 }: VaultV2AdaptersProps) {
   const { data: fetchedGov, isLoading: govLoading, error: govError } = useVaultV2Governance(vaultAddress);
-  const { data: fetchedRisk, isLoading: riskLoading } = useVaultV2Risk(vaultAddress);
+  const { data: fetchedRisk, isLoading: riskLoading } = useVaultV2Risk(vaultAddress, {
+    initialData: preloadedRisk ?? undefined,
+  });
   const data = fetchedGov ?? preloadedData;
   const risk = fetchedRisk ?? preloadedRisk;
   const [viewMode, setViewMode] = useState<ViewMode>('card');
@@ -256,7 +258,7 @@ function StrategyAdapterCard({
   const usd = adapter.assetsUsd ?? 0;
   const marketsCount = risk?.markets?.length ?? 0;
   const rate = resolveAdapterRate(risk);
-  const liquidity = resolveAdapterLiquidity(risk, adapter);
+  const liquidity = resolveAdapterLiquidity(adapter);
 
   const allocStr = formatTokenFromAssets(adapter.assets, chainDecimals, displayDecimals, assetSymbol);
 
@@ -377,7 +379,7 @@ function AdapterTable({
                     ? `${formatCapTokenAmount(cap.absolute, assetSymbol, assetDecimals)} / ${formatCapRelative(cap.relative)}`
                     : '—'}
                 </td>
-                <td className="py-2 pr-3 tabular-nums">{resolveAdapterLiquidity(risk, adapter)}</td>
+                <td className="py-2 pr-3 tabular-nums">{resolveAdapterLiquidity(adapter)}</td>
                 <td className="py-2 pr-3 tabular-nums">{rate != null ? formatPercentage(rate * 100, 2) : '—'}</td>
                 <td className="py-2 tabular-nums">
                   {formatForceDeallocatePenaltyWad(adapter.forceDeallocatePenalty)}
@@ -445,7 +447,7 @@ function resolveAdapterRate(risk?: V2AdapterRiskData): number | null {
   return bestApy;
 }
 
-function resolveAdapterLiquidity(risk: V2AdapterRiskData | undefined, adapter: AdapterInfo): string {
+function resolveAdapterLiquidity(adapter: AdapterInfo): string {
   const usd = adapter.assetsUsd ?? 0;
   return formatUSD(usd, 2);
 }

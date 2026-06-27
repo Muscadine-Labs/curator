@@ -35,11 +35,10 @@ npm run build   # next build
   dust recipient (cap-validated).
 - **V2 cap `idData` ≠ deallocate `data`:** cap writes use prefixed ABI encoding
   (`"this"`, `"collateralToken"`, `"this/marketParams"`) via `lib/morpho/v2-id-data.ts`;
-  deallocate/allocate adapter `data` is `abi.encode(marketParams)` for Blue markets
-  or `0x` for MetaMorpho. Never pass bare addresses or raw MarketParams as cap
-  `idData`.
-- **V2 vault tabs** (Morpho Curator order): Overview → Roles → Adapters → Caps →
-  Timelocks → Allocation → Sentinel → Emergency. Pending actions embed in Caps;
+  allocate/deallocate adapter `data` is `encodeMarketParamsData(market)` for Morpho
+  Blue markets only. Never pass bare addresses or raw MarketParams as cap `idData`.
+- **V2 vault tabs** (order on vault page): Overview → **Risk** → Roles → Adapters →
+  Caps → Timelocks → Allocation → Sentinel → Emergency. Pending actions embed in Caps;
   Sentinel is the only tab with sentinel writes (decrease caps, deallocate).
 - **Tx preview** — Allocation and Sentinel confirm writes through
   `TxPreviewDialog` + `lib/morpho/tx-preview.ts` before the wallet signs.

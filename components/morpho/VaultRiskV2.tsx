@@ -20,7 +20,9 @@ interface VaultRiskV2Props {
 }
 
 export function VaultRiskV2({ vaultAddress, chainId, preloadedData }: VaultRiskV2Props) {
-  const { data: fetchedData, isLoading, error } = useVaultV2Risk(preloadedData ? undefined : vaultAddress);
+  const { data: fetchedData, isLoading, error } = useVaultV2Risk(vaultAddress, {
+    initialData: preloadedData ?? undefined,
+  });
   const data = preloadedData ?? fetchedData;
   const isActuallyLoading = !preloadedData && isLoading;
   const resolvedChainId = chainId ?? BASE_CHAIN_ID;
@@ -51,7 +53,7 @@ export function VaultRiskV2({ vaultAddress, chainId, preloadedData }: VaultRiskV
   const totalAdapterAssets = data?.totalAdapterAssetsUsd ?? 0;
   const idleUsd = data?.idleAssetsUsd ?? 0;
   const totalVaultAllocatedUsd = totalAdapterAssets + idleUsd;
-  const adapterCount = sortedAdapters.length + (idleUsd > 0 ? 1 : 0);
+  const adapterCount = sortedAdapters.length + 1;
   const idleWeightPct =
     totalVaultAllocatedUsd > 0 ? (idleUsd / totalVaultAllocatedUsd) * 100 : 0;
 

@@ -330,11 +330,10 @@ type TargetRow = {
   supplyApy: number | null;
   borrowApy: number | null;
   utilization: number | null;
-  /** Market or underlying-vault liquidity in USD. */
+  /** Market liquidity in USD (Blue market depth). */
   liquidity: number | null;
-  /** Underlying-vault withdrawable liquidity in raw token units. */
+  /** Market withdrawable liquidity in raw token units. */
   liquidityAssets: string | null;
-  /** Underlying MetaMorpho vault TVL (not V2 allocation). */
   tvlUsd: number | null;
   tvlAssets: string | null;
   allocated: number;
@@ -342,7 +341,7 @@ type TargetRow = {
   allocAssets: string | null;
   allocDecimals: number;
   allocSymbol: string | null;
-  /** Morpho Blue LLTV (WAD string from GraphQL). Null for MetaMorpho / idle. */
+  /** Morpho Blue LLTV (WAD string from GraphQL). Null for idle row. */
   lltv: string | number | null;
   collateralSymbol: string | null;
   loanSymbol: string | null;
@@ -359,8 +358,8 @@ const ALLOCATION_SECTIONS: { key: AllocationSection; title: string }[] = [
   { key: 'blue', title: 'Morpho Blue Market' },
 ];
 
-function rowSection(r: TargetRow, t: AllocTarget): AllocationSection {
-  if (t.isVaultIdle || r.isIdle) return 'idle';
+function rowSection(_r: TargetRow, t: AllocTarget): AllocationSection {
+  if (t.isVaultIdle) return 'idle';
   return 'blue';
 }
 
@@ -371,7 +370,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     isLoading,
     error,
     refetch: refetchRisk,
-  } = useVaultV2Risk(vaultAddress);
+  } = useVaultV2Risk(vaultAddress, { initialData: preloadedRisk ?? undefined });
   const {
     data: fetchedGov,
     isLoading: govLoading,
@@ -455,38 +454,38 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     for (const adapter of adapterList) {
       const marketEntries = collectMorphoBlueMarketEntries(adapter, governance);
       for (const entry of marketEntries) {
-          const m = entry.market;
-          const col = m.collateralAsset?.symbol;
-          const loan = m.loanAsset?.symbol;
-          const label = formatMarketPairLabel(col, loan);
-          const allocAssets = entry.allocationAssets;
-          const allocDec = m.loanAsset?.decimals ?? dec;
-          const allocSym = m.loanAsset?.symbol ?? sym;
-          const mktPct = totalUsd > 0 ? (entry.allocationUsd / totalUsd) * 100 : 0;
+        const m = entry.market;
+        const col = m.collateralAsset?.symbol;
+        const loan = m.loanAsset?.symbol;
+        const label = formatMarketPairLabel(col, loan);
+        const allocAssets = entry.allocationAssets;
+        const allocDec = m.loanAsset?.decimals ?? dec;
+        const allocSym = m.loanAsset?.symbol ?? sym;
+        const mktPct = totalUsd > 0 ? (entry.allocationUsd / totalUsd) * 100 : 0;
 
-          const marketLiquidity = readMarketLiquidity(
-            'state' in m ? m.state : undefined,
-            vaultRefUsd,
-            vaultRefRaw
-          );
+        const marketLiquidity = readMarketLiquidity(
+          'state' in m ? m.state : undefined,
+          vaultRefUsd,
+          vaultRefRaw
+        );
 
-          let displayAssets = BigInt(0);
-          if (allocAssets) { try { displayAssets = BigInt(allocAssets); } catch { /* */ } }
-          let bookedAssets = displayAssets;
-          if (entry.bookedAllocationAssets != null) {
-            try {
-              bookedAssets = BigInt(entry.bookedAllocationAssets);
-            } catch {
-              /* keep display */
-            }
+        let displayAssets = BigInt(0);
+        if (allocAssets) { try { displayAssets = BigInt(allocAssets); } catch { /* */ } }
+        let bookedAssets = displayAssets;
+        if (entry.bookedAllocationAssets != null) {
+          try {
+            bookedAssets = BigInt(entry.bookedAllocationAssets);
+          } catch {
+            /* keep display */
           }
-          totalRaw += displayAssets;
-          vaultRefRaw += displayAssets;
+        }
+        totalRaw += displayAssets;
+        vaultRefRaw += displayAssets;
 
-          const data = encodeMarketParamsData(m);
-          const capIdData = encodeMarketCapIdData(adapter.adapterAddress, m);
-          const idHash = keccak256(capIdData);
-          const marketKey = entry.marketKey;
+        const data = encodeMarketParamsData(m);
+        const capIdData = encodeMarketCapIdData(adapter.adapterAddress, m);
+        const idHash = keccak256(capIdData);
+        const marketKey = entry.marketKey;
 
         const tIdx = targets.length;
         targets.push({
@@ -505,27 +504,27 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
         });
 
         rows.push({
-            kind: 'target',
-            targetIdx: tIdx,
-            market: label,
-            morphoHref: morphoMarketHref(marketKey),
-            isIdle: !m.lltv,
-            isMorphoBlue: true,
-            supplyApy: m.state?.supplyApy ?? null,
-            borrowApy: m.state?.borrowApy ?? null,
-            utilization: m.state?.utilization ?? null,
-            liquidity: marketLiquidity.usd,
-            liquidityAssets: marketLiquidity.assets,
-            tvlUsd: null,
-            tvlAssets: null,
-            allocated: entry.allocationUsd,
-            pct: mktPct,
-            allocAssets,
-            allocDecimals: allocDec,
-            allocSymbol: allocSym,
-            lltv: m.lltv ?? null,
-            collateralSymbol: col ?? null,
-            loanSymbol: loan ?? null,
+          kind: 'target',
+          targetIdx: tIdx,
+          market: label,
+          morphoHref: morphoMarketHref(marketKey),
+          isIdle: false,
+          isMorphoBlue: true,
+          supplyApy: m.state?.supplyApy ?? null,
+          borrowApy: m.state?.borrowApy ?? null,
+          utilization: m.state?.utilization ?? null,
+          liquidity: marketLiquidity.usd,
+          liquidityAssets: marketLiquidity.assets,
+          tvlUsd: null,
+          tvlAssets: null,
+          allocated: entry.allocationUsd,
+          pct: mktPct,
+          allocAssets,
+          allocDecimals: allocDec,
+          allocSymbol: allocSym,
+          lltv: m.lltv ?? null,
+          collateralSymbol: col ?? null,
+          loanSymbol: loan ?? null,
           searchHaystack: `${label} ${allocSym ?? ''} ${formatLltvPill(m.lltv ?? null) ?? ''} morpho blue`.toLowerCase(),
         });
       }

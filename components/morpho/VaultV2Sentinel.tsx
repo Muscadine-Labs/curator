@@ -154,7 +154,9 @@ export function VaultV2Sentinel({
   assetDecimals,
 }: VaultV2SentinelProps) {
   const { data: fetchedGov, isLoading: govLoading } = useVaultV2Governance(vaultAddress);
-  const { data: fetchedRisk, isLoading: riskLoading } = useVaultV2Risk(vaultAddress);
+  const { data: fetchedRisk, isLoading: riskLoading } = useVaultV2Risk(vaultAddress, {
+    initialData: preloadedRisk ?? undefined,
+  });
   const governance = fetchedGov ?? preloadedGovernance;
   const risk = fetchedRisk ?? preloadedRisk;
 
