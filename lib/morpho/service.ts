@@ -2,6 +2,7 @@ import { GRAPHQL_FIRST_LIMIT } from '@/lib/constants';
 import { mergeConfig, type CuratorConfigOverrides } from './config';
 import { computeMetricsForMarket } from './compute';
 import { fetchMorphoMarkets } from './query';
+import { marketKeyFromGraphQL } from './morpho-app-links';
 import type { MorphoMarketMetrics } from './types';
 import type { Market } from '@morpho-org/blue-api-sdk';
 
@@ -34,8 +35,8 @@ export async function getMorphoMarketRatings(
 
   const filtered = marketId
     ? rawMarkets.filter((market) => {
-        const id = (market as { marketId?: string }).marketId ?? market.id;
-        return id === marketId || market.uniqueKey === marketId;
+        const id = marketKeyFromGraphQL(market);
+        return id === marketId;
       })
     : rawMarkets;
 

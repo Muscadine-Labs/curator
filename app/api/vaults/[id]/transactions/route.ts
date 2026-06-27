@@ -83,26 +83,10 @@ const V2_TRANSACTIONS_QUERY = gql`
   }
 `;
 
-type V2TxData =
-  | {
-      __typename: 'VaultV2DepositData';
-      assets?: string | number | null;
-      onBehalf?: string | null;
-      sender?: string | null;
-    }
-  | {
-      __typename: 'VaultV2WithdrawData';
-      assets?: string | number | null;
-      onBehalf?: string | null;
-      receiver?: string | null;
-      sender?: string | null;
-    }
-  | {
-      __typename: 'VaultV2TransferData';
-      from?: string | null;
-      to?: string | null;
-    }
-  | null;
+import {
+  vaultV2TransactionUser,
+  type VaultV2TxData,
+} from '@/lib/morpho/vault-v2-transaction-utils';
 
 type V2GraphResponse = {
   vaultV2ByAddress?: {
@@ -118,7 +102,9 @@ type V2GraphResponse = {
       timestamp?: number | string | null;
       type?: string | null;
       shares?: string | null;
-      data?: V2TxData;
+      data?: VaultV2TxData & {
+        assets?: string | number | null;
+      };
     } | null> | null;
   } | null;
 };
@@ -167,27 +153,28 @@ function assetsToUsd(
 }
 
 function mapV2TransactionData(
-  data: V2TxData,
+  data: (VaultV2TxData & { assets?: string | number | null }) | null | undefined,
   shares: string | null | undefined,
   totalAssets: bigint | null,
   totalSupply: bigint | null
 ): { user: string | null; assets: string | null } {
   if (!data?.__typename) return { user: null, assets: null };
+  const user = vaultV2TransactionUser(data);
   switch (data.__typename) {
     case 'VaultV2DepositData':
       return {
-        user: data.onBehalf ?? data.sender ?? null,
+        user,
         assets: data.assets != null ? String(data.assets) : null,
       };
     case 'VaultV2WithdrawData':
       return {
-        user: data.onBehalf ?? data.receiver ?? data.sender ?? null,
+        user,
         assets: data.assets != null ? String(data.assets) : null,
       };
     case 'VaultV2TransferData': {
       const converted = sharesToAssets(shares, totalAssets, totalSupply);
       return {
-        user: data.to ?? data.from ?? null,
+        user,
         assets: converted,
       };
     }

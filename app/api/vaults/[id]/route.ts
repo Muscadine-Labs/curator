@@ -17,15 +17,19 @@ import { buildVaultAnalytics } from '@/lib/morpho/vault-analytics';
 import { mapCap } from '@/lib/morpho/vault-v2-governance-map';
 import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
 import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
+import {
+  vaultV2TransactionUser,
+  type VaultV2TxData,
+} from '@/lib/morpho/vault-v2-transaction-utils';
 
 type VaultDetailQueryResponse = {
   vaultV2ByAddress?: V2VaultGraphQL | null;
-  txs?: {
+  vaultV2transactions?: {
     items: Array<{
-      blockNumber: number;
-      hash: string;
-      type: string;
-      user?: { address?: string | null } | null;
+      blockNumber: number | string | null;
+      txHash: string | null;
+      type: string | null;
+      data?: VaultV2TxData;
     } | null> | null;
   } | null;
 };
@@ -126,13 +130,33 @@ const VAULT_V2_DETAIL_QUERY = gql`
         items { user { address } }
       }
     }
-    txs: transactions(
+    vaultV2transactions(
       first: ${GRAPHQL_TRANSACTIONS_LIMIT},
-      orderBy: Timestamp,
+      orderBy: Time,
       orderDirection: Desc,
-      where: { vaultAddress_in: [$address] }
+      where: { vaultAddress_in: [$address], chainId_in: [$chainId] }
     ) {
-      items { blockNumber hash type user { address } }
+      items {
+        blockNumber
+        txHash
+        type
+        data {
+          __typename
+          ... on VaultV2DepositData {
+            onBehalf
+            sender
+          }
+          ... on VaultV2WithdrawData {
+            onBehalf
+            receiver
+            sender
+          }
+          ... on VaultV2TransferData {
+            from
+            to
+          }
+        }
+      }
     }
   }
 `;
@@ -141,7 +165,7 @@ function mapV2VaultDetail(
   mv: V2VaultGraphQL,
   cfg: ReturnType<typeof getVaultByAddress>,
   address: string,
-  txs: VaultDetailQueryResponse['txs'],
+  txs: VaultDetailQueryResponse['vaultV2transactions'],
   revenue: { revenueAllTime: number | null; feesYtd: number | null }
 ) {
   const positions = (mv.positions?.items ?? []).filter(
@@ -205,11 +229,15 @@ function mapV2VaultDetail(
 
   const txItems = (txs?.items ?? []).filter(
     (t): t is {
-      blockNumber: number;
-      hash: string;
+      blockNumber: number | string;
+      txHash: string;
       type: string;
-      user?: { address?: string | null } | null;
-    } => t !== null
+      data?: VaultV2TxData;
+    } =>
+      t !== null &&
+      t.txHash != null &&
+      t.blockNumber != null &&
+      t.type != null
   );
 
   return {
@@ -274,10 +302,10 @@ function mapV2VaultDetail(
       timelock: null,
     },
     transactions: txItems.map((t) => ({
-      blockNumber: t.blockNumber,
-      hash: t.hash,
+      blockNumber: Number(t.blockNumber),
+      hash: t.txHash,
       type: t.type,
-      userAddress: t.user?.address ?? null,
+      userAddress: vaultV2TransactionUser(t.data),
     })),
     parameters: {
       performanceFeeBps: performanceFeeBps,
@@ -369,7 +397,7 @@ export async function GET(
         graphqlError instanceof Error ? graphqlError : new Error(String(graphqlError)),
         { address }
       );
-      data = { vaultV2ByAddress: null, txs: null };
+      data = { vaultV2ByAddress: null, vaultV2transactions: null };
     }
 
     const vaultData = data.vaultV2ByAddress;
@@ -415,7 +443,7 @@ export async function GET(
       );
     }
 
-    const result = mapV2VaultDetail(vaultData, cfg, address, data.txs, revenue);
+    const result = mapV2VaultDetail(vaultData, cfg, address, data.vaultV2transactions, revenue);
     const responseHeaders = mergeApiCacheHeaders(rateLimitResult.headers, 60);
     return NextResponse.json(result, { headers: responseHeaders });
   } catch (err) {

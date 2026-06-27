@@ -1,3 +1,4 @@
+import { resolveMarketOracleAddress } from '@/lib/morpho/market-oracle-address';
 import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
 
 export type GraphCap = {
@@ -14,7 +15,7 @@ export type GraphCap = {
           marketId?: string | null;
           loanAsset?: { address?: string | null; symbol?: string | null; decimals?: number | null } | null;
           collateralAsset?: { address?: string | null; symbol?: string | null; decimals?: number | null } | null;
-          oracleAddress?: string | null;
+          oracle?: { address?: string | null } | null;
           irmAddress?: string | null;
           lltv?: string | number | null;
           state?: {
@@ -70,7 +71,7 @@ export function mapCap(graph: GraphCap | null | undefined): CapInfo | null {
         marketId?: string | null;
         loanAsset?: { address?: string | null; symbol?: string | null; decimals?: number | null } | null;
         collateralAsset?: { address?: string | null; symbol?: string | null; decimals?: number | null } | null;
-        oracleAddress?: string | null;
+        oracle?: { address?: string | null } | null;
         irmAddress?: string | null;
         lltv?: string | number | null;
         state?: {
@@ -96,7 +97,7 @@ export function mapCap(graph: GraphCap | null | undefined): CapInfo | null {
               symbol: m.collateralAsset.symbol ?? null,
               decimals: m.collateralAsset.decimals ?? null,
             },
-            oracleAddress: m.oracleAddress ?? null,
+            oracleAddress: resolveMarketOracleAddress(m),
             irmAddress: m.irmAddress ?? null,
             lltv: m.lltv != null ? String(m.lltv) : null,
             state: m.state ?? null,

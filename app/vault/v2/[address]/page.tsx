@@ -180,7 +180,11 @@ export default function V2VaultPage() {
           </TabsContent>
 
           <TabsContent value="risk">
-            <VaultRiskV2 vaultAddress={vault.address} preloadedData={risk} />
+            <VaultRiskV2
+              vaultAddress={vault.address}
+              chainId={vault.chainId}
+              preloadedData={risk}
+            />
           </TabsContent>
 
           <TabsContent value="roles">

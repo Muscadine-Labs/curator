@@ -22,9 +22,6 @@ const MARKET_PARAMS_ABI = parseAbiParameters(
   'address, address, address, address, uint256'
 );
 
-/** MetaMorpho adapter allocate/deallocate calldata — empty bytes. */
-export const METAMORPHO_ADAPTER_DATA = '0x' as Hex;
-
 function resolveOracleAddress(market: MarketParamsInput): Address {
   const oracle =
     market.oracleAddress ||

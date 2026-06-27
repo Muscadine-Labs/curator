@@ -7,8 +7,8 @@ import type {
 } from '@/app/api/vaults/v2/[id]/risk/route';
 import { publicClient } from '@/lib/onchain/client';
 import { vaultV2Abi } from '@/lib/onchain/abis';
-import { resolveCapIdData, encodeAdapterCapIdData, encodeMarketCapIdData } from '@/lib/morpho/v2-id-data';
-import type { MarketRiskGrade } from '@/lib/morpho/compute-v1-market-risk';
+import { resolveCapIdData, encodeMarketCapIdData } from '@/lib/morpho/v2-id-data';
+import type { MarketRiskGrade } from '@/lib/morpho/compute-blue-market-risk';
 import { logger } from '@/lib/utils/logger';
 
 type CapReadContract = {
@@ -125,24 +125,32 @@ function resolveAllocationRaw(
   onChainById: Map<string, bigint>,
   graphQlAssets: string | null | undefined,
   context: string
-): bigint {
-  if (onChainById.has(idKey)) {
-    return onChainById.get(idKey)!;
-  }
-  const fallback = parseAllocationBigInt(graphQlAssets);
-  if (fallback != null) {
-    logger.warn('On-chain allocation read unavailable; using GraphQL allocation', {
-      vaultAddress,
-      id: idKey,
-      context,
-    });
-    return fallback;
-  }
-  return 0n;
-}
+): { display: bigint; booked: bigint } {
+  const onChain = onChainById.get(idKey);
+  const graphQl = parseAllocationBigInt(graphQlAssets);
 
-function adapterAllocationId(adapter: V2AdapterRiskData): string {
-  return keccak256(encodeAdapterCapIdData(adapter.adapterAddress)).toLowerCase();
+  if (onChain != null && graphQl != null) {
+    // Booked allocation(id) updates on rebalance; Morpho position supply includes interest.
+    const display = graphQl > onChain ? graphQl : onChain;
+    return { display, booked: onChain };
+  }
+
+  if (onChain != null) {
+    return { display: onChain, booked: onChain };
+  }
+
+  if (graphQl != null) {
+    if (!onChainById.has(idKey)) {
+      logger.warn('On-chain allocation read unavailable; using GraphQL allocation', {
+        vaultAddress,
+        id: idKey,
+        context,
+      });
+    }
+    return { display: graphQl, booked: graphQl };
+  }
+
+  return { display: 0n, booked: 0n };
 }
 
 function marketAllocationId(adapterAddress: string, market: V2MarketRiskData['market']): string {
@@ -188,10 +196,6 @@ function collectStrategyAllocationIds(risk: V2VaultRiskResponse): Hex[] {
   };
 
   for (const adapter of risk.adapters ?? []) {
-    if (adapter.adapterType === 'MetaMorphoAdapter') {
-      pushId(adapterAllocationId(adapter));
-      continue;
-    }
     for (const m of adapter.markets ?? []) {
       if (!m.market) continue;
       pushId(marketAllocationId(adapter.adapterAddress, m.market));
@@ -260,29 +264,12 @@ export async function overlayV2OnChainAllocations(
   let strategySum = 0n;
 
   const adapters = (risk.adapters ?? []).map((adapter): V2AdapterRiskData => {
-    if (adapter.adapterType === 'MetaMorphoAdapter') {
-      const idKey = adapterAllocationId(adapter);
-      const raw = resolveAllocationRaw(
-        vaultAddress,
-        idKey,
-        allocationById,
-        adapter.allocationAssets,
-        `MetaMorpho ${adapter.adapterAddress}`
-      );
-      strategySum += raw;
-      return {
-        ...adapter,
-        allocationAssets: raw > 0n ? raw.toString() : null,
-        allocationUsd: allocationUsdFromRaw(raw, totalAssetsRaw, totalAssetsUsd),
-      };
-    }
-
     let adapterSum = 0n;
     const markets = (adapter.markets ?? []).map((m): V2MarketRiskData => {
       const idKey = m.market
         ? marketAllocationId(adapter.adapterAddress, m.market)
         : '';
-      const raw = m.market
+      const { display, booked } = m.market
         ? resolveAllocationRaw(
             vaultAddress,
             idKey,
@@ -290,12 +277,13 @@ export async function overlayV2OnChainAllocations(
             m.allocationAssets,
             `market ${idKey}`
           )
-        : 0n;
-      adapterSum += raw;
+        : { display: 0n, booked: 0n };
+      adapterSum += display;
       return {
         ...m,
-        allocationAssets: raw > 0n ? raw.toString() : null,
-        allocationUsd: allocationUsdFromRaw(raw, totalAssetsRaw, totalAssetsUsd),
+        allocationAssets: display > 0n ? display.toString() : null,
+        bookedAllocationAssets: booked.toString(),
+        allocationUsd: allocationUsdFromRaw(display, totalAssetsRaw, totalAssetsUsd),
       };
     });
     strategySum += adapterSum;
@@ -303,6 +291,7 @@ export async function overlayV2OnChainAllocations(
     return {
       ...adapter,
       allocationAssets: adapterSum > 0n ? adapterSum.toString() : null,
+      bookedAllocationAssets: null,
       allocationUsd: allocationUsdFromRaw(adapterSum, totalAssetsRaw, totalAssetsUsd),
       markets,
     };
@@ -322,7 +311,14 @@ export async function overlayV2OnChainAllocations(
     }
   }
 
-  const idleRaw = graphQlIdle ?? computedResidual;
+  // GraphQL idleAssets lags after rebalances; on-chain totalAssets − Σ allocation is fresher.
+  // When accrual inflates the residual above deployable cash, GraphQL idle is the ceiling.
+  const idleRaw =
+    graphQlIdle != null
+      ? computedResidual < graphQlIdle
+        ? computedResidual
+        : graphQlIdle
+      : computedResidual;
 
   if (
     graphQlIdle != null &&

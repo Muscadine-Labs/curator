@@ -24,8 +24,8 @@ Muscadine for managing and reporting on Morpho-style vaults on Base (chainId
 `8453`). It covers:
 
 - Vault overview, TVL, revenue and fee charts
-- Per-vault pages for **Morpho V1 (MetaMorpho)** and **Morpho V2** with risk,
-  governance, caps, queues, and allocation management
+- Per-vault pages for **Morpho V2** vaults (risk, governance, caps, allocation,
+  sentinel) plus **Curator Morpho Markets** browser/detail
 - Monthly statements (via DefiLlama and Morpho GraphQL)
 - Curator tools (EIP-7702 delegation, Safe, frontend, morpho)
 - Google Sheets integration for reporting
@@ -117,12 +117,12 @@ Allocators (curator/allocator role) periodically rebalance idle + market
 balances. V1 and V2 reach the same goal via _different_ contract semantics.
 Getting those semantics wrong is the #1 source of reverts.
 
-### 3.1 Morpho V1 (MetaMorpho) — **target-based `reallocate`** (reference)
+### 3.1 Morpho V1 (MetaMorpho) — **protocol reference only**
 
-> **App note:** this repo no longer ships a V1 vault detail page or V1 write
-> builders. V1 vaults still appear in list/dashboard APIs and as MetaMorpho
-> adapter rows on V2 vaults. The rules below remain relevant for understanding
-> wrapped V1 positions and Morpho protocol semantics.
+> **Curator does not use V1 vaults.** All configured vaults are Morpho V2
+> (`lib/config/vaults.ts`). There is no V1 detail route, no MetaMorpho adapter
+> UI, and no `vaultByAddress` queries. The rules below are kept only for
+> understanding Morpho Blue / MetaMorpho protocol semantics elsewhere.
 
 - Contract: `MetaMorpho` (Morpho Blue ERC-4626 vault)
 - Write entrypoint: `reallocate(MarketAllocation[] allocations)`
@@ -180,7 +180,6 @@ Getting those semantics wrong is the #1 source of reverts.
   | Collateral cap id | `encodeCollateralCapIdData` | `abi.encode("collateralToken", collateralAddress)` |
   | Market cap id | `encodeMarketCapIdData` | `abi.encode("this/marketParams", adapterAddress, marketParams)` |
   | Blue market allocate/deallocate `data` | `encodeMarketParamsData` | `abi.encode(marketParams)` — five-tuple, no prefix |
-  | MetaMorpho allocate/deallocate `data` | `METAMORPHO_ADAPTER_DATA` | `0x` (empty bytes) |
 
   Use `resolveCapIdData(cap, risk)` for `decreaseAbsoluteCap` /
   `decreaseRelativeCap`. Market caps need `cap.adapterAddress` from governance
@@ -189,6 +188,12 @@ Getting those semantics wrong is the #1 source of reverts.
   Reference: [Morpho market listing docs](https://docs.morpho.org/curate/tutorials-v2/market-listing/).
 - **No max-catcher needed** — V2 is delta-based so interest drift doesn't cause
   a balancing revert; the allocator simply chooses deltas.
+- **Display vs booked allocation** — risk overlay (`overlay-v2-onchain-caps.ts`)
+  sets `allocationAssets` / UI `displayAssets` to `max(Morpho position supply,
+  on-chain allocation(id))` so accrued interest shows between rebalances; write
+  planning uses on-chain `bookedAllocationAssets` / `currentAssets` only. Always
+  emit `bookedAllocationAssets` as a string (including `"0"`). Post-wallet
+  rebalance: await risk + governance refetch, exit edit mode, reset write hook.
 - **Idle (vault cash)** — V2 holds unallocated assets in the vault contract.
   **Deployable idle** comes from Morpho GraphQL `idleAssets` / `idleAssetsUsd`
   (via `overlay-v2-onchain-caps.ts`), **not** from `totalAssets − Σ allocation(id)`.
@@ -197,7 +202,7 @@ Getting those semantics wrong is the #1 source of reverts.
   `TransferReverted` on allocate. Planning totals use Σ row currents + GraphQL
   idle; relative cap checks use on-chain `totalAssets` (`chainTotalRaw`). This is
   **not** a strategy adapter contract, but the UI treats idle as a first-class
-  rebalance target alongside `MetaMorphoAdapter` and `MorphoMarketV1Adapter` rows:
+  rebalance target alongside **Morpho Blue market** (`MorphoMarketV1Adapter`) rows:
   - **Adapters tab** (`VaultV2Adapters.tsx`): always show an **Idle Adapter**
     row (even at $0).
   - **Allocations tab** (`VaultV2Allocations.tsx`): idle is an editable target
@@ -239,18 +244,16 @@ Getting those semantics wrong is the #1 source of reverts.
 
 ## 4. Data Flow for Allocation Pages
 
-### 4.1 V1 vaults (API / reporting only)
+### 4.1 Vault list (V2 only)
 
-V1 MetaMorpho vaults are still queried in `GET /api/vaults` and
-`GET /api/vaults/[id]` for dashboard TVL, treasury statements, and sidebar
-listing. There is **no** `app/vault/v1/…` detail route in this app — open V1
-vaults on Morpho (`morphoVaultHref`) or manage wrapped V1 exposure via the
-parent V2 vault's MetaMorpho adapter rows.
+`GET /api/vaults` and `GET /api/vaults/[id]` query **Morpho V2** vaults from
+`lib/config/vaults.ts` only. There is no V1 vault list batch and no
+`app/vault/v1/…` detail route.
 
 ### 4.2 V2 (`app/vault/v2/[address]/page.tsx`)
 
-**Tab order** (matches Morpho Curator; no standalone Risk tab in the nav):
-Overview → Roles → Adapters → Caps → Timelocks → Allocation → Sentinel → Emergency.
+**Tab order** (includes Risk): Overview → Risk → Roles → Adapters → Caps →
+Timelocks → Allocation → Sentinel → Emergency.
 
 1. `useVaultV2Complete` fans out to:
    - `useVault(address)` for base data
@@ -261,8 +264,8 @@ Overview → Roles → Adapters → Caps → Timelocks → Allocation → Sentin
 2. **Roles** — `VaultV2Roles.tsx` (read-only): owner, curator, allocators,
    sentinels.
 3. **Adapters** — `VaultV2Adapters.tsx` lists the idle adapter first, then
-   registered strategy adapters from governance. Pass `assetSymbol` /
-   `assetDecimals` from the vault page for token formatting.
+   **Morpho Blue market** strategy adapters from governance (MetaMorpho adapters
+   are hidden). Pass `assetSymbol` / `assetDecimals` from the vault page.
 4. **Caps** — `VaultV2Caps.tsx`. Grouped adapter / collateral / market cap
    tables (read-only). Embeds `VaultV2Pending` when `pending.length > 0`.
    Tab label shows pending count. Pass `assetSymbol` / `assetDecimals` from
@@ -272,17 +275,16 @@ Overview → Roles → Adapters → Caps → Timelocks → Allocation → Sentin
 6. **Allocation** — `VaultV2Allocations.tsx` receives `preloadedData`
    (governance) **and** `preloadedRisk`. Caps are resolved via
    `keccak256(idData)` using helpers in `lib/morpho/v2-id-data.ts` (see §3.2).
-   **List layout**:
-   sections in order **Idle → Wrapped Vault → Morpho Blue Market**. MetaMorpho rows
-   are one row per wrapped vault (not per underlying Morpho Blue market). Row types:
-   - **MetaMorphoAdapter** — wrapped vault adapter. Pair label uses `formatMarketPairLabel`
-     where applicable. Metrics from `underlyingVaultStats` on the risk API.
+   **List layout** — sections **Idle → Morpho Blue Market** (no wrapped-vault
+   section). Row types:
    - **MorphoMarketV1Adapter** — one row per Morpho Blue market position. LLTV pill
      next to name. Utilization, borrow/supply APY, liquidity from `market.state`.
      APY/utilization GraphQL values are **decimals**; multiply by 100 before
      `formatPercentage`.
    - **Idle** — vault cash row; no on-chain cap; no direct writes.
-7. **Sentinel** — `VaultV2Sentinel.tsx` (Morpho Curator–style; **only tab with
+7. **Risk** — `VaultRiskV2.tsx` on the **Risk** tab: vault headline score, idle
+   row, and per-market `MarketRiskDetailCard` (links to Curator market pages).
+8. **Sentinel** — `VaultV2Sentinel.tsx` (Morpho Curator–style; **only tab with
    sentinel writes**). Sections:
    - **Allocation Overview** — stacked bar + per-target token amounts and `%`.
    - **Vault Pending Actions** — embedded `VaultV2Pending` with **Revoke** per row
@@ -299,16 +301,15 @@ Overview → Roles → Adapters → Caps → Timelocks → Allocation → Sentin
      New cap must be **≤ current** cap. `TransactionButton` uses
      `suppressConnectPrompt` (wallet connect is in the topbar only).
    - **Deallocate to Idle** — table (Idle row display-only) with amount + Max
-     per strategy row; batch **Deallocate** via `encodeMarketParamsData` or
-     `METAMORPHO_ADAPTER_DATA`. Token parse via `parseHumanTokenInput`.
-8. **Emergency tab** — links to Morpho Curator emergency actions:
+     per Blue market row; batch **Deallocate** via `encodeMarketParamsData`.
+     Token parse via `parseHumanTokenInput`.
+9. **Emergency tab** — links to Morpho Curator emergency actions:
    `https://curator.morpho.org/vaults/{chainId}/{vaultAddress}/emergency-actions`
-9. Submits use `v2WriteConfigs.allocate/deallocate` wrapped in
+10. Submits use `v2WriteConfigs.allocate/deallocate` wrapped in
    `v2WriteConfigs.multicall` when multiple moves are planned.
 
-`VaultRiskV2.tsx` and `MarketRiskDetailCard.tsx` were removed — risk scoring
-math remains in `lib/morpho/compute-v1-market-risk.ts` for API routes; there is
-no dedicated Risk tab on V2 vault pages today.
+Per-market risk scoring lives in `lib/morpho/compute-blue-market-risk.ts` and is
+surfaced on the vault **Risk** tab and Curator market detail pages.
 
 ### 4.3 Caching
 
@@ -427,9 +428,15 @@ V1 detail.
 | Legacy field | Current field | Where |
 | ------------ | ------------- | ----- |
 | `whitelisted` on `Vault` / `VaultV2` | `listed` | List + detail queries; map to UI `status` (`listed` → active) |
-| `uniqueKey` on `Market` | `marketId` | All market GraphQL selections; keep `marketKey` in JSON for UI |
+| `uniqueKey` on `Market` | `marketId` | All market GraphQL selections; app JSON uses `marketKey` (not `uniqueKey`) |
+| `Market.oracleAddress` | `oracle.address` | Risk, governance, curator-markets, fetch-markets-by-id, `blue-market-data.ts` |
+| `Query.transactions` | `vaultV2transactions` | Vault overview snippet in `app/api/vaults/[id]/route.ts` |
 | `VaultState.avgApy`, `monthlyNetApy`, `weeklyNetApy`, `dailyApy`, `netApyWithoutRewards`, … | Removed — use `apy`, `netApy`, `avgNetApy`, `netApyExcludingRewards` | V1 detail + list |
 | V2 spot `avgApy` on vault | Use `apy`, `avgNetApy`, `maxApy` | V2 detail + list |
+
+**GraphQL client** — `lib/morpho/graphql-client.ts` uses `rawRequest` and logs
+`extensions.warnings` (Morpho deprecation notices) via `lib/utils/logger.ts`.
+Monitor server logs when Morpho schedules field removals.
 
 **Client-side Morpho queries** (browser `morphoGraphQLClient` in `useVaultCaps`,
 `useVaultQueues`) must use `marketId` as well — not only server routes.
@@ -448,18 +455,16 @@ V1 list query must not use removed `VaultState` APY fields (`weeklyNetApy` /
   and `lib/format/allocation-display.ts`; decimals from `lib/format/asset-decimals.ts`
   (USDC 6, WETH 18, cbBTC 8).
 - Allocation column **Liquidity** = per-market `liquidityAssetsUsd` (Blue market depth)
-  for `MorphoMarketV1Adapter` rows; for **MetaMorpho** rows = underlying V1 vault
-  withdrawable liquidity (`liquidity.usd` / `liquidity.underlying` via
-  `underlyingVaultStats`). Not vault-level V2 withdrawable liquidity.
+  for `MorphoMarketV1Adapter` rows. Not vault-level V2 withdrawable liquidity.
 - V2 risk API (`/api/vaults/v2/[id]/risk`) exposes `idleAssets`, `idleAssetsUsd`,
-  and `underlyingVaultStats` on MetaMorpho adapters. Underlying stats are loaded
-  via `lib/morpho/query-v1-vault-markets.ts` (`vaultStats`: `netApy`, `totalAssets`,
-  `totalAssetsUsd`, `liquidityUsd`, `liquidityUnderlying`).
+  and per-market scores for **MorphoMarketV1Adapter** positions only.
+  `MetaMorphoAdapter` GraphQL rows are **skipped** (Curator vaults do not allocate
+  through wrapped MetaMorpho vaults).
 
 ### 4.5 Risk management scoring (V1 & V2)
 
 Both vault versions score **Morpho Blue markets** with the same pure function:
-`lib/morpho/compute-v1-market-risk.ts` → `computeV1MarketRiskScores`. V1 and V2
+`lib/morpho/compute-blue-market-risk.ts` → `computeBlueMarketRiskScores`. V1 and V2
 differ in **how markets are fetched** and **how scores roll up** to vault/adapter
 headlines. Do not duplicate scoring math in components or API routes.
 
@@ -513,48 +518,21 @@ symbol `Unknown`. Return `scores: null`; never feed into weighted averages.
 B+ ≥84, B ≥80, B− ≥77, C+ ≥74, C ≥70, C− ≥65, D ≥60, F &lt;60.
 
 **External links** — `lib/morpho/morpho-app-links.ts`:
-- Blue market → `morphoMarketHref(marketId)` (param name `uniqueKey` in code) →
-  `app.morpho.org/base/market/…`
-- Wrapped V1 vault → `morphoVaultHref(address)` → `app.morpho.org/base/vault/…`
-  Used in `MarketRiskDetailCard`, `VaultRiskV2` (MetaMorpho title), and allocation tables.
+- Blue market → `morphoMarketHref(marketKey)` → `app.morpho.org/base/market/…`
+- Curator market detail → `curatorBlueMarketHref(marketKey, chainId)` →
+  `/curator/market/blue/{marketKey}?chainId=…`
 
-#### V1 vault risk
-
-| Layer | Where | Aggregation |
-| ----- | ----- | ------------- |
-| Market | `GET /api/vaults/v1/[id]/market-risk` | `computeV1MarketRiskScores` per non-idle market |
-| Vault headline | `VaultRiskV1.tsx` (client) | USD-weighted avg of market scores |
-
-**API** (`market-risk/route.ts`): `fetchV1VaultMarkets` → parallel oracle + IRM
-target fetch → scores per market. Response: `{ markets[], vaultLiquidity }` (no
-pre-aggregated vault score).
-
-**Vault score (UI):** for each market, weight by `vaultSupplyAssetsUsd`. Sum
-`marketRiskScore × supplyUsd` for **non-idle markets with scores**; divide by
-**total** `vaultSupplyAssetsUsd` (including idle allocation). Idle therefore
-**dilutes** the vault headline toward 0 when a large cash buffer is unallocated.
-
-**UI:** `VaultRiskV1` — vault KPI card + liquidity vs TVL;
-`MarketRiskV1` — per-market `MarketRiskDetailCard` with component breakdown.
-
-#### V2 vault risk
+#### V2 vault risk (Curator)
 
 | Layer | Where | Aggregation |
 | ----- | ----- | ------------- |
-| Market | `buildMarketRisk` in `risk/route.ts` | Same `computeV1MarketRiskScores` |
+| Market | `buildMarketRisk` in `risk/route.ts` | Same `computeBlueMarketRiskScores` |
 | Adapter | `computeAdapterRisk` | USD-weighted avg of market scores in adapter |
 | Vault headline | `risk/route.ts` response | USD-weighted avg of **strategy adapter** scores |
 
 **MorphoMarketV1Adapter:** GraphQL positions → one `buildMarketRisk` per position;
 adapter score = `computeWeightedRisk` over non-idle markets with `allocationUsd > 0`.
 API returns nested `markets[]` for per-market cards in `VaultRiskV2`.
-
-**MetaMorphoAdapter:** `fetchV1VaultMarkets(underlyingVaultAddress)` loads underlying
-Blue markets; adapter score = same USD-weighted market average as if it were a V1
-vault. API sets **`markets: []`** — V2 risk UI shows **vault-level score only**
-(no nested Blue rows). `underlyingVaultStats` supplies net APY, TVL, and withdrawable
-liquidity for the wrapped vault. Title links to Morpho app + “View in Curator →”
-(`/vault/v1/{address}`).
 
 **Vault score (API):** `vaultRiskScore = Σ(adapter.riskScore × adapter.allocationUsd) /
 totalAdapterAssetsUsd` where `totalAdapterAssetsUsd` sums **strategy adapters only**.
@@ -575,10 +553,9 @@ tab switch, post-tx, and Rebalance (`lib/data/query-config.ts`).
 
 #### Do not regress
 
-- Reuse `computeV1MarketRiskScores`; do not fork component weights in UI.
+- Reuse `computeBlueMarketRiskScores`; do not fork component weights in UI.
 - Utilization: **100 at/below IRM target**, not “lower util = safer”.
-- V2 MetaMorpho: do not list underlying Blue markets in risk UI (`markets: []` by design).
-- V1 vault score divides by total supply **including idle**; V2 vault score **excludes idle**.
+- V2 vault score **excludes idle** from numerator and denominator.
 - GraphQL APY/utilization on the risk route are **fractions (0–1)**; multiply by 100
   before `formatPercentage` in allocation/risk UI.
 
@@ -617,6 +594,49 @@ unrelated to treasury wallet positions).
 the treasury dashboard without restoring the tx-classification pipeline in
 `treasury-statement.ts`.
 
+### 4.7 Curator Morpho Markets browser
+
+**Routes** — `/curator/markets` (list) and `/curator/market/blue/[id]?chainId=`
+(detail). Sidebar **Curator Tools** order: **Morpho Markets** → **Multisig Safe**
+→ **Morpho Tools** (`components/layout/Sidebar.tsx`).
+
+**BFF** — `GET /api/curator/markets` and `GET /api/curator/markets/[marketId]`
+(`lib/morpho/curator-markets.ts`). Networks: Base (default), Ethereum,
+Hyperliquid (`CURATOR_MARKET_NETWORKS` in `lib/constants/core.ts`). List query
+uses `orderBy: SizeUsd` server-side; client re-sorts via column headers.
+
+**Market size / liquidity (match Morpho app, not raw supply):**
+
+| UI label | Morpho GraphQL field |
+| -------- | -------------------- |
+| Market size | `state.sizeUsd` |
+| Total liquidity | `state.totalLiquidityUsd` |
+| Available liquidity (detail sub-line) | `state.liquidityAssetsUsd` |
+
+Do **not** use `supplyAssetsUsd` for “market size” in the markets browser — it
+understates markets like WETH/USDC where `sizeUsd` includes collateral notionals.
+
+**List defaults** — filter **Listed** only; sort **Market size** high → low.
+Muscadine rows (blue highlight) = business vault with allocatable market cap on
+that `marketId` (30s in-process index in `curator-markets.ts`).
+
+**Detail page** — overview KPIs (APY, bad debt, utilization, supply/borrow),
+`MarketRiskDetailCard` on Base only (oracle/IRM reads use Base RPC today). Page
+title + `Morpho Blue · {network}` link to Morpho app; risk card title also links
+to Morpho when already on the Curator page.
+
+**Vault Risk tab links** — `MarketRiskDetailCard` market names link to
+`curatorBlueMarketHref(marketKey, chainId)` (`lib/morpho/morpho-app-links.ts`).
+Pass `chainId` from the vault page into `VaultRiskV2`.
+
+**Hooks** — `useCuratorMarkets`, `useCuratorMarketDetail` (`lib/hooks/useCuratorMarkets.ts`);
+dashboard poll tier (30s).
+
+**Mobile** — filter row uses `flex-wrap`; table is `overflow-x-auto` with
+`whitespace-nowrap` sort headers; market detail overview uses responsive
+`sm:grid-cols-2 lg:grid-cols-4`. AppShell header/actions already stack on small
+viewports.
+
 ---
 
 ## 5. Reallocation UX Conventions (current code)
@@ -627,7 +647,7 @@ These rules are baked into `VaultV2Allocations.tsx`, `VaultV2Sentinel.tsx`,
 ### 5.1 List layout (`AllocationListView.tsx`)
 
 - Morpho-style card: header **Allocation | Allocation** (name left, amount right).
-- **Sections** (fixed order on V2): Idle → Wrapped Vault → Morpho Blue Market.
+- **Sections** (fixed order on V2): Idle → Morpho Blue Market.
   Section headers replace per-row type labels.
 - **No token icons.** LLTV on Blue rows is a gray pill (`86%`) via
   `formatLltvPill`, not “LLTV 86%”.
@@ -792,8 +812,7 @@ components.
 - For market caps, confirm `cap.adapterAddress` from governance and full market
   params (oracle, irm, lltv) from the risk API are used in
   `encodeMarketCapIdData`.
-- Deallocate Blue markets: `data = encodeMarketParamsData(market)`. MetaMorpho:
-  `data = 0x`.
+- Deallocate Blue markets: `data = encodeMarketParamsData(market)`.
 - New absolute/relative cap on decrease must be **≤ current** on-chain cap.
 - Relative cap input is human **percent** (0–100); convert to WAD with
   `BigInt(Math.round(pct * 1e16))`.
@@ -811,7 +830,6 @@ components.
   precede `allocate` to free up balance in the vault.
 - **Tiny Blue positions** (e.g. 1 raw unit) may fail to `deallocate` on-chain
   even when the UI builds valid calldata — adapter/market liquidity constraints.
-  MetaMorpho ↔ idle moves are unaffected.
 
 ### V2 writes must use a connected allocator wallet
 
@@ -852,11 +870,12 @@ components.
 - Confirm `market.state { utilization, supplyApy, borrowApy, liquidityAssetsUsd }`
   is queried on MorphoMarketV1Adapter positions in `VAULT_V2_RISK_QUERY`.
 
-### V2 MetaMorpho row missing supply APY / TVL / liquidity
+### V2 MetaMorpho adapter on-chain (should not happen)
 
-- Extend `fetchV1VaultMarkets` / risk route `underlyingVaultStats`, not the
-  allocations component alone. Needs `state { totalAssets, netApy }` and
-  `liquidity { usd, underlying }` on the underlying V1 vault query.
+- Curator **skips** `MetaMorphoAdapter` in risk, allocation, sentinel, and adapters
+  tabs. If a vault still holds MetaMorpho allocation on-chain, it will not appear in
+  rebalance UI and is omitted from `vaultRiskScore` / idle overlay. Muscadine vaults
+  use Morpho Blue market adapters only.
 
 ### V2 adapter count wrong in Risk
 
@@ -865,13 +884,10 @@ components.
 
 ### Risk score looks wrong after utilization/oracle changes
 
-- Per-market math lives only in `lib/morpho/compute-v1-market-risk.ts`. Utilization
+- Per-market math lives only in `lib/morpho/compute-blue-market-risk.ts`. Utilization
   uses `scoreUtilizationRatio`: optimal at IRM target (~90%), not “lower is safer”.
-- V1 vault headline **dilutes** with idle allocation (idle in denominator, not numerator).
-- V2 vault headline **ignores idle** entirely; only strategy adapter allocations weight
+- V2 vault headline **ignores idle**; only Blue market adapter allocations weight
   `vaultRiskScore`.
-- MetaMorpho adapter score weights underlying V1 markets but returns `markets: []` to
-  the V2 risk UI — do not expect nested Blue cards there.
 - Realized bad debt &gt; $1 forces market grade **F** / score **0**.
 
 ### Pending tab visible with nothing to accept
@@ -879,6 +895,17 @@ components.
 - V2: pending embeds in **Caps** tab (count in tab label); Sentinel shows a
   read-only pending section with empty state. No standalone Pending tab on V2.
 - V1: hide the tab when `pending.length === 0`.
+
+### Markets browser shows wrong size ranking
+
+- Use Morpho `state.sizeUsd` for market size and `state.totalLiquidityUsd` for
+  the liquidity column — not `supplyAssetsUsd` / `liquidityAssetsUsd` alone.
+  See §4.7.
+
+### GraphQL deprecation warnings in server logs
+
+- `morphoGraphQLClient` logs `extensions.warnings`. Migrate fields per §4.4.1
+  (`oracle.address`, `vaultV2transactions`, `marketId` / `marketKey`).
 
 ### Vault list empty or only V2 Prime in sidebar
 
@@ -948,12 +975,12 @@ npm run build
 | Cap decrease input parsing     | `lib/morpho/cap-decrease-input.ts`                       |
 | V2 cap idData encoding           | `lib/morpho/v2-id-data.ts` (`resolveCapIdData`, …)       |
 | V2 cap display helpers           | `lib/morpho/v2-cap-format.ts`                            |
-| Market risk scoring (shared)     | `lib/morpho/compute-v1-market-risk.ts`, `lib/morpho/irm-utils.ts`, `lib/morpho/oracle-utils.ts` |
-| V2 risk API                      | `app/api/vaults/v2/[id]/risk/route.ts` |
+| Market risk scoring (shared)     | `lib/morpho/compute-blue-market-risk.ts`, `lib/morpho/irm-utils.ts`, `lib/morpho/oracle-utils.ts` |
+| V2 risk API + UI                 | `app/api/vaults/v2/[id]/risk/route.ts`, `VaultRiskV2.tsx`, `MarketRiskDetailCard.tsx` |
 | Morpho app deep links            | `lib/morpho/morpho-app-links.ts`                         |
 | V2 pending UI                    | `components/morpho/VaultV2Pending.tsx`                    |
 | V2 vault page (tabs)             | `app/vault/v2/[address]/page.tsx`                         |
-| Underlying V1 vault stats query  | `lib/morpho/query-v1-vault-markets.ts`                    |
+| Blue market types + normalize      | `lib/morpho/blue-market-data.ts` (`asBlueMarketData`) |
 | Client fetch + refetch interval  | `lib/data/api-fetch.ts`, `lib/data/query-config.ts`      |
 | BFF cache headers                | `lib/api/response-cache.ts`, `lib/api/server-response-cache.ts` |
 | Governance query key helper      | `vaultV2GovernanceQueryKey` in `lib/hooks/useVaultV2Governance.ts` |
@@ -978,7 +1005,14 @@ npm run build
 | Vault list API                   | `app/api/vaults/route.ts`, `app/api/vaults/[id]/route.ts`|
 | Vault history + share price      | `lib/morpho/vault-history.ts`, `useVaultHistory.ts`, `VaultOverviewHistoryChart.tsx` |
 | Sidebar vault sections           | `components/layout/Sidebar.tsx`, `lib/config/vaults.ts` (`getVaultCategory`) |
-| Market id helpers                | `lib/morpho/morpho-app-links.ts` (`marketKeyFromGraphQL`) |
+| Market id helpers                | `lib/morpho/morpho-app-links.ts` (`marketKeyFromGraphQL`, `curatorBlueMarketHref`) |
+| Oracle address from GraphQL      | `lib/morpho/market-oracle-address.ts` (`resolveMarketOracleAddress`) |
+| Morpho GraphQL client + warnings | `lib/morpho/graphql-client.ts` |
+| Curator markets BFF + scoring    | `lib/morpho/curator-markets.ts`, `app/api/curator/markets/` |
+| Markets browser UI               | `components/morpho/CuratorMarketsBrowser.tsx`, `app/curator/markets/page.tsx` |
+| Market detail page               | `app/curator/market/blue/[id]/page.tsx` |
+| V2 on-chain allocation overlay   | `lib/morpho/overlay-v2-onchain-caps.ts` |
+| V2 tx user resolution            | `lib/morpho/vault-v2-transaction-utils.ts` |
 | Vault addresses                  | `lib/config/vaults.ts`                                   |
 | CCTP constants (chains/ABIs)     | `lib/cctp/constants.ts`                                  |
 | CCTP attestation helper          | `lib/cctp/attestation.ts`                                |
@@ -1009,7 +1043,8 @@ npm run build
 ## 13. Multisig Safe (Curator)
 
 `/curator/safe` manages Muscadine role Safes on Base. Default tab:
-`/curator/safe/allocator`. Sidebar link: **Multisig Safe** (above Morpho).
+`/curator/safe/allocator`. Sidebar **Curator Tools**: **Morpho Markets** →
+**Multisig Safe** → **Morpho Tools** (Safe is second, not first).
 
 ### 13.1 Role Safes (`lib/safe/config.ts`)
 
@@ -1046,7 +1081,9 @@ Transaction Service is an optional sync layer:
 
 1. **Queue** always writes to localStorage first.
 2. **Auto-share** (when `NEXT_PUBLIC_SAFE_API_KEY` is set and a proposer wallet is
-   connected): signs EIP-712 and calls `proposeTransaction` via `@safe-global/api-kit`.
+   connected): signs EIP-712 and calls `proposeTransaction` via
+   `@safe-global/api-kit` (^5.x; same `proposeTransaction` / `confirmTransaction`
+   surface used by Allocation and Sentinel queue flows).
 3. **Safe App embed** (`CuratorSafeAppsProvider`): when opened inside
    `app.safe.global`, queue can call `sdk.txs.send` after building the same
    meta-tx locally; marks `serviceSynced`.
@@ -1300,11 +1337,11 @@ High-value targets if Jest returns: `lib/morpho/cap-decrease-input.ts`,
 
 ---
 
-_Last updated: 2026-06-25 (v1.2.1). When you change reallocation logic, allocation
+_Last updated: 2026-06-27 (v1.3.0). When you change reallocation logic, allocation
 list/filters (§5), caps/adapters display, V2 idData/Sentinel (§3.2, §4.2), tx
-preview, client fetch/cache (§4.3), Morpho GraphQL field names (§4.4.1), vault
-list/sidebar (§4.3.1), vault overview/history (share price in §4.4), risk
-scoring (§4.5), V2 idle/MetaMorpho/Blue display, pending/emergency tabs, wallet
-stack, Multisig Safe (§13), formatting, the CCTP flow (§14), global density (§16),
-or add a new vault interaction, update Sections 3–6, 4.2–4.5, 9–10, 13–14, 16,
-and 17 accordingly._
+preview, client fetch/cache (§4.3), Morpho GraphQL field names (§4.4.1), Curator
+markets browser (§4.7), vault list/sidebar (§4.3.1), vault overview/history (share
+price in §4.4), risk scoring (§4.5), V2 idle/Blue display, pending/emergency
+tabs, wallet stack, Multisig Safe (§13), formatting, the CCTP flow (§14), global
+density (§16), or add a new vault interaction, update Sections 3–6, 4.2–4.7, 9–10,
+13–14, 16, and 17 accordingly._

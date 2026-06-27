@@ -37,7 +37,6 @@ import {
   groupCaps,
 } from '@/lib/morpho/v2-cap-format';
 import {
-  METAMORPHO_ADAPTER_DATA,
   encodeMarketParamsData,
   resolveCapIdData,
 } from '@/lib/morpho/v2-id-data';
@@ -52,7 +51,7 @@ import {
   getTokenDisplayDecimals,
   resolveAssetDecimals,
 } from '@/lib/format/asset-decimals';
-import { marketKeyFromGraphQL, morphoMarketHref, morphoVaultHref } from '@/lib/morpho/morpho-app-links';
+import { marketKeyFromGraphQL, morphoMarketHref } from '@/lib/morpho/morpho-app-links';
 import type { CapInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governance/route';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
 import type { VaultV2PendingResponse } from '@/app/api/vaults/v2/[id]/pending/route';
@@ -155,7 +154,9 @@ export function VaultV2Sentinel({
   assetDecimals,
 }: VaultV2SentinelProps) {
   const { data: fetchedGov, isLoading: govLoading } = useVaultV2Governance(vaultAddress);
-  const { data: fetchedRisk, isLoading: riskLoading } = useVaultV2Risk(vaultAddress);
+  const { data: fetchedRisk, isLoading: riskLoading } = useVaultV2Risk(vaultAddress, {
+    initialData: preloadedRisk ?? undefined,
+  });
   const governance = fetchedGov ?? preloadedGovernance;
   const risk = fetchedRisk ?? preloadedRisk;
 
@@ -1273,38 +1274,6 @@ function buildOverviewAndDeallocate(
   });
 
   for (const adapter of risk.adapters ?? []) {
-    if (adapter.adapterType === 'MetaMorphoAdapter') {
-      const raw = parseBig(adapter.allocationAssets);
-      totalRaw += raw;
-      const cap = capByAdapter.get(adapter.adapterAddress.toLowerCase());
-
-      overviewSegments.push({
-        key: `meta-${adapter.adapterAddress}`,
-        label: adapter.adapterLabel || 'MetaMorpho',
-        morphoHref: morphoVaultHref(adapter.underlyingVaultAddress),
-        pct: 0,
-        raw,
-        color: BAR_COLORS[1],
-      });
-
-      deallocateRows.push({
-        key: `meta-${adapter.adapterAddress}`,
-        label: adapter.adapterLabel || 'MetaMorpho',
-        morphoHref: morphoVaultHref(adapter.underlyingVaultAddress),
-        lltv: null,
-        adapterAddress: adapter.adapterAddress,
-        idData: METAMORPHO_ADAPTER_DATA,
-        currentRaw: raw,
-        allocationPct: 0,
-        supplyApy: adapter.underlyingVaultStats?.netApy ?? null,
-        liquidityUsd: adapter.underlyingVaultStats?.liquidityUsd ?? null,
-        absoluteCap: cap?.absoluteCap ?? null,
-        relativeCap: cap?.relativeCap ?? null,
-        canDeallocate: raw > 0n,
-      });
-      continue;
-    }
-
     for (const m of adapter.markets ?? []) {
       const raw = parseBig(m.allocationAssets);
       totalRaw += raw;

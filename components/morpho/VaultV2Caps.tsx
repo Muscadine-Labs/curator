@@ -41,7 +41,9 @@ export function VaultV2Caps({
   assetDecimals,
 }: VaultV2CapsProps) {
   const { data: fetchedGov, isLoading: govLoading, error: govError } = useVaultV2Governance(vaultAddress);
-  const { data: fetchedRisk } = useVaultV2Risk(vaultAddress);
+  const { data: fetchedRisk } = useVaultV2Risk(vaultAddress, {
+    initialData: preloadedRisk ?? undefined,
+  });
   const data = fetchedGov ?? preloadedData;
   const risk = preloadedRisk ?? fetchedRisk;
 

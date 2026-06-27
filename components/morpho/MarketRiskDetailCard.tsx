@@ -1,13 +1,18 @@
 'use client';
 
+import Link from 'next/link';
 import { Info } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { formatAddress, formatCompactUSD, formatPercentage } from '@/lib/format/number';
-import type { MarketRiskScores } from '@/lib/morpho/compute-v1-market-risk';
-import { isMarketIdle } from '@/lib/morpho/compute-v1-market-risk';
-import type { V1VaultMarketData } from '@/lib/morpho/query-v1-vault-markets';
-import { morphoMarketHref } from '@/lib/morpho/morpho-app-links';
+import type { MarketRiskScores } from '@/lib/morpho/compute-blue-market-risk';
+import { isMarketIdle } from '@/lib/morpho/compute-blue-market-risk';
+import type { BlueMarketData } from '@/lib/morpho/blue-market-data';
+import {
+  curatorBlueMarketHref,
+  morphoMarketHref,
+} from '@/lib/morpho/morpho-app-links';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 import type { OracleTimestampData } from '@/lib/morpho/oracle-utils';
 import { getOracleDisplayLines } from '@/lib/morpho/format-risk';
 import {
@@ -18,7 +23,7 @@ import {
 } from '@/lib/morpho/market-risk-display';
 
 export interface MarketRiskDetailCardProps {
-  market: V1VaultMarketData;
+  market: BlueMarketData;
   scores: MarketRiskScores | null;
   oracleTimestampData?: OracleTimestampData | null;
   /** Override supply USD when market.vaultSupplyAssetsUsd is unset (e.g. V2 adapter positions). */
@@ -26,6 +31,9 @@ export interface MarketRiskDetailCardProps {
   /** Override vault total for allocation % (e.g. V2 vault TVL). */
   vaultTotalUsd?: number;
   className?: string;
+  chainId?: number;
+  /** Where the market name links: curator (vault risk) or Morpho app (curator market page). */
+  marketTitleLink?: 'curator' | 'morpho';
 }
 
 export function MarketRiskDetailCard({
@@ -35,6 +43,8 @@ export function MarketRiskDetailCard({
   supplyUsd: supplyUsdOverride,
   vaultTotalUsd: vaultTotalUsdOverride,
   className,
+  chainId = BASE_CHAIN_ID,
+  marketTitleLink = 'curator',
 }: MarketRiskDetailCardProps) {
   const marketName = formatMarketIdentifier(
     market.loanAsset?.symbol,
@@ -107,7 +117,39 @@ export function MarketRiskDetailCard({
 
   const targetUtilizationPct = (scores?.targetUtilization ?? 0.9) * 100;
   const oracleDisplay = getOracleDisplayLines(oracleTimestampData);
-  const marketKey = market.uniqueKey || market.id;
+  const marketKey = market.marketKey || market.id;
+  const curatorHref = curatorBlueMarketHref(marketKey, chainId);
+  const morphoHref = morphoMarketHref(marketKey, chainId);
+
+  const titleLinkClass =
+    'font-semibold text-lg hover:text-blue-600 dark:hover:text-blue-400 transition-colors underline decoration-1 underline-offset-2';
+
+  const marketTitle =
+    marketTitleLink === 'morpho' && morphoHref ? (
+      <a
+        href={morphoHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={titleLinkClass}
+      >
+        {marketName}
+      </a>
+    ) : curatorHref ? (
+      <Link href={curatorHref} className={titleLinkClass}>
+        {marketName}
+      </Link>
+    ) : morphoHref ? (
+      <a
+        href={morphoHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={titleLinkClass}
+      >
+        {marketName}
+      </a>
+    ) : (
+      <h3 className="font-semibold text-lg">{marketName}</h3>
+    );
 
   return (
     <div
@@ -122,18 +164,7 @@ export function MarketRiskDetailCard({
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
         <div className="flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            {marketKey ? (
-              <a
-                href={morphoMarketHref(marketKey) ?? undefined}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-semibold text-lg hover:text-blue-600 dark:hover:text-blue-400 transition-colors underline decoration-1 underline-offset-2"
-              >
-                {marketName}
-              </a>
-            ) : (
-              <h3 className="font-semibold text-lg">{marketName}</h3>
-            )}
+            {marketTitle}
             <span className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
               LTV: {lltvPercent}%
             </span>

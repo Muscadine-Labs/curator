@@ -1,30 +1,38 @@
-import { BASE_CHAIN_ID, MORPHO_APP_ORIGIN } from '@/lib/constants';
+import {
+  BASE_CHAIN_ID,
+  ETHEREUM_CHAIN_ID,
+  HYPEREVM_CHAIN_ID,
+  MORPHO_APP_ORIGIN,
+} from '@/lib/constants';
 
-/** Morpho API market identifier (`marketId` replaced legacy `uniqueKey`). */
+/** Morpho API market identifier (`marketId` in GraphQL; `marketKey` in app JSON). */
 export function marketKeyFromGraphQL(
-  market: { marketId?: string | null; uniqueKey?: string | null; id?: string } | null | undefined
+  market: { marketId?: string | null; marketKey?: string | null; id?: string } | null | undefined
 ): string | null {
-  return market?.marketId ?? market?.uniqueKey ?? market?.id ?? null;
+  return market?.marketId ?? market?.marketKey ?? market?.id ?? null;
 }
 
-/** Morpho app chain slug (Curator vaults are on Base today). */
-function morphoChainSlug(chainId: number): string {
+/** Morpho app chain slug for deep links. */
+export function morphoChainSlug(chainId: number): string {
   if (chainId === BASE_CHAIN_ID) return 'base';
+  if (chainId === ETHEREUM_CHAIN_ID) return 'ethereum';
+  if (chainId === HYPEREVM_CHAIN_ID) return 'hyperevm';
   return 'base';
 }
 
 export function morphoMarketHref(
-  uniqueKey: string | null | undefined,
+  marketKey: string | null | undefined,
   chainId: number = BASE_CHAIN_ID
 ): string | null {
-  if (!uniqueKey) return null;
-  return `${MORPHO_APP_ORIGIN}/${morphoChainSlug(chainId)}/market/${uniqueKey}`;
+  if (!marketKey) return null;
+  return `${MORPHO_APP_ORIGIN}/${morphoChainSlug(chainId)}/market/${marketKey}`;
 }
 
-export function morphoVaultHref(
-  address: string | null | undefined,
+/** Curator Morpho Blue market detail page. */
+export function curatorBlueMarketHref(
+  marketId: string | null | undefined,
   chainId: number = BASE_CHAIN_ID
 ): string | null {
-  if (!address) return null;
-  return `${MORPHO_APP_ORIGIN}/${morphoChainSlug(chainId)}/vault/${address.toLowerCase()}`;
+  if (!marketId) return null;
+  return `/curator/market/blue/${encodeURIComponent(marketId)}?chainId=${chainId}`;
 }

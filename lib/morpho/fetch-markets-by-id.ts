@@ -4,6 +4,7 @@ import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
 import { BASE_CHAIN_ID, GRAPHQL_FIRST_LIMIT } from '@/lib/constants';
 import { isCollateralCap, isMarketCap } from '@/lib/morpho/cap-utils';
 import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
+import { resolveMarketOracleAddress } from '@/lib/morpho/market-oracle-address';
 
 const MARKETS_FOR_CAPS_QUERY = gql`
   query MarketsForCapLookup($first: Int!, $chainId: Int!) {
@@ -20,9 +21,11 @@ const MARKETS_FOR_CAPS_QUERY = gql`
           symbol
           decimals
         }
-        oracleAddress
         irmAddress
         lltv
+        oracle {
+          address
+        }
         state {
           supplyApy
           borrowApy
@@ -47,9 +50,9 @@ type GraphMarketItem = {
   marketId?: string | null;
   loanAsset?: { address?: string | null; symbol?: string | null; decimals?: number | null } | null;
   collateralAsset?: { address?: string | null; symbol?: string | null; decimals?: number | null } | null;
-  oracleAddress?: string | null;
   irmAddress?: string | null;
   lltv?: string | number | null;
+  oracle?: { address?: string | null } | null;
   state?: MarketStateSnapshot | null;
 };
 
@@ -84,7 +87,7 @@ function graphMarketToEntry(item: GraphMarketItem): MarketLookupEntry | null {
         symbol: item.collateralAsset.symbol ?? null,
         decimals: item.collateralAsset.decimals ?? null,
       },
-      oracleAddress: item.oracleAddress ?? null,
+      oracleAddress: resolveMarketOracleAddress(item),
       irmAddress: item.irmAddress ?? null,
       lltv: item.lltv != null ? String(item.lltv) : null,
       state: item.state ?? null,

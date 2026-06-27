@@ -2,8 +2,10 @@
  * GraphQL Client for Morpho API
  * Uses graphql-request with SDK-generated types for type safety
  */
-import { request, type RequestDocument } from 'graphql-request';
+import { GraphQLClient, type RequestDocument } from 'graphql-request';
+import { print, type DocumentNode } from 'graphql';
 import { MORPHO_GRAPHQL_ENDPOINT } from '@/lib/constants';
+import { logger } from '@/lib/utils/logger';
 
 type GraphQLError = {
   message: string;
@@ -17,14 +19,26 @@ type GraphQLResponseError = {
   message?: string;
 };
 
+type MorphoDeprecationWarning = {
+  type?: string;
+  field?: string;
+  path?: string;
+  message?: string;
+  removalAt?: string;
+};
+
+function requestDocumentToString(document: RequestDocument): string {
+  return typeof document === 'string' ? document : print(document as DocumentNode);
+}
+
 /**
  * Type-safe GraphQL client wrapper
  */
 class MorphoGraphQLClient {
-  private endpoint: string;
+  private client: GraphQLClient;
 
   constructor(endpoint: string = MORPHO_GRAPHQL_ENDPOINT) {
-    this.endpoint = endpoint;
+    this.client = new GraphQLClient(endpoint);
   }
 
   async request<T = unknown>(
@@ -32,10 +46,25 @@ class MorphoGraphQLClient {
     variables?: Record<string, unknown>
   ): Promise<T> {
     try {
-      const data = await request<T>(this.endpoint, document, variables);
+      const { data, extensions } = await this.client.rawRequest<T>(
+        requestDocumentToString(document),
+        variables
+      );
+      const warnings = (extensions as { warnings?: MorphoDeprecationWarning[] } | undefined)
+        ?.warnings;
+      if (warnings?.length) {
+        logger.warn('Morpho GraphQL deprecation warnings', {
+          count: warnings.length,
+          warnings: warnings.map((w) => ({
+            field: w.field,
+            path: w.path,
+            message: w.message,
+            removalAt: w.removalAt,
+          })),
+        });
+      }
       return data;
     } catch (error: unknown) {
-      // Enhanced error handling
       const graphqlError = error as GraphQLResponseError;
       if (graphqlError.response?.errors) {
         const errors = graphqlError.response.errors;
@@ -50,6 +79,4 @@ class MorphoGraphQLClient {
   }
 }
 
-// Singleton instance
 export const morphoGraphQLClient = new MorphoGraphQLClient();
-
