@@ -14,18 +14,21 @@ import {
 } from '@/lib/format/asset-decimals';
 import { MarketRiskDetailCard } from '@/components/morpho/MarketRiskDetailCard';
 import { morphoVaultHref } from '@/lib/morpho/morpho-app-links';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 import { shouldShowAdapterEntry, shouldShowMarketEntry } from '@/lib/morpho/format-risk';
 import { getGradeColor, getScoreColor } from '@/lib/morpho/market-risk-display';
 
 interface VaultRiskV2Props {
   vaultAddress: string;
+  chainId?: number;
   preloadedData?: import('@/app/api/vaults/v2/[id]/risk/route').V2VaultRiskResponse | null;
 }
 
-export function VaultRiskV2({ vaultAddress, preloadedData }: VaultRiskV2Props) {
+export function VaultRiskV2({ vaultAddress, chainId, preloadedData }: VaultRiskV2Props) {
   const { data: fetchedData, isLoading, error } = useVaultV2Risk(preloadedData ? undefined : vaultAddress);
   const data = preloadedData ?? fetchedData;
   const isActuallyLoading = !preloadedData && isLoading;
+  const resolvedChainId = chainId ?? BASE_CHAIN_ID;
 
   const sortedAdapters = useMemo(() => {
     if (!data?.adapters) return [];
@@ -351,12 +354,14 @@ export function VaultRiskV2({ vaultAddress, preloadedData }: VaultRiskV2Props) {
                   )}
                   {markets.map((m) => (
                       <MarketRiskDetailCard
-                        key={m.market.uniqueKey || m.market.id}
+                        key={m.market.marketKey || m.market.id}
                         market={m.market}
                         scores={m.scores}
                         oracleTimestampData={m.oracleTimestampData}
                         supplyUsd={m.allocationUsd}
                         vaultTotalUsd={totalVaultAllocatedUsd}
+                        chainId={resolvedChainId}
+                        marketTitleLink="curator"
                         className="shadow-none"
                       />
                     ))}

@@ -1,9 +1,9 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Search } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -30,6 +30,101 @@ import { cn } from '@/lib/utils';
 
 type ListedFilter = 'all' | 'listed' | 'unlisted';
 type MuscadineFilter = 'all' | 'muscadine';
+type SortKey = 'pair' | 'lltv' | 'sizeUsd' | 'liquidity' | 'apy' | 'listed' | 'muscadine';
+type SortDir = 'asc' | 'desc';
+
+const SORTABLE_COLUMNS: { key: SortKey; label: string; align?: 'right' }[] = [
+  { key: 'pair', label: 'Collateral / Loan' },
+  { key: 'lltv', label: 'LLTV' },
+  { key: 'sizeUsd', label: 'Market size', align: 'right' },
+  { key: 'liquidity', label: 'Liquidity', align: 'right' },
+  { key: 'apy', label: '6H net APY', align: 'right' },
+  { key: 'listed', label: 'Listed' },
+  { key: 'muscadine', label: 'Muscadine' },
+];
+
+function compareMarkets(a: CuratorMarketListItem, b: CuratorMarketListItem, key: SortKey): number {
+  switch (key) {
+    case 'pair': {
+      const left = `${a.collateralSymbol}/${a.loanSymbol}`.toLowerCase();
+      const right = `${b.collateralSymbol}/${b.loanSymbol}`.toLowerCase();
+      return left.localeCompare(right);
+    }
+    case 'lltv':
+      return Number(a.lltv ?? 0) - Number(b.lltv ?? 0);
+    case 'sizeUsd':
+      return (a.sizeUsd ?? 0) - (b.sizeUsd ?? 0);
+    case 'liquidity':
+      return (a.totalLiquidityUsd ?? 0) - (b.totalLiquidityUsd ?? 0);
+    case 'apy':
+      return (a.avgNetSupplyApy ?? 0) - (b.avgNetSupplyApy ?? 0);
+    case 'listed':
+      return Number(a.listed) - Number(b.listed);
+    case 'muscadine':
+      return a.muscadineVaults.length - b.muscadineVaults.length;
+    default:
+      return 0;
+  }
+}
+
+function SortableHead({
+  label,
+  sortKey,
+  activeKey,
+  sortDir,
+  align,
+  onSort,
+}: {
+  label: string;
+  sortKey: SortKey;
+  activeKey: SortKey;
+  sortDir: SortDir;
+  align?: 'right';
+  onSort: (key: SortKey) => void;
+}) {
+  const active = activeKey === sortKey;
+  const Icon = active ? (sortDir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
+
+  return (
+    <TableHead className={align === 'right' ? 'text-right' : undefined}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onSort(sortKey);
+        }}
+        className={cn(
+          'inline-flex items-center gap-1 whitespace-nowrap font-medium transition-colors hover:text-slate-900 dark:hover:text-slate-100',
+          align === 'right' && 'ml-auto',
+          active && 'text-slate-900 dark:text-slate-100'
+        )}
+      >
+        {label}
+        <Icon className={cn('h-3.5 w-3.5 shrink-0', active ? 'opacity-100' : 'opacity-40')} />
+      </button>
+    </TableHead>
+  );
+}
+
+function formatMorphoTokenAmount(usd: number | null, symbol: string): string {
+  if (usd == null || usd === 0) return `0 ${symbol}`;
+  const compact = new Intl.NumberFormat('en-US', {
+    notation: 'compact',
+    maximumFractionDigits: 2,
+  }).format(usd);
+  return `${compact} ${symbol}`;
+}
+
+function MetricCell({ primary, secondary }: { primary: ReactNode; secondary?: ReactNode }) {
+  return (
+    <div className="text-right tabular-nums">
+      <div>{primary}</div>
+      {secondary != null && (
+        <div className="text-xs text-slate-500 dark:text-slate-400">{secondary}</div>
+      )}
+    </div>
+  );
+}
 
 export function CuratorMarketsBrowser() {
   const router = useRouter();
@@ -37,8 +132,10 @@ export function CuratorMarketsBrowser() {
   const [search, setSearch] = useState('');
   const [loanFilter, setLoanFilter] = useState('');
   const [collateralFilter, setCollateralFilter] = useState('');
-  const [listedFilter, setListedFilter] = useState<ListedFilter>('all');
+  const [listedFilter, setListedFilter] = useState<ListedFilter>('listed');
   const [muscadineFilter, setMuscadineFilter] = useState<MuscadineFilter>('all');
+  const [sortKey, setSortKey] = useState<SortKey>('sizeUsd');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   const { data, isLoading, error } = useCuratorMarkets(chainId);
 
@@ -60,6 +157,24 @@ export function CuratorMarketsBrowser() {
       return haystack.includes(q);
     });
   }, [data?.markets, search, loanFilter, collateralFilter, listedFilter, muscadineFilter]);
+
+  const sorted = useMemo(() => {
+    const list = [...filtered];
+    list.sort((a, b) => {
+      const cmp = compareMarkets(a, b, sortKey);
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return list;
+  }, [filtered, sortKey, sortDir]);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortKey(key);
+    setSortDir(key === 'pair' || key === 'listed' ? 'asc' : 'desc');
+  };
 
   const openMarket = (market: CuratorMarketListItem) => {
     router.push(
@@ -144,7 +259,10 @@ export function CuratorMarketsBrowser() {
 
       <p className="text-xs text-slate-500 dark:text-slate-400">
         Wallet network in the top bar is for on-chain writes only. Market data uses the network
-        filter above. Rows highlighted in blue have a Muscadine vault market cap enabled.
+        filter above. Sorted by{' '}
+        {SORTABLE_COLUMNS.find((c) => c.key === sortKey)?.label.toLowerCase() ?? 'market size'}{' '}
+        ({sortDir === 'desc' ? 'high → low' : 'low → high'}). Tap a column header to re-sort.
+        Rows highlighted in blue have a Muscadine vault market cap enabled.
       </p>
 
       {error && (
@@ -157,13 +275,17 @@ export function CuratorMarketsBrowser() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Collateral / Loan</TableHead>
-              <TableHead>LLTV</TableHead>
-              <TableHead className="text-right">Market size</TableHead>
-              <TableHead className="text-right">Liquidity</TableHead>
-              <TableHead className="text-right">6H net APY</TableHead>
-              <TableHead>Listed</TableHead>
-              <TableHead>Muscadine</TableHead>
+              {SORTABLE_COLUMNS.map((col) => (
+                <SortableHead
+                  key={col.key}
+                  label={col.label}
+                  sortKey={col.key}
+                  activeKey={sortKey}
+                  sortDir={sortDir}
+                  align={col.align}
+                  onSort={toggleSort}
+                />
+              ))}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -176,7 +298,7 @@ export function CuratorMarketsBrowser() {
                 </TableRow>
               ))}
 
-            {!isLoading && filtered.length === 0 && (
+            {!isLoading && sorted.length === 0 && (
               <TableRow>
                 <TableCell colSpan={7} className="py-8 text-center text-sm text-slate-500">
                   No markets match your filters.
@@ -185,7 +307,7 @@ export function CuratorMarketsBrowser() {
             )}
 
             {!isLoading &&
-              filtered.map((market) => {
+              sorted.map((market) => {
                 const muscadine = market.muscadineVaults.length > 0;
                 return (
                   <TableRow
@@ -209,11 +331,20 @@ export function CuratorMarketsBrowser() {
                       {market.collateralSymbol} / {market.loanSymbol}
                     </TableCell>
                     <TableCell>{formatLltvPill(market.lltv) ?? '—'}</TableCell>
-                    <TableCell className="text-right">
-                      {formatCompactUSD(market.supplyAssetsUsd ?? 0)}
+                    <TableCell>
+                      <MetricCell
+                        primary={formatMorphoTokenAmount(market.sizeUsd, market.loanSymbol)}
+                        secondary={formatCompactUSD(market.sizeUsd ?? 0)}
+                      />
                     </TableCell>
-                    <TableCell className="text-right">
-                      {formatCompactUSD(market.liquidityAssetsUsd ?? 0)}
+                    <TableCell>
+                      <MetricCell
+                        primary={formatMorphoTokenAmount(
+                          market.totalLiquidityUsd,
+                          market.loanSymbol
+                        )}
+                        secondary={formatCompactUSD(market.totalLiquidityUsd ?? 0)}
+                      />
                     </TableCell>
                     <TableCell className="text-right">
                       {market.avgNetSupplyApy != null
@@ -243,7 +374,7 @@ export function CuratorMarketsBrowser() {
 
       {!isLoading && (
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Showing {filtered.length} of {data?.markets.length ?? 0} markets on{' '}
+          Showing {sorted.length} of {data?.markets.length ?? 0} markets on{' '}
           {CURATOR_MARKET_NETWORKS.find((n) => n.chainId === chainId)?.name ?? 'network'}.
           Tap a row for risk details or{' '}
           <Link href="/curator/markets" className="underline">

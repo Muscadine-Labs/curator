@@ -9,7 +9,7 @@ export type BlueMarketEntry = {
   marketKey: string;
   market: MarketParamsInput & {
     marketId?: string | null;
-    uniqueKey?: string | null;
+    marketKey?: string | null;
     loanAsset?: { address: string; symbol?: string | null; decimals?: number | null } | null;
     collateralAsset?: { address: string; symbol?: string | null; decimals?: number | null } | null;
     state?: {
@@ -76,7 +76,7 @@ function capMarketToEntry(cap: CapInfo): BlueMarketEntry | null {
     market: {
       ...cap.marketParams,
       marketId: cap.marketKey,
-      uniqueKey: cap.marketKey,
+      marketKey: cap.marketKey,
       loanAsset: loan,
       collateralAsset: col,
       state: cap.marketParams?.state ?? undefined,

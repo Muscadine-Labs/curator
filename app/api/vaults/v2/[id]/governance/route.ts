@@ -9,6 +9,7 @@ import { BASE_CHAIN_ID, VAULT_V2_GRAPHQL_ADAPTER_LIMIT, VAULT_V2_GRAPHQL_CAPS_LI
 import { mapCap, type GraphCap } from '@/lib/morpho/vault-v2-governance-map';
 import { enrichCollateralCapSymbols, enrichMarketCapParams } from '@/lib/morpho/fetch-markets-by-id';
 import { overlayV2OnChainCaps } from '@/lib/morpho/overlay-v2-onchain-caps';
+import { resolveMarketOracleAddress } from '@/lib/morpho/market-oracle-address';
 import { mergeApiOnChainVaultHeaders } from '@/lib/api/response-cache';
 import { logger } from '@/lib/utils/logger';
 
@@ -30,7 +31,7 @@ type GraphLiquidityData =
         marketId?: string | null;
         loanAsset?: { address?: string | null; symbol?: string | null } | null;
         collateralAsset?: { address?: string | null; symbol?: string | null } | null;
-        oracleAddress?: string | null;
+        oracle?: { address?: string | null } | null;
         irmAddress?: string | null;
         lltv?: string | number | null;
       } | null;
@@ -179,7 +180,7 @@ const VAULT_V2_GOVERNANCE_QUERY = gql`
             marketId
             loanAsset { address symbol }
             collateralAsset { address symbol }
-            oracleAddress
+            oracle { address }
             irmAddress
             lltv
           }
@@ -225,7 +226,7 @@ const VAULT_V2_GOVERNANCE_QUERY = gql`
                 marketId
                 loanAsset { address symbol decimals }
                 collateralAsset { address symbol decimals }
-                oracleAddress
+                oracle { address }
                 irmAddress
                 lltv
                 state {
@@ -307,7 +308,7 @@ function mapLiquidityData(data: GraphLiquidityData): LiquidityDataInfo | null {
               symbol: data.market.collateralAsset.symbol,
             }
           : null,
-        oracleAddress: data.market.oracleAddress ?? null,
+        oracleAddress: resolveMarketOracleAddress(data.market),
         irmAddress: data.market.irmAddress ?? null,
         lltv:
           data.market.lltv != null && data.market.lltv !== ''

@@ -16,6 +16,7 @@ import {
   getOracleTimestampData,
   type OracleTimestampData,
 } from '@/lib/morpho/oracle-utils';
+import { resolveMarketOracleAddress } from '@/lib/morpho/market-oracle-address';
 import { BASE_CHAIN_ID, GRAPHQL_FIRST_LIMIT } from '@/lib/constants';
 import type { Address } from 'viem';
 
@@ -28,7 +29,12 @@ export type CuratorMarketListItem = {
   loanAddress: string | null;
   collateralSymbol: string;
   collateralAddress: string | null;
+  /** Morpho `sizeUsd` — total market size (matches Morpho app “Total Market Size”). */
+  sizeUsd: number | null;
   supplyAssetsUsd: number | null;
+  /** Morpho `totalLiquidityUsd` — total market liquidity (matches Morpho app column). */
+  totalLiquidityUsd: number | null;
+  /** Available loan liquidity in the market (`liquidityAssetsUsd`). */
   liquidityAssetsUsd: number | null;
   /** Rolling average net supply APY (Morpho `avgNetSupplyApy`, ≈ recent net rate). */
   avgNetSupplyApy: number | null;
@@ -43,6 +49,12 @@ export type MuscadineMarketVaultRef = {
   symbol: string;
 };
 
+export type MarketBadDebtAmount = {
+  usd: number | null;
+  /** Loan-token raw units from Morpho GraphQL. */
+  underlying: string | null;
+};
+
 export type CuratorMarketDetail = CuratorMarketListItem & {
   oracleAddress: string | null;
   irmAddress: string | null;
@@ -52,7 +64,9 @@ export type CuratorMarketDetail = CuratorMarketListItem & {
   borrowApy: number | null;
   borrowAssetsUsd: number | null;
   collateralAssetsUsd: number | null;
-  realizedBadDebtUsd: number | null;
+  realizedBadDebt: MarketBadDebtAmount | null;
+  /** Morpho `badDebt` — open / unrealized bad debt at the market level. */
+  unrealizedBadDebt: MarketBadDebtAmount | null;
   scores: MarketRiskScores | null;
   oracleTimestampData: OracleTimestampData | null;
 };
@@ -61,7 +75,7 @@ const MARKETS_BROWSER_QUERY = gql`
   query CuratorMarketsBrowser($first: Int!, $chainId: Int!) {
     markets(
       first: $first
-      orderBy: SupplyAssetsUsd
+      orderBy: SizeUsd
       orderDirection: Desc
       where: { chainId_in: [$chainId] }
     ) {
@@ -80,7 +94,9 @@ const MARKETS_BROWSER_QUERY = gql`
           decimals
         }
         state {
+          sizeUsd
           supplyAssetsUsd
+          totalLiquidityUsd
           liquidityAssetsUsd
           avgNetSupplyApy
           netSupplyApy
@@ -93,9 +109,9 @@ const MARKETS_BROWSER_QUERY = gql`
         realizedBadDebt {
           usd
         }
-        oracleAddress
         irmAddress
         oracle {
+          address
           data {
             ... on MorphoChainlinkOracleV2Data {
               baseFeedOne {
@@ -130,9 +146,9 @@ const MARKET_DETAIL_QUERY = gql`
         symbol
         decimals
       }
-      oracleAddress
       irmAddress
       oracle {
+        address
         data {
           ... on MorphoChainlinkOracleV2Data {
             baseFeedOne {
@@ -147,7 +163,9 @@ const MARKET_DETAIL_QUERY = gql`
         }
       }
       state {
+        sizeUsd
         supplyAssetsUsd
+        totalLiquidityUsd
         liquidityAssetsUsd
         avgNetSupplyApy
         netSupplyApy
@@ -159,6 +177,11 @@ const MARKET_DETAIL_QUERY = gql`
       }
       realizedBadDebt {
         usd
+        underlying
+      }
+      badDebt {
+        usd
+        underlying
       }
     }
   }
@@ -194,15 +217,17 @@ type GraphMarketItem = {
   lltv?: string | number | null;
   loanAsset?: { address?: string | null; symbol?: string | null; decimals?: number | null } | null;
   collateralAsset?: { address?: string | null; symbol?: string | null; decimals?: number | null } | null;
-  oracleAddress?: string | null;
-  irmAddress?: string | null;
   oracle?: {
+    address?: string | null;
     data?: {
       baseFeedOne?: { address?: string | null } | null;
     } | null;
   } | null;
+  irmAddress?: string | null;
   state?: {
+    sizeUsd?: number | null;
     supplyAssetsUsd?: number | null;
+    totalLiquidityUsd?: number | null;
     liquidityAssetsUsd?: number | null;
     avgNetSupplyApy?: number | null;
     netSupplyApy?: number | null;
@@ -212,7 +237,8 @@ type GraphMarketItem = {
     borrowAssetsUsd?: number | null;
     collateralAssetsUsd?: number | null;
   } | null;
-  realizedBadDebt?: { usd?: number | null } | null;
+  realizedBadDebt?: { usd?: number | null; underlying?: string | number | null } | null;
+  badDebt?: { usd?: number | null; underlying?: string | number | null } | null;
 };
 
 type MuscadineIndex = Map<string, MuscadineMarketVaultRef[]>;
@@ -274,6 +300,19 @@ async function fetchMuscadineMarketIndex(chainId: number): Promise<MuscadineInde
   return index;
 }
 
+function parseBadDebtAmount(
+  value: { usd?: number | null; underlying?: string | number | null } | null | undefined
+): MarketBadDebtAmount | null {
+  if (!value) return null;
+  return {
+    usd: value.usd ?? null,
+    underlying:
+      value.underlying != null && value.underlying !== ''
+        ? String(value.underlying)
+        : null,
+  };
+}
+
 function graphMarketToListItem(
   item: GraphMarketItem,
   chainId: number,
@@ -294,7 +333,9 @@ function graphMarketToListItem(
     loanAddress: item.loanAsset?.address ?? null,
     collateralSymbol,
     collateralAddress: item.collateralAsset?.address ?? null,
+    sizeUsd: item.state?.sizeUsd ?? null,
     supplyAssetsUsd: item.state?.supplyAssetsUsd ?? null,
+    totalLiquidityUsd: item.state?.totalLiquidityUsd ?? null,
     liquidityAssetsUsd: item.state?.liquidityAssetsUsd ?? null,
     avgNetSupplyApy: item.state?.avgNetSupplyApy ?? null,
     netSupplyApy: item.state?.netSupplyApy ?? null,
@@ -349,7 +390,7 @@ export async function fetchCuratorMarketDetail(
       symbol: item.collateralAsset?.symbol ?? 'Unknown',
       decimals: item.collateralAsset?.decimals ?? 18,
     },
-    oracleAddress: item.oracleAddress ?? null,
+    oracleAddress: resolveMarketOracleAddress(item),
     oracle: null,
     irmAddress: item.irmAddress ?? null,
     lltv: item.lltv != null ? String(item.lltv) : null,
@@ -394,7 +435,7 @@ export async function fetchCuratorMarketDetail(
 
   return {
     ...listItem,
-    oracleAddress: item.oracleAddress ?? null,
+    oracleAddress: resolveMarketOracleAddress(item),
     irmAddress: item.irmAddress ?? null,
     loanDecimals: item.loanAsset?.decimals ?? null,
     collateralDecimals: item.collateralAsset?.decimals ?? null,
@@ -402,7 +443,8 @@ export async function fetchCuratorMarketDetail(
     borrowApy: item.state?.borrowApy ?? null,
     borrowAssetsUsd: item.state?.borrowAssetsUsd ?? null,
     collateralAssetsUsd: item.state?.collateralAssetsUsd ?? null,
-    realizedBadDebtUsd: item.realizedBadDebt?.usd ?? null,
+    realizedBadDebt: parseBadDebtAmount(item.realizedBadDebt),
+    unrealizedBadDebt: parseBadDebtAmount(item.badDebt),
     scores,
     oracleTimestampData,
   };

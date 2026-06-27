@@ -1,6 +1,7 @@
 import { gql } from 'graphql-request';
 import { morphoGraphQLClient } from './graphql-client';
 import { BASE_CHAIN_ID } from '@/lib/constants';
+import { resolveMarketOracleAddress } from '@/lib/morpho/market-oracle-address';
 
 /**
  * GraphQL query for markets behind a MetaMorpho (wrapped) vault — used for
@@ -33,9 +34,7 @@ const VAULT_V1_MARKETS_QUERY = gql`
               decimals
               address
             }
-            oracleAddress
             oracle {
-              id
               address
               type
               data {
@@ -76,19 +75,26 @@ const VAULT_V1_MARKETS_QUERY = gql`
 /**
  * Type definitions for V1 vault markets query response
  */
-/** Normalize Morpho API `marketId` (formerly `uniqueKey`) for app consumers. */
+/** Normalize Morpho GraphQL `marketId` into app `marketKey`. */
 export function asV1VaultMarketData(
-  market: Omit<V1VaultMarketData, 'uniqueKey'> & { uniqueKey?: string; marketId?: string }
+  market: Omit<V1VaultMarketData, 'marketKey'> & {
+    marketKey?: string;
+    marketId?: string;
+    oracle?: { address?: string | null } | null;
+  }
 ): V1VaultMarketData {
+  const marketKey = market.marketId ?? market.marketKey ?? market.id;
   return {
     ...(market as V1VaultMarketData),
-    uniqueKey: market.marketId ?? market.uniqueKey ?? market.id,
+    id: market.id ?? marketKey,
+    marketKey,
+    oracleAddress: market.oracleAddress ?? resolveMarketOracleAddress(market),
   };
 }
 
 export type V1VaultMarketData = {
   id: string;
-  uniqueKey: string;
+  marketKey: string;
   loanAsset: {
     symbol: string;
     decimals: number;
@@ -147,7 +153,6 @@ export type V1VaultMarketsQueryResponse = {
         supplyAssets: string | null;
         supplyAssetsUsd: number | null;
         market: {
-          id: string;
           marketId: string;
           loanAsset: {
             symbol: string;
@@ -161,7 +166,6 @@ export type V1VaultMarketsQueryResponse = {
           } | null;
           oracleAddress: string | null;
           oracle: {
-            id: string;
             address: string;
             type: string;
             data?: {
@@ -240,14 +244,14 @@ export async function fetchV1VaultMarkets(
       if (!alloc.market) return null;
 
       const market: V1VaultMarketData = {
-        id: alloc.market.id,
-        uniqueKey: alloc.market.marketId,
+        id: alloc.market.marketId,
+        marketKey: alloc.market.marketId,
         loanAsset: alloc.market.loanAsset || { symbol: 'Unknown', decimals: 18, address: '' },
         collateralAsset: alloc.market.collateralAsset || { symbol: 'Unknown', decimals: 18, address: '' },
-        oracleAddress: alloc.market.oracleAddress,
+        oracleAddress: resolveMarketOracleAddress(alloc.market),
         oracle: alloc.market.oracle
           ? {
-              id: alloc.market.oracle.id,
+              id: alloc.market.marketId,
               address: alloc.market.oracle.address,
               type: alloc.market.oracle.type,
               data: alloc.market.oracle.data || null,

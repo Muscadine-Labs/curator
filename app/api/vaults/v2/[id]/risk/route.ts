@@ -161,8 +161,8 @@ const VAULT_V2_RISK_QUERY = gql`
                   marketId
                   loanAsset { symbol decimals address }
                   collateralAsset { symbol decimals address }
-                  oracleAddress
                   oracle {
+                    address
                     data {
                       ... on MorphoChainlinkOracleV2Data {
                         baseFeedOne { address }
@@ -208,7 +208,7 @@ const VAULT_V2_RISK_QUERY = gql`
                 marketId
                 loanAsset { address symbol decimals }
                 collateralAsset { address symbol decimals }
-                oracleAddress
+                oracle { address }
                 irmAddress
                 lltv
                 state {
@@ -302,7 +302,6 @@ function capToV1VaultMarketData(cap: CapInfo): V1VaultMarketData | null {
   return asV1VaultMarketData({
     id: cap.marketKey,
     marketId: cap.marketKey,
-    uniqueKey: cap.marketKey,
     loanAsset: {
       address: loan.address,
       symbol: loan.symbol ?? 'Unknown',

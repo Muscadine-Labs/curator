@@ -1,6 +1,4 @@
 *TO work on today:
-- ~~On allocations for a vault, allocation does not upade to the most recent token amounts since the last allocation.~~ Fixed: on-chain idle overlay uses min(GraphQL, computed) after rebalances; risk route includes position-only markets; post-tx exits edit mode and awaits refetch.
-- ~~make a curator/markets~~ Done: `/curator/markets` browser + `/curator/market/blue/[id]` detail with filters, Muscadine cap highlighting, risk card, Morpho app link. Networks: Base (default), Ethereum, Hyperliquid.
 
 **To work on another day:
 

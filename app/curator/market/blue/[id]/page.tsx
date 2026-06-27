@@ -10,11 +10,46 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MarketRiskDetailCard } from '@/components/morpho/MarketRiskDetailCard';
 import { useCuratorMarketDetail } from '@/lib/hooks/useCuratorMarkets';
+import type { MarketBadDebtAmount } from '@/lib/morpho/curator-markets';
 import { BASE_CHAIN_ID, CURATOR_MARKET_NETWORKS } from '@/lib/constants';
 import { morphoMarketHref } from '@/lib/morpho/morpho-app-links';
 import { asV1VaultMarketData } from '@/lib/morpho/query-v1-vault-markets';
-import { formatCompactUSD, formatPercentage } from '@/lib/format/number';
+import {
+  formatCompactUSD,
+  formatFullUSD,
+  formatPercentage,
+  formatRawTokenAmount,
+} from '@/lib/format/number';
 import { formatLltvPill } from '@/components/morpho/AllocationListView';
+
+function formatMorphoTokenAmount(usd: number | null, symbol: string): string {
+  if (usd == null || usd === 0) return `0 ${symbol}`;
+  const compact = new Intl.NumberFormat('en-US', {
+    notation: 'compact',
+    maximumFractionDigits: 2,
+  }).format(usd);
+  return `${compact} ${symbol}`;
+}
+
+function formatBadDebtUsd(value: MarketBadDebtAmount | null | undefined): string {
+  if (value?.usd == null) return '—';
+  return formatFullUSD(value.usd);
+}
+
+function formatBadDebtUnderlying(
+  value: MarketBadDebtAmount | null | undefined,
+  loanSymbol: string,
+  loanDecimals: number
+): string {
+  if (!value?.underlying) return '—';
+  try {
+    const raw = BigInt(value.underlying);
+    if (raw === 0n) return `0 ${loanSymbol}`;
+    return `${formatRawTokenAmount(raw, loanDecimals, 6)} ${loanSymbol}`;
+  } catch {
+    return '—';
+  }
+}
 
 export default function CuratorBlueMarketPage() {
   const params = useParams();
@@ -28,6 +63,10 @@ export default function CuratorBlueMarketPage() {
     CURATOR_MARKET_NETWORKS.find((n) => n.chainId === chainId)?.name ?? `Chain ${chainId}`;
 
   const morphoHref = morphoMarketHref(marketId, chainId);
+  const pairLabel = market
+    ? `${market.collateralSymbol} / ${market.loanSymbol}`
+    : 'Market';
+  const headerDescription = `Morpho Blue · ${networkName}`;
 
   const riskMarket = market
     ? asV1VaultMarketData({
@@ -48,7 +87,9 @@ export default function CuratorBlueMarketPage() {
         irmAddress: market.irmAddress,
         lltv: market.lltv,
         realizedBadDebt:
-          market.realizedBadDebtUsd != null ? { usd: market.realizedBadDebtUsd } : null,
+          market.realizedBadDebt?.usd != null
+            ? { usd: market.realizedBadDebt.usd }
+            : null,
         state: {
           supplyAssetsUsd: market.supplyAssetsUsd,
           borrowAssetsUsd: market.borrowAssetsUsd,
@@ -68,14 +109,40 @@ export default function CuratorBlueMarketPage() {
 
   return (
     <AppShell
-      title={market ? `${market.collateralSymbol} / ${market.loanSymbol}` : 'Market'}
-      description={`Morpho Blue · ${networkName}`}
+      title={
+        market && morphoHref ? (
+          <a
+            href={morphoHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors underline decoration-1 underline-offset-4"
+          >
+            {pairLabel}
+          </a>
+        ) : (
+          pairLabel
+        )
+      }
+      description={
+        morphoHref ? (
+          <a
+            href={morphoHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+          >
+            {headerDescription}
+          </a>
+        ) : (
+          headerDescription
+        )
+      }
       actions={
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" asChild>
             <Link href="/curator/markets">
               <ArrowLeft className="mr-1 h-4 w-4" />
-              Markets
+              Morpho Markets
             </Link>
           </Button>
           {morphoHref && (
@@ -121,14 +188,52 @@ export default function CuratorBlueMarketPage() {
               </div>
               <div>
                 <p className="text-xs text-slate-500">Market size</p>
-                <p className="font-medium">{formatCompactUSD(market.supplyAssetsUsd ?? 0)}</p>
+                <p className="font-medium">{formatCompactUSD(market.sizeUsd ?? 0)}</p>
+                <p className="text-xs text-slate-500">
+                  {formatMorphoTokenAmount(market.sizeUsd, market.loanSymbol)}
+                </p>
               </div>
               <div>
                 <p className="text-xs text-slate-500">Liquidity</p>
-                <p className="font-medium">{formatCompactUSD(market.liquidityAssetsUsd ?? 0)}</p>
+                <p className="font-medium">{formatCompactUSD(market.totalLiquidityUsd ?? 0)}</p>
+                <p className="text-xs text-slate-500">
+                  Available: {formatCompactUSD(market.liquidityAssetsUsd ?? 0)}
+                </p>
               </div>
               <div>
-                <p className="text-xs text-slate-500">6H net APY</p>
+                <p className="text-xs text-slate-500">Supply</p>
+                <p className="font-medium">{formatCompactUSD(market.supplyAssetsUsd ?? 0)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Borrow</p>
+                <p className="font-medium">{formatCompactUSD(market.borrowAssetsUsd ?? 0)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Collateral</p>
+                <p className="font-medium">{formatCompactUSD(market.collateralAssetsUsd ?? 0)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Utilization</p>
+                <p className="font-medium">
+                  {market.utilization != null
+                    ? formatPercentage(market.utilization * 100)
+                    : '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Supply APY</p>
+                <p className="font-medium">
+                  {market.supplyApy != null ? formatPercentage(market.supplyApy * 100) : '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Borrow APY</p>
+                <p className="font-medium">
+                  {market.borrowApy != null ? formatPercentage(market.borrowApy * 100) : '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">6H net supply APY</p>
                 <p className="font-medium">
                   {market.avgNetSupplyApy != null
                     ? formatPercentage(market.avgNetSupplyApy * 100)
@@ -148,6 +253,38 @@ export default function CuratorBlueMarketPage() {
                 <Badge variant={market.listed ? 'default' : 'secondary'}>
                   {market.listed ? 'Listed' : 'Not listed'}
                 </Badge>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Realized bad debt</p>
+                <p className="font-medium tabular-nums">
+                  {formatBadDebtUsd(market.realizedBadDebt)}
+                </p>
+                <p className="text-xs text-slate-500 tabular-nums">
+                  {formatBadDebtUnderlying(
+                    market.realizedBadDebt,
+                    market.loanSymbol,
+                    market.loanDecimals ?? 18
+                  )}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Unrealized bad debt</p>
+                <p className="font-medium tabular-nums">
+                  {formatBadDebtUsd(market.unrealizedBadDebt)}
+                </p>
+                <p className="text-xs text-slate-500 tabular-nums">
+                  {formatBadDebtUnderlying(
+                    market.unrealizedBadDebt,
+                    market.loanSymbol,
+                    market.loanDecimals ?? 18
+                  )}
+                </p>
+              </div>
+              <div className="sm:col-span-2 lg:col-span-4">
+                <p className="text-xs text-slate-500">Market ID</p>
+                <p className="font-mono text-xs break-all text-slate-700 dark:text-slate-300">
+                  {market.marketId}
+                </p>
               </div>
               <div className="sm:col-span-2">
                 <p className="text-xs text-slate-500">Muscadine vault caps</p>
@@ -179,6 +316,8 @@ export default function CuratorBlueMarketPage() {
               market={riskMarket}
               scores={market.scores}
               oracleTimestampData={market.oracleTimestampData}
+              chainId={chainId}
+              marketTitleLink="morpho"
             />
           )}
         </div>

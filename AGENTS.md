@@ -59,13 +59,25 @@ npm run build   # next build
   queue from vault Allocation/Sentinel preview when governance lists the Safe as
   role holder; sign + execute on `/curator/safe/[role]` with owner hot wallet.
   **localStorage is always kept** (export/import); optional Transaction Service
-  sync via `NEXT_PUBLIC_SAFE_API_KEY` (`lib/safe/transaction-service.ts`,
-  `service-sync.ts`, rate limit in `transaction-service-rate-limit.ts` — manual
-  sync only, no polling). Safe Apps SDK embed via `CuratorSafeAppsProvider`
-  (`lib/safe/safe-apps-context.tsx`); manifest at `public/manifest.json`
-  (`muscadinelogo.svg`). Post-execute refetch via
-  `refetch-vault-after-safe-execute.ts`; queue previews always shown (stored or
-  decoded calldata in `decode-vault-calldata-preview.ts`). See `CLAUDE.md` §13.
+  sync via `NEXT_PUBLIC_SAFE_API_KEY` and `@safe-global/api-kit` ^5.x
+  (`lib/safe/transaction-service.ts`, `service-sync.ts`, rate limit in
+  `transaction-service-rate-limit.ts` — manual sync only, no polling). Safe Apps
+  SDK embed via `CuratorSafeAppsProvider` (`lib/safe/safe-apps-context.tsx`);
+  manifest at `public/manifest.json` (`muscadinelogo.svg`). Post-execute refetch
+  via `refetch-vault-after-safe-execute.ts`; queue previews always shown (stored
+  or decoded calldata in `decode-vault-calldata-preview.ts`). See `CLAUDE.md` §13.
+- **Morpho GraphQL** — use `marketId` → app `marketKey` (not `uniqueKey`);
+  `oracle.address` (not `Market.oracleAddress`); V2 overview txs use
+  `vaultV2transactions`. Client logs `extensions.warnings` via
+  `lib/morpho/graphql-client.ts`. See `CLAUDE.md` §4.4.1.
+- **Curator Morpho Markets** — `/curator/markets` (default: listed only, sort
+  market size desc) and `/curator/market/blue/[id]`; use `sizeUsd` /
+  `totalLiquidityUsd` for size/liquidity columns (§4.7). Vault Risk market cards
+  link to Curator market pages; detail pages link out to Morpho app. Sidebar
+  Curator Tools order: Morpho Markets → Multisig Safe → Morpho Tools.
+- **Allocation display vs booked** — UI shows `max(GraphQL, on-chain)` per row;
+  rebalance deltas use on-chain `bookedAllocationAssets` only
+  (`overlay-v2-onchain-caps.ts`). Post-tx: refetch risk + governance, exit edit.
 - **ESLint** — stay on **v9.39.x** with `eslint-config-next` flat config in
   `eslint.config.mjs`; do not bump to ESLint 10 until upstream plugins support it
   (§11).
