@@ -13,7 +13,7 @@ import { useCuratorMarketDetail } from '@/lib/hooks/useCuratorMarkets';
 import type { MarketBadDebtAmount } from '@/lib/morpho/curator-markets';
 import { BASE_CHAIN_ID, CURATOR_MARKET_NETWORKS } from '@/lib/constants';
 import { morphoMarketHref } from '@/lib/morpho/morpho-app-links';
-import { asV1VaultMarketData } from '@/lib/morpho/query-v1-vault-markets';
+import { asBlueMarketData } from '@/lib/morpho/blue-market-data';
 import {
   formatCompactUSD,
   formatFullUSD,
@@ -69,7 +69,7 @@ export default function CuratorBlueMarketPage() {
   const headerDescription = `Morpho Blue · ${networkName}`;
 
   const riskMarket = market
-    ? asV1VaultMarketData({
+    ? asBlueMarketData({
         id: market.marketId,
         marketId: market.marketId,
         loanAsset: {

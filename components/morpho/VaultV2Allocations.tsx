@@ -91,7 +91,6 @@ import { DustRecipientSelect } from '@/components/morpho/DustRecipientSelect';
 import {
   marketKeyFromGraphQL,
   morphoMarketHref,
-  morphoVaultHref,
 } from '@/lib/morpho/morpho-app-links';
 import {
   AllocationPctIndicator,
@@ -263,14 +262,14 @@ function scalePercent(value: number | null | undefined): number | null {
   return value * 100;
 }
 
-type AdapterType = 'MetaMorphoAdapter' | 'MorphoMarketV1Adapter' | string;
+type AdapterType = 'MorphoMarketV1Adapter' | string;
 
 /** One allocation target that can be individually allocated/deallocated. */
 interface AllocTarget {
   label: string;
   adapterAddress: string;
   adapterType: AdapterType;
-  /** ABI-encoded data param for allocate/deallocate. MetaMorpho=0x, Market=encoded market params */
+  /** ABI-encoded data param for allocate/deallocate (encoded market params). */
   data: Hex;
   /** keccak256(data) — the primary cap id used by the vault. */
   capIdHash: Hex;
@@ -281,7 +280,6 @@ interface AllocTarget {
   currentUsd: number;
   decimals: number;
   symbol: string;
-  isMetaMorpho: boolean;
   /** Vault cash not deployed to a strategy adapter — rebalanced via adapter dealloc/alloc. */
   isVaultIdle?: boolean;
   /** Absolute cap in raw token units (null when unknown). */
@@ -354,17 +352,15 @@ type TargetRow = {
 
 type RowType = TargetRow;
 
-type AllocationSection = 'idle' | 'wrapped' | 'blue';
+type AllocationSection = 'idle' | 'blue';
 
 const ALLOCATION_SECTIONS: { key: AllocationSection; title: string }[] = [
   { key: 'idle', title: 'Idle' },
-  { key: 'wrapped', title: 'Wrapped Vault' },
   { key: 'blue', title: 'Morpho Blue Market' },
 ];
 
 function rowSection(r: TargetRow, t: AllocTarget): AllocationSection {
   if (t.isVaultIdle || r.isIdle) return 'idle';
-  if (t.isMetaMorpho) return 'wrapped';
   return 'blue';
 }
 
@@ -409,19 +405,13 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       if (t.isVaultIdle) return null;
       const byHash = capByIdHash.get(t.capIdHash.toLowerCase());
       if (byHash) return byHash;
-      if (t.isMetaMorpho) {
-        const byAdapter = (governance?.caps ?? []).find(
-          (c) =>
-            c.adapterAddress?.toLowerCase() === t.adapterAddress.toLowerCase() && isAdapterCap(c)
-        );
-        if (byAdapter) return byAdapter;
-      } else if (marketKey) {
+      if (marketKey) {
         const byMarket = capByIdHash.get(marketKey.toLowerCase());
         if (byMarket) return byMarket;
       }
       return null;
     },
-    [capByIdHash, governance?.caps]
+    [capByIdHash]
   );
 
   const { rows, totalUsd, targets, planningTotalRaw, chainTotalRaw, vaultDecimals, vaultDisplayDecimals, vaultSymbol } =
@@ -463,87 +453,8 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     let totalRaw = BigInt(0);
 
     for (const adapter of adapterList) {
-      const isMetaMorpho = adapter.adapterType === 'MetaMorphoAdapter';
-
-      if (isMetaMorpho) {
-        const adapterPct = totalUsd > 0 ? ((adapter.allocationUsd ?? 0) / totalUsd) * 100 : 0;
-        const allocAssets = adapter.allocationAssets ?? null;
-        const allocDec = dec;
-        const allocSym = sym;
-
-        const tIdx = targets.length;
-        let displayAssets = BigInt(0);
-        if (allocAssets) { try { displayAssets = BigInt(allocAssets); } catch { /* */ } }
-        let bookedAssets = displayAssets;
-        if (adapter.bookedAllocationAssets != null) {
-          try {
-            bookedAssets = BigInt(adapter.bookedAllocationAssets);
-          } catch {
-            /* keep display */
-          }
-        }
-        totalRaw += displayAssets;
-        vaultRefRaw += displayAssets;
-
-        const adapterDataHex = '0x' as Hex;
-        const adapterIdData = encodeAdapterCapIdData(adapter.adapterAddress);
-        const adapterIdHash = keccak256(adapterIdData);
-
-        targets.push({
-          label: adapter.adapterLabel || 'MetaMorpho',
-          adapterAddress: adapter.adapterAddress,
-          adapterType: adapter.adapterType,
-          data: adapterDataHex,
-          capIdHash: adapterIdHash,
-          currentAssets: bookedAssets,
-          displayAssets,
-          currentUsd: adapter.allocationUsd ?? 0,
-          decimals: allocDec,
-          symbol: allocSym,
-          isMetaMorpho: true,
-          absoluteCapRaw: null,
-          relativeCapWad: null,
-        });
-
-        const underlying = adapter.underlyingVaultStats;
-        const displayName = adapter.adapterLabel || 'MetaMorpho';
-
-        const underlyingLiquidity = readMarketLiquidity(
-          {
-            liquidityAssetsUsd: underlying?.liquidityUsd ?? null,
-            liquidityAssets: underlying?.liquidityUnderlying ?? null,
-          },
-          vaultRefUsd,
-          vaultRefRaw
-        );
-
-        rows.push({
-          kind: 'target',
-          targetIdx: tIdx,
-          market: displayName,
-          morphoHref: morphoVaultHref(adapter.underlyingVaultAddress),
-          isIdle: false,
-          isMorphoBlue: false,
-          supplyApy: underlying?.netApy ?? null,
-          borrowApy: null,
-          utilization: null,
-          liquidity: underlyingLiquidity.usd,
-          liquidityAssets: underlyingLiquidity.assets,
-          tvlUsd: underlying?.totalAssetsUsd ?? null,
-          tvlAssets: underlying?.totalAssets ?? null,
-          allocated: adapter.allocationUsd ?? 0,
-          pct: adapterPct,
-          allocAssets,
-          allocDecimals: allocDec,
-          allocSymbol: allocSym,
-          lltv: null,
-          collateralSymbol: allocSym || null,
-          loanSymbol: null,
-          searchHaystack: `${displayName} ${allocSym ?? ''} metamorpho`.toLowerCase(),
-        });
-      } else {
-        const marketEntries = collectMorphoBlueMarketEntries(adapter, governance);
-        for (const entry of marketEntries) {
+      const marketEntries = collectMorphoBlueMarketEntries(adapter, governance);
+      for (const entry of marketEntries) {
           const m = entry.market;
           const col = m.collateralAsset?.symbol;
           const loan = m.loanAsset?.symbol;
@@ -577,24 +488,23 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
           const idHash = keccak256(capIdData);
           const marketKey = entry.marketKey;
 
-          const tIdx = targets.length;
-          targets.push({
-            label,
-            adapterAddress: adapter.adapterAddress,
-            adapterType: adapter.adapterType,
-            data,
-            capIdHash: idHash,
-            currentAssets: bookedAssets,
-            displayAssets,
-            currentUsd: entry.allocationUsd,
-            decimals: allocDec,
-            symbol: allocSym,
-            isMetaMorpho: false,
-            absoluteCapRaw: null,
-            relativeCapWad: null,
-          });
+        const tIdx = targets.length;
+        targets.push({
+          label,
+          adapterAddress: adapter.adapterAddress,
+          adapterType: adapter.adapterType,
+          data,
+          capIdHash: idHash,
+          currentAssets: bookedAssets,
+          displayAssets,
+          currentUsd: entry.allocationUsd,
+          decimals: allocDec,
+          symbol: allocSym,
+          absoluteCapRaw: null,
+          relativeCapWad: null,
+        });
 
-          rows.push({
+        rows.push({
             kind: 'target',
             targetIdx: tIdx,
             market: label,
@@ -616,9 +526,8 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
             lltv: m.lltv ?? null,
             collateralSymbol: col ?? null,
             loanSymbol: loan ?? null,
-            searchHaystack: `${label} ${allocSym ?? ''} ${formatLltvPill(m.lltv ?? null) ?? ''} morpho blue`.toLowerCase(),
-          });
-        }
+          searchHaystack: `${label} ${allocSym ?? ''} ${formatLltvPill(m.lltv ?? null) ?? ''} morpho blue`.toLowerCase(),
+        });
       }
     }
 
@@ -637,7 +546,6 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       currentUsd: idleUsd,
       decimals: dec,
       symbol: sym,
-      isMetaMorpho: false,
       isVaultIdle: true,
       absoluteCapRaw: null,
       relativeCapWad: null,
@@ -697,7 +605,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
         return { ...t, absoluteCapRaw: null, relativeCapWad: null };
       }
       const marketKey =
-        !t.isMetaMorpho && !t.isVaultIdle
+        !t.isVaultIdle
           ? (() => {
               const matched = (risk?.adapters ?? [])
                 .flatMap((a) => a.markets ?? [])

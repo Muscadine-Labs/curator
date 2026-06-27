@@ -1,4 +1,4 @@
-import type { MarketRiskGrade } from '@/lib/morpho/compute-v1-market-risk';
+import type { MarketRiskGrade } from '@/lib/morpho/compute-blue-market-risk';
 
 export function getGradeColor(grade: MarketRiskGrade): string {
   switch (grade) {

@@ -7,8 +7,8 @@ import type {
 } from '@/app/api/vaults/v2/[id]/risk/route';
 import { publicClient } from '@/lib/onchain/client';
 import { vaultV2Abi } from '@/lib/onchain/abis';
-import { resolveCapIdData, encodeAdapterCapIdData, encodeMarketCapIdData } from '@/lib/morpho/v2-id-data';
-import type { MarketRiskGrade } from '@/lib/morpho/compute-v1-market-risk';
+import { resolveCapIdData, encodeMarketCapIdData } from '@/lib/morpho/v2-id-data';
+import type { MarketRiskGrade } from '@/lib/morpho/compute-blue-market-risk';
 import { logger } from '@/lib/utils/logger';
 
 type CapReadContract = {
@@ -153,10 +153,6 @@ function resolveAllocationRaw(
   return { display: 0n, booked: 0n };
 }
 
-function adapterAllocationId(adapter: V2AdapterRiskData): string {
-  return keccak256(encodeAdapterCapIdData(adapter.adapterAddress)).toLowerCase();
-}
-
 function marketAllocationId(adapterAddress: string, market: V2MarketRiskData['market']): string {
   return keccak256(encodeMarketCapIdData(adapterAddress, market)).toLowerCase();
 }
@@ -200,10 +196,6 @@ function collectStrategyAllocationIds(risk: V2VaultRiskResponse): Hex[] {
   };
 
   for (const adapter of risk.adapters ?? []) {
-    if (adapter.adapterType === 'MetaMorphoAdapter') {
-      pushId(adapterAllocationId(adapter));
-      continue;
-    }
     for (const m of adapter.markets ?? []) {
       if (!m.market) continue;
       pushId(marketAllocationId(adapter.adapterAddress, m.market));
@@ -272,24 +264,6 @@ export async function overlayV2OnChainAllocations(
   let strategySum = 0n;
 
   const adapters = (risk.adapters ?? []).map((adapter): V2AdapterRiskData => {
-    if (adapter.adapterType === 'MetaMorphoAdapter') {
-      const idKey = adapterAllocationId(adapter);
-      const { display, booked } = resolveAllocationRaw(
-        vaultAddress,
-        idKey,
-        allocationById,
-        adapter.allocationAssets,
-        `MetaMorpho ${adapter.adapterAddress}`
-      );
-      strategySum += display;
-      return {
-        ...adapter,
-        allocationAssets: display > 0n ? display.toString() : null,
-        bookedAllocationAssets: booked.toString(),
-        allocationUsd: allocationUsdFromRaw(display, totalAssetsRaw, totalAssetsUsd),
-      };
-    }
-
     let adapterSum = 0n;
     const markets = (adapter.markets ?? []).map((m): V2MarketRiskData => {
       const idKey = m.market

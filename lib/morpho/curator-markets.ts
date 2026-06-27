@@ -4,12 +4,12 @@ import { getVaultAddressesForBusinessViews } from '@/lib/config/vaults';
 import { isAllocatableMarketCap } from '@/lib/morpho/v2-allocation-targets';
 import { isMarketCap } from '@/lib/morpho/cap-utils';
 import { mapCap, type GraphCap } from '@/lib/morpho/vault-v2-governance-map';
-import { asV1VaultMarketData } from '@/lib/morpho/query-v1-vault-markets';
+import { asBlueMarketData } from '@/lib/morpho/blue-market-data';
 import {
-  computeV1MarketRiskScores,
+  computeBlueMarketRiskScores,
   isMarketIdle,
   type MarketRiskScores,
-} from '@/lib/morpho/compute-v1-market-risk';
+} from '@/lib/morpho/compute-blue-market-risk';
 import { getIRMTargetUtilizationWithFallback } from '@/lib/morpho/irm-utils';
 import {
   getOracleFeedHintsFromMarket,
@@ -377,7 +377,7 @@ export async function fetchCuratorMarketDetail(
   const listItem = graphMarketToListItem(item, chainId, muscadineIndex);
   if (!listItem) return null;
 
-  const market = asV1VaultMarketData({
+  const market = asBlueMarketData({
     id: item.marketId,
     marketId: item.marketId,
     loanAsset: {
@@ -430,7 +430,7 @@ export async function fetchCuratorMarketDetail(
       ),
     ]);
     oracleTimestampData = oracleData;
-    scores = await computeV1MarketRiskScores(market, oracleData, targetUtil);
+    scores = await computeBlueMarketRiskScores(market, oracleData, targetUtil);
   }
 
   return {

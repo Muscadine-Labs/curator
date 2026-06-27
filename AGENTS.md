@@ -23,7 +23,9 @@ npm run build   # next build
 - **Auth:** the only login username is `admin` (role `'admin'`); password from
   `CURATOR_ADMIN_PASSWORD` (legacy `CURATOR_OWNER_PASSWORD` accepted).
 - **V2-only vault config:** all tracked vaults are Morpho V2 (`lib/config/vaults.ts`).
-  Detail pages and on-chain writes use `app/vault/v2/[address]/page.tsx` only.
+  No MetaMorpho / V1 vault routes. Blue market risk uses `blue-market-data.ts` +
+  `compute-blue-market-risk.ts`. MetaMorpho adapters are ignored in risk, allocation,
+  and sentinel UIs.
 - **React Query polling** — dashboard hooks poll every 30s; indexed vault data
   (history, reallocations, holders) does not background-poll. On-chain vault
   hooks (`risk`, `governance`) use `staleTime: 0` + `refetchOnMount: 'always'`.

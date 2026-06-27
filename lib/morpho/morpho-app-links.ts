@@ -28,14 +28,6 @@ export function morphoMarketHref(
   return `${MORPHO_APP_ORIGIN}/${morphoChainSlug(chainId)}/market/${marketKey}`;
 }
 
-export function morphoVaultHref(
-  address: string | null | undefined,
-  chainId: number = BASE_CHAIN_ID
-): string | null {
-  if (!address) return null;
-  return `${MORPHO_APP_ORIGIN}/${morphoChainSlug(chainId)}/vault/${address.toLowerCase()}`;
-}
-
 /** Curator Morpho Blue market detail page. */
 export function curatorBlueMarketHref(
   marketId: string | null | undefined,

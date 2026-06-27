@@ -313,7 +313,7 @@ Overview → Roles → Adapters → Caps → Timelocks → Allocation → Sentin
    `v2WriteConfigs.multicall` when multiple moves are planned.
 
 `VaultRiskV2.tsx` and `MarketRiskDetailCard.tsx` were removed — risk scoring
-math remains in `lib/morpho/compute-v1-market-risk.ts` for API routes; there is
+math remains in `lib/morpho/compute-blue-market-risk.ts` for API routes; there is
 no dedicated Risk tab on V2 vault pages today.
 
 ### 4.3 Caching
@@ -465,13 +465,13 @@ V1 list query must not use removed `VaultState` APY fields (`weeklyNetApy` /
   `underlyingVaultStats`). Not vault-level V2 withdrawable liquidity.
 - V2 risk API (`/api/vaults/v2/[id]/risk`) exposes `idleAssets`, `idleAssetsUsd`,
   and `underlyingVaultStats` on MetaMorpho adapters. Underlying stats are loaded
-  via `lib/morpho/query-v1-vault-markets.ts` (`vaultStats`: `netApy`, `totalAssets`,
+  via `lib/morpho/blue-market-data.ts` (`vaultStats`: `netApy`, `totalAssets`,
   `totalAssetsUsd`, `liquidityUsd`, `liquidityUnderlying`).
 
 ### 4.5 Risk management scoring (V1 & V2)
 
 Both vault versions score **Morpho Blue markets** with the same pure function:
-`lib/morpho/compute-v1-market-risk.ts` → `computeV1MarketRiskScores`. V1 and V2
+`lib/morpho/compute-blue-market-risk.ts` → `computeBlueMarketRiskScores`. V1 and V2
 differ in **how markets are fetched** and **how scores roll up** to vault/adapter
 headlines. Do not duplicate scoring math in components or API routes.
 
@@ -535,10 +535,10 @@ B+ ≥84, B ≥80, B− ≥77, C+ ≥74, C ≥70, C− ≥65, D ≥60, F &lt;60.
 
 | Layer | Where | Aggregation |
 | ----- | ----- | ------------- |
-| Market | `GET /api/vaults/v1/[id]/market-risk` | `computeV1MarketRiskScores` per non-idle market |
+| Market | `GET /api/vaults/v1/[id]/market-risk` | `computeBlueMarketRiskScores` per non-idle market |
 | Vault headline | `VaultRiskV1.tsx` (client) | USD-weighted avg of market scores |
 
-**API** (`market-risk/route.ts`): `fetchV1VaultMarkets` → parallel oracle + IRM
+**API** (`market-risk/route.ts`): `fetchMetaMorphoVaultMarkets` → parallel oracle + IRM
 target fetch → scores per market. Response: `{ markets[], vaultLiquidity }` (no
 pre-aggregated vault score).
 
@@ -554,7 +554,7 @@ pre-aggregated vault score).
 
 | Layer | Where | Aggregation |
 | ----- | ----- | ------------- |
-| Market | `buildMarketRisk` in `risk/route.ts` | Same `computeV1MarketRiskScores` |
+| Market | `buildMarketRisk` in `risk/route.ts` | Same `computeBlueMarketRiskScores` |
 | Adapter | `computeAdapterRisk` | USD-weighted avg of market scores in adapter |
 | Vault headline | `risk/route.ts` response | USD-weighted avg of **strategy adapter** scores |
 
@@ -588,7 +588,7 @@ tab switch, post-tx, and Rebalance (`lib/data/query-config.ts`).
 
 #### Do not regress
 
-- Reuse `computeV1MarketRiskScores`; do not fork component weights in UI.
+- Reuse `computeBlueMarketRiskScores`; do not fork component weights in UI.
 - Utilization: **100 at/below IRM target**, not “lower util = safer”.
 - V2 MetaMorpho: do not list underlying Blue markets in risk UI (`markets: []` by design).
 - V1 vault score divides by total supply **including idle**; V2 vault score **excludes idle**.
@@ -910,7 +910,7 @@ components.
 
 ### V2 MetaMorpho row missing supply APY / TVL / liquidity
 
-- Extend `fetchV1VaultMarkets` / risk route `underlyingVaultStats`, not the
+- Extend `fetchMetaMorphoVaultMarkets` / risk route `underlyingVaultStats`, not the
   allocations component alone. Needs `state { totalAssets, netApy }` and
   `liquidity { usd, underlying }` on the underlying V1 vault query.
 
@@ -921,7 +921,7 @@ components.
 
 ### Risk score looks wrong after utilization/oracle changes
 
-- Per-market math lives only in `lib/morpho/compute-v1-market-risk.ts`. Utilization
+- Per-market math lives only in `lib/morpho/compute-blue-market-risk.ts`. Utilization
   uses `scoreUtilizationRatio`: optimal at IRM target (~90%), not “lower is safer”.
 - V1 vault headline **dilutes** with idle allocation (idle in denominator, not numerator).
 - V2 vault headline **ignores idle** entirely; only strategy adapter allocations weight
@@ -1015,12 +1015,12 @@ npm run build
 | Cap decrease input parsing     | `lib/morpho/cap-decrease-input.ts`                       |
 | V2 cap idData encoding           | `lib/morpho/v2-id-data.ts` (`resolveCapIdData`, …)       |
 | V2 cap display helpers           | `lib/morpho/v2-cap-format.ts`                            |
-| Market risk scoring (shared)     | `lib/morpho/compute-v1-market-risk.ts`, `lib/morpho/irm-utils.ts`, `lib/morpho/oracle-utils.ts` |
+| Market risk scoring (shared)     | `lib/morpho/compute-blue-market-risk.ts`, `lib/morpho/irm-utils.ts`, `lib/morpho/oracle-utils.ts` |
 | V2 risk API                      | `app/api/vaults/v2/[id]/risk/route.ts` |
 | Morpho app deep links            | `lib/morpho/morpho-app-links.ts`                         |
 | V2 pending UI                    | `components/morpho/VaultV2Pending.tsx`                    |
 | V2 vault page (tabs)             | `app/vault/v2/[address]/page.tsx`                         |
-| Underlying V1 vault stats query  | `lib/morpho/query-v1-vault-markets.ts`                    |
+| Underlying V1 vault stats query  | `lib/morpho/blue-market-data.ts`                    |
 | Client fetch + refetch interval  | `lib/data/api-fetch.ts`, `lib/data/query-config.ts`      |
 | BFF cache headers                | `lib/api/response-cache.ts`, `lib/api/server-response-cache.ts` |
 | Governance query key helper      | `vaultV2GovernanceQueryKey` in `lib/hooks/useVaultV2Governance.ts` |

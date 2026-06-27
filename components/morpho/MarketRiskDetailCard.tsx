@@ -5,9 +5,9 @@ import { Info } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { formatAddress, formatCompactUSD, formatPercentage } from '@/lib/format/number';
-import type { MarketRiskScores } from '@/lib/morpho/compute-v1-market-risk';
-import { isMarketIdle } from '@/lib/morpho/compute-v1-market-risk';
-import type { V1VaultMarketData } from '@/lib/morpho/query-v1-vault-markets';
+import type { MarketRiskScores } from '@/lib/morpho/compute-blue-market-risk';
+import { isMarketIdle } from '@/lib/morpho/compute-blue-market-risk';
+import type { BlueMarketData } from '@/lib/morpho/blue-market-data';
 import {
   curatorBlueMarketHref,
   morphoMarketHref,
@@ -23,7 +23,7 @@ import {
 } from '@/lib/morpho/market-risk-display';
 
 export interface MarketRiskDetailCardProps {
-  market: V1VaultMarketData;
+  market: BlueMarketData;
   scores: MarketRiskScores | null;
   oracleTimestampData?: OracleTimestampData | null;
   /** Override supply USD when market.vaultSupplyAssetsUsd is unset (e.g. V2 adapter positions). */

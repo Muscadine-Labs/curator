@@ -50,7 +50,9 @@ export function VaultV2Adapters({
 
   const adapters = useMemo<AdapterInfo[]>(() => {
     if (!data?.adapters) return [];
-    return [...data.adapters].sort((a, b) => (b.assetsUsd ?? 0) - (a.assetsUsd ?? 0));
+    return [...data.adapters]
+      .filter((a) => !a.type.includes('MetaMorpho'))
+      .sort((a, b) => (b.assetsUsd ?? 0) - (a.assetsUsd ?? 0));
   }, [data?.adapters]);
 
   const riskByAdapter = useMemo(() => {
@@ -430,9 +432,6 @@ function formatTokenFromAssets(
 
 function resolveAdapterRate(risk?: V2AdapterRiskData): number | null {
   if (!risk) return null;
-  if (risk.underlyingVaultStats?.netApy != null) {
-    return risk.underlyingVaultStats.netApy;
-  }
   let bestUsd = 0;
   let bestApy: number | null = null;
   for (const m of risk.markets ?? []) {
@@ -447,11 +446,6 @@ function resolveAdapterRate(risk?: V2AdapterRiskData): number | null {
 }
 
 function resolveAdapterLiquidity(risk: V2AdapterRiskData | undefined, adapter: AdapterInfo): string {
-  if (risk?.underlyingVaultStats?.liquidityUnderlying) {
-    return risk.underlyingVaultStats.liquidityUsd != null
-      ? formatUSD(risk.underlyingVaultStats.liquidityUsd, 2)
-      : '—';
-  }
   const usd = adapter.assetsUsd ?? 0;
   return formatUSD(usd, 2);
 }

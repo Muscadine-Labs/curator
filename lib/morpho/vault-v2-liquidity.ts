@@ -2,13 +2,9 @@ import type { Hex } from 'viem';
 import type { VaultV2GovernanceResponse, CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
 import { isMarketCap } from '@/lib/morpho/cap-utils';
-import {
-  encodeMarketParamsData,
-  METAMORPHO_ADAPTER_DATA,
-  type MarketParamsInput,
-} from '@/lib/morpho/v2-id-data';
+import { encodeMarketParamsData, type MarketParamsInput } from '@/lib/morpho/v2-id-data';
 import { formatMarketPairLabel, formatLltvPill } from '@/components/morpho/AllocationListView';
-import { marketKeyFromGraphQL, morphoMarketHref, morphoVaultHref } from '@/lib/morpho/morpho-app-links';
+import { marketKeyFromGraphQL, morphoMarketHref } from '@/lib/morpho/morpho-app-links';
 
 export type LiquidityAdapterOption = {
   key: string;
@@ -17,7 +13,7 @@ export type LiquidityAdapterOption = {
   morphoHref: string | null;
   adapterAddress: string;
   liquidityData: Hex;
-  kind: 'market' | 'metaMorpho';
+  kind: 'market';
   isCurrent: boolean;
 };
 
@@ -38,11 +34,7 @@ export function resolveLiquidityDisplay(
       data.metaMorphoName ||
       data.metaMorphoSymbol ||
       (data.metaMorphoAddress ? `${data.metaMorphoAddress.slice(0, 6)}…` : 'MetaMorpho');
-    return {
-      label: name,
-      lltv: null,
-      morphoHref: morphoVaultHref(data.metaMorphoAddress),
-    };
+    return { label: name, lltv: null, morphoHref: null };
   }
 
   const col = data.marketParams?.collateralAsset?.symbol;
@@ -111,10 +103,6 @@ export function buildLiquidityAdapterOptions(
   const currentData = governance.liquidityData;
   const currentMarketKey =
     currentData?.kind === 'market' ? currentData.marketKey?.toLowerCase() ?? null : null;
-  const currentMeta =
-    currentData?.kind === 'metaMorpho'
-      ? currentData.metaMorphoAddress?.toLowerCase() ?? null
-      : null;
 
   const byKey = new Map<string, LiquidityAdapterOption>();
 
@@ -123,26 +111,6 @@ export function buildLiquidityAdapterOptions(
   };
 
   for (const adapter of risk.adapters ?? []) {
-    if (adapter.adapterType === 'MetaMorphoAdapter') {
-      const underlying = adapter.underlyingVaultAddress?.toLowerCase() ?? '';
-      const isCurrent =
-        currentAdapter != null &&
-        adapter.adapterAddress.toLowerCase() === currentAdapter &&
-        currentMeta != null &&
-        underlying === currentMeta;
-      add({
-        key: `meta-${adapter.adapterAddress.toLowerCase()}`,
-        label: adapter.adapterLabel || 'MetaMorpho',
-        lltv: null,
-        morphoHref: morphoVaultHref(adapter.underlyingVaultAddress),
-        adapterAddress: adapter.adapterAddress,
-        liquidityData: METAMORPHO_ADAPTER_DATA,
-        kind: 'metaMorpho',
-        isCurrent,
-      });
-      continue;
-    }
-
     for (const m of adapter.markets ?? []) {
       if (!m.market) continue;
       const marketKey = marketKeyFromGraphQL(m.market);

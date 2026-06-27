@@ -1,10 +1,10 @@
-import type { V1VaultMarketData } from './query-v1-vault-markets';
+import type { BlueMarketData } from './blue-market-data';
 import type { OracleTimestampData } from './oracle-utils';
 import { getIRMTargetUtilizationWithFallback } from './irm-utils';
 import type { Address } from 'viem';
 
 /**
- * Market Risk Scoring for Morpho V1 - Market Level Only
+ * Market Risk Scoring for Morpho Blue markets (V2 vault rows + Curator markets)
  * 
  * Formula: marketRiskScore = 0.25 * liquidationHeadroomScore + 0.25 * utilizationScore + 0.25 * coverageRatioScore + 0.25 * oracleScore
  * All component scores ∈ [0, 100]
@@ -23,7 +23,7 @@ import type { Address } from 'viem';
  * Check if loan and collateral assets are the same or derivatives of each other
  * This allows using a lower price shock (2.5% vs 5%) for same-asset liquidations
  */
-function isSameOrDerivativeAsset(market: V1VaultMarketData): boolean {
+function isSameOrDerivativeAsset(market: BlueMarketData): boolean {
   const loanAsset = market.loanAsset;
   const collateralAsset = market.collateralAsset;
 
@@ -114,7 +114,7 @@ export interface MarketRiskScores {
  * - 20 = No oracle address or zero address (opaque/fixed oracle)
  */
 function computeOracleScore(
-  market: V1VaultMarketData,
+  market: BlueMarketData,
   oracleTimestampData?: OracleTimestampData | null
 ): number {
   const oracleAddress = market.oracleAddress;
@@ -180,7 +180,7 @@ function computeOracleScore(
  * - Negative headroom (underwater) = 0
  * - Positive headroom scored based on ratio
  */
-function computeLiquidationHeadroomScore(market: V1VaultMarketData): number {
+function computeLiquidationHeadroomScore(market: BlueMarketData): number {
   const state = market.state;
   if (!state) {
     return 0; // No state data = highest risk
@@ -279,7 +279,7 @@ function scoreUtilizationRatio(
  * Higher utilization is riskier (score decreases toward 0 at 100% util).
  */
 async function computeUtilizationScore(
-  market: V1VaultMarketData,
+  market: BlueMarketData,
   targetUtilization: number
 ): Promise<number> {
   const state = market.state;
@@ -318,7 +318,7 @@ async function computeUtilizationScore(
  * - Full coverage (≥1.0) = 100
  * - Partial coverage scored based on ratio
  */
-function computeCoverageRatioScore(market: V1VaultMarketData): number {
+function computeCoverageRatioScore(market: BlueMarketData): number {
   const state = market.state;
   if (!state) {
     return 0; // No state data = highest risk
@@ -446,15 +446,15 @@ function applyGlobalCaps(
 /**
  * Check if market is idle (should not be scored)
  */
-export function isMarketIdle(market: V1VaultMarketData): boolean {
+export function isMarketIdle(market: BlueMarketData): boolean {
   return !market.lltv || !market.collateralAsset?.symbol || market.collateralAsset.symbol === 'Unknown';
 }
 
 /**
- * Compute all market risk scores for a V1 vault market
+ * Compute all market risk scores for a Morpho Blue market
  */
-export async function computeV1MarketRiskScores(
-  market: V1VaultMarketData,
+export async function computeBlueMarketRiskScores(
+  market: BlueMarketData,
   oracleTimestampData?: OracleTimestampData | null,
   targetUtilization?: number | null
 ): Promise<MarketRiskScores> {

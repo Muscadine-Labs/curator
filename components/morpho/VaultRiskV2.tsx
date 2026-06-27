@@ -7,13 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import { formatCompactUSD, formatPercentage, formatRawTokenAmount } from '@/lib/format/number';
-import {
-  getTokenDisplayDecimals,
-  resolveAssetDecimals,
-} from '@/lib/format/asset-decimals';
+import { formatCompactUSD, formatPercentage } from '@/lib/format/number';
 import { MarketRiskDetailCard } from '@/components/morpho/MarketRiskDetailCard';
-import { morphoVaultHref } from '@/lib/morpho/morpho-app-links';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { shouldShowAdapterEntry, shouldShowMarketEntry } from '@/lib/morpho/format-risk';
 import { getGradeColor, getScoreColor } from '@/lib/morpho/market-risk-display';
@@ -59,14 +54,6 @@ export function VaultRiskV2({ vaultAddress, chainId, preloadedData }: VaultRiskV
   const adapterCount = sortedAdapters.length + (idleUsd > 0 ? 1 : 0);
   const idleWeightPct =
     totalVaultAllocatedUsd > 0 ? (idleUsd / totalVaultAllocatedUsd) * 100 : 0;
-
-  const vaultDecimals = data?.vaultAsset
-    ? resolveAssetDecimals(data.vaultAsset.symbol, data.vaultAsset.decimals)
-    : 18;
-  const vaultDisplayDecimals = data?.vaultAsset
-    ? getTokenDisplayDecimals(data.vaultAsset.symbol, vaultDecimals)
-    : 6;
-  const vaultSymbol = data?.vaultAsset?.symbol ?? '';
 
   if (isActuallyLoading) {
     return (
@@ -216,7 +203,6 @@ export function VaultRiskV2({ vaultAddress, chainId, preloadedData }: VaultRiskV
               totalVaultAllocatedUsd > 0
                 ? (adapter.allocationUsd / totalVaultAllocatedUsd) * 100
                 : 0;
-            const isMetaMorpho = adapter.adapterType === 'MetaMorphoAdapter';
             const markets = [...adapter.markets]
               .filter((m) =>
                 shouldShowMarketEntry(
@@ -236,38 +222,15 @@ export function VaultRiskV2({ vaultAddress, chainId, preloadedData }: VaultRiskV
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      {isMetaMorpho && adapter.underlyingVaultAddress ? (
-                        <a
-                          href={morphoVaultHref(adapter.underlyingVaultAddress) ?? undefined}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-base font-semibold hover:text-blue-600 dark:hover:text-blue-400 transition-colors underline decoration-1 underline-offset-2"
-                        >
-                          {adapter.adapterLabel}
-                        </a>
-                      ) : (
-                        <p className="text-base font-semibold">{adapter.adapterLabel}</p>
-                      )}
+                      <p className="text-base font-semibold">{adapter.adapterLabel}</p>
                       <Badge variant="outline" className="text-xs">
-                        {adapter.adapterType === 'MetaMorphoAdapter'
-                          ? 'MetaMorpho'
-                          : 'Morpho Blue'}
+                        Morpho Blue
                       </Badge>
                     </div>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
                       Allocation: {formatCompactUSD(adapter.allocationUsd)} ·{' '}
                       {formatPercentage(adapterWeightPct, 2)} of vault
                     </p>
-                    {isMetaMorpho && adapter.underlyingVaultAddress && (
-                      <a
-                        href={morphoVaultHref(adapter.underlyingVaultAddress) ?? '#'}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs text-slate-500 hover:underline dark:text-slate-400"
-                      >
-                        View on Morpho →
-                      </a>
-                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <p className={cn('text-lg font-semibold', getScoreColor(adapter.riskScore))}>
@@ -283,75 +246,6 @@ export function VaultRiskV2({ vaultAddress, chainId, preloadedData }: VaultRiskV
                 </div>
 
                 <div className="space-y-3">
-                  {isMetaMorpho && adapter.underlyingVaultStats && (
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      <div className="rounded-md border bg-slate-50/60 p-3 dark:bg-slate-900/40">
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">
-                          Underlying Vault Liquidity
-                        </p>
-                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                          {adapter.underlyingVaultStats.liquidityUsd != null
-                            ? formatCompactUSD(adapter.underlyingVaultStats.liquidityUsd)
-                            : '—'}
-                        </p>
-                        {adapter.underlyingVaultStats.liquidityUnderlying != null && (() => {
-                          try {
-                            return (
-                              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 tabular-nums">
-                                {formatRawTokenAmount(
-                                  BigInt(adapter.underlyingVaultStats.liquidityUnderlying),
-                                  vaultDecimals,
-                                  vaultDisplayDecimals
-                                )}{' '}
-                                {vaultSymbol}
-                              </p>
-                            );
-                          } catch {
-                            return null;
-                          }
-                        })()}
-                        {adapter.underlyingVaultStats.totalAssetsUsd != null &&
-                          adapter.underlyingVaultStats.totalAssetsUsd > 0 &&
-                          adapter.underlyingVaultStats.liquidityUsd != null && (
-                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                              {formatPercentage(
-                                (adapter.underlyingVaultStats.liquidityUsd /
-                                  adapter.underlyingVaultStats.totalAssetsUsd) *
-                                  100,
-                                2
-                              )}{' '}
-                              of underlying TVL
-                            </p>
-                          )}
-                      </div>
-                      <div className="rounded-md border bg-slate-50/60 p-3 dark:bg-slate-900/40">
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">
-                          Underlying Vault TVL
-                        </p>
-                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                          {adapter.underlyingVaultStats.totalAssetsUsd != null
-                            ? formatCompactUSD(adapter.underlyingVaultStats.totalAssetsUsd)
-                            : '—'}
-                        </p>
-                        {adapter.underlyingVaultStats.totalAssets != null && (() => {
-                          try {
-                            return (
-                              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 tabular-nums">
-                                {formatRawTokenAmount(
-                                  BigInt(adapter.underlyingVaultStats.totalAssets),
-                                  vaultDecimals,
-                                  vaultDisplayDecimals
-                                )}{' '}
-                                {vaultSymbol}
-                              </p>
-                            );
-                          } catch {
-                            return null;
-                          }
-                        })()}
-                      </div>
-                    </div>
-                  )}
                   {markets.map((m) => (
                       <MarketRiskDetailCard
                         key={m.market.marketKey || m.market.id}
