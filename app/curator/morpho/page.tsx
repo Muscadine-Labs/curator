@@ -13,7 +13,7 @@ import {
 export default function MorphoCuratorPage() {
   return (
     <AppShell
-      title="Morpho"
+      title="Morpho Tools"
       description="Access Morpho interfaces and automated bots for vault management."
     >
       <div className="space-y-6">

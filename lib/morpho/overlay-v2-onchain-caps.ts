@@ -125,20 +125,32 @@ function resolveAllocationRaw(
   onChainById: Map<string, bigint>,
   graphQlAssets: string | null | undefined,
   context: string
-): bigint {
-  if (onChainById.has(idKey)) {
-    return onChainById.get(idKey)!;
+): { display: bigint; booked: bigint } {
+  const onChain = onChainById.get(idKey);
+  const graphQl = parseAllocationBigInt(graphQlAssets);
+
+  if (onChain != null && graphQl != null) {
+    // Booked allocation(id) updates on rebalance; Morpho position supply includes interest.
+    const display = graphQl > onChain ? graphQl : onChain;
+    return { display, booked: onChain };
   }
-  const fallback = parseAllocationBigInt(graphQlAssets);
-  if (fallback != null) {
-    logger.warn('On-chain allocation read unavailable; using GraphQL allocation', {
-      vaultAddress,
-      id: idKey,
-      context,
-    });
-    return fallback;
+
+  if (onChain != null) {
+    return { display: onChain, booked: onChain };
   }
-  return 0n;
+
+  if (graphQl != null) {
+    if (!onChainById.has(idKey)) {
+      logger.warn('On-chain allocation read unavailable; using GraphQL allocation', {
+        vaultAddress,
+        id: idKey,
+        context,
+      });
+    }
+    return { display: graphQl, booked: graphQl };
+  }
+
+  return { display: 0n, booked: 0n };
 }
 
 function adapterAllocationId(adapter: V2AdapterRiskData): string {
@@ -262,18 +274,19 @@ export async function overlayV2OnChainAllocations(
   const adapters = (risk.adapters ?? []).map((adapter): V2AdapterRiskData => {
     if (adapter.adapterType === 'MetaMorphoAdapter') {
       const idKey = adapterAllocationId(adapter);
-      const raw = resolveAllocationRaw(
+      const { display, booked } = resolveAllocationRaw(
         vaultAddress,
         idKey,
         allocationById,
         adapter.allocationAssets,
         `MetaMorpho ${adapter.adapterAddress}`
       );
-      strategySum += raw;
+      strategySum += display;
       return {
         ...adapter,
-        allocationAssets: raw > 0n ? raw.toString() : null,
-        allocationUsd: allocationUsdFromRaw(raw, totalAssetsRaw, totalAssetsUsd),
+        allocationAssets: display > 0n ? display.toString() : null,
+        bookedAllocationAssets: booked.toString(),
+        allocationUsd: allocationUsdFromRaw(display, totalAssetsRaw, totalAssetsUsd),
       };
     }
 
@@ -282,7 +295,7 @@ export async function overlayV2OnChainAllocations(
       const idKey = m.market
         ? marketAllocationId(adapter.adapterAddress, m.market)
         : '';
-      const raw = m.market
+      const { display, booked } = m.market
         ? resolveAllocationRaw(
             vaultAddress,
             idKey,
@@ -290,12 +303,13 @@ export async function overlayV2OnChainAllocations(
             m.allocationAssets,
             `market ${idKey}`
           )
-        : 0n;
-      adapterSum += raw;
+        : { display: 0n, booked: 0n };
+      adapterSum += display;
       return {
         ...m,
-        allocationAssets: raw > 0n ? raw.toString() : null,
-        allocationUsd: allocationUsdFromRaw(raw, totalAssetsRaw, totalAssetsUsd),
+        allocationAssets: display > 0n ? display.toString() : null,
+        bookedAllocationAssets: booked.toString(),
+        allocationUsd: allocationUsdFromRaw(display, totalAssetsRaw, totalAssetsUsd),
       };
     });
     strategySum += adapterSum;
@@ -303,6 +317,7 @@ export async function overlayV2OnChainAllocations(
     return {
       ...adapter,
       allocationAssets: adapterSum > 0n ? adapterSum.toString() : null,
+      bookedAllocationAssets: null,
       allocationUsd: allocationUsdFromRaw(adapterSum, totalAssetsRaw, totalAssetsUsd),
       markets,
     };
@@ -322,7 +337,14 @@ export async function overlayV2OnChainAllocations(
     }
   }
 
-  const idleRaw = graphQlIdle ?? computedResidual;
+  // GraphQL idleAssets lags after rebalances; on-chain totalAssets − Σ allocation is fresher.
+  // When accrual inflates the residual above deployable cash, GraphQL idle is the ceiling.
+  const idleRaw =
+    graphQlIdle != null
+      ? computedResidual < graphQlIdle
+        ? computedResidual
+        : graphQlIdle
+      : computedResidual;
 
   if (
     graphQlIdle != null &&

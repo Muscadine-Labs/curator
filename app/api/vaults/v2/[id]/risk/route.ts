@@ -77,7 +77,10 @@ export type V2MarketRiskData = {
   market: V1VaultMarketData;
   scores: MarketRiskScores | null;
   allocationUsd: number;
+  /** Economic position (max of Morpho supply and on-chain booked allocation). */
   allocationAssets: string | null;
+  /** Vault `allocation(id)` at last rebalance — used for write deltas. */
+  bookedAllocationAssets?: string | null;
   oracleTimestampData?: OracleTimestampData | null;
   absoluteCap?: string | null;
   relativeCap?: string | null;
@@ -97,6 +100,7 @@ export type V2AdapterRiskData = {
   adapterLabel: string;
   allocationUsd: number;
   allocationAssets: string | null;
+  bookedAllocationAssets?: string | null;
   riskScore: number;
   riskGrade: MarketRiskGrade;
   markets: V2MarketRiskData[];
@@ -368,6 +372,11 @@ async function buildBlueAdapterMarketRisks(
   const keys = new Set<string>();
   for (const cap of adapterCaps) {
     if (cap.marketKey) keys.add(cap.marketKey.toLowerCase());
+  }
+  for (const pos of positions) {
+    if (!pos?.market) continue;
+    const key = marketKeyFromGraphQL(pos.market)?.toLowerCase();
+    if (key) keys.add(key);
   }
 
   const marketRisks: V2MarketRiskData[] = [];

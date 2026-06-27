@@ -21,6 +21,7 @@ export type BlueMarketEntry = {
     } | null;
   };
   allocationAssets: string | null;
+  bookedAllocationAssets?: string | null;
   allocationUsd: number;
 };
 
@@ -50,6 +51,7 @@ function riskMarketToEntry(
     marketKey: key,
     market: m.market,
     allocationAssets: m.allocationAssets,
+    bookedAllocationAssets: m.bookedAllocationAssets ?? m.allocationAssets,
     allocationUsd: m.allocationUsd ?? 0,
   };
 }

@@ -2,31 +2,62 @@
 
 Next.js dashboard for Muscadine vaults on Morpho. Built on Base network.
 
-## Quick Start
+## Quick Start (macOS)
 
-1. **Install dependencies:**
-   ```bash
-   npm install
-   ```
+Prerequisites: [Node.js](https://nodejs.org/) (LTS) and [Git](https://git-scm.com/). Check with:
 
-2. **Create `.env.local` file** with the following:
-   ```bash
-   # Required
-   NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_walletconnect_project_id
-   NEXT_PUBLIC_ALCHEMY_API_KEY=your_alchemy_api_key
-   
-   # Required (server-side - use one)
-   ALCHEMY_API_KEY=your_alchemy_api_key
-   # OR
-   COINBASE_CDP_API_KEY=your_coinbase_cdp_api_key
-   ```
+```bash
+node -v
+npm -v
+git --version
+```
 
-3. **Run development server:**
-   ```bash
-   npm run dev
-   ```
+### 1. Clone from GitHub
 
-4. **Open** http://localhost:3000
+```bash
+cd ~/Desktop
+git clone https://github.com/Muscadine-Labs/curator.git
+cd curator
+```
+
+### 2. Install dependencies
+
+```bash
+npm install
+```
+
+### 3. Set up environment variables
+
+Copy the example file, then edit it with your keys:
+
+```bash
+cp .env.example .env.local
+open -e .env.local
+```
+
+Fill in at minimum:
+
+```bash
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_walletconnect_project_id
+NEXT_PUBLIC_ALCHEMY_API_KEY=your_alchemy_api_key
+ALCHEMY_API_KEY=your_alchemy_api_key
+```
+
+Get keys from [WalletConnect Cloud](https://cloud.walletconnect.com) and [Alchemy](https://www.alchemy.com/). For server RPC you can use `ALCHEMY_API_KEY` or `COINBASE_CDP_API_KEY` instead of Alchemy.
+
+### 4. Run the development server
+
+```bash
+npm run dev
+```
+
+### 5. Open the app
+
+```bash
+open http://localhost:3000
+```
+
+Or visit http://localhost:3000 in your browser.
 
 ## Environment Variables
 

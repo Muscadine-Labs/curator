@@ -191,7 +191,7 @@ function formatRowAllocationCell(
   t: AllocTarget,
   filters: AllocationFilterState
 ): string {
-  const raw = r.allocAssets != null ? BigInt(r.allocAssets) : t.currentAssets;
+  const raw = r.allocAssets != null ? BigInt(r.allocAssets) : t.displayAssets;
   if (filters.displayMode === 'percent') {
     return `${r.pct.toFixed(2)}%`;
   }
@@ -274,7 +274,10 @@ interface AllocTarget {
   data: Hex;
   /** keccak256(data) — the primary cap id used by the vault. */
   capIdHash: Hex;
+  /** On-chain booked allocation(id) — write planning baseline. */
   currentAssets: bigint;
+  /** Economic position incl. accrued market interest — UI display. */
+  displayAssets: bigint;
   currentUsd: number;
   decimals: number;
   symbol: string;
@@ -469,10 +472,18 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
         const allocSym = sym;
 
         const tIdx = targets.length;
-        let rawAssets = BigInt(0);
-        if (allocAssets) { try { rawAssets = BigInt(allocAssets); } catch { /* */ } }
-        totalRaw += rawAssets;
-        vaultRefRaw += rawAssets;
+        let displayAssets = BigInt(0);
+        if (allocAssets) { try { displayAssets = BigInt(allocAssets); } catch { /* */ } }
+        let bookedAssets = displayAssets;
+        if (adapter.bookedAllocationAssets != null) {
+          try {
+            bookedAssets = BigInt(adapter.bookedAllocationAssets);
+          } catch {
+            /* keep display */
+          }
+        }
+        totalRaw += displayAssets;
+        vaultRefRaw += displayAssets;
 
         const adapterDataHex = '0x' as Hex;
         const adapterIdData = encodeAdapterCapIdData(adapter.adapterAddress);
@@ -484,7 +495,8 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
           adapterType: adapter.adapterType,
           data: adapterDataHex,
           capIdHash: adapterIdHash,
-          currentAssets: rawAssets,
+          currentAssets: bookedAssets,
+          displayAssets,
           currentUsd: adapter.allocationUsd ?? 0,
           decimals: allocDec,
           symbol: allocSym,
@@ -547,10 +559,18 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
             vaultRefRaw
           );
 
-          let rawAssets = BigInt(0);
-          if (allocAssets) { try { rawAssets = BigInt(allocAssets); } catch { /* */ } }
-          totalRaw += rawAssets;
-          vaultRefRaw += rawAssets;
+          let displayAssets = BigInt(0);
+          if (allocAssets) { try { displayAssets = BigInt(allocAssets); } catch { /* */ } }
+          let bookedAssets = displayAssets;
+          if (entry.bookedAllocationAssets != null) {
+            try {
+              bookedAssets = BigInt(entry.bookedAllocationAssets);
+            } catch {
+              /* keep display */
+            }
+          }
+          totalRaw += displayAssets;
+          vaultRefRaw += displayAssets;
 
           const data = encodeMarketParamsData(m);
           const capIdData = encodeMarketCapIdData(adapter.adapterAddress, m);
@@ -564,7 +584,8 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
             adapterType: adapter.adapterType,
             data,
             capIdHash: idHash,
-            currentAssets: rawAssets,
+            currentAssets: bookedAssets,
+            displayAssets,
             currentUsd: entry.allocationUsd,
             decimals: allocDec,
             symbol: allocSym,
@@ -612,6 +633,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       data: '0x' as Hex,
       capIdHash: '0x0000000000000000000000000000000000000000000000000000000000000000' as Hex,
       currentAssets: idleRaw,
+      displayAssets: idleRaw,
       currentUsd: idleUsd,
       decimals: dec,
       symbol: sym,
@@ -730,6 +752,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     clampWarning: string | null;
   } | null>(null);
   const multicallWrite = useVaultWrite({ chainId: chainId ?? BASE_CHAIN_ID });
+  const resetMulticallWrite = multicallWrite.reset;
   const publicClient = usePublicClient({ chainId: chainId ?? BASE_CHAIN_ID });
   const { address: walletAddress } = useAccount();
   const router = useRouter();
@@ -748,13 +771,21 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
 
   useEffect(() => {
     if (!multicallWrite.isSuccess) return;
-    void queryClient.refetchQueries({ queryKey: ['vault-v2-risk', vaultAddress] });
-    void queryClient.refetchQueries({ queryKey: vaultV2GovernanceQueryKey(vaultAddress) });
-    void queryClient.refetchQueries({ queryKey: ['vault-reallocations', vaultAddress] });
-    void queryClient.refetchQueries({ queryKey: ['vault', vaultAddress] });
-    setRebalancePreviewOpen(false);
-    setPreparedSubmit(null);
-  }, [multicallWrite.isSuccess, queryClient, vaultAddress]);
+    void (async () => {
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ['vault-v2-risk', vaultAddress] }),
+        queryClient.refetchQueries({ queryKey: vaultV2GovernanceQueryKey(vaultAddress) }),
+        queryClient.refetchQueries({ queryKey: ['vault-reallocations', vaultAddress] }),
+        queryClient.refetchQueries({ queryKey: ['vault', vaultAddress] }),
+      ]);
+      setEditing(false);
+      setInputValues([]);
+      setSubmitError(null);
+      setRebalancePreviewOpen(false);
+      setPreparedSubmit(null);
+      resetMulticallWrite();
+    })();
+  }, [multicallWrite.isSuccess, queryClient, vaultAddress, resetMulticallWrite]);
 
   const beginRebalance = useCallback(async () => {
     setRefreshingForEdit(true);
@@ -852,7 +883,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
         }
         return resolvedAssets.map((raw, i) => {
           const t = targetsWithCaps[i]!;
-          if (raw === t.currentAssets) return '';
+          if (raw === t.displayAssets) return '';
           return formatAllocationEditInputExact(raw, t.symbol, t.decimals, false);
         });
       });
@@ -1483,8 +1514,8 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
           ? Number((raw * BigInt(10000)) / planningTotalRaw) / 100
           : 0;
       const usd =
-        t.currentAssets > BigInt(0)
-          ? (t.currentUsd * Number(raw)) / Number(t.currentAssets)
+        t.displayAssets > BigInt(0)
+          ? (t.currentUsd * Number(raw)) / Number(t.displayAssets)
           : 0;
       return { raw, pct, usd };
     },
@@ -1497,13 +1528,13 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       if (!t) return 0;
       if (!editing) {
         return planningTotalRaw > BigInt(0)
-          ? Number((t.currentAssets * BigInt(10000)) / planningTotalRaw) / 100
+          ? Number((t.displayAssets * BigInt(10000)) / planningTotalRaw) / 100
           : 0;
       }
       const v = inputValues[targetIdx]?.trim() ?? '';
       if (!v) {
         return planningTotalRaw > BigInt(0)
-          ? Number((t.currentAssets * BigInt(10000)) / planningTotalRaw) / 100
+          ? Number((t.displayAssets * BigInt(10000)) / planningTotalRaw) / 100
           : 0;
       }
       if (inputMode === 'percentage') {
@@ -1571,7 +1602,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
   const isDelistedTarget = (t: AllocTarget): boolean =>
     govLoaded &&
     !t.isVaultIdle &&
-    t.currentAssets === BigInt(0) &&
+    t.displayAssets === BigInt(0) &&
     (t.absoluteCapRaw == null || t.absoluteCapRaw === BigInt(0)) &&
     (t.relativeCapWad == null || t.relativeCapWad === BigInt(0));
 
@@ -1589,7 +1620,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     let show = true;
     if (filters.onlyIdle && !isIdleRow) show = false;
     if (search && !r.searchHaystack.includes(search)) show = false;
-    if (filters.hideZero && t.currentAssets === BigInt(0)) show = false;
+    if (filters.hideZero && t.displayAssets === BigInt(0)) show = false;
     if (filters.hideIdle && isIdleRow) show = false;
     if (filters.onlyWithCapacity) {
       if (t.isVaultIdle || !hasRemainingCapacity(t, chainTotalRaw)) show = false;
@@ -1611,7 +1642,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
 
     switch (filters.sort) {
       case 'allocated-asc':
-        return compareBigIntAsc(ta.currentAssets, tb.currentAssets);
+        return compareBigIntAsc(ta.displayAssets, tb.displayAssets);
       case 'supplyApy-desc':
         return (rb.supplyApy ?? -Infinity) - (ra.supplyApy ?? -Infinity);
       case 'utilization-desc':
@@ -1625,7 +1656,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       case 'capacity-desc': {
         const headroom = (t: AllocTarget): bigint => {
           if (t.absoluteCapRaw == null) return BigInt(0);
-          const h = t.absoluteCapRaw - t.currentAssets;
+          const h = t.absoluteCapRaw - t.displayAssets;
           return h > 0n ? h : 0n;
         };
         return compareBigIntDesc(headroom(tb), headroom(ta));
@@ -1636,7 +1667,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
         return rb.market.localeCompare(ra.market);
       case 'allocated-desc':
       default:
-        return compareBigIntDesc(ta.currentAssets, tb.currentAssets);
+        return compareBigIntDesc(ta.displayAssets, tb.displayAssets);
     }
   });
 
@@ -1781,7 +1812,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
               <Input
                 type="text"
                 inputMode="decimal"
-                placeholder={formatRawAsInput(t.currentAssets, t)}
+                placeholder={formatRawAsInput(t.displayAssets, t)}
                 value={inputValues[r.targetIdx] ?? ''}
                 onChange={(e) => updateInput(r.targetIdx, e.target.value)}
                 className="h-9 text-right font-mono text-sm tabular-nums"

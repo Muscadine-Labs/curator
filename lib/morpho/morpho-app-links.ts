@@ -1,4 +1,9 @@
-import { BASE_CHAIN_ID, MORPHO_APP_ORIGIN } from '@/lib/constants';
+import {
+  BASE_CHAIN_ID,
+  ETHEREUM_CHAIN_ID,
+  HYPEREVM_CHAIN_ID,
+  MORPHO_APP_ORIGIN,
+} from '@/lib/constants';
 
 /** Morpho API market identifier (`marketId` replaced legacy `uniqueKey`). */
 export function marketKeyFromGraphQL(
@@ -7,9 +12,11 @@ export function marketKeyFromGraphQL(
   return market?.marketId ?? market?.uniqueKey ?? market?.id ?? null;
 }
 
-/** Morpho app chain slug (Curator vaults are on Base today). */
-function morphoChainSlug(chainId: number): string {
+/** Morpho app chain slug for deep links. */
+export function morphoChainSlug(chainId: number): string {
   if (chainId === BASE_CHAIN_ID) return 'base';
+  if (chainId === ETHEREUM_CHAIN_ID) return 'ethereum';
+  if (chainId === HYPEREVM_CHAIN_ID) return 'hyperevm';
   return 'base';
 }
 

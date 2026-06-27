@@ -2,8 +2,16 @@
  * Network, API, and timing constants used across the app.
  */
 
-const ETHEREUM_CHAIN_ID = 1;
+export const ETHEREUM_CHAIN_ID = 1;
 export const BASE_CHAIN_ID = 8453;
+/** HyperEVM (Hyperliquid) — Morpho chain id 999 */
+export const HYPEREVM_CHAIN_ID = 999;
+
+export const CURATOR_MARKET_NETWORKS = [
+  { chainId: BASE_CHAIN_ID, name: 'Base', morphoSlug: 'base' },
+  { chainId: ETHEREUM_CHAIN_ID, name: 'Ethereum', morphoSlug: 'ethereum' },
+  { chainId: HYPEREVM_CHAIN_ID, name: 'Hyperliquid', morphoSlug: 'hyperevm' },
+] as const;
 
 export const SIDEBAR_NETWORKS = [
   { chainId: ETHEREUM_CHAIN_ID, name: 'Ethereum' },
