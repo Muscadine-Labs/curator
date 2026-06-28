@@ -1,6 +1,5 @@
 *TO work on today:
-- Glitch where when I re-allocate, I sign with my wallet for the safe mutlitsig on the allocation / sentinal page, than i sign again on the safe page, than I push transcaction through, it should be i confirm the transcaction on the allocate / sentinal page, than i sign on the multisig safe page than transcact. I sign twice, it should be once, review the work.
-- Also for the reallcate page, when I reallocate there are still minor bugs with Zero and Max, review all of the codebase for every situation that can happen on allocation page.
+
 
 
 **To work on another day:

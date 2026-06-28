@@ -11,14 +11,9 @@ import {
 import { buildVaultRebalanceCalldata } from '@/lib/safe/build-vault-calldata';
 import {
   createSafeTransactionFromCalldata,
-  signSafeTransactionHash,
 } from '@/lib/safe/protocol-kit-client';
 import { sendTransactionViaSafeApp } from '@/lib/safe/safe-apps-send';
 import { upsertPendingTransaction, updatePendingTransaction } from '@/lib/safe/pending-store';
-import {
-  isTransactionServiceConfigured,
-  proposePendingToTransactionService,
-} from '@/lib/safe/transaction-service';
 import type { RebalancePlanRow } from '@/lib/onchain/v2-rebalance-plan';
 import type { SafePendingTransaction, SafeTransactionSource } from '@/lib/safe/types';
 
@@ -26,45 +21,6 @@ function newPendingId(): string {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-async function tryPublishToTransactionService(
-  tx: SafePendingTransaction,
-  proposer?: Address
-): Promise<SafePendingTransaction> {
-  if (!isTransactionServiceConfigured() || !proposer) {
-    return tx;
-  }
-
-  try {
-    const senderSignature = await signSafeTransactionHash({
-      safeAddress: tx.safeAddress,
-      signer: proposer,
-      safeTxHash: tx.safeTxHash,
-    });
-
-    await proposePendingToTransactionService({
-      tx,
-      senderAddress: proposer,
-      senderSignature,
-    });
-
-    return (
-      updatePendingTransaction(tx.id, {
-        serviceSynced: true,
-        serviceSyncError: null,
-      }) ?? { ...tx, serviceSynced: true, serviceSyncError: null }
-    );
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : 'Failed to publish to Transaction Service.';
-    return (
-      updatePendingTransaction(tx.id, {
-        serviceSynced: false,
-        serviceSyncError: message,
-      }) ?? { ...tx, serviceSynced: false, serviceSyncError: message }
-    );
-  }
 }
 
 async function tryPublishViaSafeApp(
@@ -144,7 +100,8 @@ export async function queueVaultWriteInSafe(options: {
     return tryPublishViaSafeApp(tx, options.calldata, options.safeAppSdk);
   }
 
-  return tryPublishToTransactionService(tx, options.proposer);
+  // Queue locally only — owners sign once on /safe/[role] (no wallet prompt here).
+  return tx;
 }
 
 export async function queueVaultRebalanceInSafe(options: {

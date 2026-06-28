@@ -811,9 +811,49 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
 
   const setRowZero = useCallback(
     (targetIdx: number) => {
-      updateInput(targetIdx, '0');
+      setSubmitError(null);
+      setInputValues((prev) => {
+        const values = prev.length === targetsWithCaps.length ? [...prev] : targetsWithCaps.map(() => '');
+
+        const resolveRowAssets = (idx: number, vals: string[]): bigint =>
+          resolveTargetAssetsFromInput(
+            idx,
+            vals[idx] ?? '',
+            inputMode,
+            targetsWithCaps,
+            planningTotalRaw
+          ).assets;
+
+        if (inputMode === 'percentage') {
+          values[targetIdx] = '0.00';
+        } else {
+          values[targetIdx] = '0';
+        }
+
+        const idleIdx = targetsWithCaps.findIndex((row) => row.isVaultIdle);
+        if (idleIdx >= 0 && targetIdx !== idleIdx) {
+          const idleTarget = computeIdleTargetFromStrategyPlan(
+            planningTotalRaw,
+            targetsWithCaps.map((row) => ({ isVaultIdle: row.isVaultIdle })),
+            (idx) => resolveRowAssets(idx, values)
+          );
+          if (inputMode === 'percentage') {
+            values[idleIdx] = rawToPercentInput(idleTarget, planningTotalRaw);
+          } else {
+            const idleRow = targetsWithCaps[idleIdx]!;
+            values[idleIdx] = formatAllocationEditInputExact(
+              idleTarget,
+              idleRow.symbol,
+              idleRow.decimals,
+              false
+            );
+          }
+        }
+
+        return values;
+      });
     },
-    [updateInput]
+    [inputMode, targetsWithCaps, planningTotalRaw]
   );
 
   const setRowMax = useCallback(
