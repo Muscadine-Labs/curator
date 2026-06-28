@@ -4,8 +4,8 @@ import {
   type Address,
   type Hex,
 } from 'viem';
-import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
-import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
+import type { CapInfo } from '@/app/api/vaults/[id]/governance/route';
+import type { V2VaultRiskResponse } from '@/app/api/vaults/[id]/risk/route';
 import { isAdapterCap, isCollateralCap, isMarketCap } from '@/lib/morpho/cap-utils';
 import { marketKeyFromGraphQL } from '@/lib/morpho/morpho-app-links';
 

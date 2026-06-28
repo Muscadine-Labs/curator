@@ -16,7 +16,7 @@ import { getGradeColor, getScoreColor } from '@/lib/morpho/market-risk-display';
 interface VaultRiskV2Props {
   vaultAddress: string;
   chainId?: number;
-  preloadedData?: import('@/app/api/vaults/v2/[id]/risk/route').V2VaultRiskResponse | null;
+  preloadedData?: import('@/app/api/vaults/[id]/risk/route').V2VaultRiskResponse | null;
 }
 
 export function VaultRiskV2({ vaultAddress, chainId, preloadedData }: VaultRiskV2Props) {
@@ -77,7 +77,7 @@ export function VaultRiskV2({ vaultAddress, chainId, preloadedData }: VaultRiskV
   if (error) {
     const isDeploymentProtection = error instanceof Error && 
       error.message.includes('Deployment protection');
-    const apiUrl = `/api/vaults/v2/${vaultAddress}/risk`;
+    const apiUrl = `/api/vaults/${vaultAddress}/risk`;
     
     return (
       <Card>

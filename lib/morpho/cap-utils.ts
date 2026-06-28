@@ -1,4 +1,4 @@
-import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
+import type { CapInfo } from '@/app/api/vaults/[id]/governance/route';
 
 /** Morpho GraphQL cap `type` values (VaultV2CapType enum). */
 export function isAdapterCap(cap: CapInfo): boolean {

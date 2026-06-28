@@ -1,6 +1,6 @@
 import { API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
 import { gql } from 'graphql-request';
-import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
+import type { CapInfo } from '@/app/api/vaults/[id]/governance/route';
 import { BASE_CHAIN_ID, GRAPHQL_FIRST_LIMIT } from '@/lib/constants';
 import { isCollateralCap, isMarketCap } from '@/lib/morpho/cap-utils';
 import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';

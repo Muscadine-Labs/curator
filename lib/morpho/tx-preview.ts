@@ -8,7 +8,7 @@ import {
   parseCapDecreaseInput,
   type CapDecreaseMode,
 } from '@/lib/morpho/cap-decrease-input';
-import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
+import type { CapInfo } from '@/app/api/vaults/[id]/governance/route';
 import { isAdapterCap, isCollateralCap, isMarketCap } from '@/lib/morpho/cap-utils';
 
 export type TxPreviewAction =

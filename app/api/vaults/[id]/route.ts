@@ -15,7 +15,7 @@ import { getAddress, isAddress } from 'viem';
 import { logger } from '@/lib/utils/logger';
 import { buildVaultAnalytics } from '@/lib/morpho/vault-analytics';
 import { mapCap } from '@/lib/morpho/vault-v2-governance-map';
-import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
+import type { CapInfo } from '@/app/api/vaults/[id]/governance/route';
 import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
 import {
   vaultV2TransactionUser,

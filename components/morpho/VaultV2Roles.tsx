@@ -5,7 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { AddressBadge } from '@/components/AddressBadge';
 import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
-import type { VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governance/route';
+import type { VaultV2GovernanceResponse } from '@/app/api/vaults/[id]/governance/route';
 
 interface VaultV2RolesProps {
   vaultAddress: string;

@@ -5,8 +5,8 @@ import {
   resolveAssetDecimals,
 } from '@/lib/format/asset-decimals';
 import { isAdapterCap, isCollateralCap, isMarketCap } from '@/lib/morpho/cap-utils';
-import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
-import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
+import type { CapInfo } from '@/app/api/vaults/[id]/governance/route';
+import type { V2VaultRiskResponse } from '@/app/api/vaults/[id]/risk/route';
 import { formatLltvPill, formatMarketPairLabel } from '@/components/morpho/AllocationListView';
 import { marketKeyFromGraphQL } from '@/lib/morpho/morpho-app-links';
 

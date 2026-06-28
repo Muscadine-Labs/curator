@@ -59,16 +59,22 @@ Muscadine for managing and reporting on Morpho-style vaults on Base (chainId
 app/
   api/                 Next.js route handlers (BFF for Morpho + onchain data)
     vaults/            GET /api/vaults, /api/vaults/[id], history, holders, …
-    vaults/v2/[id]/    V2-specific endpoints (risk, governance, pending)
+    vaults/[id]/       On-chain vault endpoints (risk, governance, pending)
+    markets/           Morpho Blue markets browser + detail BFF
     morpho-markets/    Cross-vault market list
     protocol-stats/    Aggregate TVL / revenue
     monthly-statement-* Statement generators
     google-sheets/     Sheets export
     auth/              Session verify
     safe/[address]/    GET /api/safe/[address]/info (owners, threshold, nonce, ETH)
-  curator/             Curator-only tools (morpho, safe multisig)
-  overview/            Aggregate dashboards
-  vault/v2/[address]/  V2 vault detail page (only vault detail route)
+  markets/             Morpho Markets browser (`/markets`)
+  market/blue/[id]/    Blue market detail
+  safe/                Multisig Safe workspace
+  morpho/              Curator Morpho tools
+  monthly-statement/   Treasury / DefiLlama statements
+  muscadine-ledger/    Internal ledger
+  muscadine-frontends/ Frontend links
+  vault/[address]/     Vault detail page (Morpho V2)
 
 components/
   morpho/              VaultV2Allocations, VaultV2Caps, VaultV2Sentinel,
@@ -168,7 +174,7 @@ Getting those semantics wrong is the #1 source of reverts.
        (`1e18 == 100%`). `firstTotalAssets` is the vault assets snapshot at the
        start of the tx (approximated client-side with the current total assets).
   4. Violating a cap reverts. We validate both caps before sending.
-- **Cap data source**: `useVaultV2Governance` (`/api/vaults/v2/[id]/governance`),
+- **Cap data source**: `useVaultV2Governance` (`/api/vaults/[id]/governance`),
   which returns `CapInfo[]` keyed by `id = keccak256(idData)`.
 - **Cap `idData` vs adapter `data` (critical — do not conflate)**:
   All encoding helpers live in `lib/morpho/v2-id-data.ts`. The vault hashes
@@ -250,15 +256,20 @@ Getting those semantics wrong is the #1 source of reverts.
 `lib/config/vaults.ts` only. There is no V1 vault list batch and no
 `app/vault/v1/…` detail route.
 
-### 4.2 V2 (`app/vault/v2/[address]/page.tsx`)
+### 4.2 V2 (`app/vault/[address]/page.tsx`)
+
+**Rendering** — the vault page is `'use client'` and loads all tab data via React
+Query (`useVaultV2Complete` → BFF + on-chain hooks). Keep the `[address]` segment
+**dynamic**; do not add `generateStaticParams` or SSG — TVL, allocations, caps,
+and risk change continuously and hooks refetch on tab switch and post-tx.
 
 **Tab order** (includes Risk): Overview → Risk → Roles → Adapters → Caps →
 Timelocks → Allocation → Sentinel → Emergency.
 
 1. `useVaultV2Complete` fans out to:
    - `useVault(address)` for base data
-   - `useVaultV2Risk` → `/api/vaults/v2/[id]/risk` (adapters, markets, idle)
-   - `useVaultV2Governance` → `/api/vaults/v2/[id]/governance` (caps, roles,
+   - `useVaultV2Risk` → `/api/vaults/[id]/risk` (adapters, markets, idle)
+   - `useVaultV2Governance` → `/api/vaults/[id]/governance` (caps, roles,
      timelocks, `idleAssets`)
    - `useVaultV2Pending`
 2. **Roles** — `VaultV2Roles.tsx` (read-only): owner, curator, allocators,
@@ -322,7 +333,7 @@ in `lib/api/response-cache.ts` (`clampCacheMaxAgeSeconds`, `clampCacheTtlMs`).
 `public, s-maxage=N, stale-while-revalidate=30` where `N ≤ 30` (route arguments
 above 30 are clamped).
 
-**On-chain vault routes** — `GET /api/vaults/v2/[id]/risk` and
+**On-chain vault routes** — `GET /api/vaults/[id]/risk` and
 `.../governance` use `mergeApiOnChainVaultHeaders()` → `private, no-store`
 (no CDN cache; each request runs GraphQL + RPC overlay).
 
@@ -369,7 +380,9 @@ is business vaults only.
 
 **Sidebar** (`components/layout/Sidebar.tsx`) uses `useVaultList({ includeAll: true })`.
 Section order under each network (Base only today): **V2 Prime → V2 Frontier → V2
-Vineyard → V2 Test**. All sidebar vault links route to `/vault/v2/{address}`.
+Vineyard → V2 Test**. All sidebar vault links route to `/vault/{address}`. Legacy
+page paths (`/curator/*`, `/overview/*`, `/vault/v2/*`) and API paths
+(`/api/curator/markets`, `/api/vaults/v2/*`) **301 redirect** via `next.config.ts`.
 
 Ethereum appears in `SIDEBAR_NETWORKS` but has no configured vaults — expand
 **Base**, not Ethereum, to see vault links.
@@ -456,10 +469,13 @@ V1 list query must not use removed `VaultState` APY fields (`weeklyNetApy` /
   (USDC 6, WETH 18, cbBTC 8).
 - Allocation column **Liquidity** = per-market `liquidityAssetsUsd` (Blue market depth)
   for `MorphoMarketV1Adapter` rows. Not vault-level V2 withdrawable liquidity.
-- V2 risk API (`/api/vaults/v2/[id]/risk`) exposes `idleAssets`, `idleAssetsUsd`,
+- V2 risk API (`/api/vaults/[id]/risk`) exposes `idleAssets`, `idleAssetsUsd`,
   and per-market scores for **MorphoMarketV1Adapter** positions only.
   `MetaMorphoAdapter` GraphQL rows are **skipped** (Curator vaults do not allocate
-  through wrapped MetaMorpho vaults).
+  through wrapped MetaMorpho vaults). **GraphQL complexity** — the risk query requests
+  `oracle.data.baseFeedOne` on **positions only** (not all four feeds, not on caps);
+  cap-only markets rely on on-chain `BASE_FEED_*` fallback. Do not expand oracle
+  fragments on caps without checking Morpho complexity limits.
 
 ### 4.5 Risk management scoring (V1 & V2)
 
@@ -520,7 +536,7 @@ B+ ≥84, B ≥80, B− ≥77, C+ ≥74, C ≥70, C− ≥65, D ≥60, F &lt;60.
 **External links** — `lib/morpho/morpho-app-links.ts`:
 - Blue market → `morphoMarketHref(marketKey)` → `app.morpho.org/base/market/…`
 - Curator market detail → `curatorBlueMarketHref(marketKey, chainId)` →
-  `/curator/market/blue/{marketKey}?chainId=…`
+  `/market/blue/{marketKey}?chainId=…`
 
 #### V2 vault risk (Curator)
 
@@ -561,7 +577,7 @@ tab switch, post-tx, and Rebalance (`lib/data/query-config.ts`).
 
 ### 4.6 Monthly income statement (treasury wallet)
 
-**UI** — `app/overview/monthly-statement/page.tsx` (tabs: **By Treasury Wallet** /
+**UI** — `app/monthly-statement/page.tsx` (tabs: **By Treasury Wallet** /
 **DefiLlama**). Treasury view modes: **Total** (default), By Token, By Vault.
 Dashboard overview shows **Total Revenue** and **YTD Revenue** KPIs from treasury net
 month-over-month change (`app/page.tsx`). Toggle treasury vs DefiLlama via
@@ -596,11 +612,15 @@ the treasury dashboard without restoring the tx-classification pipeline in
 
 ### 4.7 Curator Morpho Markets browser
 
-**Routes** — `/curator/markets` (list) and `/curator/market/blue/[id]?chainId=`
-(detail). Sidebar **Curator Tools** order: **Morpho Markets** → **Multisig Safe**
-→ **Morpho Tools** (`components/layout/Sidebar.tsx`).
+**Routes** — `/markets` (list) and `/market/blue/[id]?chainId=` (detail). Legacy
+page paths (`/curator/*`, `/overview/*`, `/vault/v2/*`) and API paths
+(`/api/curator/markets`, `/api/vaults/v2/*`) **301 redirect** in `next.config.ts`.
+Sidebar
+**Curator Tools** order: **Morpho Markets** (`LineChart`) → **Multisig Safe**
+(`Users`) → **Morpho Tools** (`Wrench`) (`components/layout/Sidebar.tsx`).
+Business section: `/monthly-statement`, `/muscadine-ledger`, `/muscadine-frontends`.
 
-**BFF** — `GET /api/curator/markets` and `GET /api/curator/markets/[marketId]`
+**BFF** — `GET /api/markets` and `GET /api/markets/[marketId]`
 (`lib/morpho/curator-markets.ts`). Networks: Base (default), Ethereum,
 Hyperliquid (`CURATOR_MARKET_NETWORKS` in `lib/constants/core.ts`). List query
 uses `orderBy: SizeUsd` server-side; client re-sorts via column headers.
@@ -621,9 +641,16 @@ Muscadine rows (blue highlight) = business vault with allocatable market cap on
 that `marketId` (30s in-process index in `curator-markets.ts`).
 
 **Detail page** — overview KPIs (APY, bad debt, utilization, supply/borrow),
-`MarketRiskDetailCard` on Base only (oracle/IRM reads use Base RPC today). Page
-title + `Morpho Blue · {network}` link to Morpho app; risk card title also links
-to Morpho when already on the Curator page.
+`MarketOraclePanel` (oracle price vs Morpho spot, Chainlink feed bounds, freshness,
+oracle contract link to Basescan/Etherscan/HyperEVMScan via `getAddressScanUrl`),
+and `MarketRiskDetailCard` on Base only (oracle/IRM reads use Base RPC today).
+`resolveMarketOracleAddress` prefers explicit `oracleAddress` then `oracle.address`
+(`lib/morpho/market-oracle-address.ts`). Page title + `Morpho Blue · {network}`
+link to Morpho app. Invalid `?chainId=` falls back to Base (`parseCuratorMarketChainId`).
+
+**Allocation tab links** — Blue market row names link to
+`curatorBlueMarketHref(marketKey, chainId)` (in-app `/market/blue/…`), not the
+Morpho app directly.
 
 **Vault Risk tab links** — `MarketRiskDetailCard` market names link to
 `curatorBlueMarketHref(marketKey, chainId)` (`lib/morpho/morpho-app-links.ts`).
@@ -764,7 +791,8 @@ components.
 
 ## 9. Auth & Gating
 
-- Curator-only routes live under `app/curator/*` and use `AuthGuard`.
+- Curator tools routes: `/markets`, `/market/blue/[id]`, `/safe`, `/morpho`,
+  `/monthly-statement`, etc. Entire app is behind `AuthGuard` in `app/providers.tsx`.
 - Server auth verification lives in `app/api/auth/verify/route.ts` and
  `lib/auth/curator-auth.ts`. The **only** username is **`admin`**
  (case-sensitive, role `'admin'`); password from env `CURATOR_ADMIN_PASSWORD`
@@ -777,7 +805,7 @@ components.
   Do not add server-side private keys for allocation flows.
 - **Multisig Safe writes** — when a vault's on-chain allocator/sentinel is a
   Muscadine Safe (`lib/safe/config.ts`), queue proposals from Allocation /
-  Sentinel preview dialogs; owners sign EIP-712 on `/curator/safe/[role]`.
+  Sentinel preview dialogs; owners sign EIP-712 on `/safe/[role]`.
   Direct wallet confirm remains for EOA role holders only (`lib/safe/vault-role-match.ts`).
 - Wallet connect lives in the **topbar** (`ConnectWalletButton` / RainbowKit
   `ConnectButton`). Recommended wallets are configured in
@@ -976,10 +1004,10 @@ npm run build
 | V2 cap idData encoding           | `lib/morpho/v2-id-data.ts` (`resolveCapIdData`, …)       |
 | V2 cap display helpers           | `lib/morpho/v2-cap-format.ts`                            |
 | Market risk scoring (shared)     | `lib/morpho/compute-blue-market-risk.ts`, `lib/morpho/irm-utils.ts`, `lib/morpho/oracle-utils.ts` |
-| V2 risk API + UI                 | `app/api/vaults/v2/[id]/risk/route.ts`, `VaultRiskV2.tsx`, `MarketRiskDetailCard.tsx` |
+| V2 risk API + UI                 | `app/api/vaults/[id]/risk/route.ts`, `VaultRiskV2.tsx`, `MarketRiskDetailCard.tsx` |
 | Morpho app deep links            | `lib/morpho/morpho-app-links.ts`                         |
 | V2 pending UI                    | `components/morpho/VaultV2Pending.tsx`                    |
-| V2 vault page (tabs)             | `app/vault/v2/[address]/page.tsx`                         |
+| V2 vault page (tabs)             | `app/vault/[address]/page.tsx`                            |
 | Blue market types + normalize      | `lib/morpho/blue-market-data.ts` (`asBlueMarketData`) |
 | Client fetch + refetch interval  | `lib/data/api-fetch.ts`, `lib/data/query-config.ts`      |
 | BFF cache headers                | `lib/api/response-cache.ts`, `lib/api/server-response-cache.ts` |
@@ -993,10 +1021,10 @@ npm run build
 | Dust recipient UI                | `components/morpho/DustRecipientSelect.tsx`              |
 | Write hook                       | `lib/hooks/useVaultWrite.ts`                             |
 | V2 data hook                     | `lib/hooks/useVaultV2Complete.ts`                        |
-| V2 caps API                      | `app/api/vaults/v2/[id]/governance/route.ts`             |
+| V2 caps API                      | `app/api/vaults/[id]/governance/route.ts`             |
 | Vault overview + history chart   | `components/morpho/VaultOverviewPanel.tsx`, `VaultOverviewHistoryChart.tsx` |
 | Vault history BFF                | `app/api/vaults/[id]/history/route.ts`, `lib/morpho/vault-history.ts` |
-| Treasury monthly statement       | `app/api/monthly-statement-morphoql/route.ts`, `lib/morpho/compute-treasury-statement.ts`, `lib/morpho/treasury-statement.ts`, `app/overview/monthly-statement/page.tsx` |
+| Treasury monthly statement       | `app/api/monthly-statement-morphoql/route.ts`, `lib/morpho/compute-treasury-statement.ts`, `lib/morpho/treasury-statement.ts`, `app/monthly-statement/page.tsx` |
 | V2 cap market enrichment         | `lib/morpho/fetch-markets-by-id.ts` (`enrichMarketCapParams`, `enrichCollateralCapSymbols`) |
 | Vault overview analytics         | `lib/morpho/vault-analytics.ts`                          |
 | Chart metric / unit filters      | `components/charts/MetricModeFilter.tsx`, `UsdTokenModeFilter.tsx` |
@@ -1008,15 +1036,14 @@ npm run build
 | Market id helpers                | `lib/morpho/morpho-app-links.ts` (`marketKeyFromGraphQL`, `curatorBlueMarketHref`) |
 | Oracle address from GraphQL      | `lib/morpho/market-oracle-address.ts` (`resolveMarketOracleAddress`) |
 | Morpho GraphQL client + warnings | `lib/morpho/graphql-client.ts` |
-| Curator markets BFF + scoring    | `lib/morpho/curator-markets.ts`, `app/api/curator/markets/` |
-| Markets browser UI               | `components/morpho/CuratorMarketsBrowser.tsx`, `app/curator/markets/page.tsx` |
-| Market detail page               | `app/curator/market/blue/[id]/page.tsx` |
+| Curator markets BFF + scoring    | `lib/morpho/curator-markets.ts`, `app/api/markets/` |
+| Markets browser UI               | `components/morpho/CuratorMarketsBrowser.tsx`, `app/markets/page.tsx` |
+| Market detail + oracle panel     | `app/market/blue/[id]/page.tsx`, `components/morpho/MarketOraclePanel.tsx`, `lib/morpho/oracle-price.ts` |
 | V2 on-chain allocation overlay   | `lib/morpho/overlay-v2-onchain-caps.ts` |
 | V2 tx user resolution            | `lib/morpho/vault-v2-transaction-utils.ts` |
 | Vault addresses                  | `lib/config/vaults.ts`                                   |
 | CCTP constants (chains/ABIs)     | `lib/cctp/constants.ts`                                  |
 | CCTP attestation helper          | `lib/cctp/attestation.ts`                                |
-| CCTP transfer page               | `app/curator/cctp/page.tsx`                              |
 | Theme context + migration        | `lib/theme/ThemeContext.tsx`                             |
 | Theme switcher UI                | `components/ThemeSwitcher.tsx`                           |
 | Global density + theme vars      | `app/globals.css`                                        |
@@ -1027,7 +1054,7 @@ npm run build
 | Vault transactions (paginated)   | `components/morpho/VaultTransactions.tsx`                |
 | Holders API (V1/V2)              | `app/api/vaults/[id]/holders/route.ts`                   |
 | Transactions API                 | `app/api/vaults/[id]/transactions/route.ts`              |
-| Multisig Safe UI + queue         | `app/curator/safe/`, `components/safe/*`                 |
+| Multisig Safe UI + queue         | `app/safe/`, `components/safe/*`                          |
 | Safe config + Protocol Kit       | `lib/safe/config.ts`, `lib/safe/protocol-kit-client.ts`  |
 | Safe pending store (localStorage)| `lib/safe/pending-store.ts`, `lib/safe/queue-vault-write.ts` |
 | Safe Transaction Service         | `lib/safe/transaction-service.ts`, `lib/safe/service-sync.ts` |
@@ -1042,8 +1069,7 @@ npm run build
 
 ## 13. Multisig Safe (Curator)
 
-`/curator/safe` manages Muscadine role Safes on Base. Default tab:
-`/curator/safe/allocator`. Sidebar **Curator Tools**: **Morpho Markets** →
+`/safe` manages Muscadine role Safes on Base. Default tab: `/safe/allocator`. Sidebar **Curator Tools**: **Morpho Markets** →
 **Multisig Safe** → **Morpho Tools** (Safe is second, not first).
 
 ### 13.1 Role Safes (`lib/safe/config.ts`)
@@ -1067,7 +1093,7 @@ Workspace link: Muscadine Labs on `app.safe.global` (`lib/safe/links.ts`).
    **browser localStorage** (`pending-store.ts`). With `NEXT_PUBLIC_SAFE_API_KEY`
    and a connected proposer wallet, auto-share also signs EIP-712 and proposes
    to the Transaction Service; Safe App embed uses `sdk.txs.send` instead.
-2. **Sign** — On `/curator/safe/[role]`, connect a **Safe owner** hot wallet in
+2. **Sign** — On `/safe/[role]`, connect a **Safe owner** hot wallet in
    the topbar. **Sign (EIP-712)** adds owner signatures locally.
 3. **Execute** — Once signatures ≥ threshold, **Execute on-chain** submits
    `execTransaction`; the **Safe address** calls the vault contract. On success,
@@ -1087,7 +1113,7 @@ Transaction Service is an optional sync layer:
 3. **Safe App embed** (`CuratorSafeAppsProvider`): when opened inside
    `app.safe.global`, queue can call `sdk.txs.send` after building the same
    meta-tx locally; marks `serviceSynced`.
-4. **Sync from service** on `/curator/safe/[role]` merges pending txs from the
+4. **Sync from service** on `/safe/[role]` merges pending txs from the
    Transaction Service into localStorage (signatures included).
 5. **Share with owners** on unsynced rows re-proposes to the service.
 6. **Sign** posts `confirmTransaction` to the service when `serviceSynced` is true.
@@ -1133,9 +1159,12 @@ client serializes calls with ≥210ms spacing.
 
 ---
 
-## 14. CCTP (Circle Cross-Chain Transfer) Page
+## 14. CCTP (Circle Cross-Chain Transfer)
 
-`app/curator/cctp/page.tsx` provides a step-by-step USDC bridge using Circle's
+**App route:** not shipped in this branch (no `/cctp` page). Shared constants and
+helpers remain in `lib/cctp/` for a future curator tools page.
+
+The planned flow uses Circle's
 **CCTP V2**. No third-party bridge, no wrapping. Supports Fast Transfer
 (~seconds) and Standard Transfer (~minutes).
 
@@ -1337,11 +1366,11 @@ High-value targets if Jest returns: `lib/morpho/cap-decrease-input.ts`,
 
 ---
 
-_Last updated: 2026-06-27 (v1.3.0). When you change reallocation logic, allocation
+_Last updated: 2026-06-27 (v1.3.1). When you change reallocation logic, allocation
 list/filters (§5), caps/adapters display, V2 idData/Sentinel (§3.2, §4.2), tx
-preview, client fetch/cache (§4.3), Morpho GraphQL field names (§4.4.1), Curator
-markets browser (§4.7), vault list/sidebar (§4.3.1), vault overview/history (share
-price in §4.4), risk scoring (§4.5), V2 idle/Blue display, pending/emergency
+preview, client fetch/cache (§4.3), app/API route paths (§2, §4.7, `next.config.ts`
+redirects), Morpho GraphQL field names (§4.4.1), Curator markets browser (§4.7),
+vault list/sidebar (§4.3.1), vault overview/history (share price in §4.4), risk scoring (§4.5), V2 idle/Blue display, pending/emergency
 tabs, wallet stack, Multisig Safe (§13), formatting, the CCTP flow (§14), global
 density (§16), or add a new vault interaction, update Sections 3–6, 4.2–4.7, 9–10,
 13–14, 16, and 17 accordingly._

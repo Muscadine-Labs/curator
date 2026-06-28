@@ -113,6 +113,25 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ['recharts', 'lucide-react', '@radix-ui/react-tabs'],
   },
+  async redirects() {
+    return [
+      { source: '/curator/markets', destination: '/markets', permanent: true },
+      { source: '/curator/market/blue/:id', destination: '/market/blue/:id', permanent: true },
+      { source: '/curator/safe', destination: '/safe/allocator', permanent: true },
+      { source: '/curator/safe/:role', destination: '/safe/:role', permanent: true },
+      { source: '/curator/morpho', destination: '/morpho', permanent: true },
+      { source: '/curator/cctp', destination: '/morpho', permanent: true },
+      { source: '/overview/monthly-statement', destination: '/monthly-statement', permanent: true },
+      { source: '/overview/muscadine-ledger', destination: '/muscadine-ledger', permanent: true },
+      { source: '/overview/muscadine-frontends', destination: '/muscadine-frontends', permanent: true },
+      { source: '/vault/v2/:address', destination: '/vault/:address', permanent: true },
+      { source: '/api/curator/markets', destination: '/api/markets', permanent: true },
+      { source: '/api/curator/markets/:marketId', destination: '/api/markets/:marketId', permanent: true },
+      { source: '/api/vaults/v2/:id/risk', destination: '/api/vaults/:id/risk', permanent: true },
+      { source: '/api/vaults/v2/:id/governance', destination: '/api/vaults/:id/governance', permanent: true },
+      { source: '/api/vaults/v2/:id/pending', destination: '/api/vaults/:id/pending', permanent: true },
+    ];
+  },
 };
 
 export default nextConfig;

@@ -34,5 +34,5 @@ export function curatorBlueMarketHref(
   chainId: number = BASE_CHAIN_ID
 ): string | null {
   if (!marketId) return null;
-  return `/curator/market/blue/${encodeURIComponent(marketId)}?chainId=${chainId}`;
+  return `/market/blue/${encodeURIComponent(marketId)}?chainId=${chainId}`;
 }

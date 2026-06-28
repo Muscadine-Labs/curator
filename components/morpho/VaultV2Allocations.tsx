@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useMemo, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
@@ -53,8 +54,8 @@ import {
 import { formatLiquidityCell } from '@/components/morpho/FormatLiquidityCell';
 import { usePersistedAllocationFilters } from '@/lib/hooks/usePersistedAllocationFilters';
 import { clearAllocationFilters } from '@/lib/allocation/allocation-filters-storage';
-import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
-import type { VaultV2GovernanceResponse, CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
+import type { V2VaultRiskResponse } from '@/app/api/vaults/[id]/risk/route';
+import type { VaultV2GovernanceResponse, CapInfo } from '@/app/api/vaults/[id]/governance/route';
 import { isAdapterCap, isMarketCap } from '@/lib/morpho/cap-utils';
 import { collectMorphoBlueMarketEntries } from '@/lib/morpho/v2-allocation-targets';
 import {
@@ -89,8 +90,8 @@ import { BASE_CHAIN_ID } from '@/lib/constants';
 import { useAccount, usePublicClient } from 'wagmi';
 import { DustRecipientSelect } from '@/components/morpho/DustRecipientSelect';
 import {
+  curatorBlueMarketHref,
   marketKeyFromGraphQL,
-  morphoMarketHref,
 } from '@/lib/morpho/morpho-app-links';
 import {
   AllocationPctIndicator,
@@ -126,12 +127,20 @@ function MorphoAllocationLink({
   if (!href) {
     return <span className={className}>{children}</span>;
   }
+  const linkClass = className ?? 'font-medium text-foreground hover:text-foreground';
+  if (href.startsWith('/')) {
+    return (
+      <Link href={href} className={linkClass}>
+        {children}
+      </Link>
+    );
+  }
   return (
     <a
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className={className ?? 'font-medium text-foreground hover:text-foreground'}
+      className={linkClass}
     >
       {children}
     </a>
@@ -507,7 +516,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
           kind: 'target',
           targetIdx: tIdx,
           market: label,
-          morphoHref: morphoMarketHref(marketKey),
+          morphoHref: curatorBlueMarketHref(marketKey, chainId),
           isIdle: false,
           isMorphoBlue: true,
           supplyApy: m.state?.supplyApy ?? null,
@@ -595,7 +604,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       vaultDisplayDecimals: displayDec,
       vaultSymbol: sym,
     };
-  }, [risk, governance]);
+  }, [risk, governance, chainId]);
 
   // Attach caps to each target now that `targets` and `capByIdHash` are known.
   const targetsWithCaps: AllocTarget[] = useMemo(() => {
@@ -1403,7 +1412,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       setRebalancePreviewOpen(false);
       setPreparedSubmit(null);
       setEditing(false);
-      router.push('/curator/safe/allocator');
+      router.push('/safe/allocator');
     } catch (error) {
       setQueueSafeError(error instanceof Error ? error.message : 'Failed to queue Safe transaction.');
     } finally {

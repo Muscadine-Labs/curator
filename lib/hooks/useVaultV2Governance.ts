@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governance/route';
+import type { VaultV2GovernanceResponse } from '@/app/api/vaults/[id]/governance/route';
 import { apiFetch } from '@/lib/data/api-fetch';
 import { ON_CHAIN_VAULT_QUERY_OPTIONS } from '@/lib/data/query-config';
 
@@ -8,7 +8,7 @@ export function vaultV2GovernanceQueryKey(vaultAddress: string | null | undefine
 }
 
 async function fetchVaultV2Governance(vaultAddress: string): Promise<VaultV2GovernanceResponse> {
-  const res = await apiFetch(`/api/vaults/v2/${vaultAddress}/governance`, {
+  const res = await apiFetch(`/api/vaults/${vaultAddress}/governance`, {
     credentials: 'omit',
   });
 

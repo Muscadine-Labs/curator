@@ -20,8 +20,8 @@ import {
 } from '@/lib/morpho/v2-cap-format';
 import { formatForceDeallocatePenaltyWad } from '@/lib/morpho/vault-v2-api';
 import { isAdapterCap } from '@/lib/morpho/cap-utils';
-import type { AdapterInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governance/route';
-import type { V2AdapterRiskData, V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
+import type { AdapterInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/[id]/governance/route';
+import type { V2AdapterRiskData, V2VaultRiskResponse } from '@/app/api/vaults/[id]/risk/route';
 
 interface VaultV2AdaptersProps {
   vaultAddress: string;

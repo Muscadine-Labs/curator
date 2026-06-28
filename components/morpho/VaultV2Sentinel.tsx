@@ -52,9 +52,9 @@ import {
   resolveAssetDecimals,
 } from '@/lib/format/asset-decimals';
 import { marketKeyFromGraphQL, morphoMarketHref } from '@/lib/morpho/morpho-app-links';
-import type { CapInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governance/route';
-import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
-import type { VaultV2PendingResponse } from '@/app/api/vaults/v2/[id]/pending/route';
+import type { CapInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/[id]/governance/route';
+import type { V2VaultRiskResponse } from '@/app/api/vaults/[id]/risk/route';
+import type { VaultV2PendingResponse } from '@/app/api/vaults/[id]/pending/route';
 import {
   buildCapDecreasePreview,
   buildDeallocatePreviewResult,
@@ -536,7 +536,7 @@ function DecreaseCapsPanel({
       setTxPreview(null);
       pendingConfirmRef.current = null;
       pendingCalldataRef.current = null;
-      router.push('/curator/safe/sentinel');
+      router.push('/safe/sentinel');
     } catch (error) {
       setQueueSafeError(
         error instanceof Error ? error.message : 'Failed to queue Safe transaction.'
@@ -1027,7 +1027,7 @@ function DeallocatePanel({
       setTxPreview(null);
       pendingConfirmRef.current = null;
       pendingCalldataRef.current = null;
-      router.push('/curator/safe/sentinel');
+      router.push('/safe/sentinel');
     } catch (error) {
       setQueueSafeError(
         error instanceof Error ? error.message : 'Failed to queue Safe transaction.'

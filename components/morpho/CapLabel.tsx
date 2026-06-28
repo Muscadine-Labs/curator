@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { formatMarketPairLabel } from '@/components/morpho/AllocationListView';
-import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
+import type { CapInfo } from '@/app/api/vaults/[id]/governance/route';
 import { isCollateralCap, isMarketCap } from '@/lib/morpho/cap-utils';
 import { morphoMarketHref } from '@/lib/morpho/morpho-app-links';
 import { getScanUrlForChain } from '@/lib/constants';

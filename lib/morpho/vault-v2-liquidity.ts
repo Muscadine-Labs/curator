@@ -1,6 +1,6 @@
 import type { Hex } from 'viem';
-import type { VaultV2GovernanceResponse, CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
-import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
+import type { VaultV2GovernanceResponse, CapInfo } from '@/app/api/vaults/[id]/governance/route';
+import type { V2VaultRiskResponse } from '@/app/api/vaults/[id]/risk/route';
 import { isMarketCap } from '@/lib/morpho/cap-utils';
 import { encodeMarketParamsData, type MarketParamsInput } from '@/lib/morpho/v2-id-data';
 import { formatMarketPairLabel, formatLltvPill } from '@/components/morpho/AllocationListView';

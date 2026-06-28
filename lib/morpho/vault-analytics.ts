@@ -1,4 +1,4 @@
-import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
+import type { CapInfo } from '@/app/api/vaults/[id]/governance/route';
 import { computeCapUtilizationPercent } from '@/lib/morpho/cap-utils';
 
 export type VaultAnalytics = {

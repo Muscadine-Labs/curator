@@ -1,5 +1,5 @@
-import type { CapInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governance/route';
-import type { V2AdapterRiskData, V2MarketRiskData } from '@/app/api/vaults/v2/[id]/risk/route';
+import type { CapInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/[id]/governance/route';
+import type { V2AdapterRiskData, V2MarketRiskData } from '@/app/api/vaults/[id]/risk/route';
 import { isMarketCap } from '@/lib/morpho/cap-utils';
 import { marketKeyFromGraphQL } from '@/lib/morpho/morpho-app-links';
 import type { MarketParamsInput } from '@/lib/morpho/v2-id-data';

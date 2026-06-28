@@ -58,7 +58,7 @@ npm run build   # next build
 - **No server-side private keys** — all writes go through the connected wallet.
 - **Multisig Safe** — Muscadine Allocator/Sentinel Safes (`lib/safe/config.ts`):
   queue from vault Allocation/Sentinel preview when governance lists the Safe as
-  role holder; sign + execute on `/curator/safe/[role]` with owner hot wallet.
+  role holder; sign + execute on `/safe/[role]` with owner hot wallet.
   **localStorage is always kept** (export/import); optional Transaction Service
   sync via `NEXT_PUBLIC_SAFE_API_KEY` and `@safe-global/api-kit` ^5.x
   (`lib/safe/transaction-service.ts`, `service-sync.ts`, rate limit in
@@ -71,11 +71,27 @@ npm run build   # next build
   `oracle.address` (not `Market.oracleAddress`); V2 overview txs use
   `vaultV2transactions`. Client logs `extensions.warnings` via
   `lib/morpho/graphql-client.ts`. See `CLAUDE.md` §4.4.1.
-- **Curator Morpho Markets** — `/curator/markets` (default: listed only, sort
-  market size desc) and `/curator/market/blue/[id]`; use `sizeUsd` /
-  `totalLiquidityUsd` for size/liquidity columns (§4.7). Vault Risk market cards
-  link to Curator market pages; detail pages link out to Morpho app. Sidebar
-  Curator Tools order: Morpho Markets → Multisig Safe → Morpho Tools.
+- **App routes (no `/curator` or `/overview` prefix)** — `/markets`,
+  `/market/blue/[id]`, `/safe`, `/morpho`, `/monthly-statement`,
+  `/muscadine-ledger`, `/muscadine-frontends`, `/vault/[address]`. Legacy page
+  and API paths (`/curator/*`, `/overview/*`, `/vault/v2/*`, `/api/curator/markets`,
+  `/api/vaults/v2/*`) **301 redirect** in `next.config.ts`.
+- **BFF routes (no `/curator` or `/v2` in API paths)** — `GET /api/markets`,
+  `GET /api/markets/[marketId]`; on-chain vault reads at
+  `GET /api/vaults/[id]/risk`, `…/governance`, `…/pending` (alongside
+  `…/history`, `…/holders`, etc.).
+- **Vault pages** — `app/vault/[address]/page.tsx` is `'use client'` + React Query;
+  keep **dynamic** (no SSG/`generateStaticParams` for vault addresses).
+- **Curator Morpho Markets** — `/markets` (default: listed only, sort market size
+  desc) and `/market/blue/[id]`; use `sizeUsd` / `totalLiquidityUsd` for size/
+  liquidity columns (§4.7). `MarketOraclePanel` shows oracle price, spot gap,
+  feed bounds, freshness, and block-explorer link. Allocation tab market names
+  link in-app via `curatorBlueMarketHref`. Vault Risk tab uses the same helper.
+  Sidebar Curator Tools icons: LineChart / Users / Wrench.
+- **Oracle freshness** — `resolveMarketOracleAddress` accepts `oracleAddress` or
+  `oracle.address`; risk BFF GraphQL keeps minimal oracle fragments (`baseFeedOne`
+  on positions only) to stay under Morpho complexity limits; on-chain
+  `BASE_FEED_*` reads are the fallback (`lib/morpho/oracle-utils.ts`).
 - **Allocation display vs booked** — UI shows `max(GraphQL, on-chain)` per row;
   rebalance deltas use on-chain `bookedAllocationAssets` only
   (`overlay-v2-onchain-caps.ts`). Post-tx: refetch risk + governance, exit edit.

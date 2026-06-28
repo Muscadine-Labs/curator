@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
-import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
+import type { V2VaultRiskResponse } from '@/app/api/vaults/[id]/risk/route';
 import { apiFetch } from '@/lib/data/api-fetch';
 import { ON_CHAIN_VAULT_QUERY_OPTIONS } from '@/lib/data/query-config';
 
 async function fetchVaultV2Risk(vaultAddress: string): Promise<V2VaultRiskResponse> {
-  const res = await apiFetch(`/api/vaults/v2/${vaultAddress}/risk`, {
+  const res = await apiFetch(`/api/vaults/${vaultAddress}/risk`, {
     credentials: 'omit',
   });
 

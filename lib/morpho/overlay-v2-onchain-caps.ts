@@ -1,10 +1,10 @@
 import { getAddress, keccak256, type Address, type Hex } from 'viem';
-import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
+import type { CapInfo } from '@/app/api/vaults/[id]/governance/route';
 import type {
   V2AdapterRiskData,
   V2MarketRiskData,
   V2VaultRiskResponse,
-} from '@/app/api/vaults/v2/[id]/risk/route';
+} from '@/app/api/vaults/[id]/risk/route';
 import { publicClient } from '@/lib/onchain/client';
 import { vaultV2Abi } from '@/lib/onchain/abis';
 import { resolveCapIdData, encodeMarketCapIdData } from '@/lib/morpho/v2-id-data';

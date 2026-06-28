@@ -9,9 +9,10 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MarketRiskDetailCard } from '@/components/morpho/MarketRiskDetailCard';
+import { MarketOraclePanel } from '@/components/morpho/MarketOraclePanel';
 import { useCuratorMarketDetail } from '@/lib/hooks/useCuratorMarkets';
 import type { MarketBadDebtAmount } from '@/lib/morpho/curator-markets';
-import { BASE_CHAIN_ID, CURATOR_MARKET_NETWORKS } from '@/lib/constants';
+import { BASE_CHAIN_ID, CURATOR_MARKET_NETWORKS, parseCuratorMarketChainId } from '@/lib/constants';
 import { morphoMarketHref } from '@/lib/morpho/morpho-app-links';
 import { asBlueMarketData } from '@/lib/morpho/blue-market-data';
 import {
@@ -55,7 +56,7 @@ export default function CuratorBlueMarketPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const marketId = decodeURIComponent(params.id as string);
-  const chainId = Number(searchParams.get('chainId') ?? BASE_CHAIN_ID);
+  const chainId = parseCuratorMarketChainId(searchParams.get('chainId'));
 
   const { data, isLoading, error } = useCuratorMarketDetail(marketId, chainId);
   const market = data?.market;
@@ -140,7 +141,7 @@ export default function CuratorBlueMarketPage() {
       actions={
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" asChild>
-            <Link href="/curator/markets">
+            <Link href="/markets">
               <ArrowLeft className="mr-1 h-4 w-4" />
               Morpho Markets
             </Link>
@@ -292,7 +293,7 @@ export default function CuratorBlueMarketPage() {
                   <div className="mt-1 flex flex-wrap gap-2">
                     {market.muscadineVaults.map((v) => (
                       <Button key={v.address} variant="secondary" size="sm" asChild>
-                        <Link href={`/vault/v2/${v.address}`}>{v.name}</Link>
+                        <Link href={`/vault/${v.address}`}>{v.name}</Link>
                       </Button>
                     ))}
                   </div>
@@ -302,6 +303,16 @@ export default function CuratorBlueMarketPage() {
               </div>
             </CardContent>
           </Card>
+
+          {chainId === BASE_CHAIN_ID && (
+            <MarketOraclePanel
+              collateralSymbol={market.collateralSymbol}
+              loanSymbol={market.loanSymbol}
+              chainId={chainId}
+              oraclePrice={market.oraclePrice}
+              oracleTimestampData={market.oracleTimestampData}
+            />
+          )}
 
           {chainId !== BASE_CHAIN_ID ? (
             <Card>

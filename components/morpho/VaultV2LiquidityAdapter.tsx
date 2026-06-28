@@ -16,8 +16,8 @@ import {
   resolveLiquidityDisplay,
   type LiquidityAdapterOption,
 } from '@/lib/morpho/vault-v2-liquidity';
-import type { VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governance/route';
-import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
+import type { VaultV2GovernanceResponse } from '@/app/api/vaults/[id]/governance/route';
+import type { V2VaultRiskResponse } from '@/app/api/vaults/[id]/risk/route';
 
 interface VaultV2LiquidityAdapterProps {
   vaultAddress: string;

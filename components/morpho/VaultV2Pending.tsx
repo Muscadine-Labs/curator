@@ -11,7 +11,7 @@ import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
 import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
 import { getScanUrlForChain } from '@/lib/constants';
 import { TransactionButton } from '@/components/TransactionButton';
-import type { VaultV2PendingResponse } from '@/app/api/vaults/v2/[id]/pending/route';
+import type { VaultV2PendingResponse } from '@/app/api/vaults/[id]/pending/route';
 import type { Address, Hex } from 'viem';
 import { formatExecutableAt } from '@/lib/format/pending-time';
 import { formatVaultV2FunctionTitle } from '@/lib/morpho/vault-v2-timelocks';

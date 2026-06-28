@@ -10,7 +10,7 @@ import {
   RATE_LIMIT_REQUESTS_PER_MINUTE,
   MINUTE_MS,
 } from '@/lib/utils/rate-limit';
-import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
+import { mergeApiOnChainVaultHeaders } from '@/lib/api/response-cache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,7 +42,8 @@ export async function GET(
   }
 
   try {
-    const { marketId } = await params;
+    const { marketId: rawMarketId } = await params;
+    const marketId = decodeURIComponent(rawMarketId);
     const { searchParams } = new URL(request.url);
     const chainId = parseChainId(searchParams.get('chainId'));
 
@@ -53,7 +54,7 @@ export async function GET(
 
     return NextResponse.json(
       { market, timestamp: new Date().toISOString() },
-      { headers: mergeApiCacheHeaders(rateLimitResult.headers, 30) }
+      { headers: mergeApiOnChainVaultHeaders(rateLimitResult.headers) }
     );
   } catch (error) {
     const { error: apiError, statusCode } = handleApiError(error, 'Failed to fetch market');

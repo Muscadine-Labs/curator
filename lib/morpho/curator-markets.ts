@@ -16,6 +16,7 @@ import {
   getOracleTimestampData,
   type OracleTimestampData,
 } from '@/lib/morpho/oracle-utils';
+import { getOraclePriceSnapshot, type OraclePriceSnapshot } from '@/lib/morpho/oracle-price';
 import { resolveMarketOracleAddress } from '@/lib/morpho/market-oracle-address';
 import { BASE_CHAIN_ID, GRAPHQL_FIRST_LIMIT } from '@/lib/constants';
 import type { Address } from 'viem';
@@ -69,6 +70,9 @@ export type CuratorMarketDetail = CuratorMarketListItem & {
   unrealizedBadDebt: MarketBadDebtAmount | null;
   scores: MarketRiskScores | null;
   oracleTimestampData: OracleTimestampData | null;
+  oraclePrice: OraclePriceSnapshot | null;
+  spotCollateralUsd: number | null;
+  spotLoanUsd: number | null;
 };
 
 const MARKETS_BROWSER_QUERY = gql`
@@ -110,21 +114,6 @@ const MARKETS_BROWSER_QUERY = gql`
           usd
         }
         irmAddress
-        oracle {
-          address
-          data {
-            ... on MorphoChainlinkOracleV2Data {
-              baseFeedOne {
-                address
-              }
-            }
-            ... on MorphoChainlinkOracleData {
-              baseFeedOne {
-                address
-              }
-            }
-          }
-        }
       }
     }
   }
@@ -140,23 +129,50 @@ const MARKET_DETAIL_QUERY = gql`
         address
         symbol
         decimals
+        price {
+          usd
+        }
       }
       collateralAsset {
         address
         symbol
         decimals
+        price {
+          usd
+        }
       }
       irmAddress
       oracle {
         address
+        type
         data {
           ... on MorphoChainlinkOracleV2Data {
+            scaleFactor
             baseFeedOne {
+              address
+            }
+            baseFeedTwo {
+              address
+            }
+            quoteFeedOne {
+              address
+            }
+            quoteFeedTwo {
               address
             }
           }
           ... on MorphoChainlinkOracleData {
+            scaleFactor
             baseFeedOne {
+              address
+            }
+            baseFeedTwo {
+              address
+            }
+            quoteFeedOne {
+              address
+            }
+            quoteFeedTwo {
               address
             }
           }
@@ -211,17 +227,32 @@ const VAULT_MARKET_CAPS_QUERY = gql`
   }
 `;
 
+type GraphOracleData = {
+  baseFeedOne?: { address?: string | null } | null;
+  baseFeedTwo?: { address?: string | null } | null;
+  quoteFeedOne?: { address?: string | null } | null;
+  quoteFeedTwo?: { address?: string | null } | null;
+} | null;
+
 type GraphMarketItem = {
   marketId?: string | null;
   listed?: boolean | null;
   lltv?: string | number | null;
-  loanAsset?: { address?: string | null; symbol?: string | null; decimals?: number | null } | null;
-  collateralAsset?: { address?: string | null; symbol?: string | null; decimals?: number | null } | null;
+  loanAsset?: {
+    address?: string | null;
+    symbol?: string | null;
+    decimals?: number | null;
+    price?: { usd?: number | null } | null;
+  } | null;
+  collateralAsset?: {
+    address?: string | null;
+    symbol?: string | null;
+    decimals?: number | null;
+    price?: { usd?: number | null } | null;
+  } | null;
   oracle?: {
     address?: string | null;
-    data?: {
-      baseFeedOne?: { address?: string | null } | null;
-    } | null;
+    data?: GraphOracleData;
   } | null;
   irmAddress?: string | null;
   state?: {
@@ -418,18 +449,33 @@ export async function fetchCuratorMarketDetail(
 
   let scores: MarketRiskScores | null = null;
   let oracleTimestampData: OracleTimestampData | null = null;
+  let oraclePrice: OraclePriceSnapshot | null = null;
 
-  // Oracle freshness + IRM kink reads use the Base RPC client today.
+  const spotCollateralUsd = item.collateralAsset?.price?.usd ?? null;
+  const spotLoanUsd = item.loanAsset?.price?.usd ?? null;
+  const loanDecimals = item.loanAsset?.decimals ?? 18;
+  const collateralDecimals = item.collateralAsset?.decimals ?? 18;
+
+  // Oracle freshness, price bounds, and IRM kink reads use the Base RPC client today.
   if (chainId === BASE_CHAIN_ID && !isMarketIdle(market)) {
-    const baseFeedHints = getOracleFeedHintsFromMarket(market);
+    const baseFeedHints = getOracleFeedHintsFromMarket(item);
     const oracleAddr = market.oracleAddress ? (market.oracleAddress as Address) : null;
-    const [oracleData, targetUtil] = await Promise.all([
+    const [oracleData, targetUtil, priceSnapshot] = await Promise.all([
       getOracleTimestampData(oracleAddr, baseFeedHints),
       getIRMTargetUtilizationWithFallback(
         market.irmAddress ? (market.irmAddress as Address) : null
       ),
+      getOraclePriceSnapshot({
+        oracleAddress: market.oracleAddress,
+        feedHints: baseFeedHints,
+        loanDecimals,
+        collateralDecimals,
+        spotCollateralUsd,
+        spotLoanUsd,
+      }),
     ]);
     oracleTimestampData = oracleData;
+    oraclePrice = priceSnapshot;
     scores = await computeBlueMarketRiskScores(market, oracleData, targetUtil);
   }
 
@@ -437,8 +483,8 @@ export async function fetchCuratorMarketDetail(
     ...listItem,
     oracleAddress: resolveMarketOracleAddress(item),
     irmAddress: item.irmAddress ?? null,
-    loanDecimals: item.loanAsset?.decimals ?? null,
-    collateralDecimals: item.collateralAsset?.decimals ?? null,
+    loanDecimals,
+    collateralDecimals,
     supplyApy: item.state?.supplyApy ?? null,
     borrowApy: item.state?.borrowApy ?? null,
     borrowAssetsUsd: item.state?.borrowAssetsUsd ?? null,
@@ -447,6 +493,9 @@ export async function fetchCuratorMarketDetail(
     unrealizedBadDebt: parseBadDebtAmount(item.badDebt),
     scores,
     oracleTimestampData,
+    oraclePrice,
+    spotCollateralUsd,
+    spotLoanUsd,
   };
 }
 

@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
-import type { VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governance/route';
+import type { VaultV2GovernanceResponse } from '@/app/api/vaults/[id]/governance/route';
 import {
   describeVaultV2Function,
   formatAbdicatedAt,

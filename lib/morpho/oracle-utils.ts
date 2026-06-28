@@ -28,10 +28,10 @@ export type OracleFeedHints = {
 };
 
 type OracleDataFragment = {
-  baseFeedOne?: { address: string } | null;
-  baseFeedTwo?: { address: string } | null;
-  quoteFeedOne?: { address: string } | null;
-  quoteFeedTwo?: { address: string } | null;
+  baseFeedOne?: { address?: string | null } | null;
+  baseFeedTwo?: { address?: string | null } | null;
+  quoteFeedOne?: { address?: string | null } | null;
+  quoteFeedTwo?: { address?: string | null } | null;
 } | null;
 
 export function getOracleFeedHintsFromMarket(market: {

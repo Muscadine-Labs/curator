@@ -15,9 +15,9 @@ import {
   formatCapTokenAmount,
   groupCaps,
 } from '@/lib/morpho/v2-cap-format';
-import type { CapInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/v2/[id]/governance/route';
-import type { V2VaultRiskResponse } from '@/app/api/vaults/v2/[id]/risk/route';
-import type { VaultV2PendingResponse } from '@/app/api/vaults/v2/[id]/pending/route';
+import type { CapInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/[id]/governance/route';
+import type { V2VaultRiskResponse } from '@/app/api/vaults/[id]/risk/route';
+import type { VaultV2PendingResponse } from '@/app/api/vaults/[id]/pending/route';
 import { VaultV2Pending } from '@/components/morpho/VaultV2Pending';
 import { formatMaxRateApr } from '@/lib/morpho/vault-v2-api';
 

@@ -20,10 +20,12 @@ export const SIDEBAR_NETWORKS = [
 
 const ETHEREUM_SCAN_URL = 'https://etherscan.io';
 const BASE_SCAN_URL = 'https://basescan.org';
+const HYPEREVM_SCAN_URL = 'https://hyperevmscan.io';
 
 const CHAIN_SCAN_URLS: Record<number, string> = {
   [ETHEREUM_CHAIN_ID]: ETHEREUM_SCAN_URL,
   [BASE_CHAIN_ID]: BASE_SCAN_URL,
+  [HYPEREVM_CHAIN_ID]: HYPEREVM_SCAN_URL,
 };
 
 export function getScanUrlForChain(chainId: number): string {
@@ -31,7 +33,22 @@ export function getScanUrlForChain(chainId: number): string {
 }
 
 export function getScanNameForChain(chainId: number): string {
-  return chainId === ETHEREUM_CHAIN_ID ? 'Etherscan' : 'Basescan';
+  if (chainId === ETHEREUM_CHAIN_ID) return 'Etherscan';
+  if (chainId === HYPEREVM_CHAIN_ID) return 'HyperEVM Scan';
+  return 'Basescan';
+}
+
+export function getAddressScanUrl(chainId: number, address: string): string {
+  return `${getScanUrlForChain(chainId)}/address/${address}`;
+}
+
+/** Parse `?chainId=` for curator market pages; invalid values fall back to Base. */
+export function parseCuratorMarketChainId(raw: string | null | undefined): number {
+  const parsed = raw != null ? Number(raw) : BASE_CHAIN_ID;
+  if (CURATOR_MARKET_NETWORKS.some((n) => n.chainId === parsed)) {
+    return parsed;
+  }
+  return BASE_CHAIN_ID;
 }
 
 export const BPS_PER_ONE = 10000;

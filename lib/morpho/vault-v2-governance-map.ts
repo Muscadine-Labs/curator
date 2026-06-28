@@ -1,5 +1,5 @@
 import { resolveMarketOracleAddress } from '@/lib/morpho/market-oracle-address';
-import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
+import type { CapInfo } from '@/app/api/vaults/[id]/governance/route';
 
 export type GraphCap = {
   type?: string | null;

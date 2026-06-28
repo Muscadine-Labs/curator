@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { Shield, X, FileText, LayoutGrid, Book, ChevronDown, ChevronRight } from 'lucide-react';
+import { Shield, X, FileText, LayoutGrid, Book, ChevronDown, ChevronRight, LineChart, Users, Wrench } from 'lucide-react';
 import { getVaultCategory } from '@/lib/config/vaults';
 import { useVaultList, SIDEBAR_VAULT_LIST_FILTERS } from '@/lib/hooks/useProtocolStats';
 import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
@@ -168,7 +168,7 @@ export function Sidebar({ onClose }: SidebarProps) {
                         </p>
                         <div className="space-y-1">
                           {section.vaults.map((vault) => {
-                            const href = `/vault/v2/${vault.address}`;
+                            const href = `/vault/${vault.address}`;
                             const active = isActive(href);
 
                             return (
@@ -212,37 +212,37 @@ export function Sidebar({ onClose }: SidebarProps) {
             </p>
             <div className="space-y-1">
               <Link
-                href="/curator/markets"
+                href="/markets"
                 onClick={handleLinkClick}
                 className={`flex min-h-[44px] w-full touch-manipulation items-center gap-2 rounded-lg px-2 py-2 text-slate-700 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 ${
-                  isActive('/curator/markets') || pathname.startsWith('/curator/market/')
+                  isActive('/markets') || pathname.startsWith('/market/')
                     ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
                     : ''
                 }`}
               >
-                <Shield className="h-4 w-4 shrink-0" />
+                <LineChart className="h-4 w-4 shrink-0" />
                 <span className="truncate min-w-0">Morpho Markets</span>
               </Link>
               <Link
-                href="/curator/safe"
+                href="/safe"
                 onClick={handleLinkClick}
                 className={`flex min-h-[44px] w-full touch-manipulation items-center gap-2 rounded-lg px-2 py-2 text-slate-700 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 ${
-                  isActive('/curator/safe') || pathname.startsWith('/curator/safe/')
+                  isActive('/safe') || pathname.startsWith('/safe/')
                     ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
                     : ''
                 }`}
               >
-                <Shield className="h-4 w-4 shrink-0" />
+                <Users className="h-4 w-4 shrink-0" />
                 <span className="truncate min-w-0">Multisig Safe</span>
               </Link>
               <Link
-                href="/curator/morpho"
+                href="/morpho"
                 onClick={handleLinkClick}
                 className={`flex min-h-[44px] w-full touch-manipulation items-center gap-2 rounded-lg px-2 py-2 text-slate-700 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 ${
-                  isActive('/curator/morpho') ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : ''
+                  isActive('/morpho') ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : ''
                 }`}
               >
-                <Shield className="h-4 w-4 shrink-0" />
+                <Wrench className="h-4 w-4 shrink-0" />
                 <span className="truncate min-w-0">Morpho Tools</span>
               </Link>
             </div>
@@ -256,30 +256,30 @@ export function Sidebar({ onClose }: SidebarProps) {
             </p>
             <div className="space-y-1">
               <Link
-                href="/overview/monthly-statement"
+                href="/monthly-statement"
                 onClick={handleLinkClick}
                 className={`flex min-h-[44px] w-full touch-manipulation items-center gap-2 rounded-lg px-2 py-2 text-slate-700 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 ${
-                  isActive('/overview/monthly-statement') ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : ''
+                  isActive('/monthly-statement') ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : ''
                 }`}
               >
                 <FileText className="h-4 w-4 shrink-0" />
                 <span className="truncate min-w-0">Monthly Statement</span>
               </Link>
               <Link
-                href="/overview/muscadine-ledger"
+                href="/muscadine-ledger"
                 onClick={handleLinkClick}
                 className={`flex min-h-[44px] w-full touch-manipulation items-center gap-2 rounded-lg px-2 py-2 text-slate-700 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 ${
-                  isActive('/overview/muscadine-ledger') ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : ''
+                  isActive('/muscadine-ledger') ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : ''
                 }`}
               >
                 <Book className="h-4 w-4 shrink-0" />
                 <span className="truncate min-w-0">Muscadine Ledger</span>
               </Link>
               <Link
-                href="/overview/muscadine-frontends"
+                href="/muscadine-frontends"
                 onClick={handleLinkClick}
                 className={`flex min-h-[44px] w-full touch-manipulation items-center gap-2 rounded-lg px-2 py-2 text-slate-700 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 ${
-                  isActive('/overview/muscadine-frontends') ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : ''
+                  isActive('/muscadine-frontends') ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : ''
                 }`}
               >
                 <LayoutGrid className="h-4 w-4 shrink-0" />

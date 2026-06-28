@@ -190,7 +190,7 @@ export function SafeRoleHeader({ account }: { account: SafeAccountConfig }) {
 export function SafeVaultLink({ vaultAddress, vaultSymbol }: { vaultAddress: string; vaultSymbol?: string }) {
   return (
     <Link
-      href={`/vault/v2/${vaultAddress}`}
+      href={`/vault/${vaultAddress}`}
       className="text-xs text-blue-600 hover:underline dark:text-blue-400"
     >
       {vaultSymbol ? `${vaultSymbol} vault` : 'View vault'} →

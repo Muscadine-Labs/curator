@@ -26,6 +26,7 @@ import {
   formatPercentage,
 } from '@/lib/format/number';
 import { formatLltvPill } from '@/components/morpho/AllocationListView';
+import { curatorBlueMarketHref } from '@/lib/morpho/morpho-app-links';
 import { cn } from '@/lib/utils';
 
 type ListedFilter = 'all' | 'listed' | 'unlisted';
@@ -177,9 +178,8 @@ export function CuratorMarketsBrowser() {
   };
 
   const openMarket = (market: CuratorMarketListItem) => {
-    router.push(
-      `/curator/market/blue/${encodeURIComponent(market.marketId)}?chainId=${market.chainId}`
-    );
+    const href = curatorBlueMarketHref(market.marketId, market.chainId);
+    if (href) router.push(href);
   };
 
   return (
@@ -377,7 +377,7 @@ export function CuratorMarketsBrowser() {
           Showing {sorted.length} of {data?.markets.length ?? 0} markets on{' '}
           {CURATOR_MARKET_NETWORKS.find((n) => n.chainId === chainId)?.name ?? 'network'}.
           Tap a row for risk details or{' '}
-          <Link href="/curator/markets" className="underline">
+          <Link href="/markets" className="underline">
             refresh filters
           </Link>
           .

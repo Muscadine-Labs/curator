@@ -18,7 +18,7 @@ import { overlayV2OnChainAllocations } from '@/lib/morpho/overlay-v2-onchain-cap
 import { mergeApiOnChainVaultHeaders } from '@/lib/api/response-cache';
 import { logger } from '@/lib/utils/logger';
 import { marketKeyFromGraphQL } from '@/lib/morpho/morpho-app-links';
-import type { CapInfo } from '@/app/api/vaults/v2/[id]/governance/route';
+import type { CapInfo } from '@/app/api/vaults/[id]/governance/route';
 import {
   computeBlueMarketRiskScores,
   isMarketIdle,

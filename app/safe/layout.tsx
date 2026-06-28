@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 
 function SafeTabLink({ role, label }: { role: SafeRole; label: string }) {
   const pathname = usePathname();
-  const href = `/curator/safe/${role}`;
+  const href = `/safe/${role}`;
   const active = pathname === href || pathname.startsWith(`${href}/`);
   const pendingCount = useSafePendingCount(role);
 
