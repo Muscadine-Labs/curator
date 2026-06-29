@@ -53,9 +53,17 @@ export function useSafeTransactionActions(threshold: number | undefined) {
           proposer: tx.proposer ?? getAddress(walletAddress),
         });
 
-        if (tx.serviceSynced && isTransactionServiceConfigured()) {
+        if (isTransactionServiceConfigured()) {
           try {
-            await confirmPendingOnTransactionService(tx.safeTxHash, signature);
+            if (!tx.serviceSynced) {
+              await sharePendingWithTransactionService({
+                txId: tx.id,
+                senderAddress: getAddress(walletAddress),
+                senderSignature: signature as Hex,
+              });
+            } else {
+              await confirmPendingOnTransactionService(tx.safeTxHash, signature);
+            }
           } catch (serviceError) {
             const message =
               serviceError instanceof Error
