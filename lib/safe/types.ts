@@ -12,18 +12,25 @@ export type SafeTransactionStatus =
 export type SafeTransactionSource =
   | {
       type: 'allocation';
+      action?: 'liquidity_adapter' | 'rebalance';
       vaultAddress: Address;
       vaultSymbol?: string;
     }
   | {
       type: 'sentinel';
-      action: 'decrease_cap' | 'deallocate';
+      action: 'decrease_cap' | 'deallocate' | 'revoke_pending';
       vaultAddress: Address;
       vaultSymbol?: string;
     }
   | {
       type: 'caps';
       action: 'accept_pending';
+      vaultAddress: Address;
+      vaultSymbol?: string;
+    }
+  | {
+      type: 'curator';
+      action: 'liquidity_adapter' | 'submit';
       vaultAddress: Address;
       vaultSymbol?: string;
     }

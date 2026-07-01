@@ -257,6 +257,25 @@ export function buildDeallocatePreviewResult(input: {
   return { ok: true, preview };
 }
 
+export function buildLiquidityAdapterPreview(input: {
+  currentLabel: string;
+  selectedLabel: string;
+}): TxPreview {
+  const { currentLabel, selectedLabel } = input;
+  return {
+    title: 'Update liquidity adapter',
+    description:
+      'Sets which adapter and market provide withdrawable liquidity for deposits and withdrawals. Callable by an on-chain allocator — applies immediately (not timelocked).',
+    changes: [
+      {
+        action: 'allocate',
+        label: selectedLabel,
+        subtitle: `${currentLabel} → ${selectedLabel}`,
+      },
+    ],
+  };
+}
+
 export function txPreviewActionLabel(action: TxPreviewAction): string {
   switch (action) {
     case 'allocate':

@@ -51,6 +51,9 @@ export const ALLOCATION_SAFE_ROLE: SafeRole = 'allocator';
 /** Safe that signs vault sentinel writes (cap decreases, deallocate). */
 export const SENTINEL_SAFE_ROLE: SafeRole = 'sentinel';
 
+/** Safe that queues curator timelock submits (liquidity adapter, etc.). */
+export const CURATOR_SAFE_ROLE: SafeRole = 'curator';
+
 export function isSafeRole(value: string): value is SafeRole {
   return (SAFE_ROLES as ReadonlyArray<string>).includes(value);
 }

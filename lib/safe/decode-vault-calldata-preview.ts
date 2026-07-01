@@ -39,6 +39,11 @@ function flattenVaultCalldata(data: Hex): DecodedVaultCall[] {
   const top = decodeSingleVaultCall(data);
   if (!top) return [];
 
+  if (top.functionName === 'submit') {
+    const inner = decodeSingleVaultCall(top.args[0] as Hex);
+    return inner ? [inner] : [];
+  }
+
   if (top.functionName === 'multicall') {
     const inner = top.args[0] as readonly Hex[];
     return inner
@@ -110,6 +115,12 @@ function changeFromVaultCall(
         after: formatCapRelative(newCap.toString()),
       };
     }
+    case 'revoke':
+      return {
+        action: 'allocate',
+        label: 'Revoke pending timelock action',
+        subtitle: 'Cancels queued config before execution',
+      };
     default:
       return {
         action: 'allocate',
@@ -124,6 +135,8 @@ function previewTitle(calls: DecodedVaultCall[]): string {
   if (calls.length > 1) return 'Vault batched transaction';
   const name = calls[0]!.functionName;
   if (name === 'allocate' || name === 'deallocate') return 'Vault allocation change';
+  if (name === 'revoke') return 'Revoke pending timelock action';
+  if (name === 'setLiquidityAdapterAndData') return 'Liquidity adapter change';
   if (name.startsWith('decrease')) return 'Vault cap decrease';
   return 'Vault transaction';
 }
@@ -179,7 +192,8 @@ export function resolveVaultAddressFromPending(tx: SafePendingTransaction): Addr
   if (
     tx.source.type === 'allocation' ||
     tx.source.type === 'sentinel' ||
-    tx.source.type === 'caps'
+    tx.source.type === 'caps' ||
+    tx.source.type === 'curator'
   ) {
     return getAddress(tx.source.vaultAddress);
   }
@@ -193,7 +207,8 @@ export function resolveVaultSymbolFromPending(tx: SafePendingTransaction): strin
   if (
     tx.source.type === 'allocation' ||
     tx.source.type === 'sentinel' ||
-    tx.source.type === 'caps'
+    tx.source.type === 'caps' ||
+    tx.source.type === 'curator'
   ) {
     return tx.source.vaultSymbol;
   }
@@ -242,6 +257,24 @@ export function inferVaultSourceFromCalldata(
   data: Hex
 ): SafeTransactionSource {
   const calls = flattenVaultCalldata(data);
+  const vault = getAddress(vaultAddress);
+
+  if (calls.some((c) => c.functionName === 'revoke')) {
+    return {
+      type: 'sentinel',
+      action: 'revoke_pending',
+      vaultAddress: vault,
+    };
+  }
+
+  if (calls.some((c) => c.functionName === 'setLiquidityAdapterAndData')) {
+    return {
+      type: 'allocation',
+      action: 'liquidity_adapter',
+      vaultAddress: vault,
+    };
+  }
+
   const hasDeallocate = calls.some((c) => c.functionName === 'deallocate');
   const hasCapDecrease = calls.some(
     (c) => c.functionName === 'decreaseAbsoluteCap' || c.functionName === 'decreaseRelativeCap'
@@ -251,14 +284,14 @@ export function inferVaultSourceFromCalldata(
     return {
       type: 'sentinel',
       action: hasDeallocate ? 'deallocate' : 'decrease_cap',
-      vaultAddress: getAddress(vaultAddress),
+      vaultAddress: vault,
     };
   }
 
   if (calls.some((c) => c.functionName === 'allocate' || c.functionName === 'deallocate')) {
     return {
       type: 'allocation',
-      vaultAddress: getAddress(vaultAddress),
+      vaultAddress: vault,
     };
   }
 

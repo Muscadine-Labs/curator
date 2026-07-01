@@ -1,6 +1,7 @@
 import type { Address } from 'viem';
 import {
   ALLOCATION_SAFE_ROLE,
+  CURATOR_SAFE_ROLE,
   SENTINEL_SAFE_ROLE,
   getSafeByRole,
   type SafeRole,
@@ -75,9 +76,119 @@ export function defaultSentinelDestination(
   return { kind: 'safe', role: SENTINEL_SAFE_ROLE };
 }
 
-/** After timelock, anyone may execute — default queue target is Allocator Safe. */
-export function defaultPendingAcceptDestination(): VaultWriteDestination {
+/** After timelock, any address may execute — prefer wallet when connected. */
+export function defaultPendingAcceptDestination(
+  isConnected = false
+): VaultWriteDestination {
+  if (isConnected) {
+    return { kind: 'wallet' };
+  }
   return { kind: 'safe', role: ALLOCATION_SAFE_ROLE };
+}
+
+/** Accept after timelock is permissionless on-chain; UI only requires connection or a Safe queue target. */
+export function canConfirmPendingAcceptDestination(
+  destination: VaultWriteDestination,
+  isConnected: boolean
+): boolean {
+  if (destination.kind === 'wallet') {
+    return isConnected;
+  }
+  return VAULT_WRITE_QUEUE_SAFE_ROLES.includes(destination.role);
+}
+
+export const PENDING_ACCEPT_WALLET_HINT =
+  'Connect any wallet in the top bar — allocator, curator, or sentinel role is not required to accept after timelock.';
+
+/** Safes whose on-chain address is curator or sentinel (roles that may revoke). */
+export const PENDING_REVOKE_SAFE_ROLES: SafeRole[] = ['sentinel', 'curator'];
+
+export function eligibleRevokeSafeRoles(
+  curator: string | null | undefined,
+  sentinels: ReadonlyArray<string> | undefined
+): SafeRole[] {
+  const holders: string[] = [];
+  if (curator) holders.push(curator);
+  if (sentinels?.length) holders.push(...sentinels);
+  return PENDING_REVOKE_SAFE_ROLES.filter((role) =>
+    walletIsDirectRoleHolder(getSafeByRole(role).address, holders)
+  );
+}
+
+export function walletCanRevokePending(
+  wallet: Address | string | undefined,
+  curator: string | null | undefined,
+  sentinels: ReadonlyArray<string> | undefined
+): boolean {
+  return (
+    walletCanSignSentinel(wallet, sentinels) || walletCanSignCurator(wallet, curator)
+  );
+}
+
+/** Prefer sentinel wallet/Safe; curator is also valid on-chain. */
+export function defaultPendingRevokeDestination(
+  curator: string | null | undefined,
+  sentinels: ReadonlyArray<string> | undefined,
+  wallet: Address | string | undefined
+): VaultWriteDestination {
+  if (walletCanSignSentinel(wallet, sentinels)) {
+    return { kind: 'wallet' };
+  }
+  if (walletCanSignCurator(wallet, curator)) {
+    return { kind: 'wallet' };
+  }
+  const eligible = eligibleRevokeSafeRoles(curator, sentinels);
+  if (eligible.includes(SENTINEL_SAFE_ROLE)) {
+    return { kind: 'safe', role: SENTINEL_SAFE_ROLE };
+  }
+  if (eligible.includes(CURATOR_SAFE_ROLE)) {
+    return { kind: 'safe', role: CURATOR_SAFE_ROLE };
+  }
+  return { kind: 'safe', role: SENTINEL_SAFE_ROLE };
+}
+
+export function canConfirmPendingRevokeDestination(
+  destination: VaultWriteDestination,
+  options: {
+    curator: string | null | undefined;
+    sentinels: ReadonlyArray<string> | undefined;
+    wallet: Address | string | undefined;
+    isConnected: boolean;
+  }
+): boolean {
+  const eligible = eligibleRevokeSafeRoles(options.curator, options.sentinels);
+  if (destination.kind === 'wallet') {
+    return (
+      options.isConnected &&
+      walletCanRevokePending(options.wallet, options.curator, options.sentinels)
+    );
+  }
+  return eligible.includes(destination.role);
+}
+
+export const PENDING_REVOKE_WALLET_HINT =
+  'Connect the on-chain sentinel or curator wallet for this vault.';
+
+export function defaultCuratorDestination(
+  curator: string | null | undefined,
+  wallet: Address | string | undefined
+): VaultWriteDestination {
+  const holders = curator ? [curator] : [];
+  if (walletIsDirectRoleHolder(wallet, holders)) {
+    return { kind: 'wallet' };
+  }
+  const eligible = eligibleSafeRolesForAddresses(holders);
+  if (eligible.length > 0) {
+    return defaultSafeDestination(eligible, CURATOR_SAFE_ROLE);
+  }
+  return { kind: 'safe', role: CURATOR_SAFE_ROLE };
+}
+
+export function walletCanSignCurator(
+  wallet: Address | string | undefined,
+  curator: string | null | undefined
+): boolean {
+  return walletIsDirectRoleHolder(wallet, curator ? [curator] : []);
 }
 
 export function walletCanSignAllocation(

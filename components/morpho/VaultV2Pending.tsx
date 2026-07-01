@@ -24,18 +24,28 @@ import {
   buildPendingAcceptPreview,
   buildPendingAcceptCalldata,
   buildPendingAcceptWriteConfig,
+  buildPendingRevokeCalldata,
+  buildPendingRevokePreview,
   formatPendingCapSummary,
 } from '@/lib/morpho/pending-accept';
 import {
-  canConfirmVaultWriteDestination,
+  canConfirmPendingAcceptDestination,
+  canConfirmPendingRevokeDestination,
+  coerceVaultWriteDestination,
   defaultPendingAcceptDestination,
+  defaultPendingRevokeDestination,
+  eligibleRevokeSafeRoles,
+  PENDING_ACCEPT_WALLET_HINT,
+  PENDING_REVOKE_WALLET_HINT,
   VAULT_WRITE_QUEUE_SAFE_ROLES,
+  walletCanRevokePending,
   type VaultWriteDestination,
 } from '@/lib/safe/vault-write-destination';
 import { queueVaultWriteInSafe } from '@/lib/safe/queue-vault-write';
 import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import { vaultV2GovernanceQueryKey } from '@/lib/hooks/useVaultV2Governance';
 import type { SafeRole } from '@/lib/safe/config';
+import { SENTINEL_SAFE_ROLE } from '@/lib/safe/config';
 import type { TxPreview } from '@/lib/morpho/tx-preview';
 
 interface VaultV2PendingProps {
@@ -48,6 +58,8 @@ interface VaultV2PendingProps {
   assetDecimals?: number | null;
   vaultSymbol?: string | null;
   embedded?: boolean;
+  /** Hide the embedded section heading (e.g. when nested inside Caps). */
+  compactEmbedded?: boolean;
   sentinelEmpty?: boolean;
   allowRevoke?: boolean;
   allowAccept?: boolean;
@@ -65,12 +77,16 @@ export function VaultV2Pending({
   assetDecimals,
   vaultSymbol,
   embedded,
+  compactEmbedded,
   sentinelEmpty,
   allowRevoke,
   allowAccept = false,
 }: VaultV2PendingProps) {
-  const { data: fetchedData, isLoading, error } = useVaultV2Pending(vaultAddress);
-  const data = preloadedData ?? fetchedData;
+  const hasPreloaded = preloadedData !== undefined;
+  const { data: fetchedData, isLoading, error } = useVaultV2Pending(
+    hasPreloaded ? null : vaultAddress
+  );
+  const data = hasPreloaded ? preloadedData : fetchedData;
   const [filter, setFilter] = useState<PendingFilter>('all');
   const [activeRowId, setActiveRowId] = useState<number | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -78,18 +94,55 @@ export function VaultV2Pending({
   const acceptWrite = useVaultWrite({ chainId });
   const queryClient = useQueryClient();
   const router = useRouter();
-  const { isConnected } = useAccount();
+  const { isConnected, address: walletAddress } = useAccount();
   const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
     useCuratorSafeApps();
 
   const [acceptPreviewOpen, setAcceptPreviewOpen] = useState(false);
   const [acceptPreview, setAcceptPreview] = useState<TxPreview | null>(null);
   const [acceptItem, setAcceptItem] = useState<VaultV2PendingItem | null>(null);
-  const [writeDestination, setWriteDestination] = useState<VaultWriteDestination>(
-    defaultPendingAcceptDestination()
+  const [writeDestination, setWriteDestination] = useState<VaultWriteDestination>(() =>
+    defaultPendingAcceptDestination(isConnected)
   );
   const [queueingSafe, setQueueingSafe] = useState(false);
   const [acceptError, setAcceptError] = useState<string | null>(null);
+
+  const [revokePreviewOpen, setRevokePreviewOpen] = useState(false);
+  const [revokePreview, setRevokePreview] = useState<TxPreview | null>(null);
+  const [revokeItem, setRevokeItem] = useState<VaultV2PendingItem | null>(null);
+  const [revokeDestination, setRevokeDestination] = useState<VaultWriteDestination>(() =>
+    defaultPendingRevokeDestination(
+      preloadedGovernance?.curator,
+      preloadedGovernance?.sentinels,
+      undefined
+    )
+  );
+  const [queueingRevokeSafe, setQueueingRevokeSafe] = useState(false);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
+
+  const onChainCurator = preloadedGovernance?.curator ?? null;
+  const onChainSentinels = useMemo(
+    () => preloadedGovernance?.sentinels ?? [],
+    [preloadedGovernance?.sentinels]
+  );
+  const revokeEligibleSafes = useMemo(
+    () => eligibleRevokeSafeRoles(onChainCurator, onChainSentinels),
+    [onChainCurator, onChainSentinels]
+  );
+  const revokeWalletReady =
+    isConnected && walletCanRevokePending(walletAddress, onChainCurator, onChainSentinels);
+
+  const setRevokeDestinationCoerced = useCallback(
+    (destination: VaultWriteDestination) => {
+      setRevokeDestination(
+        coerceVaultWriteDestination(destination, {
+          eligibleSafeRoles: revokeEligibleSafes,
+          preferredSafeRole: SENTINEL_SAFE_ROLE,
+        })
+      );
+    },
+    [revokeEligibleSafes]
+  );
 
   const pending = useMemo(
     () =>
@@ -114,7 +167,8 @@ export function VaultV2Pending({
     return () => window.clearInterval(id);
   }, [hasWaiting]);
 
-  const revokeInFlight = revokeWrite.isLoading && activeRowId !== null;
+  const revokeInFlight =
+    (revokeWrite.isLoading || queueingRevokeSafe) && activeRowId !== null;
   const acceptBusy =
     (acceptWrite.isLoading || queueingSafe) && activeRowId !== null;
 
@@ -123,12 +177,22 @@ export function VaultV2Pending({
     return safeAppRole === writeDestination.role ? safeAppSdk : null;
   }, [safeAppConnected, safeAppSdk, safeAppRole, writeDestination]);
 
+  const safeAppSdkForRevokeRole = useMemo(() => {
+    if (!safeAppConnected || !safeAppSdk || revokeDestination.kind !== 'safe') return null;
+    return safeAppRole === revokeDestination.role ? safeAppSdk : null;
+  }, [safeAppConnected, safeAppSdk, safeAppRole, revokeDestination]);
+
   useEffect(() => {
     if (!revokeWrite.isSuccess || activeRowId === null) return;
-    void queryClient
-      .invalidateQueries({ queryKey: ['vault-v2-pending', vaultAddress] })
-      .finally(() => setActiveRowId(null));
-  }, [revokeWrite.isSuccess, activeRowId, queryClient, vaultAddress]);
+    void (async () => {
+      await queryClient.invalidateQueries({ queryKey: ['vault-v2-pending', vaultAddress] });
+      setRevokePreviewOpen(false);
+      setRevokePreview(null);
+      setRevokeItem(null);
+      setActiveRowId(null);
+      revokeWrite.reset();
+    })();
+  }, [revokeWrite.isSuccess, activeRowId, queryClient, vaultAddress, revokeWrite]);
 
   useEffect(() => {
     if (!acceptWrite.isSuccess || activeRowId === null) return;
@@ -146,17 +210,138 @@ export function VaultV2Pending({
     })();
   }, [acceptWrite.isSuccess, activeRowId, queryClient, vaultAddress, acceptWrite]);
 
-  const handleRevoke = (rowId: number, dataHex: string) => {
+  const openRevokePreview = useCallback(
+    (item: VaultV2PendingItem) => {
+      setRevokeError(null);
+      setRevokeItem(item);
+      setRevokeDestinationCoerced(
+        defaultPendingRevokeDestination(onChainCurator, onChainSentinels, walletAddress)
+      );
+      setRevokePreview(
+        buildPendingRevokePreview({
+          item,
+          vaultAddress,
+          vaultSymbol,
+          assetSymbol,
+          assetDecimals,
+          governance: preloadedGovernance,
+          risk: preloadedRisk,
+        })
+      );
+      setRevokePreviewOpen(true);
+    },
+    [
+      assetDecimals,
+      assetSymbol,
+      onChainCurator,
+      onChainSentinels,
+      preloadedGovernance,
+      preloadedRisk,
+      vaultAddress,
+      vaultSymbol,
+      walletAddress,
+      setRevokeDestinationCoerced,
+    ]
+  );
+
+  const runWalletRevoke = useCallback(async () => {
+    if (!revokeItem) return;
+
+    setRevokeError(null);
     revokeWrite.reset();
-    setActiveRowId(rowId);
-    revokeWrite.write(v2WriteConfigs.revoke(vaultAddress as Address, dataHex as Hex));
-  };
+
+    try {
+      await revokeWrite.write(
+        v2WriteConfigs.revoke(vaultAddress as Address, revokeItem.data as Hex)
+      );
+    } catch (e) {
+      setRevokeError(e instanceof Error ? e.message : 'Failed to revoke pending change.');
+      setActiveRowId(null);
+    }
+  }, [revokeItem, revokeWrite, vaultAddress]);
+
+  const queueRevokeInSafe = useCallback(
+    async (safeRole: SafeRole) => {
+      if (!revokeItem || !revokePreview) return;
+
+      setQueueingRevokeSafe(true);
+      setRevokeError(null);
+
+      try {
+        const calldata = buildPendingRevokeCalldata(getAddress(vaultAddress), revokeItem);
+        await queueVaultWriteInSafe({
+          safeRole,
+          calldata,
+          description: `Revoke ${formatVaultV2FunctionTitle(revokeItem.functionName)} — ${vaultSymbol ?? vaultAddress}`,
+          preview: revokePreview,
+          source: {
+            type: 'sentinel',
+            action: 'revoke_pending',
+            vaultAddress: getAddress(vaultAddress),
+            vaultSymbol: vaultSymbol ?? undefined,
+          },
+          safeAppSdk: safeAppSdkForRevokeRole,
+        });
+        setRevokePreviewOpen(false);
+        setRevokePreview(null);
+        setRevokeItem(null);
+        setActiveRowId(null);
+        router.push(`/safe/${safeRole}`);
+      } catch (e) {
+        setRevokeError(e instanceof Error ? e.message : 'Failed to queue Safe transaction.');
+        setActiveRowId(null);
+      } finally {
+        setQueueingRevokeSafe(false);
+      }
+    },
+    [revokeItem, revokePreview, router, safeAppSdkForRevokeRole, vaultAddress, vaultSymbol]
+  );
+
+  const handleRevokeConfirm = useCallback(async () => {
+    if (!revokeItem) return;
+
+    setActiveRowId(revokeItem.rowId);
+
+    if (revokeDestination.kind === 'safe') {
+      if (!revokeEligibleSafes.includes(revokeDestination.role)) {
+        setRevokeError('Selected Safe is not the on-chain sentinel or curator for this vault.');
+        setActiveRowId(null);
+        return;
+      }
+      await queueRevokeInSafe(revokeDestination.role);
+      return;
+    }
+
+    if (!isConnected) {
+      setRevokeError('Connect your wallet using the button in the top bar.');
+      setActiveRowId(null);
+      return;
+    }
+
+    if (!walletCanRevokePending(walletAddress, onChainCurator, onChainSentinels)) {
+      setRevokeError(PENDING_REVOKE_WALLET_HINT);
+      setActiveRowId(null);
+      return;
+    }
+
+    await runWalletRevoke();
+  }, [
+    revokeItem,
+    revokeDestination,
+    revokeEligibleSafes,
+    queueRevokeInSafe,
+    runWalletRevoke,
+    isConnected,
+    walletAddress,
+    onChainCurator,
+    onChainSentinels,
+  ]);
 
   const openAcceptPreview = useCallback(
     (item: VaultV2PendingItem) => {
       setAcceptError(null);
       setAcceptItem(item);
-      setWriteDestination(defaultPendingAcceptDestination());
+      setWriteDestination(defaultPendingAcceptDestination(isConnected));
       setAcceptPreview(
         buildPendingAcceptPreview({
           item,
@@ -170,7 +355,7 @@ export function VaultV2Pending({
       );
       setAcceptPreviewOpen(true);
     },
-    [assetDecimals, assetSymbol, preloadedGovernance, preloadedRisk, vaultAddress, vaultSymbol]
+    [assetDecimals, assetSymbol, preloadedGovernance, preloadedRisk, vaultAddress, vaultSymbol, isConnected]
   );
 
   const runWalletAccept = useCallback(async () => {
@@ -217,6 +402,7 @@ export function VaultV2Pending({
         router.push(`/safe/${safeRole}`);
       } catch (e) {
         setAcceptError(e instanceof Error ? e.message : 'Failed to queue Safe transaction.');
+        setActiveRowId(null);
       } finally {
         setQueueingSafe(false);
       }
@@ -260,7 +446,7 @@ export function VaultV2Pending({
     [assetDecimals, assetSymbol, preloadedGovernance, preloadedRisk]
   );
 
-  if (!preloadedData && isLoading) {
+  if (!hasPreloaded && isLoading) {
     const skeleton = (
       <div className="space-y-3">
         <Skeleton className="h-12 w-full" />
@@ -320,7 +506,8 @@ export function VaultV2Pending({
         <div className="space-y-3">
           {filtered.map((item) => {
             const rowId = item.rowId;
-            const isActiveRevoke = activeRowId === rowId && revokeWrite.isLoading;
+            const isActiveRevoke =
+              activeRowId === rowId && (revokeWrite.isLoading || queueingRevokeSafe);
             const isActiveAccept = activeRowId === rowId && acceptBusy;
             const isOtherRowBusy =
               (revokeInFlight || acceptBusy) && activeRowId !== rowId;
@@ -362,7 +549,7 @@ export function VaultV2Pending({
                         variant="outline"
                         suppressConnectPrompt
                         disabled={isOtherRowBusy}
-                        onClick={() => handleRevoke(rowId, item.data)}
+                        onClick={() => openRevokePreview(item)}
                         isLoading={isActiveRevoke}
                         isSuccess={isActiveRevoke && revokeWrite.isSuccess}
                         error={isActiveRevoke ? revokeWrite.error : null}
@@ -402,6 +589,7 @@ export function VaultV2Pending({
         </div>
       )}
 
+      {allowAccept ? (
       <TxPreviewDialog
         open={acceptPreviewOpen}
         preview={acceptPreview}
@@ -419,12 +607,9 @@ export function VaultV2Pending({
           destination: writeDestination,
           onDestinationChange: setWriteDestination,
           walletReady: isConnected,
-          walletHint: 'Connect your wallet in the top bar to accept directly with your EOA.',
+          walletHint: PENDING_ACCEPT_WALLET_HINT,
           safeRoles: VAULT_WRITE_QUEUE_SAFE_ROLES,
-          confirmEnabled: canConfirmVaultWriteDestination(writeDestination, {
-            walletReady: isConnected,
-            eligibleSafeRoles: VAULT_WRITE_QUEUE_SAFE_ROLES,
-          }),
+          confirmEnabled: canConfirmPendingAcceptDestination(writeDestination, isConnected),
         }}
         onConfirm={() => void handleAcceptConfirm()}
         isLoading={writeDestination.kind === 'safe' ? queueingSafe : acceptWrite.isLoading}
@@ -436,6 +621,46 @@ export function VaultV2Pending({
               : null
         }
       />
+      ) : null}
+
+      {allowRevoke ? (
+      <TxPreviewDialog
+        open={revokePreviewOpen}
+        preview={revokePreview}
+        onOpenChange={(open) => {
+          if (revokeInFlight) return;
+          setRevokePreviewOpen(open);
+          if (!open) {
+            setRevokePreview(null);
+            setRevokeItem(null);
+            setRevokeError(null);
+            setActiveRowId(null);
+          }
+        }}
+        destinationOptions={{
+          destination: revokeDestination,
+          onDestinationChange: setRevokeDestinationCoerced,
+          walletReady: revokeWalletReady,
+          walletHint: PENDING_REVOKE_WALLET_HINT,
+          safeRoles: revokeEligibleSafes,
+          confirmEnabled: canConfirmPendingRevokeDestination(revokeDestination, {
+            curator: onChainCurator,
+            sentinels: onChainSentinels,
+            wallet: walletAddress,
+            isConnected,
+          }),
+        }}
+        onConfirm={() => void handleRevokeConfirm()}
+        isLoading={revokeDestination.kind === 'safe' ? queueingRevokeSafe : revokeWrite.isLoading}
+        error={
+          revokeError
+            ? new Error(revokeError)
+            : revokeWrite.error && revokeDestination.kind === 'wallet'
+              ? revokeWrite.error
+              : null
+        }
+      />
+      ) : null}
     </>
   );
 
@@ -447,7 +672,7 @@ export function VaultV2Pending({
     }
     return (
       <div className="space-y-4">
-        {!sentinelEmpty && (
+        {!sentinelEmpty && !compactEmbedded && (
           <div>
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
               Vault Pending Actions ({pending.length})
@@ -468,8 +693,10 @@ export function VaultV2Pending({
         <CardTitle>Vault Pending Actions ({pending.length})</CardTitle>
         <CardDescription>
           {allowAccept
-            ? 'All executable timelock actions (cap increases, adapter changes, role updates, fees, …). Accept via your connected wallet or queue to a multisig Safe. Revoke cancels before execution.'
-            : 'Pending timelock actions queued on this vault. Revoke cancels a queued action before it executes.'}
+            ? 'Executable timelock actions (cap increases, liquidity adapter, roles, fees, …). After the waiting period, anyone may accept — any connected wallet or multisig Safe.'
+            : allowRevoke
+              ? 'Pending timelock actions. Sentinel or curator may revoke before execution (sentinel wallet/Safe preferred).'
+              : 'Pending timelock actions queued on this vault.'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">{body}</CardContent>

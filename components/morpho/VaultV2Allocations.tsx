@@ -379,7 +379,12 @@ function rowSection(_r: TargetRow, t: AllocTarget): AllocationSection {
   return 'blue';
 }
 
-export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, preloadedRisk }: VaultV2AllocationsProps) {
+export function VaultV2Allocations({
+  vaultAddress,
+  chainId,
+  preloadedData,
+  preloadedRisk,
+}: VaultV2AllocationsProps) {
   const queryClient = useQueryClient();
   const {
     data: fetchedRisk,
@@ -1829,8 +1834,11 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     <div className="space-y-4">
       <VaultV2LiquidityAdapter
         vaultAddress={vaultAddress}
+        chainId={chainId}
         governance={governance}
         risk={risk}
+        assetSymbol={vaultSymbol}
+        assetDecimals={vaultDecimals}
       />
     <Card>
       <CardHeader>

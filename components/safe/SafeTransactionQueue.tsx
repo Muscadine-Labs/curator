@@ -116,7 +116,8 @@ function PendingTransactionCard({
   const vaultSymbol =
     tx.source.type === 'allocation' ||
     tx.source.type === 'sentinel' ||
-    tx.source.type === 'caps'
+    tx.source.type === 'caps' ||
+    tx.source.type === 'curator'
       ? tx.source.vaultSymbol
       : undefined;
 

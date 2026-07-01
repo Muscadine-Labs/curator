@@ -254,7 +254,8 @@ export function VaultV2Sentinel({
         <CardHeader>
           <CardTitle>Vault Pending Actions</CardTitle>
           <CardDescription>
-            Pending timelock actions on this vault that can be revoked.
+            Pending timelock actions submitted by the curator. Revoke cancels before execution —
+            sentinel or curator wallet/Safe (sentinel preferred).
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -262,6 +263,11 @@ export function VaultV2Sentinel({
             vaultAddress={vaultAddress}
             chainId={chainId}
             preloadedData={preloadedPending}
+            preloadedGovernance={governance}
+            preloadedRisk={risk}
+            assetSymbol={assetSymbol}
+            assetDecimals={assetDecimals}
+            vaultSymbol={assetSymbol ?? undefined}
             embedded
             sentinelEmpty
             allowRevoke

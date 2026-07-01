@@ -67,21 +67,38 @@ export function VaultV2Caps({
   }
 
   if (data.caps.length === 0) {
+    const emptyPendingCount = preloadedPending?.pending?.length ?? 0;
     return (
-      <div className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Caps</CardTitle>
-            <CardDescription>
-              Supply caps limit how much can be allocated to each adapter, collateral token, or market.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <MaxRateBlock maxRate={data.maxRate} />
-            <p className="text-sm text-slate-500 dark:text-slate-400">No caps configured.</p>
-          </CardContent>
-        </Card>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Caps</CardTitle>
+          <CardDescription>
+            Supply caps limit how much can be allocated to each adapter, collateral token, or market.
+            {emptyPendingCount > 0
+              ? ' Accept executable timelock actions below — any connected wallet or multisig Safe may submit after the waiting period.'
+              : ''}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {emptyPendingCount > 0 ? (
+            <VaultV2Pending
+              vaultAddress={vaultAddress}
+              chainId={chainId}
+              preloadedData={preloadedPending}
+              preloadedGovernance={data}
+              preloadedRisk={risk}
+              assetSymbol={assetSymbol}
+              assetDecimals={assetDecimals}
+              vaultSymbol={assetSymbol ?? undefined}
+              embedded
+              compactEmbedded
+              allowAccept
+            />
+          ) : null}
+          <MaxRateBlock maxRate={data.maxRate} />
+          <p className="text-sm text-slate-500 dark:text-slate-400">No caps configured.</p>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -90,28 +107,32 @@ export function VaultV2Caps({
   const pendingCount = preloadedPending?.pending?.length ?? 0;
 
   return (
-    <div className="space-y-6">
-      {pendingCount > 0 && (
-        <VaultV2Pending
-          vaultAddress={vaultAddress}
-          chainId={chainId}
-          preloadedData={preloadedPending}
-          preloadedGovernance={data}
-          preloadedRisk={risk}
-          assetSymbol={assetSymbol}
-          assetDecimals={assetDecimals}
-          vaultSymbol={assetSymbol ?? undefined}
-          allowAccept
-        />
-      )}
     <Card>
       <CardHeader>
         <CardTitle>Caps</CardTitle>
         <CardDescription>
           Supply caps limit how much can be allocated to each adapter, collateral token, or market.
+          {pendingCount > 0
+            ? ' Accept executable timelock actions below — any connected wallet or multisig Safe may submit after the waiting period.'
+            : ''}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-8">
+        {pendingCount > 0 ? (
+          <VaultV2Pending
+            vaultAddress={vaultAddress}
+            chainId={chainId}
+            preloadedData={preloadedPending}
+            preloadedGovernance={data}
+            preloadedRisk={risk}
+            assetSymbol={assetSymbol}
+            assetDecimals={assetDecimals}
+            vaultSymbol={assetSymbol ?? undefined}
+            embedded
+            compactEmbedded
+            allowAccept
+          />
+        ) : null}
         <MaxRateBlock maxRate={data.maxRate} />
         {grouped.adapter.length > 0 && (
           <CapSection
@@ -152,7 +173,6 @@ export function VaultV2Caps({
         )}
       </CardContent>
     </Card>
-    </div>
   );
 }
 

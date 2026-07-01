@@ -262,3 +262,58 @@ export function buildPendingAcceptPreview(input: {
   };
 }
 
+export function buildPendingRevokeCalldata(
+  vaultAddress: Address | string,
+  item: VaultV2PendingItem
+): { to: Address; data: Hex } {
+  const address = getAddress(vaultAddress);
+  return {
+    to: address,
+    data: encodeFunctionData({
+      abi: vaultV2Abi,
+      functionName: 'revoke',
+      args: [item.data as Hex],
+    }),
+  };
+}
+
+export function buildPendingRevokePreview(input: {
+  item: VaultV2PendingItem;
+  vaultAddress: string;
+  vaultSymbol?: string | null;
+  assetSymbol?: string | null;
+  assetDecimals?: number | null;
+  governance?: VaultV2GovernanceResponse | null;
+  risk?: V2VaultRiskResponse | null;
+}): TxPreview {
+  const { item, vaultSymbol, assetSymbol, assetDecimals, governance, risk } = input;
+  const title = `Revoke ${formatVaultV2FunctionTitle(item.functionName)}`;
+  const summary = formatPendingCapSummary({
+    item,
+    governance,
+    risk,
+    assetSymbol,
+    assetDecimals,
+  });
+
+  return {
+    title,
+    description: vaultSymbol
+      ? `Cancel this pending ${vaultSymbol} timelock action before it executes. Callable by an on-chain sentinel or curator.`
+      : 'Cancel this pending timelock action before it executes. Callable by an on-chain sentinel or curator.',
+    changes: [
+      {
+        action: 'allocate',
+        label: formatVaultV2FunctionTitle(item.functionName),
+        subtitle: summary,
+        before: summary,
+        after: 'Cancelled (removed from pending queue)',
+      },
+    ],
+    footnote:
+      item.status === 'ready'
+        ? 'This action is already executable — revoke quickly if it should not take effect.'
+        : null,
+  };
+}
+
