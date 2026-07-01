@@ -94,6 +94,22 @@ function changeFromVaultCall(
         after: formatCapRelative(newCap.toString()),
       };
     }
+    case 'increaseAbsoluteCap': {
+      const [, newCap] = call.args as [Hex, bigint];
+      return {
+        action: 'increase_absolute_cap',
+        label: 'Absolute cap',
+        after: formatAmount(newCap, decimals, symbol),
+      };
+    }
+    case 'increaseRelativeCap': {
+      const [, newCap] = call.args as [Hex, bigint];
+      return {
+        action: 'increase_relative_cap',
+        label: 'Relative cap',
+        after: formatCapRelative(newCap.toString()),
+      };
+    }
     default:
       return {
         action: 'allocate',
@@ -160,7 +176,11 @@ export function buildVaultCalldataPreview(input: {
 }
 
 export function resolveVaultAddressFromPending(tx: SafePendingTransaction): Address | null {
-  if (tx.source.type === 'allocation' || tx.source.type === 'sentinel') {
+  if (
+    tx.source.type === 'allocation' ||
+    tx.source.type === 'sentinel' ||
+    tx.source.type === 'caps'
+  ) {
     return getAddress(tx.source.vaultAddress);
   }
   if (getVaultByAddress(tx.to)) {
@@ -170,7 +190,11 @@ export function resolveVaultAddressFromPending(tx: SafePendingTransaction): Addr
 }
 
 export function resolveVaultSymbolFromPending(tx: SafePendingTransaction): string | undefined {
-  if (tx.source.type === 'allocation' || tx.source.type === 'sentinel') {
+  if (
+    tx.source.type === 'allocation' ||
+    tx.source.type === 'sentinel' ||
+    tx.source.type === 'caps'
+  ) {
     return tx.source.vaultSymbol;
   }
   const vaultAddress = resolveVaultAddressFromPending(tx);

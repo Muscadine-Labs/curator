@@ -65,8 +65,16 @@ import type { Address, Hex } from 'viem';
 import { getAddress } from 'viem';
 import { queueVaultWriteInSafe } from '@/lib/safe/queue-vault-write';
 import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
+import type { SafeRole } from '@/lib/safe/config';
 import { SENTINEL_SAFE_ROLE } from '@/lib/safe/config';
-import { resolveSentinelWriteMode } from '@/lib/safe/vault-role-match';
+import {
+  defaultSentinelDestination,
+  eligibleSafeRolesForAddresses,
+  canConfirmVaultWriteDestination,
+  coerceVaultWriteDestination,
+  walletCanSignSentinel,
+  type VaultWriteDestination,
+} from '@/lib/safe/vault-write-destination';
 import { vaultWriteToCalldata } from '@/lib/safe/encode-vault-write';
 
 interface VaultV2SentinelProps {
@@ -317,6 +325,9 @@ function DecreaseCapsPanel({
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [queueingSafe, setQueueingSafe] = useState(false);
   const [queueSafeError, setQueueSafeError] = useState<string | null>(null);
+  const [writeDestination, setWriteDestination] = useState<VaultWriteDestination>(() =>
+    defaultSentinelDestination(sentinels, undefined)
+  );
   const pendingConfirmRef = useRef<(() => Promise<void>) | null>(null);
   const pendingCalldataRef = useRef<{ to: Address; data: Hex } | null>(null);
   const queryClient = useQueryClient();
@@ -326,12 +337,19 @@ function DecreaseCapsPanel({
     useCuratorSafeApps();
   const sentinelSafeAppSdk = useMemo(
     () =>
-      safeAppConnected && safeAppSdk && safeAppRole === 'sentinel' ? safeAppSdk : null,
-    [safeAppConnected, safeAppSdk, safeAppRole]
+      safeAppConnected &&
+      safeAppSdk &&
+      writeDestination.kind === 'safe' &&
+      safeAppRole === writeDestination.role
+        ? safeAppSdk
+        : null,
+    [safeAppConnected, safeAppSdk, safeAppRole, writeDestination]
   );
-  const sentinelWriteMode = useMemo(
-    () => resolveSentinelWriteMode(sentinels, walletAddress),
-    [sentinels, walletAddress]
+
+  const walletCanUseSentinel = walletCanSignSentinel(walletAddress, sentinels);
+  const eligibleSentinelSafes = useMemo(
+    () => eligibleSafeRolesForAddresses(sentinels),
+    [sentinels]
   );
   const write = useVaultWrite({ chainId });
   const writeInFlight = write.isLoading && activeRowKey !== null;
@@ -493,9 +511,19 @@ function DecreaseCapsPanel({
       });
       pendingConfirmRef.current = () => submitRowDecrease(rowKey, mode, valueStr);
       setTxPreview(result.preview);
+      setWriteDestination(
+        coerceVaultWriteDestination(
+          defaultSentinelDestination(sentinels, walletAddress),
+          {
+            walletEnabled: walletCanSignSentinel(walletAddress, sentinels),
+            eligibleSafeRoles: eligibleSafeRolesForAddresses(sentinels),
+            preferredSafeRole: SENTINEL_SAFE_ROLE,
+          }
+        )
+      );
       setPreviewOpen(true);
     },
-    [adapterLabels, assetDecimals, assetSymbol, chainDecimals, grouped, risk, submitRowDecrease, vaultAddress]
+    [adapterLabels, assetDecimals, assetSymbol, chainDecimals, grouped, risk, sentinels, submitRowDecrease, vaultAddress, walletAddress]
   );
 
   const confirmPreview = useCallback(async () => {
@@ -511,40 +539,86 @@ function DecreaseCapsPanel({
     }
   }, [activeRowKey]);
 
-  const handleQueueInSentinelSafe = useCallback(async () => {
-    if (!txPreview || !pendingCalldataRef.current) return;
+  const handleQueueInSafe = useCallback(
+    async (safeRole: SafeRole, description: string, source: Parameters<typeof queueVaultWriteInSafe>[0]['source']) => {
+      if (!txPreview || !pendingCalldataRef.current) return;
 
-    setQueueingSafe(true);
-    setQueueSafeError(null);
+      setQueueingSafe(true);
+      setQueueSafeError(null);
 
-    try {
-      await queueVaultWriteInSafe({
-        safeRole: SENTINEL_SAFE_ROLE,
-        calldata: pendingCalldataRef.current,
-        description: `Sentinel cap decrease — ${assetSymbol ?? vaultAddress}`,
-        preview: txPreview,
-        source: {
+      try {
+        await queueVaultWriteInSafe({
+          safeRole,
+          calldata: pendingCalldataRef.current,
+          description,
+          preview: txPreview,
+          source,
+          proposer: walletAddress ? getAddress(walletAddress) : undefined,
+          safeAppSdk: sentinelSafeAppSdk,
+        });
+        setPreviewOpen(false);
+        setTxPreview(null);
+        pendingConfirmRef.current = null;
+        pendingCalldataRef.current = null;
+        router.push(`/safe/${safeRole}`);
+      } catch (error) {
+        setQueueSafeError(
+          error instanceof Error ? error.message : 'Failed to queue Safe transaction.'
+        );
+      } finally {
+        setQueueingSafe(false);
+      }
+    },
+    [router, sentinelSafeAppSdk, txPreview, walletAddress]
+  );
+
+  const handlePreviewConfirm = useCallback(async () => {
+    if (
+      !canConfirmVaultWriteDestination(writeDestination, {
+        walletEnabled: walletCanUseSentinel,
+        eligibleSafeRoles: eligibleSentinelSafes,
+      })
+    ) {
+      if (writeDestination.kind === 'wallet') {
+        setRowErrors((prev) => ({
+          ...prev,
+          ...(activeRowKey
+            ? {
+                [activeRowKey]:
+                  'Connect a sentinel wallet in the top bar, or queue to a role multisig.',
+              }
+            : {}),
+        }));
+      } else {
+        setQueueSafeError('Selected Safe is not an on-chain sentinel for this vault.');
+      }
+      return;
+    }
+
+    if (writeDestination.kind === 'safe') {
+      await handleQueueInSafe(
+        writeDestination.role,
+        `Sentinel cap decrease — ${assetSymbol ?? vaultAddress}`,
+        {
           type: 'sentinel',
           action: 'decrease_cap',
           vaultAddress: getAddress(vaultAddress),
           vaultSymbol: assetSymbol ?? undefined,
-        },
-        proposer: walletAddress ? getAddress(walletAddress) : undefined,
-        safeAppSdk: sentinelSafeAppSdk,
-      });
-      setPreviewOpen(false);
-      setTxPreview(null);
-      pendingConfirmRef.current = null;
-      pendingCalldataRef.current = null;
-      router.push('/safe/sentinel');
-    } catch (error) {
-      setQueueSafeError(
-        error instanceof Error ? error.message : 'Failed to queue Safe transaction.'
+        }
       );
-    } finally {
-      setQueueingSafe(false);
+      return;
     }
-  }, [assetSymbol, router, sentinelSafeAppSdk, txPreview, vaultAddress, walletAddress]);
+    await confirmPreview();
+  }, [
+    writeDestination,
+    walletCanUseSentinel,
+    eligibleSentinelSafes,
+    handleQueueInSafe,
+    assetSymbol,
+    vaultAddress,
+    confirmPreview,
+    activeRowKey,
+  ]);
 
   const clearRowInput = (rowKey: string) => {
     setSelections((prev) => {
@@ -784,33 +858,27 @@ function DecreaseCapsPanel({
             setQueueSafeError(null);
           }
         }}
-        writeMode={sentinelWriteMode}
-        onConfirm={
-          sentinelWriteMode === 'safe'
-            ? () => void handleQueueInSentinelSafe()
-            : confirmPreview
-        }
-        isLoading={sentinelWriteMode === 'safe' ? queueingSafe : writeInFlight}
+        destinationOptions={{
+          destination: writeDestination,
+          onDestinationChange: setWriteDestination,
+          walletEnabled: walletCanUseSentinel,
+          walletDisabledHint:
+            'Connect a sentinel wallet in the top bar, or queue to a role multisig.',
+          safeRoles: eligibleSentinelSafes,
+          confirmEnabled: canConfirmVaultWriteDestination(writeDestination, {
+            walletEnabled: walletCanUseSentinel,
+            eligibleSafeRoles: eligibleSentinelSafes,
+          }),
+        }}
+        onConfirm={() => void handlePreviewConfirm()}
+        isLoading={writeDestination.kind === 'safe' ? queueingSafe : writeInFlight}
         error={
-          sentinelWriteMode === 'safe'
+          writeDestination.kind === 'safe'
             ? queueSafeError
               ? new Error(queueSafeError)
               : null
             : write.error
         }
-        confirmLabel={
-          sentinelWriteMode === 'safe' ? 'Queue in Sentinel Safe' : 'Confirm decrease'
-        }
-        secondaryLabel={
-          sentinelWriteMode === 'both' ? 'Queue in Sentinel Safe' : undefined
-        }
-        onSecondary={
-          sentinelWriteMode === 'both'
-            ? () => void handleQueueInSentinelSafe()
-            : undefined
-        }
-        secondaryLoading={queueingSafe}
-        secondaryError={queueSafeError ? new Error(queueSafeError) : null}
       />
     </Card>
   );
@@ -842,6 +910,9 @@ function DeallocatePanel({
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [queueingSafe, setQueueingSafe] = useState(false);
   const [queueSafeError, setQueueSafeError] = useState<string | null>(null);
+  const [writeDestination, setWriteDestination] = useState<VaultWriteDestination>(() =>
+    defaultSentinelDestination(sentinels, undefined)
+  );
   const pendingConfirmRef = useRef<(() => Promise<void>) | null>(null);
   const pendingCalldataRef = useRef<{ to: Address; data: Hex } | null>(null);
   const queryClient = useQueryClient();
@@ -851,12 +922,19 @@ function DeallocatePanel({
     useCuratorSafeApps();
   const sentinelSafeAppSdk = useMemo(
     () =>
-      safeAppConnected && safeAppSdk && safeAppRole === 'sentinel' ? safeAppSdk : null,
-    [safeAppConnected, safeAppSdk, safeAppRole]
+      safeAppConnected &&
+      safeAppSdk &&
+      writeDestination.kind === 'safe' &&
+      safeAppRole === writeDestination.role
+        ? safeAppSdk
+        : null,
+    [safeAppConnected, safeAppSdk, safeAppRole, writeDestination]
   );
-  const sentinelWriteMode = useMemo(
-    () => resolveSentinelWriteMode(sentinels, walletAddress),
-    [sentinels, walletAddress]
+
+  const walletCanUseSentinel = walletCanSignSentinel(walletAddress, sentinels);
+  const eligibleSentinelSafes = useMemo(
+    () => eligibleSafeRolesForAddresses(sentinels),
+    [sentinels]
   );
   const write = useVaultWrite({ chainId });
   const writeInFlight = write.isLoading && activeRowKey !== null;
@@ -984,9 +1062,19 @@ function DeallocatePanel({
 
       pendingConfirmRef.current = () => deallocateRow(row, parsed);
       setTxPreview(result.preview);
+      setWriteDestination(
+        coerceVaultWriteDestination(
+          defaultSentinelDestination(sentinels, walletAddress),
+          {
+            walletEnabled: walletCanSignSentinel(walletAddress, sentinels),
+            eligibleSafeRoles: eligibleSafeRolesForAddresses(sentinels),
+            preferredSafeRole: SENTINEL_SAFE_ROLE,
+          }
+        )
+      );
       setPreviewOpen(true);
     },
-    [amounts, assetDecimals, assetSymbol, chainDecimals, deallocateRow, vaultAddress]
+    [amounts, assetDecimals, assetSymbol, chainDecimals, deallocateRow, sentinels, vaultAddress, walletAddress]
   );
 
   const confirmPreview = useCallback(async () => {
@@ -1002,40 +1090,86 @@ function DeallocatePanel({
     }
   }, [activeRowKey]);
 
-  const handleQueueInSentinelSafe = useCallback(async () => {
-    if (!txPreview || !pendingCalldataRef.current) return;
+  const handleQueueInSafe = useCallback(
+    async (safeRole: SafeRole, description: string, source: Parameters<typeof queueVaultWriteInSafe>[0]['source']) => {
+      if (!txPreview || !pendingCalldataRef.current) return;
 
-    setQueueingSafe(true);
-    setQueueSafeError(null);
+      setQueueingSafe(true);
+      setQueueSafeError(null);
 
-    try {
-      await queueVaultWriteInSafe({
-        safeRole: SENTINEL_SAFE_ROLE,
-        calldata: pendingCalldataRef.current,
-        description: `Sentinel deallocate — ${assetSymbol ?? vaultAddress}`,
-        preview: txPreview,
-        source: {
+      try {
+        await queueVaultWriteInSafe({
+          safeRole,
+          calldata: pendingCalldataRef.current,
+          description,
+          preview: txPreview,
+          source,
+          proposer: walletAddress ? getAddress(walletAddress) : undefined,
+          safeAppSdk: sentinelSafeAppSdk,
+        });
+        setPreviewOpen(false);
+        setTxPreview(null);
+        pendingConfirmRef.current = null;
+        pendingCalldataRef.current = null;
+        router.push(`/safe/${safeRole}`);
+      } catch (error) {
+        setQueueSafeError(
+          error instanceof Error ? error.message : 'Failed to queue Safe transaction.'
+        );
+      } finally {
+        setQueueingSafe(false);
+      }
+    },
+    [router, sentinelSafeAppSdk, txPreview, walletAddress]
+  );
+
+  const handlePreviewConfirm = useCallback(async () => {
+    if (
+      !canConfirmVaultWriteDestination(writeDestination, {
+        walletEnabled: walletCanUseSentinel,
+        eligibleSafeRoles: eligibleSentinelSafes,
+      })
+    ) {
+      if (writeDestination.kind === 'wallet') {
+        setRowErrors((prev) => ({
+          ...prev,
+          ...(activeRowKey
+            ? {
+                [activeRowKey]:
+                  'Connect a sentinel wallet in the top bar, or queue to a role multisig.',
+              }
+            : {}),
+        }));
+      } else {
+        setQueueSafeError('Selected Safe is not an on-chain sentinel for this vault.');
+      }
+      return;
+    }
+
+    if (writeDestination.kind === 'safe') {
+      await handleQueueInSafe(
+        writeDestination.role,
+        `Sentinel deallocate — ${assetSymbol ?? vaultAddress}`,
+        {
           type: 'sentinel',
           action: 'deallocate',
           vaultAddress: getAddress(vaultAddress),
           vaultSymbol: assetSymbol ?? undefined,
-        },
-        proposer: walletAddress ? getAddress(walletAddress) : undefined,
-        safeAppSdk: sentinelSafeAppSdk,
-      });
-      setPreviewOpen(false);
-      setTxPreview(null);
-      pendingConfirmRef.current = null;
-      pendingCalldataRef.current = null;
-      router.push('/safe/sentinel');
-    } catch (error) {
-      setQueueSafeError(
-        error instanceof Error ? error.message : 'Failed to queue Safe transaction.'
+        }
       );
-    } finally {
-      setQueueingSafe(false);
+      return;
     }
-  }, [assetSymbol, router, sentinelSafeAppSdk, txPreview, vaultAddress, walletAddress]);
+    await confirmPreview();
+  }, [
+    writeDestination,
+    walletCanUseSentinel,
+    eligibleSentinelSafes,
+    handleQueueInSafe,
+    assetSymbol,
+    vaultAddress,
+    confirmPreview,
+    activeRowKey,
+  ]);
 
   return (
     <Card>
@@ -1176,33 +1310,27 @@ function DeallocatePanel({
             setQueueSafeError(null);
           }
         }}
-        writeMode={sentinelWriteMode}
-        onConfirm={
-          sentinelWriteMode === 'safe'
-            ? () => void handleQueueInSentinelSafe()
-            : confirmPreview
-        }
-        isLoading={sentinelWriteMode === 'safe' ? queueingSafe : writeInFlight}
+        destinationOptions={{
+          destination: writeDestination,
+          onDestinationChange: setWriteDestination,
+          walletEnabled: walletCanUseSentinel,
+          walletDisabledHint:
+            'Connect a sentinel wallet in the top bar, or queue to a role multisig.',
+          safeRoles: eligibleSentinelSafes,
+          confirmEnabled: canConfirmVaultWriteDestination(writeDestination, {
+            walletEnabled: walletCanUseSentinel,
+            eligibleSafeRoles: eligibleSentinelSafes,
+          }),
+        }}
+        onConfirm={() => void handlePreviewConfirm()}
+        isLoading={writeDestination.kind === 'safe' ? queueingSafe : writeInFlight}
         error={
-          sentinelWriteMode === 'safe'
+          writeDestination.kind === 'safe'
             ? queueSafeError
               ? new Error(queueSafeError)
               : null
             : write.error
         }
-        confirmLabel={
-          sentinelWriteMode === 'safe' ? 'Queue in Sentinel Safe' : 'Confirm deallocate'
-        }
-        secondaryLabel={
-          sentinelWriteMode === 'both' ? 'Queue in Sentinel Safe' : undefined
-        }
-        onSecondary={
-          sentinelWriteMode === 'both'
-            ? () => void handleQueueInSentinelSafe()
-            : undefined
-        }
-        secondaryLoading={queueingSafe}
-        secondaryError={queueSafeError ? new Error(queueSafeError) : null}
       />
     </Card>
   );

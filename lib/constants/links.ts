@@ -8,13 +8,13 @@ export const MUSCADINE_SAFE_SPACE_URL =
   'https://app.safe.global/spaces?spaceId=2510f9d4-505e-4da8-8e40-2d55d721ae0a';
 
 export const MUSCADINE_DOMAINS: readonly ExternalLinkItem[] = [
-  { name: 'Muscadine', url: 'https://muscadine.io', description: 'Website' },
-  { name: 'Analytics', url: 'https://analytics.muscadine.io', description: 'Analytics' },
-  { name: 'App', url: 'https://app.muscadine.io', description: 'App' },
-  { name: 'Curator', url: 'https://curator.muscadine.io', description: 'Curator' },
-  { name: 'Portfolio', url: 'https://portfolio.muscadine.io', description: 'Portfolio' },
+  { name: 'Muscadine', url: 'https://muscadine.xyz', description: 'Website' },
+  { name: 'Analytics', url: 'https://analytics.muscadine.xyz', description: 'Analytics' },
+  { name: 'App', url: 'https://app.muscadine.xyz', description: 'App' },
+  { name: 'Curator', url: 'https://curator.muscadine.xyz', description: 'Curator' },
+  { name: 'Portfolio', url: 'https://portfolio.muscadine.xyz', description: 'Portfolio' },
   { name: 'Portfolio API', url: 'https://api-portfolio.muscadine.io', description: 'Portfolio API' },
-  { name: 'Docs', url: 'https://docs.muscadine.io', description: 'Documentation' },
+  { name: 'Docs', url: 'https://docs.muscadine.xyz', description: 'Documentation' },
 ];
 
 export const MUSCADINE_DEVELOPMENT_LINKS: readonly ExternalLinkItem[] = [

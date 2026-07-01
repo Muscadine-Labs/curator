@@ -15,7 +15,9 @@ export type TxPreviewAction =
   | 'allocate'
   | 'deallocate'
   | 'decrease_absolute_cap'
-  | 'decrease_relative_cap';
+  | 'decrease_relative_cap'
+  | 'increase_absolute_cap'
+  | 'increase_relative_cap';
 
 export type TxPreviewChange = {
   action: TxPreviewAction;
@@ -265,5 +267,9 @@ export function txPreviewActionLabel(action: TxPreviewAction): string {
       return 'Decrease absolute cap';
     case 'decrease_relative_cap':
       return 'Decrease relative cap';
+    case 'increase_absolute_cap':
+      return 'Increase absolute cap';
+    case 'increase_relative_cap':
+      return 'Increase relative cap';
   }
 }

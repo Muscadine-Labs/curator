@@ -96,6 +96,12 @@ export function VaultV2Caps({
           vaultAddress={vaultAddress}
           chainId={chainId}
           preloadedData={preloadedPending}
+          preloadedGovernance={data}
+          preloadedRisk={risk}
+          assetSymbol={assetSymbol}
+          assetDecimals={assetDecimals}
+          vaultSymbol={assetSymbol ?? undefined}
+          allowAccept
         />
       )}
     <Card>

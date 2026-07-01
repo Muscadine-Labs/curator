@@ -61,15 +61,18 @@ Or visit http://localhost:3000 in your browser.
 
 ## Environment Variables
 
-### Required
+Copy `.env.example` → `.env.local`. Summary:
 
-- `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` - Get from https://cloud.walletconnect.com
-- `NEXT_PUBLIC_ALCHEMY_API_KEY` - Get from https://www.alchemy.com/
-- `ALCHEMY_API_KEY` OR `COINBASE_CDP_API_KEY` - Server-side RPC (one required)
-
-### Optional
-
-All other variables have defaults. See `.env.example` for full list.
+| Variable | Required? | Notes |
+|----------|-----------|-------|
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | **Yes in production** | Demo mode in local dev if unset |
+| `ALCHEMY_API_KEY` or `COINBASE_CDP_API_KEY` | Recommended | Server RPC; demo endpoints if both missing |
+| `NEXT_PUBLIC_ALCHEMY_API_KEY` | Recommended | Client RPC |
+| `NEXT_PUBLIC_APP_URL` | No | Default `http://localhost:3000` |
+| `NEXT_PUBLIC_SAFE_API_KEY` | No | Safe Transaction Service sync |
+| `CURATOR_ADMIN_PASSWORD` | No | Admin auth gate |
+| `MORPHO_API_URL` | No | Morpho GraphQL override |
+| `NEXT_PUBLIC_VAULT_*` | No | Vault address overrides |
 
 ## Scripts
 
@@ -81,7 +84,7 @@ All other variables have defaults. See `.env.example` for full list.
 
 ## Tech Stack
 
-- Next.js 15 (App Router)
+- Next.js 16 (App Router)
 - TypeScript
 - Tailwind CSS + shadcn/ui
 - Wagmi + RainbowKit (wallet)
