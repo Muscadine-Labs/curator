@@ -114,7 +114,9 @@ function PendingTransactionCard({
   const preview = useMemo(() => resolveSafePendingPreview(tx), [tx]);
   const vaultAddress = useMemo(() => resolveVaultAddressFromPending(tx), [tx]);
   const vaultSymbol =
-    tx.source.type === 'allocation' || tx.source.type === 'sentinel'
+    tx.source.type === 'allocation' ||
+    tx.source.type === 'sentinel' ||
+    tx.source.type === 'caps'
       ? tx.source.vaultSymbol
       : undefined;
 

@@ -21,7 +21,15 @@ import { buildAllocationRebalancePreview } from '@/lib/morpho/tx-preview';
 import type { TxPreview } from '@/lib/morpho/tx-preview';
 import { queueVaultRebalanceInSafe } from '@/lib/safe/queue-vault-write';
 import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
-import { resolveAllocationWriteMode } from '@/lib/safe/vault-role-match';
+import {
+  defaultAllocationDestination,
+  eligibleSafeRolesForAddresses,
+  canConfirmVaultWriteDestination,
+  coerceVaultWriteDestination,
+  walletCanSignAllocation,
+  type VaultWriteDestination,
+} from '@/lib/safe/vault-write-destination';
+import { ALLOCATION_SAFE_ROLE, type SafeRole } from '@/lib/safe/config';
 import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
 import type { Address, Hex } from 'viem';
 import {
@@ -662,6 +670,9 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
   const [preparingPreview, setPreparingPreview] = useState(false);
   const [queueingSafe, setQueueingSafe] = useState(false);
   const [queueSafeError, setQueueSafeError] = useState<string | null>(null);
+  const [writeDestination, setWriteDestination] = useState<VaultWriteDestination>(() =>
+    defaultAllocationDestination(governance?.allocators, undefined)
+  );
   const [preparedSubmit, setPreparedSubmit] = useState<{
     rows: RebalancePlanRow[];
     preview: TxPreview;
@@ -676,13 +687,19 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     useCuratorSafeApps();
   const allocatorSafeAppSdk = useMemo(
     () =>
-      safeAppConnected && safeAppSdk && safeAppRole === 'allocator' ? safeAppSdk : null,
-    [safeAppConnected, safeAppSdk, safeAppRole]
+      safeAppConnected &&
+      safeAppSdk &&
+      writeDestination.kind === 'safe' &&
+      safeAppRole === writeDestination.role
+        ? safeAppSdk
+        : null,
+    [safeAppConnected, safeAppSdk, safeAppRole, writeDestination]
   );
 
-  const allocationWriteMode = useMemo(
-    () => resolveAllocationWriteMode(governance?.allocators, walletAddress),
-    [governance?.allocators, walletAddress]
+  const walletCanAllocate = walletCanSignAllocation(walletAddress, governance?.allocators);
+  const eligibleAllocatorSafes = useMemo(
+    () => eligibleSafeRolesForAddresses(governance?.allocators),
+    [governance?.allocators]
   );
 
   useEffect(() => {
@@ -1337,6 +1354,16 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
         preview,
         clampWarning: finalized.clampWarning,
       });
+      setWriteDestination(
+        coerceVaultWriteDestination(
+          defaultAllocationDestination(governance?.allocators, walletAddress),
+          {
+            walletEnabled: walletCanSignAllocation(walletAddress, governance?.allocators),
+            eligibleSafeRoles: eligibleSafeRolesForAddresses(governance?.allocators),
+            preferredSafeRole: ALLOCATION_SAFE_ROLE,
+          }
+        )
+      );
       setRebalancePreviewOpen(true);
     } catch {
       setSubmitError('Could not prepare rebalance preview — try again.');
@@ -1349,6 +1376,8 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     vaultAddress,
     vaultSymbol,
     vaultDecimals,
+    governance?.allocators,
+    walletAddress,
   ]);
 
   const handleRebalance = useCallback(async () => {
@@ -1434,31 +1463,65 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     walletAddress,
   ]);
 
-  const handleQueueInAllocatorSafe = useCallback(async () => {
-    if (!preparedSubmit) return;
+  const handleQueueInSafe = useCallback(
+    async (safeRole: SafeRole) => {
+      if (!preparedSubmit) return;
 
-    setQueueingSafe(true);
-    setQueueSafeError(null);
+      setQueueingSafe(true);
+      setQueueSafeError(null);
 
-    try {
-      await queueVaultRebalanceInSafe({
-        vaultAddress: getAddress(vaultAddress),
-        submitRows: preparedSubmit.rows,
-        preview: preparedSubmit.preview,
-        vaultSymbol,
-        proposer: walletAddress ? getAddress(walletAddress) : undefined,
-        safeAppSdk: allocatorSafeAppSdk,
-      });
-      setRebalancePreviewOpen(false);
-      setPreparedSubmit(null);
-      setEditing(false);
-      router.push('/safe/allocator');
-    } catch (error) {
-      setQueueSafeError(error instanceof Error ? error.message : 'Failed to queue Safe transaction.');
-    } finally {
-      setQueueingSafe(false);
+      try {
+        await queueVaultRebalanceInSafe({
+          vaultAddress: getAddress(vaultAddress),
+          submitRows: preparedSubmit.rows,
+          preview: preparedSubmit.preview,
+          vaultSymbol,
+          safeRole,
+          proposer: walletAddress ? getAddress(walletAddress) : undefined,
+          safeAppSdk: allocatorSafeAppSdk,
+        });
+        setRebalancePreviewOpen(false);
+        setPreparedSubmit(null);
+        setEditing(false);
+        router.push(`/safe/${safeRole}`);
+      } catch (error) {
+        setQueueSafeError(
+          error instanceof Error ? error.message : 'Failed to queue Safe transaction.'
+        );
+      } finally {
+        setQueueingSafe(false);
+      }
+    },
+    [allocatorSafeAppSdk, preparedSubmit, vaultAddress, vaultSymbol, walletAddress, router]
+  );
+
+  const handlePreviewConfirm = useCallback(async () => {
+    if (
+      !canConfirmVaultWriteDestination(writeDestination, {
+        walletEnabled: walletCanAllocate,
+        eligibleSafeRoles: eligibleAllocatorSafes,
+      })
+    ) {
+      if (writeDestination.kind === 'wallet') {
+        setSubmitError('Connect an allocator wallet in the top bar, or queue to a role multisig.');
+      } else {
+        setQueueSafeError('Selected Safe is not an on-chain allocator for this vault.');
+      }
+      return;
     }
-  }, [allocatorSafeAppSdk, preparedSubmit, vaultAddress, vaultSymbol, walletAddress, router]);
+
+    if (writeDestination.kind === 'safe') {
+      await handleQueueInSafe(writeDestination.role);
+      return;
+    }
+    await handleRebalance();
+  }, [
+    writeDestination,
+    walletCanAllocate,
+    eligibleAllocatorSafes,
+    handleQueueInSafe,
+    handleRebalance,
+  ]);
 
   const getEditedAllocationDisplay = useCallback(
     (targetIdx: number): { raw: bigint; pct: number; usd: number } => {
@@ -1984,17 +2047,24 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
                   setQueueSafeError(null);
                 }
               }}
-              writeMode={allocationWriteMode}
-              onConfirm={
-                allocationWriteMode === 'safe'
-                  ? () => void handleQueueInAllocatorSafe()
-                  : handleRebalance
-              }
+              destinationOptions={{
+                destination: writeDestination,
+                onDestinationChange: setWriteDestination,
+                walletEnabled: walletCanAllocate,
+                walletDisabledHint:
+                  'Connect an allocator wallet in the top bar, or queue to a role multisig.',
+                safeRoles: eligibleAllocatorSafes,
+                confirmEnabled: canConfirmVaultWriteDestination(writeDestination, {
+                  walletEnabled: walletCanAllocate,
+                  eligibleSafeRoles: eligibleAllocatorSafes,
+                }),
+              }}
+              onConfirm={() => void handlePreviewConfirm()}
               isLoading={
-                allocationWriteMode === 'safe' ? queueingSafe : multicallWrite.isLoading
+                writeDestination.kind === 'safe' ? queueingSafe : multicallWrite.isLoading
               }
               error={
-                allocationWriteMode === 'safe'
+                writeDestination.kind === 'safe'
                   ? queueSafeError
                     ? new Error(queueSafeError)
                     : null
@@ -2002,21 +2072,6 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
                     ? new Error(submitError)
                     : multicallWrite.error
               }
-              confirmLabel={
-                allocationWriteMode === 'safe'
-                  ? 'Queue in Allocator Safe'
-                  : 'Confirm rebalance'
-              }
-              secondaryLabel={
-                allocationWriteMode === 'both' ? 'Queue in Allocator Safe' : undefined
-              }
-              onSecondary={
-                allocationWriteMode === 'both'
-                  ? () => void handleQueueInAllocatorSafe()
-                  : undefined
-              }
-              secondaryLoading={queueingSafe}
-              secondaryError={queueSafeError ? new Error(queueSafeError) : null}
             />
 
             {multicallWrite.txHash && (

@@ -22,6 +22,12 @@ export type SafeTransactionSource =
       vaultSymbol?: string;
     }
   | {
+      type: 'caps';
+      action: 'accept_pending';
+      vaultAddress: Address;
+      vaultSymbol?: string;
+    }
+  | {
       type: 'manual';
     };
 

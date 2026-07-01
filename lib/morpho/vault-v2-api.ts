@@ -132,7 +132,7 @@ export function formatForceDeallocatePenaltyWad(
 export type VaultV2PendingDecoded =
   | { type: 'Abdicate'; functionName: string; selector: string }
   | { type: 'Adapter'; adapterAddress: string }
-  | { type: 'IncreaseCap'; cap: string; capType: string; capId: string }
+  | { type: 'IncreaseCap'; cap: string; capType: string; capId: string; idData?: string | null }
   | { type: 'SetAdapterRegistry'; adapterRegistry: string }
   | { type: 'SetForceDeallocatePenalty'; adapterAddress: string; forceDeallocatePenalty: string }
   | { type: 'SetIsAllocator'; account: string; isAllocator: boolean }
@@ -170,6 +170,7 @@ export function mapPendingDecoded(
         cap: String(decoded.cap ?? '0'),
         capType: String((decoded.config as { type?: string })?.type ?? 'Unknown'),
         capId: String((decoded.config as { id?: string })?.id ?? ''),
+        idData: String((decoded.config as { idData?: string })?.idData ?? '') || null,
       };
     case 'VaultV2SetAdapterRegistryPendingData':
       return {
@@ -247,7 +248,7 @@ export function describePendingDecoded(decoded: VaultV2PendingDecoded): string {
     case 'Adapter':
       return `Adapter ${decoded.adapterAddress}`;
     case 'IncreaseCap':
-      return `${decoded.capType} cap → ${formatRelativeCapWad(decoded.cap)}`;
+      return `${decoded.capType} cap increase (awaiting timelock)`;
     case 'SetAdapterRegistry':
       return `Registry ${decoded.adapterRegistry}`;
     case 'SetForceDeallocatePenalty':

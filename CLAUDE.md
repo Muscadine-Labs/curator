@@ -15,6 +15,20 @@ vault mechanics, contract wiring, or the data flow.
  directs otherwise; leave "To work on another day" items alone unless asked.
 - **Before pushing:** run `npm run lint` and `npm run build` and make sure all pass.
 
+### Environment variables
+
+Copy `.env.example` → `.env.local`. See that file for the full list.
+
+| Variable | Required? | Purpose |
+|----------|-----------|---------|
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | **Yes in production** | WalletConnect / Reown |
+| `ALCHEMY_API_KEY` or `COINBASE_CDP_API_KEY` | Recommended | Server Base RPC |
+| `NEXT_PUBLIC_ALCHEMY_API_KEY` | Recommended | Client Base RPC |
+| `NEXT_PUBLIC_APP_URL` | No | App origin (wallet metadata) |
+| `NEXT_PUBLIC_SAFE_API_KEY` | No | Safe Transaction Service |
+| `CURATOR_ADMIN_PASSWORD` | No | Admin auth |
+| `MORPHO_API_URL`, `NEXT_PUBLIC_VAULT_*` | No | Overrides |
+
 ---
 
 ## 1. Project Overview
