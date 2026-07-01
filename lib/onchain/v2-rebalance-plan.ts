@@ -313,10 +313,7 @@ export async function refreshPlanRowsFromChain(
   return list;
 }
 
-export const CLAMP_TO_FUNDABLE_WARNING =
-  'One or more allocate amounts were reduced to fit deployable idle plus deallocations in this transaction.';
-
-/** Refresh on-chain currents, validate total, and clamp to fundable idle (shared by preview + submit). */
+/** Refresh on-chain currents and validate total + idle funding (shared by preview + submit). */
 export async function finalizeRebalancePlan(
   client: PublicClient,
   vaultAddress: string,
@@ -335,9 +332,6 @@ export async function finalizeRebalancePlan(
   }
   plan = surplusResult.rows;
 
-  const clamped = clampPlanToFundableIdle(plan);
-  plan = clamped.rows;
-
   const fundingError = validateIdleFunding(plan);
   if (fundingError) {
     return { rows: plan, error: fundingError, clampWarning: null };
@@ -346,16 +340,24 @@ export async function finalizeRebalancePlan(
   return {
     rows: plan,
     error: null,
-    clampWarning: clamped.reduced ? CLAMP_TO_FUNDABLE_WARNING : null,
+    clampWarning: null,
   };
 }
 
-/** Ensure allocate deltas can be funded from deployable idle after deallocations in the same multicall. */
-export function validateIdleFunding(
+export type RebalanceFundingSummary = {
+  deployableIdle: bigint;
+  deallocateSum: bigint;
+  netAllocate: bigint;
+  fundable: bigint;
+  shortfall: bigint;
+};
+
+/** Net allocate demand vs vault idle plus same-tx deallocations. */
+export function summarizeRebalanceFunding(
   rows: ReadonlyArray<RebalancePlanRow>,
   deployableIdleBase?: bigint
-): string | null {
-  const idleBase = deployableIdleBase ?? resolveDeployableIdleBase(rows);
+): RebalanceFundingSummary {
+  const deployableIdle = deployableIdleBase ?? resolveDeployableIdleBase(rows);
 
   let netAllocate = BigInt(0);
   let deallocateSum = BigInt(0);
@@ -373,11 +375,24 @@ export function validateIdleFunding(
     }
   }
 
-  const idleAfterDealloc = idleBase + deallocateSum;
-  if (netAllocate > idleAfterDealloc) {
-    return 'Insufficient idle to fund allocations — deallocate more first (vault idle cash is fully deployed).';
-  }
+  const fundable = deployableIdle + deallocateSum;
+  const shortfall = netAllocate > fundable ? netAllocate - fundable : BigInt(0);
 
+  return { deployableIdle, deallocateSum, netAllocate, fundable, shortfall };
+}
+
+export const INSUFFICIENT_IDLE_FUNDING_ERROR =
+  'Insufficient idle to fund allocations — deallocate from other markets first (or Zero a row to free capital). Vault idle cash is fully deployed.';
+
+/** Ensure allocate deltas can be funded from deployable idle after deallocations in the same multicall. */
+export function validateIdleFunding(
+  rows: ReadonlyArray<RebalancePlanRow>,
+  deployableIdleBase?: bigint
+): string | null {
+  const summary = summarizeRebalanceFunding(rows, deployableIdleBase);
+  if (summary.shortfall > BigInt(0)) {
+    return INSUFFICIENT_IDLE_FUNDING_ERROR;
+  }
   return null;
 }
 

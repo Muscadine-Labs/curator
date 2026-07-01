@@ -332,7 +332,7 @@ function DecreaseCapsPanel({
   const pendingCalldataRef = useRef<{ to: Address; data: Hex } | null>(null);
   const queryClient = useQueryClient();
   const router = useRouter();
-  const { address: walletAddress } = useAccount();
+  const { address: walletAddress, isConnected } = useAccount();
   const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
     useCuratorSafeApps();
   const sentinelSafeAppSdk = useMemo(
@@ -347,6 +347,12 @@ function DecreaseCapsPanel({
   );
 
   const walletCanUseSentinel = walletCanSignSentinel(walletAddress, sentinels);
+  const walletReady = isConnected && walletCanUseSentinel;
+  const sentinelWalletHint = !isConnected
+    ? 'Connect your wallet in the top bar to sign directly with your EOA.'
+    : !walletCanUseSentinel
+      ? 'Connected wallet is not an on-chain sentinel for this vault — switch to a sentinel EOA or queue to a Safe.'
+      : undefined;
   const eligibleSentinelSafes = useMemo(
     () => eligibleSafeRolesForAddresses(sentinels),
     [sentinels]
@@ -515,7 +521,6 @@ function DecreaseCapsPanel({
         coerceVaultWriteDestination(
           defaultSentinelDestination(sentinels, walletAddress),
           {
-            walletEnabled: walletCanSignSentinel(walletAddress, sentinels),
             eligibleSafeRoles: eligibleSafeRolesForAddresses(sentinels),
             preferredSafeRole: SENTINEL_SAFE_ROLE,
           }
@@ -575,7 +580,7 @@ function DecreaseCapsPanel({
   const handlePreviewConfirm = useCallback(async () => {
     if (
       !canConfirmVaultWriteDestination(writeDestination, {
-        walletEnabled: walletCanUseSentinel,
+        walletReady,
         eligibleSafeRoles: eligibleSentinelSafes,
       })
     ) {
@@ -585,6 +590,7 @@ function DecreaseCapsPanel({
           ...(activeRowKey
             ? {
                 [activeRowKey]:
+                  sentinelWalletHint ??
                   'Connect a sentinel wallet in the top bar, or queue to a role multisig.',
               }
             : {}),
@@ -611,7 +617,8 @@ function DecreaseCapsPanel({
     await confirmPreview();
   }, [
     writeDestination,
-    walletCanUseSentinel,
+    walletReady,
+    sentinelWalletHint,
     eligibleSentinelSafes,
     handleQueueInSafe,
     assetSymbol,
@@ -861,12 +868,11 @@ function DecreaseCapsPanel({
         destinationOptions={{
           destination: writeDestination,
           onDestinationChange: setWriteDestination,
-          walletEnabled: walletCanUseSentinel,
-          walletDisabledHint:
-            'Connect a sentinel wallet in the top bar, or queue to a role multisig.',
+          walletReady,
+          walletHint: sentinelWalletHint,
           safeRoles: eligibleSentinelSafes,
           confirmEnabled: canConfirmVaultWriteDestination(writeDestination, {
-            walletEnabled: walletCanUseSentinel,
+            walletReady,
             eligibleSafeRoles: eligibleSentinelSafes,
           }),
         }}
@@ -917,7 +923,7 @@ function DeallocatePanel({
   const pendingCalldataRef = useRef<{ to: Address; data: Hex } | null>(null);
   const queryClient = useQueryClient();
   const router = useRouter();
-  const { address: walletAddress } = useAccount();
+  const { address: walletAddress, isConnected } = useAccount();
   const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
     useCuratorSafeApps();
   const sentinelSafeAppSdk = useMemo(
@@ -932,6 +938,12 @@ function DeallocatePanel({
   );
 
   const walletCanUseSentinel = walletCanSignSentinel(walletAddress, sentinels);
+  const walletReady = isConnected && walletCanUseSentinel;
+  const sentinelWalletHint = !isConnected
+    ? 'Connect your wallet in the top bar to sign directly with your EOA.'
+    : !walletCanUseSentinel
+      ? 'Connected wallet is not an on-chain sentinel for this vault — switch to a sentinel EOA or queue to a Safe.'
+      : undefined;
   const eligibleSentinelSafes = useMemo(
     () => eligibleSafeRolesForAddresses(sentinels),
     [sentinels]
@@ -1066,7 +1078,6 @@ function DeallocatePanel({
         coerceVaultWriteDestination(
           defaultSentinelDestination(sentinels, walletAddress),
           {
-            walletEnabled: walletCanSignSentinel(walletAddress, sentinels),
             eligibleSafeRoles: eligibleSafeRolesForAddresses(sentinels),
             preferredSafeRole: SENTINEL_SAFE_ROLE,
           }
@@ -1126,7 +1137,7 @@ function DeallocatePanel({
   const handlePreviewConfirm = useCallback(async () => {
     if (
       !canConfirmVaultWriteDestination(writeDestination, {
-        walletEnabled: walletCanUseSentinel,
+        walletReady,
         eligibleSafeRoles: eligibleSentinelSafes,
       })
     ) {
@@ -1136,6 +1147,7 @@ function DeallocatePanel({
           ...(activeRowKey
             ? {
                 [activeRowKey]:
+                  sentinelWalletHint ??
                   'Connect a sentinel wallet in the top bar, or queue to a role multisig.',
               }
             : {}),
@@ -1162,7 +1174,8 @@ function DeallocatePanel({
     await confirmPreview();
   }, [
     writeDestination,
-    walletCanUseSentinel,
+    walletReady,
+    sentinelWalletHint,
     eligibleSentinelSafes,
     handleQueueInSafe,
     assetSymbol,
@@ -1313,12 +1326,11 @@ function DeallocatePanel({
         destinationOptions={{
           destination: writeDestination,
           onDestinationChange: setWriteDestination,
-          walletEnabled: walletCanUseSentinel,
-          walletDisabledHint:
-            'Connect a sentinel wallet in the top bar, or queue to a role multisig.',
+          walletReady,
+          walletHint: sentinelWalletHint,
           safeRoles: eligibleSentinelSafes,
           confirmEnabled: canConfirmVaultWriteDestination(writeDestination, {
-            walletEnabled: walletCanUseSentinel,
+            walletReady,
             eligibleSafeRoles: eligibleSentinelSafes,
           }),
         }}

@@ -81,8 +81,8 @@ import {
 } from '@/lib/onchain/allocation-dust';
 import {
   buildRebalanceMulticallData,
-  clampPlanToFundableIdle,
-  CLAMP_TO_FUNDABLE_WARNING,
+  INSUFFICIENT_IDLE_FUNDING_ERROR,
+  summarizeRebalanceFunding,
   computeDeployableIdle,
   computeIdleTargetFromStrategyPlan,
   finalizeRebalancePlan,
@@ -90,7 +90,6 @@ import {
   percentInputToRaw,
   rawToPercentInput,
   trimPlanToVaultTotal,
-  validateIdleFunding,
   type RebalancePlanRow,
 } from '@/lib/onchain/v2-rebalance-plan';
 import { vaultV2Abi } from '@/lib/onchain/abis';
@@ -592,15 +591,17 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       searchHaystack: 'idle',
     });
 
-    const planningTotalRaw = totalRaw;
-    let chainTotalRaw = planningTotalRaw;
+    let chainTotalRaw = totalRaw;
     if (risk.totalAssets) {
       try {
         chainTotalRaw = BigInt(risk.totalAssets);
       } catch {
-        /* keep planning total */
+        /* keep sum of display + idle */
       }
     }
+    // Rebalance targets/deltas use on-chain totalAssets — not sum(display positions),
+    // which includes accrued Morpho supply above booked allocation(id).
+    const planningTotalRaw = chainTotalRaw;
 
     return {
       rows,
@@ -676,12 +677,11 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
   const [preparedSubmit, setPreparedSubmit] = useState<{
     rows: RebalancePlanRow[];
     preview: TxPreview;
-    clampWarning: string | null;
   } | null>(null);
   const multicallWrite = useVaultWrite({ chainId: chainId ?? BASE_CHAIN_ID });
   const resetMulticallWrite = multicallWrite.reset;
   const publicClient = usePublicClient({ chainId: chainId ?? BASE_CHAIN_ID });
-  const { address: walletAddress } = useAccount();
+  const { address: walletAddress, isConnected } = useAccount();
   const router = useRouter();
   const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
     useCuratorSafeApps();
@@ -697,6 +697,12 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
   );
 
   const walletCanAllocate = walletCanSignAllocation(walletAddress, governance?.allocators);
+  const walletReady = isConnected && walletCanAllocate;
+  const allocationWalletHint = !isConnected
+    ? 'Connect your wallet in the top bar to sign directly with your EOA.'
+    : !walletCanAllocate
+      ? 'Connected wallet is not an on-chain allocator for this vault — switch to an allocator EOA or queue to a Safe.'
+      : undefined;
   const eligibleAllocatorSafes = useMemo(
     () => eligibleSafeRolesForAddresses(governance?.allocators),
     [governance?.allocators]
@@ -816,7 +822,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
         }
         return resolvedAssets.map((raw, i) => {
           const t = targetsWithCaps[i]!;
-          if (raw === t.displayAssets) return '';
+          if (raw === t.currentAssets) return '';
           return formatAllocationEditInputExact(raw, t.symbol, t.decimals, false);
         });
       });
@@ -1032,7 +1038,6 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     let adjustedResults = results;
     let dustDiff = BigInt(0);
     let dustRecipientIdx: number | null = null;
-    let clampWarning: string | null = null;
 
     // Explicit dust recipient: curator picked a strategy target to absorb the
     // unallocated remainder. Cap validation below still applies to the
@@ -1127,7 +1132,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       }));
     }
 
-    const fundingResult = clampPlanToFundableIdle(
+    const fundingResult = summarizeRebalanceFunding(
       adjustedResults.map((r) => ({
         target: {
           label: r.target.label,
@@ -1144,14 +1149,18 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
         current: r.current,
       }))
     );
-    if (fundingResult.reduced) {
-      clampWarning = CLAMP_TO_FUNDABLE_WARNING;
+    if (fundingResult.shortfall > BigInt(0)) {
+      return {
+        valid: false as const,
+        error: INSUFFICIENT_IDLE_FUNDING_ERROR,
+        results: adjustedResults,
+        inputSum,
+        sumAssets,
+        dustDiff,
+        dustRecipientIdx,
+        fundingShortfall: fundingResult.shortfall,
+      };
     }
-    adjustedResults = fundingResult.rows.map((row, i) => ({
-      target: adjustedResults[i]!.target,
-      assets: row.assets,
-      current: row.current,
-    }));
     sumAssets = adjustedResults.reduce((s, r) => s + r.assets, BigInt(0));
 
     if (adjustedResults.some((r) => r.assets < BigInt(0))) {
@@ -1252,33 +1261,6 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       };
     }
 
-    const fundingError = validateIdleFunding(
-      adjustedResults.map((r) => ({
-        target: {
-          label: r.target.label,
-          adapterAddress: r.target.adapterAddress,
-          data: r.target.data,
-          capIdHash: r.target.capIdHash,
-          isVaultIdle: r.target.isVaultIdle,
-          absoluteCapRaw: r.target.absoluteCapRaw,
-          relativeCapWad: r.target.relativeCapWad,
-        },
-        assets: r.assets,
-        current: r.current,
-      }))
-    );
-    if (fundingError) {
-      return {
-        valid: false as const,
-        error: fundingError,
-        results: adjustedResults,
-        inputSum,
-        sumAssets,
-        dustDiff,
-        dustRecipientIdx,
-      };
-    }
-
     return {
       valid: true as const,
       error: null,
@@ -1287,7 +1269,6 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       sumAssets,
       dustDiff,
       dustRecipientIdx,
-      clampWarning,
     };
   }, [editing, inputValues, targetsWithCaps, inputMode, planningTotalRaw, chainTotalRaw, dustRecipientKey, governance, govError]);
 
@@ -1339,26 +1320,14 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
         return;
       }
 
-      const preview =
-        finalized.clampWarning != null
-          ? {
-              ...basePreview,
-              footnote: [basePreview.footnote, finalized.clampWarning]
-                .filter(Boolean)
-                .join(' '),
-            }
-          : basePreview;
-
       setPreparedSubmit({
         rows: finalized.rows,
-        preview,
-        clampWarning: finalized.clampWarning,
+        preview: basePreview,
       });
       setWriteDestination(
         coerceVaultWriteDestination(
           defaultAllocationDestination(governance?.allocators, walletAddress),
           {
-            walletEnabled: walletCanSignAllocation(walletAddress, governance?.allocators),
             eligibleSafeRoles: eligibleSafeRolesForAddresses(governance?.allocators),
             preferredSafeRole: ALLOCATION_SAFE_ROLE,
           }
@@ -1498,12 +1467,15 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
   const handlePreviewConfirm = useCallback(async () => {
     if (
       !canConfirmVaultWriteDestination(writeDestination, {
-        walletEnabled: walletCanAllocate,
+        walletReady,
         eligibleSafeRoles: eligibleAllocatorSafes,
       })
     ) {
       if (writeDestination.kind === 'wallet') {
-        setSubmitError('Connect an allocator wallet in the top bar, or queue to a role multisig.');
+        setSubmitError(
+          allocationWalletHint ??
+            'Connect an allocator wallet in the top bar, or queue to a role multisig.'
+        );
       } else {
         setQueueSafeError('Selected Safe is not an on-chain allocator for this vault.');
       }
@@ -1517,7 +1489,8 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
     await handleRebalance();
   }, [
     writeDestination,
-    walletCanAllocate,
+    walletReady,
+    allocationWalletHint,
     eligibleAllocatorSafes,
     handleQueueInSafe,
     handleRebalance,
@@ -1553,7 +1526,7 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
       const v = inputValues[targetIdx]?.trim() ?? '';
       if (!v) {
         return planningTotalRaw > BigInt(0)
-          ? Number((t.displayAssets * BigInt(10000)) / planningTotalRaw) / 100
+          ? Number((t.currentAssets * BigInt(10000)) / planningTotalRaw) / 100
           : 0;
       }
       if (inputMode === 'percentage') {
@@ -1831,7 +1804,12 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
               <Input
                 type="text"
                 inputMode="decimal"
-                placeholder={formatRawAsInput(t.displayAssets, t)}
+                placeholder={formatRawAsInput(t.currentAssets, t)}
+                title={
+                  t.displayAssets !== t.currentAssets
+                    ? `On-chain booked: ${formatAllocationEditInput(t.currentAssets, t.symbol, t.decimals)} ${t.symbol}. Display includes ${formatAllocationEditInput(t.displayAssets - t.currentAssets, t.symbol, t.decimals)} accrued interest (not deployable until rebalanced).`
+                    : undefined
+                }
                 value={inputValues[r.targetIdx] ?? ''}
                 onChange={(e) => updateInput(r.targetIdx, e.target.value)}
                 className="h-9 text-right font-mono text-sm tabular-nums"
@@ -1864,6 +1842,12 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
               {filters.amountUnit === 'usd'
                 ? formatFullUSD(totalUsd, 2)
                 : `${formatRawTokenAmount(planningTotalRaw, vaultDecimals, vaultDisplayDecimals)} ${vaultSymbol}`}
+              {editing && (
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  Targets are on-chain booked amounts (empty row = current booked). Accrued interest
+                  shown in the allocation column is not deployable until rebalanced.
+                </span>
+              )}
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -1946,14 +1930,6 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
               dustRecipientLabel={dustRecipientLabel}
               parseError={resolvedAllocations?.error ?? null}
             />
-            {resolvedAllocations?.clampWarning && (
-              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                <p className="text-xs text-amber-800 dark:text-amber-200">
-                  {resolvedAllocations.clampWarning} Confirm preview before signing.
-                </p>
-              </div>
-            )}
             <DustRecipientSelect
               value={dustRecipientKey}
               onChange={setDustRecipientKey}
@@ -2050,12 +2026,11 @@ export function VaultV2Allocations({ vaultAddress, chainId, preloadedData, prelo
               destinationOptions={{
                 destination: writeDestination,
                 onDestinationChange: setWriteDestination,
-                walletEnabled: walletCanAllocate,
-                walletDisabledHint:
-                  'Connect an allocator wallet in the top bar, or queue to a role multisig.',
+                walletReady,
+                walletHint: allocationWalletHint,
                 safeRoles: eligibleAllocatorSafes,
                 confirmEnabled: canConfirmVaultWriteDestination(writeDestination, {
-                  walletEnabled: walletCanAllocate,
+                  walletReady,
                   eligibleSafeRoles: eligibleAllocatorSafes,
                 }),
               }}

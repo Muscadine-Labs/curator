@@ -18,8 +18,8 @@ import { VaultWriteDestinationSelect } from '@/components/morpho/VaultWriteDesti
 export interface VaultWriteDestinationOptions {
   destination: VaultWriteDestination;
   onDestinationChange: (destination: VaultWriteDestination) => void;
-  walletEnabled: boolean;
-  walletDisabledHint?: string;
+  walletReady: boolean;
+  walletHint?: string;
   safeRoles?: ReadonlyArray<SafeRole>;
   confirmEnabled?: boolean;
 }
@@ -205,8 +205,8 @@ export function TxPreviewDialog({
           <VaultWriteDestinationSelect
             destination={destinationOptions.destination}
             onChange={destinationOptions.onDestinationChange}
-            walletEnabled={destinationOptions.walletEnabled}
-            walletDisabledHint={destinationOptions.walletDisabledHint}
+            walletReady={destinationOptions.walletReady}
+            walletHint={destinationOptions.walletHint}
             safeRoles={destinationOptions.safeRoles}
           />
         )}

@@ -117,20 +117,15 @@ export function loadingLabelForDestination(destination: VaultWriteDestination): 
   return 'Queuing…';
 }
 
-/** Ensure destination matches enabled wallet + eligible Safes for role-gated writes. */
+/** Coerce invalid Safe role picks; never override an explicit wallet selection. */
 export function coerceVaultWriteDestination(
   destination: VaultWriteDestination,
   options: {
-    walletEnabled: boolean;
     eligibleSafeRoles: ReadonlyArray<SafeRole>;
     preferredSafeRole: SafeRole;
   }
 ): VaultWriteDestination {
   if (destination.kind === 'wallet') {
-    if (options.walletEnabled) return destination;
-    if (options.eligibleSafeRoles.length > 0) {
-      return defaultSafeDestination(options.eligibleSafeRoles, options.preferredSafeRole);
-    }
     return destination;
   }
 
@@ -146,12 +141,12 @@ export function coerceVaultWriteDestination(
 export function canConfirmVaultWriteDestination(
   destination: VaultWriteDestination,
   options: {
-    walletEnabled: boolean;
+    walletReady: boolean;
     eligibleSafeRoles: ReadonlyArray<SafeRole>;
   }
 ): boolean {
   if (destination.kind === 'wallet') {
-    return options.walletEnabled;
+    return options.walletReady;
   }
   return options.eligibleSafeRoles.includes(destination.role);
 }

@@ -27,6 +27,7 @@ import {
   formatPendingCapSummary,
 } from '@/lib/morpho/pending-accept';
 import {
+  canConfirmVaultWriteDestination,
   defaultPendingAcceptDestination,
   VAULT_WRITE_QUEUE_SAFE_ROLES,
   type VaultWriteDestination,
@@ -247,11 +248,6 @@ export function VaultV2Pending({
     await runWalletAccept();
   }, [acceptItem, writeDestination, queueAcceptInSafe, runWalletAccept, isConnected]);
 
-  const acceptConfirmEnabled =
-    writeDestination.kind === 'wallet'
-      ? isConnected
-      : VAULT_WRITE_QUEUE_SAFE_ROLES.includes(writeDestination.role);
-
   const rowSummary = useCallback(
     (item: VaultV2PendingItem) =>
       formatPendingCapSummary({
@@ -422,9 +418,13 @@ export function VaultV2Pending({
         destinationOptions={{
           destination: writeDestination,
           onDestinationChange: setWriteDestination,
-          walletEnabled: isConnected,
-          walletDisabledHint: 'Connect your wallet in the top bar to accept directly.',
-          confirmEnabled: acceptConfirmEnabled,
+          walletReady: isConnected,
+          walletHint: 'Connect your wallet in the top bar to accept directly with your EOA.',
+          safeRoles: VAULT_WRITE_QUEUE_SAFE_ROLES,
+          confirmEnabled: canConfirmVaultWriteDestination(writeDestination, {
+            walletReady: isConnected,
+            eligibleSafeRoles: VAULT_WRITE_QUEUE_SAFE_ROLES,
+          }),
         }}
         onConfirm={() => void handleAcceptConfirm()}
         isLoading={writeDestination.kind === 'safe' ? queueingSafe : acceptWrite.isLoading}
