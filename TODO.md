@@ -1,6 +1,7 @@
 *TO work on today:
 
-
+- UI glitch with reallocation. Review this set up. I manually make three markets have less allocation to them (eg a market has 5005 USDC than i mark it down to 5000), than with the 15 usdc now i have unallcated, i press max to allocate all of it to a new market. The backend works and it is fully allocated to the other market, but on the UI when I press max, token allocation appears on idle. 
+- On the safe multi sigs, any wallet, not just muscadines, can execute a transcaction, so take the safegaurds off when executing a transcaction on the safe multisig wallets. For the signing on transcactions and queues, it is correctly done. But we dont need to have safehaurds for executing a transcaction, it makes the process a little more slower. Review
 
 **To work on another day:
 
