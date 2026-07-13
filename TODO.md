@@ -6,6 +6,7 @@
 - On allocations instead of Zero, put Min, which could be 0, but the button min should be the minimum allocation witht he avaliable liquidity. 
 - on /markets have each stat that has $ amount to also have total token amount.
 - on the vault overview pages for transcactions and token holders, for Assets amount in tokens for weth and cbbtc have it in 6 decimals not 4, and usdc in 3 decimals not 2.
+- On the revenue, and revenue graph, how is it calucalated per month and also why on the grapgh are some values negative? when i never withdrew anything, i think its based off the assets price. Also, does it support and get info from assets held in the wallet and all v2 vaults?
 
 - 
 **To work on another day:
