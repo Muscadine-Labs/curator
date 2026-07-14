@@ -36,11 +36,15 @@ async function fetchCuratorMarketDetail(
   return res.json();
 }
 
-export function useCuratorMarkets(chainId: number = BASE_CHAIN_ID) {
+export function useCuratorMarkets(
+  chainId: number = BASE_CHAIN_ID,
+  options?: { enabled?: boolean }
+) {
   return useQuery({
     queryKey: ['curator-markets', chainId],
     queryFn: () => fetchCuratorMarkets(chainId),
     ...DASHBOARD_QUERY_OPTIONS,
+    enabled: options?.enabled ?? true,
   });
 }
 

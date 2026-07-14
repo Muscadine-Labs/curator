@@ -1411,26 +1411,27 @@ High-value targets if Jest returns: `lib/morpho/cap-decrease-input.ts`,
 ## 18. Create Morpho Blue Market (`/morpho/create-market`)
 
 UI counterpart to `morpho-markets-scripts` `deploy:markets` (`createMarket`). **No
-server private keys** — the connected wallet signs on Base.
+server private keys** — the connected wallet signs on the **selected top-bar
+network** (Base, Ethereum, HyperEVM, Robinhood, Polygon).
 
 ### Flow
 
-1. Paste **loan** and **collateral** token addresses — UI resolves ERC-20
-   `symbol` / `name` / `decimals` on Base and rejects non-contracts.
-2. **Oracle** — on [oracles.morpho.dev](https://oracles.morpho.dev/) build feeds and
-   export the **Gnosis Safe Payload** JSON. Paste it into Curator → **Deploy oracle**
-   (wallet signs `createMorphoChainlinkOracleV2` on Base factory
-   `0x2DC2…bd3d`). We parse `CreateMorphoChainlinkOracleV2` from the receipt and
-   auto-fill the oracle address. You can also paste an already-deployed address.
-3. Set IRM (default AdaptiveCurveIRM) + LLTV WAD (quick chips for common values).
-4. Client checks Morpho Blue: `isIrmEnabled`, `isLltvEnabled`, and whether
-   `idToMarketParams(marketId)` is already occupied (`marketId = keccak256(abi.encode(params))`).
-5. Call `Morpho.createMarket(marketParams)` via `useVaultWrite`.
+1. Pick network in the top-bar switcher (works **without** a wallet; preference
+   is stored in `localStorage` via `CuratorNetworkProvider`).
+2. Paste **loan** and **collateral** token addresses — UI resolves ERC-20
+   `symbol` / `name` / `decimals` on that chain and rejects non-contracts.
+3. **Oracle** — on [oracles.morpho.dev](https://oracles.morpho.dev/) build feeds and
+   export the **Gnosis Safe Payload** JSON for the **same chainId**. Paste into
+   Curator → **Deploy oracle** (wallet signs `createMorphoChainlinkOracleV2` on
+   that chain’s factory from `@morpho-org/morpho-ts`). Receipt event auto-fills
+   the oracle address. You can also paste an already-deployed address.
+4. Set IRM (default AdaptiveCurveIRM for the selected chain) + LLTV WAD.
+5. Client checks Morpho Blue: `isIrmEnabled`, `isLltvEnabled`, and whether
+   `idToMarketParams(marketId)` is already occupied.
+6. Call `Morpho.createMarket(marketParams)` via `useVaultWrite` on the selected chain.
 
-No market presets — always custom addresses.
-
-IRM default: AdaptiveCurveIRM. Morpho Blue: `0xBBBB…FFCb`.
-Oracle factory (Base): `0x2DC205F24BCb6B311E5cdf0745B0741648Aebd3d`.
+Deployments (Morpho / AdaptiveCurveIRM / chainlinkOracleFactory) live in
+`lib/morpho/create-market-deployments.ts` (sourced from morpho-ts).
 
 ### Not in UI yet
 
@@ -1440,10 +1441,13 @@ only consume its Safe payload / resulting address).
 
 ### Key files
 
-- `lib/morpho/blue-create-market.ts` — constants, `computeMarketId`, oracle lookup, ABI
+- `lib/morpho/create-market-deployments.ts` — per-chain Morpho / IRM / oracle factory
+- `lib/network/CuratorNetworkContext.tsx` — top-bar network preference (no wallet required)
+- `lib/morpho/blue-create-market.ts` — `computeMarketId`, oracle lookup, ABI
 - `lib/morpho/oracle-safe-payload.ts` — parse portal Gnosis Safe JSON + receipt event
 - `lib/morpho/erc20-token-meta.ts` — on-chain ERC-20 name/symbol/decimals
 - `components/morpho/CreateMarketForm.tsx` — form + validation + tx
+- `components/NetworkSwitcher.tsx` — top-bar select
 - `app/morpho/create-market/page.tsx` — route
 - Hub entry: `app/morpho/page.tsx`
 

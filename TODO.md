@@ -22,6 +22,14 @@ _(empty — all prior Today items moved to Done 2026-07-14)_
 
 ## Done
 
+### 2026-07-14 — Pre-prod create-market / network hardening
+
+- [x] Fixed BASE_CHAIN_ID crash; validation race; Safe payload null tx; LOWs (factory required, ready gate, oracle value, reset filters, lazy deployments).
+- [x] Removed auto switchChain on connect (wallet prompt spam); switch only via NetworkSwitcher.
+- [x] create-market soft-fails missing Morpho deployments; lint + build clean.
+
+---
+
 ### 2026-07-14 — Create-market tokens + oracle paste
 
 - [x] Removed market presets; loan/collateral show ERC-20 ticker/name under address.

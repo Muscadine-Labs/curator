@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   isAddress,
   getAddress,
@@ -24,24 +24,22 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { TransactionButton } from '@/components/TransactionButton';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
 import {
-  BASE_CHAIN_ID,
   getAddressScanUrl,
   getScanUrlForChain,
   MORPHO_ORACLE_PORTAL_URL,
 } from '@/lib/constants';
 import {
-  ADAPTIVE_CURVE_IRM,
   computeMarketId,
   DEFAULT_LLTV_WAD,
   formatLltvPercent,
   isZeroAddress,
   LLTV_PRESETS,
   lookupMorphoOracle,
-  MORPHO_BLUE,
   morphoBlueCreateMarketAbi,
   morphoOracleFactoryAbi,
   type OracleLookup,
 } from '@/lib/morpho/blue-create-market';
+import { getCreateMarketDeployment } from '@/lib/morpho/create-market-deployments';
 import {
   lookupErc20TokenMeta,
   type Erc20TokenLookup,
@@ -51,6 +49,7 @@ import {
   parseOracleSafePayload,
   type ParsedOracleDeployTx,
 } from '@/lib/morpho/oracle-safe-payload';
+import { useCuratorNetwork } from '@/lib/network/CuratorNetworkContext';
 
 type ValidationState = {
   checking: boolean;
@@ -197,7 +196,15 @@ function useDebouncedLookup<T>(
 }
 
 export function CreateMarketForm() {
-  const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
+  const { chainId, networkName, isWalletOnSelectedChain, ready } = useCuratorNetwork();
+  const deployment = useMemo(() => {
+    try {
+      return getCreateMarketDeployment(chainId);
+    } catch {
+      return null;
+    }
+  }, [chainId]);
+  const publicClient = usePublicClient({ chainId: ready ? chainId : undefined });
   const {
     write,
     txHash,
@@ -205,7 +212,7 @@ export function CreateMarketForm() {
     isSuccess,
     error: writeError,
     reset,
-  } = useVaultWrite({ chainId: BASE_CHAIN_ID });
+  } = useVaultWrite({ chainId });
 
   const {
     write: writeOracle,
@@ -215,7 +222,7 @@ export function CreateMarketForm() {
     isSuccess: oracleDeploySuccess,
     error: oracleWriteError,
     reset: resetOracleWrite,
-  } = useVaultWrite({ chainId: BASE_CHAIN_ID });
+  } = useVaultWrite({ chainId });
 
   const [loanToken, setLoanToken] = useState('');
   const [collateralToken, setCollateralToken] = useState('');
@@ -223,38 +230,63 @@ export function CreateMarketForm() {
   const [oraclePayloadJson, setOraclePayloadJson] = useState('');
   const [oraclePayloadError, setOraclePayloadError] = useState<string | null>(null);
   const [parsedOracleTx, setParsedOracleTx] = useState<ParsedOracleDeployTx | null>(null);
-  const [irm, setIrm] = useState<string>(ADAPTIVE_CURVE_IRM);
+  const [irm, setIrm] = useState<string>('');
   const [lltv, setLltv] = useState<string>(DEFAULT_LLTV_WAD);
   const [validation, setValidation] = useState<ValidationState>(emptyValidation);
+  /** Bumps on each validation run so slower RPC replies cannot overwrite newer results. */
+  const validationGenRef = useRef(0);
+
+  // Reset chain-specific fields when top-bar network changes (or deployment resolves).
+  useEffect(() => {
+    setLoanToken('');
+    setCollateralToken('');
+    setIrm(deployment?.adaptiveCurveIrm ?? '');
+    setOracle('');
+    setOraclePayloadJson('');
+    setOraclePayloadError(null);
+    setParsedOracleTx(null);
+    setValidation(emptyValidation);
+    reset();
+    resetOracleWrite();
+    // Intentionally keyed on chainId (not deployment object / reset fn identity).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset form only on network change
+  }, [chainId]);
 
   const resolveLoan = useCallback(
     async (value: string): Promise<Erc20TokenLookup> => {
       if (!publicClient) {
-        return { status: 'invalid', error: 'Base RPC client not ready.' };
+        return { status: 'invalid', error: `${networkName} RPC client not ready.` };
       }
       return lookupErc20TokenMeta(publicClient, value);
     },
-    [publicClient]
+    [publicClient, networkName]
   );
 
   const resolveCollateral = useCallback(
     async (value: string): Promise<Erc20TokenLookup> => {
       if (!publicClient) {
-        return { status: 'invalid', error: 'Base RPC client not ready.' };
+        return { status: 'invalid', error: `${networkName} RPC client not ready.` };
       }
       return lookupErc20TokenMeta(publicClient, value);
     },
-    [publicClient]
+    [publicClient, networkName]
   );
 
   const resolveOracle = useCallback(
     async (value: string): Promise<OracleLookup> => {
       if (!publicClient) {
-        return { status: 'invalid', error: 'Base RPC client not ready.' };
+        return { status: 'invalid', error: `${networkName} RPC client not ready.` };
       }
-      return lookupMorphoOracle(publicClient, value);
+      if (!deployment) {
+        return { status: 'invalid', error: `createMarket is not configured for ${networkName}.` };
+      }
+      return lookupMorphoOracle(
+        publicClient,
+        value,
+        deployment.chainlinkOracleFactory
+      );
     },
-    [publicClient]
+    [publicClient, networkName, deployment]
   );
 
   const loanMeta = useDebouncedLookup(
@@ -279,18 +311,29 @@ export function CreateMarketForm() {
     LOADING_ORACLE
   );
 
-  const onOraclePayloadChange = useCallback((raw: string) => {
-    setOraclePayloadJson(raw);
-    setOraclePayloadError(null);
-    setParsedOracleTx(null);
-    if (!raw.trim()) return;
-    const result = parseOracleSafePayload(raw);
-    if (!result.ok) {
-      setOraclePayloadError(result.error);
-      return;
-    }
-    setParsedOracleTx(result.tx);
-  }, []);
+  const onOraclePayloadChange = useCallback(
+    (raw: string) => {
+      setOraclePayloadJson(raw);
+      setOraclePayloadError(null);
+      setParsedOracleTx(null);
+      if (!raw.trim()) return;
+      if (!deployment) {
+        setOraclePayloadError(`createMarket is not configured for ${networkName}.`);
+        return;
+      }
+      const result = parseOracleSafePayload(raw, {
+        expectedChainId: deployment.chainId,
+        expectedFactory: deployment.chainlinkOracleFactory,
+        networkName: deployment.name,
+      });
+      if (!result.ok) {
+        setOraclePayloadError(result.error);
+        return;
+      }
+      setParsedOracleTx(result.tx);
+    },
+    [deployment, networkName]
+  );
 
   const handleDeployOracle = useCallback(async () => {
     if (!parsedOracleTx) return;
@@ -315,6 +358,7 @@ export function CreateMarketForm() {
           a.quoteTokenDecimals,
           a.salt,
         ],
+        value: parsedOracleTx.value,
       });
     } catch (err) {
       setOraclePayloadError(
@@ -371,6 +415,15 @@ export function CreateMarketForm() {
       collateralMeta.token.address.toLowerCase();
 
   const runValidation = useCallback(async () => {
+    const gen = ++validationGenRef.current;
+
+    if (!deployment) {
+      setValidation({
+        ...emptyValidation,
+        error: `createMarket is not configured for ${networkName}.`,
+      });
+      return;
+    }
     if (!parsedParams) {
       setValidation({
         ...emptyValidation,
@@ -388,7 +441,7 @@ export function CreateMarketForm() {
     if (!publicClient) {
       setValidation({
         ...emptyValidation,
-        error: 'Base RPC client not ready. Check network / Alchemy key.',
+        error: `${networkName} RPC client not ready. Check network / Alchemy key.`,
       });
       return;
     }
@@ -410,24 +463,26 @@ export function CreateMarketForm() {
     try {
       const [irmOk, lltvOk, existing] = await Promise.all([
         publicClient.readContract({
-          address: MORPHO_BLUE,
+          address: deployment.morpho,
           abi: morphoBlueCreateMarketAbi,
           functionName: 'isIrmEnabled',
           args: [parsedParams.irm],
         }),
         publicClient.readContract({
-          address: MORPHO_BLUE,
+          address: deployment.morpho,
           abi: morphoBlueCreateMarketAbi,
           functionName: 'isLltvEnabled',
           args: [parsedParams.lltv],
         }),
         publicClient.readContract({
-          address: MORPHO_BLUE,
+          address: deployment.morpho,
           abi: morphoBlueCreateMarketAbi,
           functionName: 'idToMarketParams',
           args: [marketId],
         }),
       ]);
+
+      if (gen !== validationGenRef.current) return;
 
       const existingLoan = (existing as readonly [Address, Address, Address, Address, bigint])[0];
       const marketExists = !isZeroAddress(existingLoan);
@@ -441,35 +496,48 @@ export function CreateMarketForm() {
         error: null,
       });
     } catch (err) {
+      if (gen !== validationGenRef.current) return;
       setValidation({
         ...emptyValidation,
         marketId,
         error: err instanceof Error ? err.message : 'Validation failed',
       });
     }
-  }, [parsedParams, publicClient, tokensReady]);
+  }, [parsedParams, publicClient, tokensReady, networkName, deployment]);
 
   useEffect(() => {
-    if (!parsedParams || !tokensReady) return;
+    if (!parsedParams || !tokensReady || !deployment) {
+      validationGenRef.current += 1;
+      setValidation((prev) =>
+        prev.checking ? { ...prev, checking: false } : prev
+      );
+      return;
+    }
     const t = setTimeout(() => {
       void runValidation();
     }, 400);
-    return () => clearTimeout(t);
-  }, [parsedParams, tokensReady, runValidation]);
+    return () => {
+      clearTimeout(t);
+      // Invalidate in-flight RPC from the previous debounce window.
+      validationGenRef.current += 1;
+    };
+  }, [parsedParams, tokensReady, deployment, runValidation]);
 
   const canCreate =
+    !!deployment &&
     !!parsedParams &&
     tokensReady &&
     validation.irmEnabled === true &&
     validation.lltvEnabled === true &&
     validation.marketExists === false &&
-    !validation.checking;
+    !validation.checking &&
+    isWalletOnSelectedChain;
 
   const handleCreate = async () => {
-    if (!parsedParams || !canCreate) return;
+    if (!parsedParams || !canCreate || !deployment) return;
     reset();
     await write({
-      address: MORPHO_BLUE,
+      address: deployment.morpho,
       abi: morphoBlueCreateMarketAbi,
       functionName: 'createMarket',
       args: [parsedParams],
@@ -479,7 +547,7 @@ export function CreateMarketForm() {
   const lltvDisplay = parsedParams ? formatLltvPercent(parsedParams.lltv) : '—';
   const basescanTx =
     txHash != null
-      ? `${getScanUrlForChain(BASE_CHAIN_ID)}/tx/${txHash}`
+      ? `${getScanUrlForChain(chainId)}/tx/${txHash}`
       : null;
 
   const pairLabel =
@@ -487,10 +555,31 @@ export function CreateMarketForm() {
       ? `${collateralMeta.token.symbol} / ${loanMeta.token.symbol}`
       : null;
 
+  if (!deployment) {
+    return (
+      <AppShell
+        title="Create Morpho Market"
+        description={`Morpho Blue createMarket is not available on ${networkName}.`}
+        backHref="/morpho"
+        backLabel="Morpho Tools"
+      >
+        <Alert>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Unsupported network</AlertTitle>
+          <AlertDescription>
+            No Morpho Blue / AdaptiveCurveIRM / oracle factory addresses are configured for{' '}
+            {networkName}. Switch the top-bar network to Base, Ethereum, HyperEVM, Robinhood, or
+            Polygon.
+          </AlertDescription>
+        </Alert>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell
       title="Create Morpho Market"
-      description="Paste token + oracle addresses, validate on-chain, then call Morpho Blue createMarket on Base."
+      description={`Paste token + oracle addresses, validate on-chain, then call Morpho Blue createMarket on ${networkName}. Use the top-bar network toggle (works without a wallet).`}
       backHref="/morpho"
       backLabel="Morpho Tools"
       actions={
@@ -534,7 +623,8 @@ export function CreateMarketForm() {
               >
                 oracles.morpho.dev
               </a>
-              . We call MorphoChainlinkOracleV2Factory on Base and auto-fill the address.
+              . We call MorphoChainlinkOracleV2Factory on {networkName} and auto-fill the address.
+              Payload chainId must match the top-bar network ({chainId}).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -570,7 +660,7 @@ export function CreateMarketForm() {
             <div className="flex flex-wrap items-center gap-2">
               <TransactionButton
                 onClick={() => void handleDeployOracle()}
-                disabled={!parsedOracleTx}
+                disabled={!parsedOracleTx || !isWalletOnSelectedChain}
                 isLoading={oracleDeploying}
                 isSuccess={oracleDeploySuccess && !!oracle}
                 error={null}
@@ -596,14 +686,14 @@ export function CreateMarketForm() {
           <CardHeader>
             <CardTitle>MarketParams</CardTitle>
             <CardDescription>
-              Morpho Blue · Base ·{' '}
+              Morpho Blue · {networkName} ·{' '}
               <a
-                href={getAddressScanUrl(BASE_CHAIN_ID, MORPHO_BLUE)}
+                href={getAddressScanUrl(chainId, deployment.morpho)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline underline-offset-2"
               >
-                {MORPHO_BLUE.slice(0, 10)}…
+                {deployment.morpho.slice(0, 10)}…
               </a>
               {pairLabel ? ` · ${pairLabel}` : ''}
             </CardDescription>
@@ -680,7 +770,10 @@ export function CreateMarketForm() {
             </div>
 
             <div className="space-y-2">
-              <FieldLabel htmlFor="irm" hint="AdaptiveCurveIRM is enabled on Base">
+              <FieldLabel
+                htmlFor="irm"
+                hint={`AdaptiveCurveIRM for ${networkName}`}
+              >
                 IRM
               </FieldLabel>
               <Input
@@ -695,7 +788,7 @@ export function CreateMarketForm() {
                 type="button"
                 size="sm"
                 variant="outline"
-                onClick={() => setIrm(ADAPTIVE_CURVE_IRM)}
+                onClick={() => setIrm(deployment.adaptiveCurveIrm)}
               >
                 Use AdaptiveCurveIRM
               </Button>
@@ -799,8 +892,13 @@ export function CreateMarketForm() {
           <CardHeader>
             <CardTitle>Create on-chain</CardTitle>
             <CardDescription>
-              Calls <code className="text-xs">Morpho.createMarket(marketParams)</code>.
-              Gas only — no tokens required.
+              Calls <code className="text-xs">Morpho.createMarket(marketParams)</code> on{' '}
+              {networkName}. Gas only — no tokens required.
+              {!isWalletOnSelectedChain ? (
+                <span className="mt-1 block text-amber-700 dark:text-amber-400">
+                  Connect a wallet on {networkName} (or flip the top-bar network) to create.
+                </span>
+              ) : null}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -822,7 +920,7 @@ export function CreateMarketForm() {
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 underline underline-offset-2"
                 >
-                  View on Basescan
+                  View on explorer
                   <ExternalLink className="h-3.5 w-3.5" />
                 </a>
               </p>

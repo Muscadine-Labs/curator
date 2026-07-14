@@ -10,7 +10,7 @@ type ConnectWalletButtonProps = {
 export function ConnectWalletButton({ className }: ConnectWalletButtonProps) {
   return (
     <div className={className}>
-      <ConnectButton showBalance={false} chainStatus="icon" accountStatus="address" />
+      <ConnectButton showBalance={false} chainStatus="none" accountStatus="address" />
     </div>
   );
 }

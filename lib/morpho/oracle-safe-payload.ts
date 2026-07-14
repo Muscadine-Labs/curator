@@ -7,11 +7,7 @@ import {
   type Hex,
   type TransactionReceipt,
 } from 'viem';
-import { BASE_CHAIN_ID } from '@/lib/constants';
-import {
-  MORPHO_CHAINLINK_ORACLE_V2_FACTORY_BASE,
-  morphoOracleFactoryAbi,
-} from '@/lib/morpho/blue-create-market';
+import { morphoOracleFactoryAbi } from '@/lib/morpho/blue-create-market';
 
 export type SafeTxBuilderTransaction = {
   to: string;
@@ -55,24 +51,53 @@ export type ParseOraclePayloadResult =
   | { ok: true; tx: ParsedOracleDeployTx }
   | { ok: false; error: string };
 
+export type ParseOraclePayloadOptions = {
+  /** Selected create-market chain (must match payload.chainId). */
+  expectedChainId: number;
+  /** MorphoChainlinkOracleV2Factory on that chain. */
+  expectedFactory: Address;
+  networkName?: string;
+};
+
+function asSafeTx(raw: unknown): SafeTxBuilderTransaction | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.to !== 'string') return null;
+  if (typeof obj.data !== 'string') return null;
+  return {
+    to: obj.to,
+    value: typeof obj.value === 'string' || typeof obj.value === 'number' ? String(obj.value) : '0',
+    data: obj.data,
+  };
+}
+
 function asBatch(raw: unknown): SafeTxBuilderBatch | null {
   if (!raw || typeof raw !== 'object') return null;
   const obj = raw as Record<string, unknown>;
   if (typeof obj.chainId !== 'string' && typeof obj.chainId !== 'number') return null;
   if (!Array.isArray(obj.transactions) || obj.transactions.length === 0) return null;
+  const transactions: SafeTxBuilderTransaction[] = [];
+  for (const entry of obj.transactions) {
+    const tx = asSafeTx(entry);
+    if (!tx) return null;
+    transactions.push(tx);
+  }
   return {
     version: typeof obj.version === 'string' ? obj.version : undefined,
     chainId: String(obj.chainId),
     meta: obj.meta as SafeTxBuilderBatch['meta'],
-    transactions: obj.transactions as SafeTxBuilderTransaction[],
+    transactions,
   };
 }
 
 /**
  * Parse Gnosis Safe Transaction Builder JSON exported from oracles.morpho.dev.
- * Expects a single createMorphoChainlinkOracleV2 call on Base.
+ * Expects a single createMorphoChainlinkOracleV2 call on the selected chain.
  */
-export function parseOracleSafePayload(raw: string): ParseOraclePayloadResult {
+export function parseOracleSafePayload(
+  raw: string,
+  options: ParseOraclePayloadOptions
+): ParseOraclePayloadResult {
   const trimmed = raw.trim();
   if (!trimmed) {
     return { ok: false, error: 'Paste the Gnosis Safe payload JSON from the Oracle Portal.' };
@@ -94,10 +119,11 @@ export function parseOracleSafePayload(raw: string): ParseOraclePayloadResult {
   }
 
   const chainId = Number(batch.chainId);
-  if (chainId !== BASE_CHAIN_ID) {
+  if (chainId !== options.expectedChainId) {
+    const label = options.networkName ?? `chain ${options.expectedChainId}`;
     return {
       ok: false,
-      error: `Payload chainId is ${batch.chainId}; Curator create-market deploys on Base (${BASE_CHAIN_ID}).`,
+      error: `Payload chainId is ${batch.chainId}; selected network is ${label} (${options.expectedChainId}). Flip the top-bar network or re-export from the portal.`,
     };
   }
 
@@ -117,10 +143,10 @@ export function parseOracleSafePayload(raw: string): ParseOraclePayloadResult {
   }
 
   const factory = getAddress(tx.to) as Address;
-  if (factory.toLowerCase() !== MORPHO_CHAINLINK_ORACLE_V2_FACTORY_BASE.toLowerCase()) {
+  if (factory.toLowerCase() !== options.expectedFactory.toLowerCase()) {
     return {
       ok: false,
-      error: `Unexpected factory ${factory}. Base MorphoChainlinkOracleV2Factory is ${MORPHO_CHAINLINK_ORACLE_V2_FACTORY_BASE}.`,
+      error: `Unexpected factory ${factory}. Expected MorphoChainlinkOracleV2Factory ${options.expectedFactory}.`,
     };
   }
 
@@ -145,17 +171,17 @@ export function parseOracleSafePayload(raw: string): ParseOraclePayloadResult {
   }
 
   const args = decoded.args as readonly [
-    Address, // baseVault
-    bigint, // baseVaultConversionSample
-    Address, // baseFeed1
-    Address, // baseFeed2
-    bigint, // baseTokenDecimals
-    Address, // quoteVault
-    bigint, // quoteVaultConversionSample
-    Address, // quoteFeed1
-    Address, // quoteFeed2
-    bigint, // quoteTokenDecimals
-    Hex, // salt
+    Address,
+    bigint,
+    Address,
+    Address,
+    bigint,
+    Address,
+    bigint,
+    Address,
+    Address,
+    bigint,
+    Hex,
   ];
 
   let value = 0n;

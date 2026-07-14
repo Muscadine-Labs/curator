@@ -100,8 +100,10 @@ npm run build   # next build
   Allocations **Min** = allocation minus withdrawable market liquidity (0 when
   fully liquid); replaces former Zero.
 - **Curator networks** — Base, Ethereum, HyperEVM, Robinhood, Polygon only
-  (`CURATOR_MARKET_NETWORKS` + wagmi `chains`). `/markets` mirrors top-bar wallet
-  chain (no page-local network switcher).
+  (`CURATOR_MARKET_NETWORKS` + wagmi `chains`). Top-bar **NetworkSwitcher** sets
+  preferred chain **without requiring a wallet**; when connected it also
+  `switchChain`. `/markets` and `/morpho/create-market` follow that preference
+  (not RainbowKit-only chain UI).
 - **Token display decimals** — `getTokenDisplayDecimals`: WETH/cbBTC → 6, USDC → 3
   (holders, txs, allocation history, markets token lines).
 - **ESLint** — stay on **v9.39.x** with `eslint-config-next` flat config in

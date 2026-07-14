@@ -311,9 +311,13 @@ export default function CuratorBlueMarketPage() {
           {chainId !== BASE_CHAIN_ID ? (
             <Card>
               <CardContent className="pt-6 text-sm text-slate-500 dark:text-slate-400">
-                Full risk scoring (oracle freshness and IRM utilization target) is available on
-                Base markets only. Switch the network filter on Morpho Markets to Base for this
-                market if it exists there.
+                Oracle freshness, feed bounds, and IRM utilization targets still read via the{' '}
+                <span className="font-medium text-slate-700 dark:text-slate-200">Base RPC</span>{' '}
+                only. To enable full risk scoring and the oracle panel on{' '}
+                <span className="font-medium text-slate-700 dark:text-slate-200">
+                  {networkName}
+                </span>
+                , add a {networkName} RPC to the website (server client + env).
               </CardContent>
             </Card>
           ) : (

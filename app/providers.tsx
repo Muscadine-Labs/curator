@@ -16,6 +16,7 @@ import { AuthGuard } from '@/components/AuthGuard';
 import { ThemeProvider } from '@/lib/theme/ThemeContext';
 import { RevenueSourceProvider } from '@/lib/RevenueSourceContext';
 import { CuratorSafeAppsProvider } from '@/lib/safe/safe-apps-context';
+import { CuratorNetworkProvider } from '@/lib/network/CuratorNetworkContext';
 
 const ReactQueryDevtools = dynamic(
   () => import('@tanstack/react-query-devtools').then((mod) => mod.ReactQueryDevtools),
@@ -83,15 +84,17 @@ export function Providers({
       <ThemeProvider>
         <WagmiProvider config={config} initialState={initialState} reconnectOnMount>
           <RainbowKitThemeProvider>
-            <CuratorAuthProvider>
-              <AuthGuard>
-                <RevenueSourceProvider>
-                  <CuratorSafeAppsProvider>
-                    <ErrorBoundary>{children}</ErrorBoundary>
-                  </CuratorSafeAppsProvider>
-                </RevenueSourceProvider>
-              </AuthGuard>
-            </CuratorAuthProvider>
+            <CuratorNetworkProvider>
+              <CuratorAuthProvider>
+                <AuthGuard>
+                  <RevenueSourceProvider>
+                    <CuratorSafeAppsProvider>
+                      <ErrorBoundary>{children}</ErrorBoundary>
+                    </CuratorSafeAppsProvider>
+                  </RevenueSourceProvider>
+                </AuthGuard>
+              </CuratorAuthProvider>
+            </CuratorNetworkProvider>
             {process.env.NODE_ENV === 'development' && (
               <ReactQueryDevtools initialIsOpen={false} />
             )}

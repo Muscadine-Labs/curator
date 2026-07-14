@@ -10,25 +10,34 @@ import {
   type PublicClient,
 } from 'viem';
 
-/** Morpho Blue on Base (and shared address across Morpho deployments). */
+/**
+ * Morpho Blue singleton (same address on Morpho-supported EVM chains).
+ * Prefer `getCreateMarketDeployment(chainId).morpho` for create-market UI.
+ */
 export const MORPHO_BLUE = '0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb' as Address;
 
-/** AdaptiveCurveIRM — enabled on Base. */
+/**
+ * AdaptiveCurveIRM on Base. IRM addresses differ by chain — use
+ * `getCreateMarketDeployment(chainId).adaptiveCurveIrm` for create-market.
+ */
 export const ADAPTIVE_CURVE_IRM =
   '0x46415998764C29aB2a25CbeA6254146D50D22687' as Address;
 
 /**
- * MorphoChainlinkOracleV2Factory on Base (portal Safe payloads target this).
+ * MorphoChainlinkOracleV2Factory on Base.
  * @see https://basescan.org/address/0x2dc205f24bcb6b311e5cdf0745b0741648aebd3d
  */
 export const MORPHO_CHAINLINK_ORACLE_V2_FACTORY_BASE =
   '0x2DC205F24BCb6B311E5cdf0745B0741648Aebd3d' as Address;
 
-/** Ethereum factory (different CREATE2 deployment than Base). */
+/** Ethereum MorphoChainlinkOracleV2Factory (different CREATE2 than Base). */
 export const MORPHO_CHAINLINK_ORACLE_V2_FACTORY_ETHEREUM =
   '0x3A7bB36Ee3f3eE32A60e9f2b33c1e5f2E83ad766' as Address;
 
-/** @deprecated Use MORPHO_CHAINLINK_ORACLE_V2_FACTORY_BASE — create-market is Base-only. */
+/**
+ * @deprecated Prefer `getCreateMarketDeployment(chainId).chainlinkOracleFactory`
+ * or the explicit `_BASE` / `_ETHEREUM` constants. Alias kept for older callers.
+ */
 export const MORPHO_CHAINLINK_ORACLE_V2_FACTORY =
   MORPHO_CHAINLINK_ORACLE_V2_FACTORY_BASE;
 
@@ -115,10 +124,14 @@ export type OracleLookup =
     }
   | { status: 'invalid'; address?: Address; error: string };
 
-/** Validate oracle address: contract code + optional factory membership. */
+/**
+ * Validate oracle address: contract code + factory membership.
+ * `oracleFactory` is required (chain-specific — do not default to Base).
+ */
 export async function lookupMorphoOracle(
   client: PublicClient,
-  rawAddress: string
+  rawAddress: string,
+  oracleFactory: Address
 ): Promise<OracleLookup> {
   const trimmed = rawAddress.trim();
   if (!trimmed) return { status: 'idle' };
@@ -148,7 +161,7 @@ export async function lookupMorphoOracle(
     try {
       factoryDeployed = Boolean(
         await client.readContract({
-          address: MORPHO_CHAINLINK_ORACLE_V2_FACTORY_BASE,
+          address: oracleFactory,
           abi: morphoOracleFactoryAbi,
           functionName: 'isMorphoChainlinkOracleV2',
           args: [address],

@@ -4,6 +4,23 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-07-14 — Pre-prod review: create-market + network hardening
+
+- Fixed create-market `BASE_CHAIN_ID` crash; validation gen race; Safe payload `transactions[0]` null-safe.
+- Network: `ready` gate for markets fetch; no auto `switchChain` on connect (explicit switcher only).
+- `useVaultWrite` optional `value`; oracle deploy passes payload value; lazy create-market deployments.
+- Lint + `npm run build` clean.
+
+---
+
+## 2026-07-14 — Multi-chain create-market + network switcher without wallet
+
+- Top-bar `NetworkSwitcher` (localStorage preference) works disconnected; syncs wallet when connected.
+- `/markets` + create-market follow preference; createMarket uses per-chain Morpho/IRM/oracle factory from `@morpho-org/morpho-ts`.
+- RainbowKit `chainStatus="none"` (app owns network UI).
+
+---
+
 ## 2026-07-14 — Oracle portal Safe JSON → deploy + auto-fill
 
 - Paste Gnosis Safe payload from oracles.morpho.dev; wallet deploys `createMorphoChainlinkOracleV2` on Base factory `0x2DC2…bd3d`; receipt event fills oracle address.

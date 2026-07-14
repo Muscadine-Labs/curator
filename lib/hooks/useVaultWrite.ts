@@ -17,6 +17,8 @@ interface WriteContractConfig {
   abi: Abi | readonly unknown[];
   functionName: string;
   args: readonly unknown[];
+  /** Native value (wei). Used for payable factory calls when the Safe payload sets `value`. */
+  value?: bigint;
 }
 
 type UseVaultWriteOptions = {
@@ -73,6 +75,7 @@ export function useVaultWrite(options?: UseVaultWriteOptions) {
         abi: config.abi as Abi,
         functionName: config.functionName,
         args: config.args as unknown[],
+        ...(config.value != null && config.value > 0n ? { value: config.value } : {}),
         chain,
         chainId: targetChainId,
       });

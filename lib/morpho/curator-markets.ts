@@ -477,6 +477,7 @@ export async function fetchCuratorMarketDetail(
   const collateralDecimals = item.collateralAsset?.decimals ?? 18;
 
   // Oracle freshness, price bounds, and IRM kink reads use the Base RPC client today.
+  // Non-Base market detail UI tells curators to add that chain's RPC to enable scoring.
   if (chainId === BASE_CHAIN_ID && !isMarketIdle(market)) {
     const baseFeedHints = getOracleFeedHintsFromMarket(item);
     const oracleAddr = market.oracleAddress ? (market.oracleAddress as Address) : null;
