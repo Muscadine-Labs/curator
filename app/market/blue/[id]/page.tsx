@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
-import { ExternalLink, ArrowLeft } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -138,23 +138,17 @@ export default function CuratorBlueMarketPage() {
           headerDescription
         )
       }
+      backHref="/markets"
+      backLabel="Morpho Markets"
       actions={
-        <div className="flex flex-wrap gap-2">
+        morphoHref ? (
           <Button variant="outline" size="sm" asChild>
-            <Link href="/markets">
-              <ArrowLeft className="mr-1 h-4 w-4" />
-              Morpho Markets
-            </Link>
+            <a href={morphoHref} target="_blank" rel="noopener noreferrer">
+              Morpho app
+              <ExternalLink className="ml-1 h-4 w-4" />
+            </a>
           </Button>
-          {morphoHref && (
-            <Button variant="outline" size="sm" asChild>
-              <a href={morphoHref} target="_blank" rel="noopener noreferrer">
-                Morpho app
-                <ExternalLink className="ml-1 h-4 w-4" />
-              </a>
-            </Button>
-          )}
-        </div>
+        ) : null
       }
     >
       {isLoading && (

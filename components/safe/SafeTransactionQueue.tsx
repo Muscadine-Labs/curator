@@ -191,7 +191,16 @@ function PendingTransactionCard({
           </span>
         )}
         {canExecute && (
-          <Button size="sm" disabled={busy} onClick={() => void executePending(tx)}>
+          <Button
+            size="sm"
+            disabled={busy || !walletAddress}
+            title={
+              walletAddress
+                ? 'Execute on-chain (any connected wallet)'
+                : 'Connect a wallet in the top bar to execute'
+            }
+            onClick={() => void executePending(tx)}
+          >
             {busy ? 'Executing…' : 'Execute on-chain'}
           </Button>
         )}
@@ -226,12 +235,19 @@ function PendingTransactionCard({
 
       {!walletAddress && (
         <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-          Connect a Safe owner wallet in the top bar to sign or execute.
+          Connect a wallet to execute. Connect a Safe owner to sign.
         </p>
       )}
-      {walletAddress && !isOwner && (
+      {walletAddress && !isOwner && canExecute && (
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          Not an owner — you can still execute once signatures are ready. Signing
+          requires an owner wallet.
+        </p>
+      )}
+      {walletAddress && !isOwner && !canExecute && (
         <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
-          Connected wallet is not an owner of this Safe.
+          Connected wallet is not an owner — connect an owner to sign. Anyone can
+          execute after the threshold is met.
         </p>
       )}
     </div>

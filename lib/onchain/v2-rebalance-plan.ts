@@ -121,6 +121,34 @@ export function maxTargetFromIdleDeploy(
   return current + idleDeployAmount(current, t, totalRaw, deployableIdle);
 }
 
+/**
+ * Idle left after Max on a strategy row (deployable basis — not totalAssets residual).
+ * Cap headroom can leave unused deployable cash on Idle.
+ */
+export function remainingDeployableIdleAfterMax(
+  current: bigint,
+  maxTarget: bigint,
+  deployableIdle: bigint
+): bigint {
+  const deployed = maxTarget > current ? maxTarget - current : 0n;
+  const left = deployableIdle - deployed;
+  return left > 0n ? left : 0n;
+}
+
+/**
+ * Min target for a strategy row: cannot withdraw more than market liquidity.
+ * When liquidity ≥ allocation, Min = 0; otherwise leave the illiquid remainder.
+ */
+export function minTargetFromLiquidity(
+  current: bigint,
+  liquidityAssets: bigint | null | undefined
+): bigint {
+  if (liquidityAssets == null) return 0n;
+  if (liquidityAssets <= 0n) return current;
+  if (liquidityAssets >= current) return 0n;
+  return current - liquidityAssets;
+}
+
 /** Scale factor for percentage inputs with two decimal places (100.00% → 10000). */
 const PCT_INPUT_SCALE = 10000n;
 

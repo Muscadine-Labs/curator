@@ -29,6 +29,7 @@ import {
   formatFullUSD,
   formatRelativeTime,
 } from '@/lib/format/number';
+import { getTokenDisplayDecimals } from '@/lib/format/asset-decimals';
 import { getScanUrlForChain } from '@/lib/constants';
 
 interface VaultTransactionsProps {
@@ -110,6 +111,7 @@ export function VaultTransactions({
 
   const decimals = data?.asset.decimals ?? assetDecimals ?? 18;
   const symbol = data?.asset.symbol ?? assetSymbol ?? '';
+  const displayDecimals = getTokenDisplayDecimals(symbol, decimals);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages - 1);
@@ -208,7 +210,7 @@ export function VaultTransactions({
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs">
                       {tx.assets
-                        ? formatRawTokenAmount(tx.assets, decimals, decimals >= 8 ? 4 : 2)
+                        ? formatRawTokenAmount(tx.assets, decimals, displayDecimals)
                         : '—'}
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs">

@@ -22,6 +22,7 @@ import {
   formatFullUSD,
   formatNumber,
 } from '@/lib/format/number';
+import { getTokenDisplayDecimals } from '@/lib/format/asset-decimals';
 import { getScanUrlForChain } from '@/lib/constants';
 
 interface VaultHoldersProps {
@@ -54,6 +55,7 @@ export function VaultHolders({
   // Prefer API-reported asset info; fall back to parent-provided props.
   const decimals = data?.asset.decimals ?? assetDecimals ?? 18;
   const symbol = data?.asset.symbol ?? assetSymbol ?? '';
+  const displayDecimals = getTokenDisplayDecimals(symbol, decimals);
 
   const [page, setPage] = useState(0);
   const totalPages = Math.max(1, Math.ceil(holders.length / pageSize));
@@ -126,7 +128,7 @@ export function VaultHolders({
                       </TableCell>
                       <TableCell className="text-right font-mono text-xs">
                         {h.assets
-                          ? formatRawTokenAmount(h.assets, decimals, decimals >= 8 ? 4 : 2)
+                          ? formatRawTokenAmount(h.assets, decimals, displayDecimals)
                           : '—'}
                       </TableCell>
                       <TableCell className="text-right font-mono text-xs">

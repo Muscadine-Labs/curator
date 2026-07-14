@@ -7,20 +7,20 @@ import {
   walletConnectWallet,
 } from '@rainbow-me/rainbowkit/wallets';
 import { http } from 'wagmi';
-import {
-  arbitrum,
-  avalanche,
-  base,
-  mainnet,
-  optimism,
-  polygon,
-} from 'wagmi/chains';
+import { base, mainnet, polygon } from 'wagmi/chains';
 import { defineChain } from 'viem';
+import {
+  BASE_CHAIN_ID,
+  ETHEREUM_CHAIN_ID,
+  HYPEREVM_CHAIN_ID,
+  POLYGON_CHAIN_ID,
+  ROBINHOOD_CHAIN_ID,
+} from '@/lib/constants';
 
 export const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'demo';
 
 export const hyperEvm = defineChain({
-  id: 999,
+  id: HYPEREVM_CHAIN_ID,
   name: 'HyperEVM',
   nativeCurrency: { name: 'HYPE', symbol: 'HYPE', decimals: 18 },
   rpcUrls: {
@@ -37,31 +37,37 @@ export const hyperEvm = defineChain({
   },
 });
 
-export const chains = [
-  base,
-  mainnet,
-  optimism,
-  polygon,
-  arbitrum,
-  avalanche,
-  hyperEvm,
-] as const;
+export const robinhood = defineChain({
+  id: ROBINHOOD_CHAIN_ID,
+  name: 'Robinhood',
+  nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://rpc.mainnet.chain.robinhood.com'] },
+  },
+  blockExplorers: {
+    default: {
+      name: 'Robinhood Explorer',
+      url: 'https://explorer.mainnet.chain.robinhood.com',
+    },
+  },
+});
+
+/** Same five networks as CURATOR_MARKET_NETWORKS (order: Base → Ethereum → HyperEVM → Robinhood → Polygon). */
+export const chains = [base, mainnet, hyperEvm, robinhood, polygon] as const;
 
 function getRpcUrl(chainId: number): string {
   const alchemyKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY;
   const key = alchemyKey || 'demo';
 
   const rpcMap: Record<number, string> = {
-    [base.id]: `https://base-mainnet.g.alchemy.com/v2/${key}`,
-    [mainnet.id]: `https://eth-mainnet.g.alchemy.com/v2/${key}`,
-    [optimism.id]: `https://opt-mainnet.g.alchemy.com/v2/${key}`,
-    [polygon.id]: `https://polygon-mainnet.g.alchemy.com/v2/${key}`,
-    [arbitrum.id]: `https://arb-mainnet.g.alchemy.com/v2/${key}`,
-    [avalanche.id]: 'https://api.avax.network/ext/bc/C/rpc',
-    [hyperEvm.id]: 'https://rpc.hyperliquid.xyz/evm',
+    [BASE_CHAIN_ID]: `https://base-mainnet.g.alchemy.com/v2/${key}`,
+    [ETHEREUM_CHAIN_ID]: `https://eth-mainnet.g.alchemy.com/v2/${key}`,
+    [HYPEREVM_CHAIN_ID]: 'https://rpc.hyperliquid.xyz/evm',
+    [ROBINHOOD_CHAIN_ID]: 'https://rpc.mainnet.chain.robinhood.com',
+    [POLYGON_CHAIN_ID]: `https://polygon-mainnet.g.alchemy.com/v2/${key}`,
   };
 
-  return rpcMap[chainId] || rpcMap[base.id];
+  return rpcMap[chainId] || rpcMap[BASE_CHAIN_ID];
 }
 
 const appUrl =
@@ -88,12 +94,10 @@ export const config = getDefaultConfig({
   chains: [...chains],
   ssr: true,
   transports: {
-    [base.id]: http(getRpcUrl(base.id)),
-    [mainnet.id]: http(getRpcUrl(mainnet.id)),
-    [optimism.id]: http(getRpcUrl(optimism.id)),
-    [polygon.id]: http(getRpcUrl(polygon.id)),
-    [arbitrum.id]: http(getRpcUrl(arbitrum.id)),
-    [avalanche.id]: http(getRpcUrl(avalanche.id)),
-    [hyperEvm.id]: http(getRpcUrl(hyperEvm.id)),
+    [base.id]: http(getRpcUrl(BASE_CHAIN_ID)),
+    [mainnet.id]: http(getRpcUrl(ETHEREUM_CHAIN_ID)),
+    [hyperEvm.id]: http(getRpcUrl(HYPEREVM_CHAIN_ID)),
+    [robinhood.id]: http(getRpcUrl(ROBINHOOD_CHAIN_ID)),
+    [polygon.id]: http(getRpcUrl(POLYGON_CHAIN_ID)),
   },
 });

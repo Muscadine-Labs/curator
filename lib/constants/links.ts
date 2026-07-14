@@ -61,6 +61,9 @@ export const INFRASTRUCTURE_DEV_LINKS: readonly ExternalLinkItem[] = [
 export const MORPHO_CURATOR_V1_URL = 'https://curator-v1.morpho.org/';
 export const MORPHO_CURATOR_V2_VAULTS_URL = 'https://curator.morpho.org/vaults';
 
+/** Morpho Oracle Portal — Decoder + Tester for oracle / feed validation. */
+export const MORPHO_ORACLE_PORTAL_URL = 'https://oracles.morpho.dev/';
+
 export const MORPHO_AUTOMATION_BOTS: readonly MorphoAutomationBot[] = [
   {
     title: 'Morpho Liquidation Bot',

@@ -79,7 +79,7 @@ export function VaultWriteDestinationSelect({
       )}
       {selectedKind === 'safe' && safeOptions.length > 0 && (
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Queues locally — sign and execute on the Multisig Safe page with an owner hot wallet.
+          Queues locally — owners sign on Multisig Safe; any connected wallet can execute once ready.
         </p>
       )}
     </div>

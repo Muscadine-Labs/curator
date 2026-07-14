@@ -1,19 +1,53 @@
-*TO work on today:
+# Curator TODO
 
-- UI glitch with reallocation. Review this set up. I manually make three markets have less allocation to them (eg a market has 5005 USDC than i mark it down to 5000), than with the 15 usdc now i have unallcated, i press max to allocate all of it to a new market. The backend works and it is fully allocated to the other market, but on the UI when I press max, token allocation appears on idle. 
-- On the safe multi sigs /safe, any wallet, not just muscadines, can execute a transcaction, so take the safegaurds off when executing a transcaction on the safe multisig wallets. For the signing on transcactions and queues, it is correctly done. But we dont need to have safehaurds for executing a transcaction, it makes the process a little more slower. Review
-- On network for /market add robinhood chain, make sure its on the top for wallet also. They should all be the same for chains. Base, Ethereum, hyperevm, robinhood, polygon only. On /markets have it so it mirrors the top bar network toggle, i dont want to be able to switch it on /marekts but on the top bar. 
-- On allocations instead of Zero, put Min, which could be 0, but the button min should be the minimum allocation witht he avaliable liquidity. 
-- on /markets have each stat that has $ amount to also have total token amount.
-- on the vault overview pages for transcactions and token holders, for Assets amount in tokens for weth and cbbtc have it in 6 decimals not 4, and usdc in 3 decimals not 2.
-- On the revenue, and revenue graph, how is it calucalated per month and also why on the grapgh are some values negative? when i never withdrew anything, i think its based off the assets price. Also, does it support and get info from assets held in the wallet and all v2 vaults?
+Running task list for agents and humans. Work **Today** top-to-bottom unless directed otherwise. **Later** is out of scope unless asked. Log finished work under **Done** and in `docs/brain/CHANGELOG.md`.
 
-- 
-**To work on another day:
+---
 
-- Email alerts when issues arise with vaults or the markets, so we can quickly react.
-- Upgrade risk management calcuations, review the four sectors: Liquidation Headroom, Utilization, Coverage Ratio, Oracle Freshness. Utilization and oracle freshness are needed. Are there better types of variables to manager risk or are those the best options and best parameters? Review for V1 and V2 vaults.
-- Register Curator as a public Safe App (custom URL works today via `public/manifest.json` + `NEXT_PUBLIC_APP_URL`).
+## Today
 
-  
-What is known: this repo handles abi functions for the roles of "allocator" and sentinal". No function of curator or owner is set up for the vaults.
+_(empty — all prior Today items moved to Done 2026-07-14)_
+
+---
+
+## Later
+
+- [ ] Email alerts when vault/market issues arise.
+- [ ] Upgrade risk scoring (Liquidation Headroom, Utilization, Coverage Ratio, Oracle Freshness) — review params for V1/V2; Utilization + oracle freshness required.
+- [ ] Register Curator as a public Safe App (`public/manifest.json` + `NEXT_PUBLIC_APP_URL` already support custom URL).
+- [ ] Create-market follow-ups: dead-deposit, seed-rate (oracle Safe payload deploy shipped).
+- [ ] Brain: optionally split hot `CLAUDE.md` chapters into `docs/brain/topics/` when a section is edited often (avoid big-bang rewrite).
+
+---
+
+## Done
+
+### 2026-07-14 — Create-market tokens + oracle paste
+
+- [x] Removed market presets; loan/collateral show ERC-20 ticker/name under address.
+- [x] Oracle = paste address from oracles.morpho.dev (factory UI deferred).
+- [x] Sentinel Zero out → Max; Safe execute disabled without wallet.
+
+### 2026-07-14 — Today batch (realloc / Safe / networks / Min / markets / decimals / revenue docs)
+
+- [x] **Realloc Max → Idle UI** — `planningTotalRaw` = Σ booked + GraphQL idle (not `totalAssets`); Max sets Idle via `remainingDeployableIdleAfterMax` (no phantom accrual on Idle).
+- [x] **Safe execute** — any connected wallet can execute once signatures ≥ threshold; owners still required to sign. UX copy updated.
+- [x] **Networks** — Base / Ethereum / HyperEVM / Robinhood / Polygon only in wallet + `CURATOR_MARKET_NETWORKS`; `/markets` follows top-bar chain (no local switcher).
+- [x] **Allocations Zero → Min** — Min = allocation minus withdrawable market liquidity (`minTargetFromLiquidity`).
+- [x] **`/markets` $ stats** — USD primary + loan-token secondary amounts.
+- [x] **Holders/txs decimals** — WETH/cbBTC 6 dp, USDC 3 via `getTokenDisplayDecimals`.
+- [x] **Revenue docs** — CLAUDE §4.6: MoM vault-share `assetsUsd` (4 business vaults); negatives = mark-to-market; no loose wallet balances.
+
+### 2026-07-14 — Dependency refresh
+
+- [x] Updated packages to latest safe minors; pinned wagmi 2.x + ESLint 9.x (skipped wagmi 3, ESLint 10, TypeScript 7); lint + build clean.
+
+### 2026-07-14 — Create Morpho market (v1.4.0)
+
+- [x] Cloned repos; deps; `.env.local`; `/morpho/create-market` + Oracle Portal links; brain scaffold.
+
+---
+
+## Known
+
+This repo wires ABI writes for **allocator** and **sentinel** roles. Curator/owner vault functions are not set up yet.

@@ -42,6 +42,7 @@ export function useVaultWrite(options?: UseVaultWriteOptions) {
   } = useWriteContract();
 
   const {
+    data: receipt,
     isLoading: isConfirming,
     isSuccess,
     error: confirmError,
@@ -82,6 +83,7 @@ export function useVaultWrite(options?: UseVaultWriteOptions) {
   return {
     write,
     txHash,
+    receipt,
     isLoading: isWriting || isConfirming,
     isWriting,
     isConfirming,

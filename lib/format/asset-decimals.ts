@@ -38,7 +38,15 @@ export function getTokenDisplayDecimals(
   symbol: string | null | undefined,
   chainDecimals: number
 ): number {
+  const raw = normalizeAssetSymbol(symbol);
+  const core = raw.replace(/^CB/, '');
+
+  // UI fraction digits (not chain decimals): WETH/cbBTC → 6, stables → 3.
+  if (core === 'USDC' || core === 'USDT' || core === 'DAI' || core === 'USDBC') return 3;
+  if (core === 'WETH' || core === 'ETH') return 6;
+  if (core === 'BTC' || core === 'WBTC' || core === 'TBTC' || core === 'LBTC') return 6;
+
   const known = getKnownAssetDecimals(symbol);
-  if (known != null) return known;
-  return Math.min(Math.max(chainDecimals, 0), 18);
+  if (known != null) return Math.min(known, 6);
+  return Math.min(Math.max(chainDecimals, 0), 6);
 }

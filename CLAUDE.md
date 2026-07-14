@@ -11,8 +11,11 @@ vault mechanics, contract wiring, or the data flow.
 ## 0. Working Agreements (read first)
 
 - **Review `TODO.md` at the start of every session.** It is the running task list
- for the repo. Work the "TO work on today" section top-to-bottom unless the user
- directs otherwise; leave "To work on another day" items alone unless asked.
+  for the repo. Work the "Today" section top-to-bottom unless the user
+  directs otherwise; leave "Later" items alone unless asked.
+- **Closed-loop brain:** [`docs/brain/README.md`](docs/brain/README.md) — session
+  protocol, changelog, Morpho MCP. Append `docs/brain/CHANGELOG.md` when you
+  finish substantive work. Cursor rule: `.cursor/rules/muscadine-brain.mdc`.
 - **Before pushing:** run `npm run lint` and `npm run build` and make sure all pass.
 
 ### Environment variables
@@ -84,7 +87,8 @@ app/
   markets/             Morpho Markets browser (`/markets`)
   market/blue/[id]/    Blue market detail
   safe/                Multisig Safe workspace
-  morpho/              Curator Morpho tools
+  morpho/              Curator Morpho tools (`/morpho`)
+  morpho/create-market/ On-chain Morpho Blue createMarket UI
   monthly-statement/   Treasury / DefiLlama statements
   muscadine-ledger/    Internal ledger
   muscadine-frontends/ Frontend links
@@ -595,7 +599,8 @@ tab switch, post-tx, and Rebalance (`lib/data/query-config.ts`).
 **DefiLlama**). Treasury view modes: **Total** (default), By Token, By Vault.
 Dashboard overview shows **Total Revenue** and **YTD Revenue** KPIs from treasury net
 month-over-month change (`app/page.tsx`). Toggle treasury vs DefiLlama via
-`lib/RevenueSourceContext.tsx` (default: treasury).
+`lib/RevenueSourceContext.tsx` (default: treasury). Home Revenue chart
+(`ChartRevenue`) uses the same treasury daily series when source = treasury.
 
 **Treasury API** — `GET /api/monthly-statement-morphoql` thin wrapper around
 `computeTreasuryStatement()` in `lib/morpho/compute-treasury-statement.ts`
@@ -603,19 +608,32 @@ month-over-month change (`app/page.tsx`). Toggle treasury vs DefiLlama via
 
 | Field | Meaning |
 | ----- | ------- |
-| `assets` / `total` | Net month-over-month change in treasury vault share balances (positive and negative deltas) |
+| `assets` / `total` | Net month-over-month change in treasury Morpho V2 vault **position** USD (`assetsUsd(end) − assetsUsd(baseline)`), summed across vaults |
 
-There is **no** miscellaneous vs vault-fees split in the current UI or API
-response. Revenue is the full net position change across all tracked vaults.
+**How monthly revenue is calculated**
+
+1. Baseline = end of previous month (clamped ≥ `STATEMENT_START_DATE` = 2025-11-01).
+2. End = end of month, or “now” for the current month.
+3. Per vault position: token Δ and USD Δ from Morpho GraphQL
+   `user.vaultV2Positions[].history` (`assets` / `assetsUsd` daily).
+4. Month total USD = Σ USD deltas across the four business V2 vaults.
+
+**Why the graph can go negative without withdrawals**
+
+“Revenue” here is **mark-to-market USD PnL** of vault share positions, not
+realized fee cash. If WETH/cbBTC prices fall, `assetsUsd` can drop even when
+token balances are flat or rising — daily/monthly points go negative. Token-side
+negatives only need share outflows (transfers/withdrawals).
+
+**Scope — what is / isn’t included**
+
+| Included | Excluded |
+| -------- | -------- |
+| Morpho V2 vault **share** positions for `TREASURY_ADDRESS` | Loose wallet balances (bare USDC/WETH/cbBTC/ETH) |
+| Four business vaults via `getVaultAddressesForBusinessViews()` | Test vault (`excludeFromBusinessViews`) |
 
 **Treasury wallet:** `TREASURY_ADDRESS` in `lib/morpho/treasury-statement.ts`
-(`0x057f…266A`, Base Safe). **Vaults:** business vaults from
-`getVaultAddressesForBusinessViews()`. **Start date:** `2025-11-01`.
-
-**Computation:** For each vault position, compare share `assets` at end of
-previous month vs end of current month. Sum token deltas (signed) per asset;
-USD values use end-of-period pricing. Vault list/history routes call
-`computeTreasuryStatement()` directly for `revenueAllTime` (no self-fetch).
+(`0x057f…266A`, Base Safe). **Start date:** `2025-11-01`.
 
 **DefiLlama tab** — `GET /api/monthly-statement-defillama` (protocol-level fees/revenue;
 unrelated to treasury wallet positions).
@@ -635,20 +653,20 @@ Sidebar
 Business section: `/monthly-statement`, `/muscadine-ledger`, `/muscadine-frontends`.
 
 **BFF** — `GET /api/markets` and `GET /api/markets/[marketId]`
-(`lib/morpho/curator-markets.ts`). Networks: Base (default), Ethereum,
-Hyperliquid (`CURATOR_MARKET_NETWORKS` in `lib/constants/core.ts`). List query
-uses `orderBy: SizeUsd` server-side; client re-sorts via column headers.
+(`lib/morpho/curator-markets.ts`). Networks (same as top-bar wallet): Base,
+Ethereum, HyperEVM, Robinhood, Polygon (`CURATOR_MARKET_NETWORKS`). `/markets`
+mirrors the wallet chain (no independent network `<select>`). List query uses
+`orderBy: SizeUsd` server-side; client re-sorts via column headers.
 
-**Market size / liquidity (match Morpho app, not raw supply):**
+**Market size / liquidity (USD + loan token):**
 
-| UI label | Morpho GraphQL field |
-| -------- | -------------------- |
-| Market size | `state.sizeUsd` |
-| Total liquidity | `state.totalLiquidityUsd` |
-| Available liquidity (detail sub-line) | `state.liquidityAssetsUsd` |
+| UI | Primary | Secondary |
+| -- | ------- | --------- |
+| Market size | `state.sizeUsd` | `supplyAssets` (loan token) |
+| Liquidity | `state.totalLiquidityUsd` | `liquidityAssets` (loan token) |
 
-Do **not** use `supplyAssetsUsd` for “market size” in the markets browser — it
-understates markets like WETH/USDC where `sizeUsd` includes collateral notionals.
+Do **not** label a USD number as a token amount. Token lines use
+`formatRawTokenAmount` + `getTokenDisplayDecimals`.
 
 **List defaults** — filter **Listed** only; sort **Market size** high → low.
 Muscadine rows (blue highlight) = business vault with allocatable market cap on
@@ -738,6 +756,12 @@ These rules are baked into `VaultV2Allocations.tsx`, `VaultV2Sentinel.tsx`,
    `VaultV2Allocations.tsx`). Partial refresh failure opens edit with a warning;
    hard failure (no cached risk) shows an error and stays read-only. Tx preview
    still calls `finalizeRebalancePlan` for a final on-chain read before sign.
+10. **Planning total vs chain total** — `planningTotalRaw` = Σ booked strategy
+    `currentAssets` + GraphQL idle (not on-chain `totalAssets`). Relative caps
+    still use `chainTotalRaw` (= `totalAssets`). **Max** on a strategy row uses
+    deployable idle and sets Idle via `remainingDeployableIdleAfterMax`. **Min**
+    (formerly Zero) = `minTargetFromLiquidity` — leave illiquid remainder;
+    fully liquid → 0. Helpers live in `lib/onchain/v2-rebalance-plan.ts`.
 
 ### 5.4 Adapters & caps tabs
 
@@ -1053,6 +1077,9 @@ npm run build
 | Curator markets BFF + scoring    | `lib/morpho/curator-markets.ts`, `app/api/markets/` |
 | Markets browser UI               | `components/morpho/CuratorMarketsBrowser.tsx`, `app/markets/page.tsx` |
 | Market detail + oracle panel     | `app/market/blue/[id]/page.tsx`, `components/morpho/MarketOraclePanel.tsx`, `lib/morpho/oracle-price.ts` |
+| Create Blue market (Base)        | `app/morpho/create-market/`, `components/morpho/CreateMarketForm.tsx`, `lib/morpho/blue-create-market.ts` |
+| Oracle Portal link               | `MORPHO_ORACLE_PORTAL_URL` in `lib/constants/links.ts` → https://oracles.morpho.dev/ |
+| Brain / session loop             | `docs/brain/`, `.cursor/rules/muscadine-brain.mdc`, `.cursor/mcp.json` |
 | V2 on-chain allocation overlay   | `lib/morpho/overlay-v2-onchain-caps.ts` |
 | V2 tx user resolution            | `lib/morpho/vault-v2-transaction-utils.ts` |
 | Vault addresses                  | `lib/config/vaults.ts`                                   |
@@ -1109,8 +1136,9 @@ Workspace link: Muscadine Labs on `app.safe.global` (`lib/safe/links.ts`).
    to the Transaction Service; Safe App embed uses `sdk.txs.send` instead.
 2. **Sign** — On `/safe/[role]`, connect a **Safe owner** hot wallet in
    the topbar. **Sign (EIP-712)** adds owner signatures locally.
-3. **Execute** — Once signatures ≥ threshold, **Execute on-chain** submits
-   `execTransaction`; the **Safe address** calls the vault contract. On success,
+3. **Execute** — Once signatures ≥ threshold, **any connected wallet** may
+   **Execute on-chain** (`execTransaction` is permissionless); owners are only
+   required to **sign**. The **Safe address** calls the vault contract. On success,
    Curator refetches vault risk, governance, pending, reallocations, and overview
    (`refetch-vault-after-safe-execute.ts`).
 
@@ -1380,11 +1408,52 @@ High-value targets if Jest returns: `lib/morpho/cap-decrease-input.ts`,
 
 ---
 
-_Last updated: 2026-06-27 (v1.3.1). When you change reallocation logic, allocation
+## 18. Create Morpho Blue Market (`/morpho/create-market`)
+
+UI counterpart to `morpho-markets-scripts` `deploy:markets` (`createMarket`). **No
+server private keys** — the connected wallet signs on Base.
+
+### Flow
+
+1. Paste **loan** and **collateral** token addresses — UI resolves ERC-20
+   `symbol` / `name` / `decimals` on Base and rejects non-contracts.
+2. **Oracle** — on [oracles.morpho.dev](https://oracles.morpho.dev/) build feeds and
+   export the **Gnosis Safe Payload** JSON. Paste it into Curator → **Deploy oracle**
+   (wallet signs `createMorphoChainlinkOracleV2` on Base factory
+   `0x2DC2…bd3d`). We parse `CreateMorphoChainlinkOracleV2` from the receipt and
+   auto-fill the oracle address. You can also paste an already-deployed address.
+3. Set IRM (default AdaptiveCurveIRM) + LLTV WAD (quick chips for common values).
+4. Client checks Morpho Blue: `isIrmEnabled`, `isLltvEnabled`, and whether
+   `idToMarketParams(marketId)` is already occupied (`marketId = keccak256(abi.encode(params))`).
+5. Call `Morpho.createMarket(marketParams)` via `useVaultWrite`.
+
+No market presets — always custom addresses.
+
+IRM default: AdaptiveCurveIRM. Morpho Blue: `0xBBBB…FFCb`.
+Oracle factory (Base): `0x2DC205F24BCb6B311E5cdf0745B0741648Aebd3d`.
+
+### Not in UI yet
+
+Dead deposit and rate seeding remain in `morpho-markets-scripts`. Creating a market
+does not allocate vault liquidity. Feed-building stays on the Oracle Portal (we
+only consume its Safe payload / resulting address).
+
+### Key files
+
+- `lib/morpho/blue-create-market.ts` — constants, `computeMarketId`, oracle lookup, ABI
+- `lib/morpho/oracle-safe-payload.ts` — parse portal Gnosis Safe JSON + receipt event
+- `lib/morpho/erc20-token-meta.ts` — on-chain ERC-20 name/symbol/decimals
+- `components/morpho/CreateMarketForm.tsx` — form + validation + tx
+- `app/morpho/create-market/page.tsx` — route
+- Hub entry: `app/morpho/page.tsx`
+
+---
+
+_Last updated: 2026-07-14 (v1.4.0). When you change reallocation logic, allocation
 list/filters (§5), caps/adapters display, V2 idData/Sentinel (§3.2, §4.2), tx
 preview, client fetch/cache (§4.3), app/API route paths (§2, §4.7, `next.config.ts`
 redirects), Morpho GraphQL field names (§4.4.1), Curator markets browser (§4.7),
-vault list/sidebar (§4.3.1), vault overview/history (share price in §4.4), risk scoring (§4.5), V2 idle/Blue display, pending/emergency
+create-market (§18), vault list/sidebar (§4.3.1), vault overview/history (share price in §4.4), risk scoring (§4.5), V2 idle/Blue display, pending/emergency
 tabs, wallet stack, Multisig Safe (§13), formatting, the CCTP flow (§14), global
-density (§16), or add a new vault interaction, update Sections 3–6, 4.2–4.7, 9–10,
-13–14, 16, and 17 accordingly._
+density (§16), brain/MCP (`docs/brain/`), or add a new vault interaction, update Sections 3–6, 4.2–4.7, 9–10,
+13–14, 16–18 accordingly, and append `docs/brain/CHANGELOG.md`._
