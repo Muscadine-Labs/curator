@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useVaultReallocations } from '@/lib/hooks/useVaultReallocations';
 import { formatRelativeTime, formatLtv, formatRawTokenAmount, formatAddress } from '@/lib/format/number';
+import { getTokenDisplayDecimals } from '@/lib/format/asset-decimals';
 import { getScanUrlForChain } from '@/lib/constants';
 import type { ReallocationGroup, ReallocationEvent } from '@/app/api/vaults/[id]/reallocations/route';
 
@@ -179,7 +180,12 @@ function EventRow({
       </div>
       {event.assets && (
         <span className="font-mono text-xs text-slate-700 dark:text-slate-300 shrink-0">
-          {formatRawTokenAmount(event.assets, assetDecimals, assetDecimals >= 8 ? 4 : 2)} {assetSymbol}
+          {formatRawTokenAmount(
+            event.assets,
+            assetDecimals,
+            getTokenDisplayDecimals(assetSymbol, assetDecimals)
+          )}{' '}
+          {assetSymbol}
         </span>
       )}
     </div>

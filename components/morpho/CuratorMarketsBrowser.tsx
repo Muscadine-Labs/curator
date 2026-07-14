@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useState, type ReactNode } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowDown, ArrowUp, ArrowUpDown, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -18,15 +17,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useCuratorMarkets } from '@/lib/hooks/useCuratorMarkets';
 import type { CuratorMarketListItem } from '@/lib/morpho/curator-markets';
 import {
-  BASE_CHAIN_ID,
-  CURATOR_MARKET_NETWORKS,
-} from '@/lib/constants';
-import {
   formatCompactUSD,
   formatPercentage,
+  formatRawTokenAmount,
 } from '@/lib/format/number';
+import { getTokenDisplayDecimals } from '@/lib/format/asset-decimals';
 import { formatLltvPill } from '@/components/morpho/AllocationListView';
 import { curatorBlueMarketHref } from '@/lib/morpho/morpho-app-links';
+import { useCuratorNetwork } from '@/lib/network/CuratorNetworkContext';
 import { cn } from '@/lib/utils';
 
 type ListedFilter = 'all' | 'listed' | 'unlisted';
@@ -107,13 +105,15 @@ function SortableHead({
   );
 }
 
-function formatMorphoTokenAmount(usd: number | null, symbol: string): string {
-  if (usd == null || usd === 0) return `0 ${symbol}`;
-  const compact = new Intl.NumberFormat('en-US', {
-    notation: 'compact',
-    maximumFractionDigits: 2,
-  }).format(usd);
-  return `${compact} ${symbol}`;
+function formatLoanTokenAmount(
+  raw: string | null,
+  symbol: string,
+  loanDecimals: number | null
+): string | null {
+  if (raw == null || raw === '') return null;
+  const decimals = loanDecimals ?? 18;
+  const display = getTokenDisplayDecimals(symbol, decimals);
+  return `${formatRawTokenAmount(raw, decimals, display)} ${symbol}`;
 }
 
 function MetricCell({ primary, secondary }: { primary: ReactNode; secondary?: ReactNode }) {
@@ -129,7 +129,7 @@ function MetricCell({ primary, secondary }: { primary: ReactNode; secondary?: Re
 
 export function CuratorMarketsBrowser() {
   const router = useRouter();
-  const [chainId, setChainId] = useState(BASE_CHAIN_ID);
+  const { chainId, networkName, ready } = useCuratorNetwork();
   const [search, setSearch] = useState('');
   const [loanFilter, setLoanFilter] = useState('');
   const [collateralFilter, setCollateralFilter] = useState('');
@@ -138,7 +138,21 @@ export function CuratorMarketsBrowser() {
   const [sortKey, setSortKey] = useState<SortKey>('sizeUsd');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
-  const { data, isLoading, error } = useCuratorMarkets(chainId);
+  const { data, isLoading, error, refetch } = useCuratorMarkets(chainId, {
+    enabled: ready,
+  });
+  const loading = !ready || isLoading;
+
+  const resetFilters = () => {
+    setSearch('');
+    setLoanFilter('');
+    setCollateralFilter('');
+    setListedFilter('listed');
+    setMuscadineFilter('all');
+    setSortKey('sizeUsd');
+    setSortDir('desc');
+    void refetch();
+  };
 
   const filtered = useMemo(() => {
     const markets = data?.markets ?? [];
@@ -185,21 +199,6 @@ export function CuratorMarketsBrowser() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Network</label>
-          <select
-            value={chainId}
-            onChange={(e) => setChainId(Number(e.target.value))}
-            className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900"
-          >
-            {CURATOR_MARKET_NETWORKS.map((n) => (
-              <option key={n.chainId} value={n.chainId}>
-                {n.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
         <div className="min-w-[140px] flex-1 space-y-1">
           <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Loan</label>
           <Input
@@ -258,8 +257,7 @@ export function CuratorMarketsBrowser() {
       </div>
 
       <p className="text-xs text-slate-500 dark:text-slate-400">
-        Wallet network in the top bar is for on-chain writes only. Market data uses the network
-        filter above. Sorted by{' '}
+        Network follows the top-bar network toggle ({networkName}). Sorted by{' '}
         {SORTABLE_COLUMNS.find((c) => c.key === sortKey)?.label.toLowerCase() ?? 'market size'}{' '}
         ({sortDir === 'desc' ? 'high → low' : 'low → high'}). Tap a column header to re-sort.
         Rows highlighted in blue have a Muscadine vault market cap enabled.
@@ -289,7 +287,7 @@ export function CuratorMarketsBrowser() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading &&
+            {loading &&
               [...Array(8)].map((_, i) => (
                 <TableRow key={i}>
                   <TableCell colSpan={7}>
@@ -298,7 +296,7 @@ export function CuratorMarketsBrowser() {
                 </TableRow>
               ))}
 
-            {!isLoading && sorted.length === 0 && (
+            {!loading && sorted.length === 0 && (
               <TableRow>
                 <TableCell colSpan={7} className="py-8 text-center text-sm text-slate-500">
                   No markets match your filters.
@@ -306,9 +304,19 @@ export function CuratorMarketsBrowser() {
               </TableRow>
             )}
 
-            {!isLoading &&
+            {!loading &&
               sorted.map((market) => {
                 const muscadine = market.muscadineVaults.length > 0;
+                const sizeToken = formatLoanTokenAmount(
+                  market.supplyAssets,
+                  market.loanSymbol,
+                  market.loanDecimals
+                );
+                const liqToken = formatLoanTokenAmount(
+                  market.liquidityAssets,
+                  market.loanSymbol,
+                  market.loanDecimals
+                );
                 return (
                   <TableRow
                     key={market.marketId}
@@ -333,17 +341,14 @@ export function CuratorMarketsBrowser() {
                     <TableCell>{formatLltvPill(market.lltv) ?? '—'}</TableCell>
                     <TableCell>
                       <MetricCell
-                        primary={formatMorphoTokenAmount(market.sizeUsd, market.loanSymbol)}
-                        secondary={formatCompactUSD(market.sizeUsd ?? 0)}
+                        primary={formatCompactUSD(market.sizeUsd ?? 0)}
+                        secondary={sizeToken ?? undefined}
                       />
                     </TableCell>
                     <TableCell>
                       <MetricCell
-                        primary={formatMorphoTokenAmount(
-                          market.totalLiquidityUsd,
-                          market.loanSymbol
-                        )}
-                        secondary={formatCompactUSD(market.totalLiquidityUsd ?? 0)}
+                        primary={formatCompactUSD(market.totalLiquidityUsd ?? 0)}
+                        secondary={liqToken ?? undefined}
                       />
                     </TableCell>
                     <TableCell className="text-right">
@@ -372,14 +377,17 @@ export function CuratorMarketsBrowser() {
         </Table>
       </div>
 
-      {!isLoading && (
+      {!loading && (
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Showing {sorted.length} of {data?.markets.length ?? 0} markets on{' '}
-          {CURATOR_MARKET_NETWORKS.find((n) => n.chainId === chainId)?.name ?? 'network'}.
+          Showing {sorted.length} of {data?.markets.length ?? 0} markets on {networkName}.
           Tap a row for risk details or{' '}
-          <Link href="/markets" className="underline">
-            refresh filters
-          </Link>
+          <button
+            type="button"
+            className="underline underline-offset-2"
+            onClick={resetFilters}
+          >
+            reset filters
+          </button>
           .
         </p>
       )}

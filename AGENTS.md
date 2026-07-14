@@ -1,17 +1,14 @@
 # AGENTS.md — Working Instructions for AI Assistants
 
-This file is the quick-start contract for any AI agent working in this repo.
-The full architecture reference lives in **`CLAUDE.md`** — read it before
-touching vault mechanics, allocations, Morpho GraphQL queries, or formatting.
+**Brain hub (closed loop):** [`docs/brain/README.md`](docs/brain/README.md) — session protocol, changelog, Morpho MCP.  
+This file is the **invariants contract**. Deep architecture: **`CLAUDE.md`**. Intent queue: **`TODO.md`**.
 
 ## Session checklist
 
-1. **Read `TODO.md` first.** It is the running task list for the repo. Work the
-   "TO work on today" section top-to-bottom unless directed otherwise. Items
-   under "To work on another day" are out of scope unless explicitly requested.
-2. **Read the relevant sections of `CLAUDE.md`** (especially §3 vault mental
-   model and §5 reallocation UX conventions) before changing allocation logic.
-3. After substantive changes, run and pass:
+1. **Read `TODO.md` first.** Work "Today" top-to-bottom unless directed otherwise. "Later" is out of scope unless asked.
+2. **Follow the brain loop** (`docs/brain/README.md`): load context → use Morpho MCP for live Morpho data when needed → implement → close loop (TODO + `docs/brain/CHANGELOG.md` + docs).
+3. **Read relevant `CLAUDE.md` sections** (especially §3 vault mental model and §5 reallocation UX) before changing allocation logic. Create-market: §18.
+4. After substantive changes, run and pass:
 
 ```bash
 npm run lint    # eslint . --max-warnings=0 (ESLint 9 + eslint-config-next — see CLAUDE.md §11)
@@ -58,7 +55,8 @@ npm run build   # next build
 - **No server-side private keys** — all writes go through the connected wallet.
 - **Multisig Safe** — Muscadine Allocator/Sentinel Safes (`lib/safe/config.ts`):
   queue from vault Allocation/Sentinel preview when governance lists the Safe as
-  role holder; sign + execute on `/safe/[role]` with owner hot wallet.
+  role holder; **owners sign** on `/safe/[role]`; **any connected wallet can
+  execute** once signatures ≥ threshold (Safe `execTransaction` is permissionless).
   **localStorage is always kept** (export/import); optional Transaction Service
   sync via `NEXT_PUBLIC_SAFE_API_KEY` and `@safe-global/api-kit` ^5.x
   (`lib/safe/transaction-service.ts`, `service-sync.ts`, rate limit in
@@ -72,10 +70,12 @@ npm run build   # next build
   `vaultV2transactions`. Client logs `extensions.warnings` via
   `lib/morpho/graphql-client.ts`. See `CLAUDE.md` §4.4.1.
 - **App routes (no `/curator` or `/overview` prefix)** — `/markets`,
-  `/market/blue/[id]`, `/safe`, `/morpho`, `/monthly-statement`,
-  `/muscadine-ledger`, `/muscadine-frontends`, `/vault/[address]`. Legacy page
-  and API paths (`/curator/*`, `/overview/*`, `/vault/v2/*`, `/api/curator/markets`,
-  `/api/vaults/v2/*`) **301 redirect** in `next.config.ts`.
+  `/market/blue/[id]`, `/safe`, `/morpho`, `/morpho/create-market`,
+  `/monthly-statement`, `/muscadine-ledger`, `/muscadine-frontends`,
+  `/vault/[address]`. Legacy page and API paths (`/curator/*`, `/overview/*`,
+  `/vault/v2/*`, `/api/curator/markets`, `/api/vaults/v2/*`) **301 redirect** in
+  `next.config.ts`. Create-market uses wallet `Morpho.createMarket` on Base;
+  validate oracles at https://oracles.morpho.dev/ before broadcasting.
 - **BFF routes (no `/curator` or `/v2` in API paths)** — `GET /api/markets`,
   `GET /api/markets/[marketId]`; on-chain vault reads at
   `GET /api/vaults/[id]/risk`, `…/governance`, `…/pending` (alongside
@@ -94,8 +94,20 @@ npm run build   # next build
   `BASE_FEED_*` reads are the fallback (`lib/morpho/oracle-utils.ts`).
 - **Allocation display vs booked** — UI shows `max(GraphQL, on-chain)` per row;
   rebalance deltas use on-chain `bookedAllocationAssets` only
-  (`overlay-v2-onchain-caps.ts`). Post-tx: refetch risk + governance, exit edit.
+  (`overlay-v2-onchain-caps.ts`). **Planning total** = Σ booked + GraphQL idle
+  (not `totalAssets`); Max leaves Idle at remaining deployable cash only
+  (accrual residual is not Idle). Post-tx: refetch risk + governance, exit edit.
+  Allocations **Min** = allocation minus withdrawable market liquidity (0 when
+  fully liquid); replaces former Zero.
+- **Curator networks** — Base, Ethereum, HyperEVM, Robinhood, Polygon only
+  (`CURATOR_MARKET_NETWORKS` + wagmi `chains`). Top-bar **NetworkSwitcher** sets
+  preferred chain **without requiring a wallet**; when connected it also
+  `switchChain`. `/markets` and `/morpho/create-market` follow that preference
+  (not RainbowKit-only chain UI).
+- **Token display decimals** — `getTokenDisplayDecimals`: WETH/cbBTC → 6, USDC → 3
+  (holders, txs, allocation history, markets token lines).
 - **ESLint** — stay on **v9.39.x** with `eslint-config-next` flat config in
   `eslint.config.mjs`; do not bump to ESLint 10 until upstream plugins support it
   (§11).
-- Keep `CLAUDE.md`, `AGENTS.md`, and `TODO.md` in sync with behavior changes.
+- Keep `docs/brain/` (changelog + MCP), `CLAUDE.md`, `AGENTS.md`, and `TODO.md`
+  in sync with behavior changes (closed loop).

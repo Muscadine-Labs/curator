@@ -55,7 +55,12 @@ export default function V2VaultPage() {
 
   if (vaultIsLoading) {
     return (
-      <AppShell title="Loading vault..." description="Fetching vault data">
+      <AppShell
+        title="Loading vault..."
+        description="Fetching vault data"
+        backHref="/"
+        backLabel="Dashboard"
+      >
         <div className="space-y-6">
           <div className="grid gap-4 md:grid-cols-3">
             {[...Array(6)].map((_, idx) => (
@@ -70,7 +75,12 @@ export default function V2VaultPage() {
 
   if (isError || !vault) {
     return (
-      <AppShell title="Error loading vault" description={error instanceof Error ? error.message : 'Failed to load vault data'}>
+      <AppShell
+        title="Error loading vault"
+        description={error instanceof Error ? error.message : 'Failed to load vault data'}
+        backHref="/"
+        backLabel="Dashboard"
+      >
         <Card>
           <CardHeader>
             <CardTitle>Error</CardTitle>
@@ -107,6 +117,8 @@ export default function V2VaultPage() {
   return (
     <AppShell
       title="Vault Details"
+      backHref="/"
+      backLabel="Dashboard"
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="default" className="flex items-center gap-1 bg-blue-600 text-xs sm:text-sm">

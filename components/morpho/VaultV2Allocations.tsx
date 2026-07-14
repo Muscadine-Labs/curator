@@ -87,8 +87,10 @@ import {
   computeIdleTargetFromStrategyPlan,
   finalizeRebalancePlan,
   maxTargetFromIdleDeploy,
+  minTargetFromLiquidity,
   percentInputToRaw,
   rawToPercentInput,
+  remainingDeployableIdleAfterMax,
   trimPlanToVaultTotal,
   type RebalancePlanRow,
 } from '@/lib/onchain/v2-rebalance-plan';
@@ -168,13 +170,13 @@ function formatWriteError(error: unknown): string {
   if (error instanceof BaseError) {
     const msg = error.shortMessage || error.message;
     if (msg.includes('0xace2a47e') || msg.toLowerCase().includes('transferreverted')) {
-      return 'Allocate failed: vault could not transfer tokens (not enough idle cash at that step). Zero other markets first, then Max — or reduce the target amount.';
+      return 'Allocate failed: vault could not transfer tokens (not enough idle cash at that step). Min other markets first, then Max — or reduce the target amount.';
     }
     return msg;
   }
   if (error instanceof Error) {
     if (error.message.includes('0xace2a47e')) {
-      return 'Allocate failed: vault could not transfer tokens (not enough idle cash at that step). Zero other markets first, then Max — or reduce the target amount.';
+      return 'Allocate failed: vault could not transfer tokens (not enough idle cash at that step). Min other markets first, then Max — or reduce the target amount.';
     }
     return error.message;
   }
@@ -604,9 +606,13 @@ export function VaultV2Allocations({
         /* keep sum of display + idle */
       }
     }
-    // Rebalance targets/deltas use on-chain totalAssets — not sum(display positions),
-    // which includes accrued Morpho supply above booked allocation(id).
-    const planningTotalRaw = chainTotalRaw;
+    // Planning / Max / Idle edits use booked strategy rows + GraphQL idle — NOT
+    // totalAssets (accrual residual would show as phantom Idle after Max).
+    // Relative caps still use chainTotalRaw (= on-chain totalAssets).
+    const planningTotalRaw = targets.reduce(
+      (sum, t) => sum + t.currentAssets,
+      BigInt(0)
+    );
 
     return {
       rows,
@@ -837,11 +843,13 @@ export function VaultV2Allocations({
     [inputMode, targetsWithCaps, planningTotalRaw]
   );
 
-  const setRowZero = useCallback(
-    (targetIdx: number) => {
+  const setRowMin = useCallback(
+    (targetIdx: number, liquidityAssetsRaw: string | null) => {
       setSubmitError(null);
       setInputValues((prev) => {
         const values = prev.length === targetsWithCaps.length ? [...prev] : targetsWithCaps.map(() => '');
+        const t = targetsWithCaps[targetIdx];
+        if (!t) return values;
 
         const resolveRowAssets = (idx: number, vals: string[]): bigint =>
           resolveTargetAssetsFromInput(
@@ -852,25 +860,52 @@ export function VaultV2Allocations({
             planningTotalRaw
           ).assets;
 
+        let liquidity: bigint | null = null;
+        if (liquidityAssetsRaw != null && liquidityAssetsRaw !== '') {
+          try {
+            liquidity = BigInt(liquidityAssetsRaw);
+          } catch {
+            liquidity = null;
+          }
+        }
+
+        const minTarget = t.isVaultIdle
+          ? BigInt(0)
+          : minTargetFromLiquidity(t.currentAssets, liquidity);
+
         if (inputMode === 'percentage') {
-          values[targetIdx] = '0.00';
+          values[targetIdx] = rawToPercentInput(minTarget, planningTotalRaw);
         } else {
-          values[targetIdx] = '0';
+          values[targetIdx] = formatAllocationEditInputExact(
+            minTarget,
+            t.symbol,
+            t.decimals,
+            false
+          );
         }
 
         const idleIdx = targetsWithCaps.findIndex((row) => row.isVaultIdle);
         if (idleIdx >= 0 && targetIdx !== idleIdx) {
-          const idleTarget = computeIdleTargetFromStrategyPlan(
-            planningTotalRaw,
-            targetsWithCaps.map((row) => ({ isVaultIdle: row.isVaultIdle })),
-            (idx) => resolveRowAssets(idx, values)
+          // Freed booked amount returns to Idle (deployable basis).
+          const freed =
+            t.currentAssets > minTarget ? t.currentAssets - minTarget : BigInt(0);
+          const deployableWithoutThis = computeDeployableIdle(
+            targetsWithCaps.map((row) => ({
+              isVaultIdle: row.isVaultIdle,
+              currentAssets: row.currentAssets,
+            })),
+            (idx) => resolveRowAssets(idx, values),
+            targetIdx
           );
+          // deployableWithoutThis = idle + frees on other rows (this row excluded).
+          const idleFinal = deployableWithoutThis + freed;
+
           if (inputMode === 'percentage') {
-            values[idleIdx] = rawToPercentInput(idleTarget, planningTotalRaw);
+            values[idleIdx] = rawToPercentInput(idleFinal, planningTotalRaw);
           } else {
             const idleRow = targetsWithCaps[idleIdx]!;
             values[idleIdx] = formatAllocationEditInputExact(
-              idleTarget,
+              idleFinal,
               idleRow.symbol,
               idleRow.decimals,
               false
@@ -913,6 +948,7 @@ export function VaultV2Allocations({
         );
 
         if (t.isVaultIdle) {
+          // Max Idle = all remaining after strategy booked plans (planning basis).
           const idleTarget = computeIdleTargetFromStrategyPlan(
             planningTotalRaw,
             targetsWithCaps.map((row) => ({ isVaultIdle: row.isVaultIdle })),
@@ -931,10 +967,11 @@ export function VaultV2Allocations({
           return values;
         }
 
+        // Cap math uses on-chain totalAssets; funding uses deployable idle.
         const maxTarget = maxTargetFromIdleDeploy(
           t.currentAssets,
           t,
-          planningTotalRaw,
+          chainTotalRaw,
           deployableIdle
         );
 
@@ -951,13 +988,10 @@ export function VaultV2Allocations({
 
         if (idleIdx >= 0) {
           const nextValues = [...values];
-          const idleTarget = computeIdleTargetFromStrategyPlan(
-            planningTotalRaw,
-            targetsWithCaps.map((row) => ({ isVaultIdle: row.isVaultIdle })),
-            (idx) =>
-              idx === targetIdx
-                ? maxTarget
-                : resolveRowAssets(idx, nextValues)
+          const idleTarget = remainingDeployableIdleAfterMax(
+            t.currentAssets,
+            maxTarget,
+            deployableIdle
           );
           if (inputMode === 'percentage') {
             nextValues[idleIdx] = rawToPercentInput(idleTarget, planningTotalRaw);
@@ -976,7 +1010,7 @@ export function VaultV2Allocations({
         return values;
       });
     },
-    [inputMode, targetsWithCaps, planningTotalRaw]
+    [inputMode, targetsWithCaps, planningTotalRaw, chainTotalRaw]
   );
 
   const resolvedAllocations = useMemo(() => {
@@ -1257,7 +1291,7 @@ export function VaultV2Allocations({
       return {
         valid: false as const,
         error:
-          'No adapter allocation changes — adjust strategy targets (Zero / Max) or deploy idle via Max on a capped row.',
+          'No adapter allocation changes — adjust strategy targets (Min / Max) or deploy idle via Max on a capped row.',
         results: adjustedResults,
         inputSum,
         sumAssets,
@@ -1788,9 +1822,14 @@ export function VaultV2Allocations({
                 variant="outline"
                 size="sm"
                 className="h-8 px-2.5 text-xs"
-                onClick={() => setRowZero(r.targetIdx)}
+                onClick={() => setRowMin(r.targetIdx, r.liquidityAssets)}
+                title={
+                  isIdle
+                    ? 'Set idle to 0 (deploy cash to markets via Max)'
+                    : 'Min = allocation minus withdrawable market liquidity (0 when fully liquid)'
+                }
               >
-                Zero
+                Min
               </Button>
               <Button
                 type="button"
@@ -1801,7 +1840,7 @@ export function VaultV2Allocations({
                 title={
                   isIdle
                     ? 'Set idle to vault remainder after other row targets'
-                    : 'Add idle + tokens freed by other rows set to 0 (caps apply)'
+                    : 'Add idle + tokens freed by Min on other rows (caps apply)'
                 }
               >
                 Max

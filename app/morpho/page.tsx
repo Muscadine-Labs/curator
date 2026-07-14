@@ -1,23 +1,54 @@
 'use client';
 
+import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Plus } from 'lucide-react';
 import {
   MORPHO_AUTOMATION_BOTS,
   MORPHO_CURATOR_V1_URL,
   MORPHO_CURATOR_V2_VAULTS_URL,
+  MORPHO_ORACLE_PORTAL_URL,
 } from '@/lib/constants';
 
 export default function MorphoCuratorPage() {
   return (
     <AppShell
       title="Morpho Tools"
-      description="Access Morpho interfaces and automated bots for vault management."
+      description="Access Morpho interfaces, create Blue markets on-chain, and validate oracles."
     >
       <div className="space-y-6">
-        <div className="grid max-w-2xl grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="grid max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2">
+          <Card className="flex flex-col sm:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-center">Create Market</CardTitle>
+              <CardDescription className="text-center">
+                Build MarketParams and call Morpho Blue <code className="text-xs">createMarket</code> on
+                Base. Validate oracles on the Morpho Oracle Portal first.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-1 flex-col items-center justify-center gap-3 sm:flex-row">
+              <Button asChild size="lg" className="w-full sm:w-auto">
+                <Link href="/morpho/create-market" className="flex items-center gap-2">
+                  <Plus className="h-4 w-4" />
+                  Open create market
+                </Link>
+              </Button>
+              <Button asChild variant="outline" size="lg" className="w-full sm:w-auto">
+                <a
+                  href={MORPHO_ORACLE_PORTAL_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2"
+                >
+                  Oracle Portal
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              </Button>
+            </CardContent>
+          </Card>
+
           <Card className="flex flex-col">
             <CardHeader>
               <CardTitle className="text-center">Vault V1</CardTitle>

@@ -997,7 +997,8 @@ function DeallocatePanel({
     });
   };
 
-  const zeroOutRow = (row: DeallocateRow) => {
+  /** Fill deallocate amount with full position (max withdraw to idle). */
+  const setRowMaxDeallocate = (row: DeallocateRow) => {
     if (!row.canDeallocate || row.currentRaw === 0n) return;
     setAmount(
       row.key,
@@ -1195,7 +1196,8 @@ function DeallocatePanel({
       <CardHeader>
         <CardTitle>Deallocate to Idle</CardTitle>
         <CardDescription>
-          Enter an amount and Deallocate, or Zero out to move the full position to idle cash.
+          Enter an amount and Deallocate, or Max to fill the full position (move all to idle).
+          Unlike Allocations Min (liquidity-capped lower target), Max here is the full booked amount.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -1284,9 +1286,10 @@ function DeallocatePanel({
                               variant="outline"
                               className="shrink-0 px-2"
                               disabled={isOtherRowBusy}
-                              onClick={() => zeroOutRow(row)}
+                              title="Fill full position (deallocate all to Idle)"
+                              onClick={() => setRowMaxDeallocate(row)}
                             >
-                              Zero out
+                              Max
                             </Button>
                             <TransactionButton
                               label="Deallocate"

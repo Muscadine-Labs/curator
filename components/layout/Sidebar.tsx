@@ -239,7 +239,9 @@ export function Sidebar({ onClose }: SidebarProps) {
                 href="/morpho"
                 onClick={handleLinkClick}
                 className={`flex min-h-[44px] w-full touch-manipulation items-center gap-2 rounded-lg px-2 py-2 text-slate-700 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 ${
-                  isActive('/morpho') ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : ''
+                  isActive('/morpho') || pathname.startsWith('/morpho/')
+                    ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                    : ''
                 }`}
               >
                 <Wrench className="h-4 w-4 shrink-0" />

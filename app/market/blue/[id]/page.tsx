@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
-import { ExternalLink, ArrowLeft } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -138,23 +138,17 @@ export default function CuratorBlueMarketPage() {
           headerDescription
         )
       }
+      backHref="/markets"
+      backLabel="Morpho Markets"
       actions={
-        <div className="flex flex-wrap gap-2">
+        morphoHref ? (
           <Button variant="outline" size="sm" asChild>
-            <Link href="/markets">
-              <ArrowLeft className="mr-1 h-4 w-4" />
-              Morpho Markets
-            </Link>
+            <a href={morphoHref} target="_blank" rel="noopener noreferrer">
+              Morpho app
+              <ExternalLink className="ml-1 h-4 w-4" />
+            </a>
           </Button>
-          {morphoHref && (
-            <Button variant="outline" size="sm" asChild>
-              <a href={morphoHref} target="_blank" rel="noopener noreferrer">
-                Morpho app
-                <ExternalLink className="ml-1 h-4 w-4" />
-              </a>
-            </Button>
-          )}
-        </div>
+        ) : null
       }
     >
       {isLoading && (
@@ -317,9 +311,13 @@ export default function CuratorBlueMarketPage() {
           {chainId !== BASE_CHAIN_ID ? (
             <Card>
               <CardContent className="pt-6 text-sm text-slate-500 dark:text-slate-400">
-                Full risk scoring (oracle freshness and IRM utilization target) is available on
-                Base markets only. Switch the network filter on Morpho Markets to Base for this
-                market if it exists there.
+                Oracle freshness, feed bounds, and IRM utilization targets still read via the{' '}
+                <span className="font-medium text-slate-700 dark:text-slate-200">Base RPC</span>{' '}
+                only. To enable full risk scoring and the oracle panel on{' '}
+                <span className="font-medium text-slate-700 dark:text-slate-200">
+                  {networkName}
+                </span>
+                , add a {networkName} RPC to the website (server client + env).
               </CardContent>
             </Card>
           ) : (

@@ -33,10 +33,15 @@ export type CuratorMarketListItem = {
   /** Morpho `sizeUsd` — total market size (matches Morpho app “Total Market Size”). */
   sizeUsd: number | null;
   supplyAssetsUsd: number | null;
+  /** Raw loan supply assets (token units as decimal string). */
+  supplyAssets: string | null;
+  loanDecimals: number | null;
   /** Morpho `totalLiquidityUsd` — total market liquidity (matches Morpho app column). */
   totalLiquidityUsd: number | null;
   /** Available loan liquidity in the market (`liquidityAssetsUsd`). */
   liquidityAssetsUsd: number | null;
+  /** Raw available loan liquidity (token units as decimal string). */
+  liquidityAssets: string | null;
   /** Rolling average net supply APY (Morpho `avgNetSupplyApy`, ≈ recent net rate). */
   avgNetSupplyApy: number | null;
   netSupplyApy: number | null;
@@ -99,8 +104,10 @@ const MARKETS_BROWSER_QUERY = gql`
         }
         state {
           sizeUsd
+          supplyAssets
           supplyAssetsUsd
           totalLiquidityUsd
+          liquidityAssets
           liquidityAssetsUsd
           avgNetSupplyApy
           netSupplyApy
@@ -180,8 +187,10 @@ const MARKET_DETAIL_QUERY = gql`
       }
       state {
         sizeUsd
+        supplyAssets
         supplyAssetsUsd
         totalLiquidityUsd
+        liquidityAssets
         liquidityAssetsUsd
         avgNetSupplyApy
         netSupplyApy
@@ -257,8 +266,10 @@ type GraphMarketItem = {
   irmAddress?: string | null;
   state?: {
     sizeUsd?: number | null;
+    supplyAssets?: string | number | null;
     supplyAssetsUsd?: number | null;
     totalLiquidityUsd?: number | null;
+    liquidityAssets?: string | number | null;
     liquidityAssetsUsd?: number | null;
     avgNetSupplyApy?: number | null;
     netSupplyApy?: number | null;
@@ -366,8 +377,17 @@ function graphMarketToListItem(
     collateralAddress: item.collateralAsset?.address ?? null,
     sizeUsd: item.state?.sizeUsd ?? null,
     supplyAssetsUsd: item.state?.supplyAssetsUsd ?? null,
+    supplyAssets:
+      item.state?.supplyAssets != null && item.state.supplyAssets !== ''
+        ? String(item.state.supplyAssets)
+        : null,
+    loanDecimals: item.loanAsset?.decimals ?? null,
     totalLiquidityUsd: item.state?.totalLiquidityUsd ?? null,
     liquidityAssetsUsd: item.state?.liquidityAssetsUsd ?? null,
+    liquidityAssets:
+      item.state?.liquidityAssets != null && item.state.liquidityAssets !== ''
+        ? String(item.state.liquidityAssets)
+        : null,
     avgNetSupplyApy: item.state?.avgNetSupplyApy ?? null,
     netSupplyApy: item.state?.netSupplyApy ?? null,
     utilization: item.state?.utilization ?? null,
@@ -457,6 +477,7 @@ export async function fetchCuratorMarketDetail(
   const collateralDecimals = item.collateralAsset?.decimals ?? 18;
 
   // Oracle freshness, price bounds, and IRM kink reads use the Base RPC client today.
+  // Non-Base market detail UI tells curators to add that chain's RPC to enable scoring.
   if (chainId === BASE_CHAIN_ID && !isMarketIdle(market)) {
     const baseFeedHints = getOracleFeedHintsFromMarket(item);
     const oracleAddr = market.oracleAddress ? (market.oracleAddress as Address) : null;
