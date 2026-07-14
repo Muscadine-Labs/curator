@@ -184,7 +184,7 @@ export function parseOracleSafePayload(
     Hex,
   ];
 
-  let value = 0n;
+  let value: bigint;
   try {
     value = BigInt(tx.value || '0');
   } catch {
