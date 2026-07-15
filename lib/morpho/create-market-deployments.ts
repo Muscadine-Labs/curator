@@ -50,15 +50,3 @@ export function getCreateMarketDeployment(chainId: number): CreateMarketDeployme
   cache.set(chainId, dep);
   return dep;
 }
-
-export function listCreateMarketDeployments(): CreateMarketDeployment[] {
-  const out: CreateMarketDeployment[] = [];
-  for (const n of CURATOR_MARKET_NETWORKS) {
-    try {
-      out.push(getCreateMarketDeployment(n.chainId));
-    } catch {
-      /* skip chains missing Morpho addresses in morpho-ts */
-    }
-  }
-  return out;
-}

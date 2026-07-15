@@ -58,8 +58,10 @@ export const INFRASTRUCTURE_DEV_LINKS: readonly ExternalLinkItem[] = [
   { name: 'WalletConnect Cloud', url: 'https://cloud.walletconnect.com/', description: 'WalletConnect' },
 ];
 
-export const MORPHO_CURATOR_V1_URL = 'https://curator-v1.morpho.org/';
 export const MORPHO_CURATOR_V2_VAULTS_URL = 'https://curator.morpho.org/vaults';
+export const MORPHO_APP_VAULTS_URL = 'https://app.morpho.org/vaults';
+export const MORPHO_LIQUIDATION_APP_URL = 'https://liquidation.morpho.org/';
+export const MORPHO_DOCS_GET_STARTED_URL = 'https://docs.morpho.org/get-started/';
 
 /** Morpho Oracle Portal — Decoder + Tester for oracle / feed validation. */
 export const MORPHO_ORACLE_PORTAL_URL = 'https://oracles.morpho.dev/';
@@ -70,12 +72,6 @@ export const MORPHO_AUTOMATION_BOTS: readonly MorphoAutomationBot[] = [
     description: 'Easily configurable liquidation bot for Morpho Blue.',
     body: 'Monitors and executes liquidations on Morpho Blue markets, helping maintain protocol health and providing liquidation opportunities.',
     href: 'https://github.com/morpho-org/morpho-blue-liquidation-bot',
-  },
-  {
-    title: 'Morpho Blue Reallocation Bot (V1)',
-    description: 'A simple, fast, and easily deployable reallocation bot for the Morpho Blue protocol.',
-    body: 'Automatically rebalances assets within MetaMorpho vaults to maintain capital efficiency by equalizing utilization rates across markets.',
-    href: 'https://github.com/morpho-org/morpho-blue-reallocation-bot',
   },
   {
     title: 'Morpho Vault V2 Reallocation Bot',

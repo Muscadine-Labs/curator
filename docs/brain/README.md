@@ -48,7 +48,7 @@ Single entry for AI sessions. Deep architecture stays in **`CLAUDE.md`**. This f
 | Auth | §9 |
 | Pitfalls | §10 |
 | Multisig Safe | §13 |
-| CCTP | §14 |
+| CCTP | §14 (removed — not in tree) |
 | Theme / density | §16 |
 | Create Blue market | §18 |
 

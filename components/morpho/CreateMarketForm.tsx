@@ -50,6 +50,10 @@ import {
   type ParsedOracleDeployTx,
 } from '@/lib/morpho/oracle-safe-payload';
 import { useCuratorNetwork } from '@/lib/network/CuratorNetworkContext';
+import {
+  curatorBlueMarketHref,
+  morphoMarketHref,
+} from '@/lib/morpho/morpho-app-links';
 
 type ValidationState = {
   checking: boolean;
@@ -233,6 +237,8 @@ export function CreateMarketForm() {
   const [irm, setIrm] = useState<string>('');
   const [lltv, setLltv] = useState<string>(DEFAULT_LLTV_WAD);
   const [validation, setValidation] = useState<ValidationState>(emptyValidation);
+  /** Market id from the last successful create (survives if validation is re-run). */
+  const [createdMarketId, setCreatedMarketId] = useState<Hex | null>(null);
   /** Bumps on each validation run so slower RPC replies cannot overwrite newer results. */
   const validationGenRef = useRef(0);
 
@@ -246,6 +252,7 @@ export function CreateMarketForm() {
     setOraclePayloadError(null);
     setParsedOracleTx(null);
     setValidation(emptyValidation);
+    setCreatedMarketId(null);
     reset();
     resetOracleWrite();
     // Intentionally keyed on chainId (not deployment object / reset fn identity).
@@ -535,6 +542,8 @@ export function CreateMarketForm() {
 
   const handleCreate = async () => {
     if (!parsedParams || !canCreate || !deployment) return;
+    const marketId = computeMarketId(parsedParams);
+    setValidation((prev) => ({ ...prev, marketId }));
     reset();
     await write({
       address: deployment.morpho,
@@ -544,11 +553,42 @@ export function CreateMarketForm() {
     });
   };
 
+  // Stamp market id only after a successful create (not on wallet reject).
+  useEffect(() => {
+    if (!isSuccess || !parsedParams) return;
+    setCreatedMarketId(computeMarketId(parsedParams));
+  }, [isSuccess, parsedParams]);
+
+  // Clear sticky success UI when MarketParams change after a create.
+  const paramsFingerprint = parsedParams
+    ? `${parsedParams.loanToken}-${parsedParams.collateralToken}-${parsedParams.oracle}-${parsedParams.irm}-${parsedParams.lltv}`
+    : '';
+  const prevParamsRef = useRef(paramsFingerprint);
+  useEffect(() => {
+    if (prevParamsRef.current === paramsFingerprint) return;
+    prevParamsRef.current = paramsFingerprint;
+    if (!createdMarketId && !isSuccess) return;
+    setCreatedMarketId(null);
+    reset();
+  }, [paramsFingerprint, createdMarketId, isSuccess, reset]);
+
   const lltvDisplay = parsedParams ? formatLltvPercent(parsedParams.lltv) : '—';
-  const basescanTx =
+  const explorerTxHref =
     txHash != null
       ? `${getScanUrlForChain(chainId)}/tx/${txHash}`
       : null;
+
+  const successMarketId = isSuccess
+    ? (createdMarketId ??
+      validation.marketId ??
+      (parsedParams ? computeMarketId(parsedParams) : null))
+    : null;
+  const morphoCreatedHref = successMarketId
+    ? morphoMarketHref(successMarketId, chainId)
+    : null;
+  const curatorCreatedHref = successMarketId
+    ? curatorBlueMarketHref(successMarketId, chainId)
+    : null;
 
   const pairLabel =
     loanMeta.status === 'ok' && collateralMeta.status === 'ok'
@@ -842,6 +882,20 @@ export function CreateMarketForm() {
                   Market ID
                 </p>
                 <p className="mt-1 break-all font-mono text-sm">{validation.marketId}</p>
+                {(() => {
+                  const href = morphoMarketHref(validation.marketId, chainId);
+                  return href ? (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 underline underline-offset-2 dark:text-blue-400"
+                    >
+                      Open in Morpho app
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  ) : null;
+                })()}
               </div>
             ) : null}
 
@@ -911,19 +965,56 @@ export function CreateMarketForm() {
               txHash={txHash}
               label="Create market"
             />
-            {isSuccess && basescanTx ? (
-              <p className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-400">
-                <CheckCircle2 className="h-4 w-4" />
-                <a
-                  href={basescanTx}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 underline underline-offset-2"
-                >
-                  View on explorer
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-              </p>
+            {isSuccess ? (
+              <div className="space-y-3 rounded-md border border-emerald-200 bg-emerald-50/80 p-3 dark:border-emerald-900 dark:bg-emerald-950/40">
+                <p className="flex items-center gap-2 text-sm font-medium text-emerald-800 dark:text-emerald-300">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  Market created
+                </p>
+                {successMarketId ? (
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-emerald-700/80 dark:text-emerald-400/80">
+                      Market ID
+                    </p>
+                    <p className="mt-1 break-all font-mono text-xs text-emerald-900 dark:text-emerald-200">
+                      {successMarketId}
+                    </p>
+                  </div>
+                ) : null}
+                <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
+                  {morphoCreatedHref ? (
+                    <a
+                      href={morphoCreatedHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-medium text-emerald-800 underline underline-offset-2 dark:text-emerald-300"
+                    >
+                      Open in Morpho app
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  ) : null}
+                  {curatorCreatedHref ? (
+                    <a
+                      href={curatorCreatedHref}
+                      className="inline-flex items-center gap-1 text-emerald-800 underline underline-offset-2 dark:text-emerald-300"
+                      title="May be empty until Morpho indexes the new market"
+                    >
+                      View in Curator
+                    </a>
+                  ) : null}
+                  {explorerTxHref ? (
+                    <a
+                      href={explorerTxHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-emerald-800 underline underline-offset-2 dark:text-emerald-300"
+                    >
+                      View on explorer
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  ) : null}
+                </div>
+              </div>
             ) : null}
           </CardContent>
         </Card>

@@ -74,7 +74,8 @@ npm run build   # next build
   `/monthly-statement`, `/muscadine-ledger`, `/muscadine-frontends`,
   `/vault/[address]`. Legacy page and API paths (`/curator/*`, `/overview/*`,
   `/vault/v2/*`, `/api/curator/markets`, `/api/vaults/v2/*`) **301 redirect** in
-  `next.config.ts`. Create-market uses wallet `Morpho.createMarket` on Base;
+  `next.config.ts`. Create-market uses wallet `Morpho.createMarket` on the
+  selected top-bar network (Base / Ethereum / HyperEVM / Robinhood / Polygon);
   validate oracles at https://oracles.morpho.dev/ before broadcasting.
 - **BFF routes (no `/curator` or `/v2` in API paths)** — `GET /api/markets`,
   `GET /api/markets/[marketId]`; on-chain vault reads at

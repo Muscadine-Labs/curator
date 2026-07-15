@@ -4,6 +4,36 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-07-14 — Post-review fixes (create-market sticky success, Sentinel placeholder)
+
+- Create-market: set market id only on success; clear success UI when MarketParams change.
+- Sentinel illiquid Min placeholder shows `0` (not full booked amount).
+- Docs: AGENTS create-market multi-chain; CLAUDE per-row deallocate; idle error “Min a row”.
+
+---
+
+- Hub links: [app vaults](https://app.morpho.org/vaults), [liquidation](https://liquidation.morpho.org/), [docs](https://docs.morpho.org/get-started/); removed Curator V1 + V1 realloc bot.
+- Deleted unused ratings API stack (`/api/morpho-markets`, `service`/`compute`/`query`/`types`/`config`) and unused `@morpho-org/blue-sdk` / `blue-api-sdk`.
+- CLAUDE §14: CCTP docs removed (code not in tree).
+
+---
+
+## 2026-07-14 — Morpho hub UI + Sentinel booked fix + dead code
+
+- `/morpho`: cohesive hub (create-market primary + external UIs list + automation bots list).
+- Sentinel deallocate/Min: `bookedAllocationAssets` (not display `allocationAssets`).
+- Removed unused: Base-only create-market address constants, `listCreateMarketDeployments`, `wrapCuratorWriteWithTimelock`.
+
+---
+
+## 2026-07-14 — Create-market Morpho link + Sentinel Min deallocate
+
+- `CreateMarketForm`: persist market id on create; success card shows id + Morpho app / Curator / explorer links; pre-create Market ID also links Morpho.
+- Sentinel Deallocate **Max → Min**: amount = withdrawable liquidity (`minTargetFromLiquidity`), matching Allocations Min.
+- Files: `CreateMarketForm.tsx`, `VaultV2Sentinel.tsx`.
+
+---
+
 ## 2026-07-14 — Pre-prod review: create-market + network hardening
 
 - Fixed create-market `BASE_CHAIN_ID` crash; validation gen race; Safe payload `transactions[0]` null-safe.

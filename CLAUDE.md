@@ -62,9 +62,8 @@ Muscadine for managing and reporting on Morpho-style vaults on Base (chainId
   `graphql-request` in `lib/morpho/graphql-client.ts`. **Vault list, detail,
   history, risk, and protocol stats BFF routes use this client directly** — not
   the Morpho SDK runtime.
-- **Onchain SDK**: `@morpho-org/blue-sdk`, `@morpho-org/blue-api-sdk`,
-  `@morpho-org/morpho-ts` — used mainly for **TypeScript types** (e.g. markets
-  ratings in `lib/morpho/service.ts`). Typed vault writes use ABIs in
+- **Onchain SDK**: `@morpho-org/morpho-ts` — Morpho / IRM / oracle factory
+  addresses for create-market. Typed vault writes use ABIs in
   `lib/onchain/abis.ts` + `vault-writes.ts`, not `@morpho-org/morpho-sdk-v2`.
 - **Auth**: Custom curator auth (`lib/auth/*`) with signed session tokens
 
@@ -78,7 +77,6 @@ app/
     vaults/            GET /api/vaults, /api/vaults/[id], history, holders, …
     vaults/[id]/       On-chain vault endpoints (risk, governance, pending)
     markets/           Morpho Blue markets browser + detail BFF
-    morpho-markets/    Cross-vault market list
     protocol-stats/    Aggregate TVL / revenue
     monthly-statement-* Statement generators
     google-sheets/     Sheets export
@@ -329,9 +327,11 @@ Timelocks → Allocation → Sentinel → Emergency.
      even when allocation is zero. Uses `resolveCapIdData` + `parseHumanTokenInput`.
      New cap must be **≤ current** cap. `TransactionButton` uses
      `suppressConnectPrompt` (wallet connect is in the topbar only).
-   - **Deallocate to Idle** — table (Idle row display-only) with amount + Max
-     per Blue market row; batch **Deallocate** via `encodeMarketParamsData`.
-     Token parse via `parseHumanTokenInput`.
+   - **Deallocate to Idle** — table (Idle row display-only) with amount + Min
+     per Blue market row; **per-row Deallocate** via `encodeMarketParamsData`.
+     **Min** fills withdrawable liquidity (`minTargetFromLiquidity` — same rule
+     as Allocations Min: leaves illiquid remainder). Uses booked on-chain
+     allocation (not display). Token parse via `parseHumanTokenInput`.
 9. **Emergency tab** — links to Morpho Curator emergency actions:
    `https://curator.morpho.org/vaults/{chainId}/{vaultAddress}/emergency-actions`
 10. Submits use `v2WriteConfigs.allocate/deallocate` wrapped in
@@ -378,7 +378,7 @@ Query keys:
   for refetches/invalidations
 - `['vault-v2-pending', address, 'row-id']`
 - `['vault-reallocations', address]`
-- `['markets']`, `['morpho-markets']`, `['protocol-stats']`
+- `['markets']`, `['protocol-stats']`
 
 Hooks live in `lib/hooks/` and should be the only entry points for reading
 vault data from components.
@@ -838,7 +838,7 @@ components.
  uncommented in `.env.local`; server restart required after changes).
 - Write UI (reallocate, caps, etc.) is gated on both wallet connection and
   curator role.
-- **All on-chain writes** (V1/V2 reallocate, caps, CCTP, etc.) go through
+- **All on-chain writes** (V1/V2 reallocate, caps, etc.) go through
   **RainbowKit → connected wallet** (`useVaultWrite` / wagmi `writeContract`).
   Do not add server-side private keys for allocation flows.
 - **Multisig Safe writes** — when a vault's on-chain allocator/sentinel is a
@@ -1083,8 +1083,6 @@ npm run build
 | V2 on-chain allocation overlay   | `lib/morpho/overlay-v2-onchain-caps.ts` |
 | V2 tx user resolution            | `lib/morpho/vault-v2-transaction-utils.ts` |
 | Vault addresses                  | `lib/config/vaults.ts`                                   |
-| CCTP constants (chains/ABIs)     | `lib/cctp/constants.ts`                                  |
-| CCTP attestation helper          | `lib/cctp/attestation.ts`                                |
 | Theme context + migration        | `lib/theme/ThemeContext.tsx`                             |
 | Theme switcher UI                | `components/ThemeSwitcher.tsx`                           |
 | Global density + theme vars      | `app/globals.css`                                        |
@@ -1201,86 +1199,10 @@ client serializes calls with ≥210ms spacing.
 
 ---
 
-## 14. CCTP (Circle Cross-Chain Transfer)
+## 14. CCTP (removed)
 
-**App route:** not shipped in this branch (no `/cctp` page). Shared constants and
-helpers remain in `lib/cctp/` for a future curator tools page.
-
-The planned flow uses Circle's
-**CCTP V2**. No third-party bridge, no wrapping. Supports Fast Transfer
-(~seconds) and Standard Transfer (~minutes).
-
-### 14.1 Architecture
-
-| Aspect | CCTP V2 |
-|---|---|
-| Contracts | `TokenMessengerV2` + `MessageTransmitterV2` (same CREATE2 address on all EVM chains) |
-| `depositForBurn` params | 7: `amount, destinationDomain, mintRecipient, burnToken, destinationCaller, maxFee, minFinalityThreshold` |
-| Attestation | `GET /v2/messages/{sourceDomainId}?transactionHash={hash}` — returns message + attestation in one call |
-| Transfer speed | Fast (`minFinalityThreshold=1000`, ~seconds) or Standard (`2000`, ~minutes) |
-| Fees | Standard: gas only. Fast: variable fee via `/v2/burn/USDC/fees/{src}/{dst}` |
-
-### 14.2 Supported chains
-
-`lib/cctp/constants.ts :: CCTP_CHAINS` lists every chain. All EVM chains use
-the same V2 CREATE2 contract addresses.
-
-Enabled:
-- Ethereum (0), Avalanche (1), Optimism (2), Arbitrum (3), Base (6), Polygon (7), HyperEVM (19)
-
-Disabled:
-- Solana (5) — non-EVM, requires Solana wallet
-
-V2 contracts (same on every chain):
-- `TokenMessengerV2`: `0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d`
-- `MessageTransmitterV2`: `0x81D40F21F12A8F0E3252Bccb954D722d4c464B64`
-
-### 14.3 Flow
-
-```
-[User]            [Source chain]                   [Circle Iris API]      [Dest chain]
-  │                     │                                │                    │
-  │  1. approve USDC ──▶ TokenMessengerV2               │                    │
-  │                     │                                │                    │
-  │  2. depositForBurn ─▶ TokenMessengerV2              │                    │
-  │     (7 params: + destinationCaller, maxFee,         │                    │
-  │      minFinalityThreshold)                          │                    │
-  │                     │                                │                    │
-  │  3. GET /v2/messages/{domain}?txHash={hash} ────────▶                   │
-  │                     │            poll q~3s (fast)    │                    │
-  │                     │            or q~10s (standard) │                    │
-  │                     │     returns { message, attestation }               │
-  │                     │                                │                    │
-  │  4. receiveMessage(message, attestation) ─────────────────────────────▶ MessageTransmitterV2
-  │                                                                          │  mints USDC
-```
-
-### 14.4 UI features
-
-- **Speed selector** — Fast (~seconds, may incur a fee) or Standard (~minutes,
-  gas only).
-- **Fee display** — queries the fee endpoint and shows the estimated fee for
-  Fast Transfer.
-- **Chain selector** — disabled chains show "(not supported)".
-- **Persisted state** — `localStorage` saves speed + transfer state so it
-  survives page refresh.
-
-### 14.5 Key utilities
-
-- `addressToBytes32(addr)` — 20-byte address → bytes32 `mintRecipient`.
-- `fetchAttestationV2(sourceDomain, txHash)` — single-call message +
-  attestation via `/v2/messages/{domain}?transactionHash={hash}`.
-- `fetchTransferFee(srcDomain, dstDomain)` — fee estimate.
-
-### 14.6 Notes when extending
-
-- If Circle adds a new chain, add it to `CCTP_CHAINS` with
-  `tokenMessenger` and `messageTransmitter` addresses **and** to
-  `lib/wallet/config.ts` (chains + transports).
-- `depositForBurnWithHook` (V2 hooks feature) isn't wired up yet. The current
-  implementation passes empty `destinationCaller` and no hook data.
-- To enable Solana: bring in `@solana/web3.js` + Circle's Solana CCTP program
-  client, wire a Solana wallet adapter.
+CCTP helpers and any `/cctp` page are **not in this branch**. Do not document or
+import `lib/cctp/` until Cross-Chain Transfer is reintroduced under Later.
 
 ---
 
@@ -1429,6 +1351,8 @@ network** (Base, Ethereum, HyperEVM, Robinhood, Polygon).
 5. Client checks Morpho Blue: `isIrmEnabled`, `isLltvEnabled`, and whether
    `idToMarketParams(marketId)` is already occupied.
 6. Call `Morpho.createMarket(marketParams)` via `useVaultWrite` on the selected chain.
+   Success UI shows market id + Morpho app / Curator / explorer links (Curator detail
+   may lag until Morpho indexes).
 
 Deployments (Morpho / AdaptiveCurveIRM / chainlinkOracleFactory) live in
 `lib/morpho/create-market-deployments.ts` (sourced from morpho-ts).
@@ -1458,6 +1382,6 @@ list/filters (§5), caps/adapters display, V2 idData/Sentinel (§3.2, §4.2), tx
 preview, client fetch/cache (§4.3), app/API route paths (§2, §4.7, `next.config.ts`
 redirects), Morpho GraphQL field names (§4.4.1), Curator markets browser (§4.7),
 create-market (§18), vault list/sidebar (§4.3.1), vault overview/history (share price in §4.4), risk scoring (§4.5), V2 idle/Blue display, pending/emergency
-tabs, wallet stack, Multisig Safe (§13), formatting, the CCTP flow (§14), global
+tabs, wallet stack, Multisig Safe (§13), formatting, CCTP status (§14 removed), global
 density (§16), brain/MCP (`docs/brain/`), or add a new vault interaction, update Sections 3–6, 4.2–4.7, 9–10,
 13–14, 16–18 accordingly, and append `docs/brain/CHANGELOG.md`._

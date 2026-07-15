@@ -6,9 +6,6 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 
 ## Today
 
-- Revenue· Treasury wallet - completely incorrect, review how you calculate our wallet with what morpho positions grow over time.
-- see https://risk.anthias.xyz/moonwell/vaults/base/overview and https://risk.anthias.xyz/moonwell/vaults/base/0xc1256ae5ff1cf2719d4937adb3bbccab2e00a2ca and https://risk.anthias.xyz/moonwell/vaults/base/0xc1256ae5ff1cf2719d4937adb3bbccab2e00a2ca/markets/0x8793cf302b8ffd655ab97bd1c695dbd967807e8367a65cb2f4edaf1380ba1bda . I really like this ui alot. Theme our ui like this, but keep all of our inforamation i hold. If they have more information that us than add that info. Use morpho grapgh ql or sdk.
-- make sure when you create a market that you know what the market id is. Such after its created that a link to the morpho app with the market id is added.
 - 
 ---
 
@@ -24,6 +21,23 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 
 ## Done
 
+### 2026-07-14 — Morpho links + delete orphan ratings / CCTP docs
+
+- [x] `/morpho` external links: App vaults, Liquidation, Docs; dropped Curator V1; dropped V1 realloc bot.
+- [x] Deleted `/api/morpho-markets` + `lib/morpho/{service,compute,query,types,config}`; removed unused `@morpho-org/blue-sdk` / `blue-api-sdk`.
+- [x] CLAUDE §14 CCTP marked removed (no `lib/cctp/` in tree).
+
+### 2026-07-14 — Morpho hub UI + Sentinel booked fix + dead code
+
+- [x] `/morpho` hub: one create-market card + cohesive external tools / bots lists (no scattered boxes).
+- [x] Sentinel deallocate uses `bookedAllocationAssets` (not display) for Min/amounts.
+- [x] Removed unused create-market Base constants, `listCreateMarketDeployments`, `wrapCuratorWriteWithTimelock`.
+
+### 2026-07-14 — Create-market Morpho link + Sentinel Min deallocate
+
+- [x] After `createMarket`, show market id + Morpho app / Curator / explorer links (`CreateMarketForm`).
+- [x] Sentinel Deallocate **Max → Min** (withdrawable liquidity via `minTargetFromLiquidity`, same rule as Allocations).
+
 ### 2026-07-14 — Pre-prod create-market / network hardening
 
 - [x] Fixed BASE_CHAIN_ID crash; validation race; Safe payload null tx; LOWs (factory required, ready gate, oracle value, reset filters, lazy deployments).
@@ -36,7 +50,7 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 
 - [x] Removed market presets; loan/collateral show ERC-20 ticker/name under address.
 - [x] Oracle = paste address from oracles.morpho.dev (factory UI deferred).
-- [x] Sentinel Zero out → Max; Safe execute disabled without wallet.
+- [x] Sentinel Zero out → Max (later → Min); Safe execute disabled without wallet.
 
 ### 2026-07-14 — Today batch (realloc / Safe / networks / Min / markets / decimals / revenue docs)
 

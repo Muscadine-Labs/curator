@@ -27,6 +27,7 @@ import { useVaultV2Governance, vaultV2GovernanceQueryKey } from '@/lib/hooks/use
 import { useVaultV2Risk } from '@/lib/hooks/useVaultV2Risk';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
 import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
+import { minTargetFromLiquidity } from '@/lib/onchain/v2-rebalance-plan';
 import {
   buildAdapterLabelMap,
   capLltvPill,
@@ -95,6 +96,8 @@ type DeallocateRow = {
   adapterAddress: string;
   idData: Hex;
   currentRaw: bigint;
+  /** Market withdrawable liquidity (raw loan assets); used for Min deallocate. */
+  liquidityAssets: bigint | null;
   allocationPct: number;
   supplyApy: number | null;
   liquidityUsd: number | null;
@@ -997,12 +1000,15 @@ function DeallocatePanel({
     });
   };
 
-  /** Fill deallocate amount with full position (max withdraw to idle). */
-  const setRowMaxDeallocate = (row: DeallocateRow) => {
+  /** Fill deallocate amount with withdrawable liquidity (Allocations Min semantics). */
+  const setRowMinDeallocate = (row: DeallocateRow) => {
     if (!row.canDeallocate || row.currentRaw === 0n) return;
+    const minTarget = minTargetFromLiquidity(row.currentRaw, row.liquidityAssets);
+    const amount = row.currentRaw > minTarget ? row.currentRaw - minTarget : 0n;
+    if (amount <= 0n) return;
     setAmount(
       row.key,
-      formatAllocationEditInputExact(row.currentRaw, assetSymbol, assetDecimals ?? chainDecimals)
+      formatAllocationEditInputExact(amount, assetSymbol, assetDecimals ?? chainDecimals)
     );
   };
 
@@ -1196,8 +1202,8 @@ function DeallocatePanel({
       <CardHeader>
         <CardTitle>Deallocate to Idle</CardTitle>
         <CardDescription>
-          Enter an amount and Deallocate, or Max to fill the full position (move all to idle).
-          Unlike Allocations Min (liquidity-capped lower target), Max here is the full booked amount.
+          Enter an amount and Deallocate, or Min to fill the withdrawable amount
+          (allocation minus illiquid remainder — same liquidity rule as Allocations Min).
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -1223,11 +1229,13 @@ function DeallocatePanel({
                 </TableRow>
               ) : (
                 rows.map((row) => {
-                  const maxLabel = formatRawTokenAmount(
-                    row.currentRaw,
-                    chainDecimals,
-                    displayDecimals
-                  );
+                  const minTarget = minTargetFromLiquidity(row.currentRaw, row.liquidityAssets);
+                  const minDeallocate =
+                    row.currentRaw > minTarget ? row.currentRaw - minTarget : 0n;
+                  const amountPlaceholder =
+                    minDeallocate > 0n
+                      ? formatRawTokenAmount(minDeallocate, chainDecimals, displayDecimals)
+                      : '0';
                   const isActiveRow = activeRowKey === row.key;
                   const isOtherRowBusy = writeInFlight && !isActiveRow;
 
@@ -1275,7 +1283,7 @@ function DeallocatePanel({
                             <Input
                               type="text"
                               className="h-8 min-w-[100px] flex-1"
-                              placeholder={maxLabel}
+                              placeholder={amountPlaceholder}
                               value={amounts[row.key] ?? ''}
                               disabled={isOtherRowBusy}
                               onChange={(e) => setAmount(row.key, e.target.value)}
@@ -1285,11 +1293,11 @@ function DeallocatePanel({
                               size="sm"
                               variant="outline"
                               className="shrink-0 px-2"
-                              disabled={isOtherRowBusy}
-                              title="Fill full position (deallocate all to Idle)"
-                              onClick={() => setRowMaxDeallocate(row)}
+                              disabled={isOtherRowBusy || minDeallocate <= 0n}
+                              title="Min = withdrawable market liquidity (leaves illiquid remainder)"
+                              onClick={() => setRowMinDeallocate(row)}
                             >
-                              Max
+                              Min
                             </Button>
                             <TransactionButton
                               label="Deallocate"
@@ -1414,6 +1422,7 @@ function buildOverviewAndDeallocate(
     adapterAddress: '',
     idData: '0x',
     currentRaw: idleRaw,
+    liquidityAssets: null,
     allocationPct: 0,
     supplyApy: null,
     liquidityUsd: null,
@@ -1424,7 +1433,7 @@ function buildOverviewAndDeallocate(
 
   for (const adapter of risk.adapters ?? []) {
     for (const m of adapter.markets ?? []) {
-      const raw = parseBig(m.allocationAssets);
+      const raw = parseBig(m.bookedAllocationAssets ?? m.allocationAssets);
       totalRaw += raw;
       const key = marketKeyFromGraphQL(m.market);
       const cap = key ? capByMarket.get(key.toLowerCase()) : undefined;
@@ -1449,6 +1458,15 @@ function buildOverviewAndDeallocate(
         adapterAddress: adapter.adapterAddress,
         idData: m.market ? encodeMarketParamsData(m.market) : ('0x' as Hex),
         currentRaw: raw,
+        liquidityAssets: (() => {
+          const liq = m.market?.state?.liquidityAssets;
+          if (liq == null) return null;
+          try {
+            return BigInt(String(liq));
+          } catch {
+            return null;
+          }
+        })(),
         allocationPct: 0,
         supplyApy: m.market?.state?.supplyApy ?? null,
         liquidityUsd: m.market?.state?.liquidityAssetsUsd ?? null,

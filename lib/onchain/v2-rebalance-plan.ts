@@ -410,7 +410,7 @@ export function summarizeRebalanceFunding(
 }
 
 export const INSUFFICIENT_IDLE_FUNDING_ERROR =
-  'Insufficient idle to fund allocations — deallocate from other markets first (or Zero a row to free capital). Vault idle cash is fully deployed.';
+  'Insufficient idle to fund allocations — deallocate from other markets first (or Min a row to free capital). Vault idle cash is fully deployed.';
 
 /** Ensure allocate deltas can be funded from deployable idle after deallocations in the same multicall. */
 export function validateIdleFunding(
