@@ -6,8 +6,10 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 
 ## Today
 
-_(empty — all prior Today items moved to Done 2026-07-14)_
-
+- Revenue· Treasury wallet - completely incorrect, review how you calculate our wallet with what morpho positions grow over time.
+- see https://risk.anthias.xyz/moonwell/vaults/base/overview and https://risk.anthias.xyz/moonwell/vaults/base/0xc1256ae5ff1cf2719d4937adb3bbccab2e00a2ca and https://risk.anthias.xyz/moonwell/vaults/base/0xc1256ae5ff1cf2719d4937adb3bbccab2e00a2ca/markets/0x8793cf302b8ffd655ab97bd1c695dbd967807e8367a65cb2f4edaf1380ba1bda . I really like this ui alot. Theme our ui like this, but keep all of our inforamation i hold. If they have more information that us than add that info. Use morpho grapgh ql or sdk.
+- make sure when you create a market that you know what the market id is. Such after its created that a link to the morpho app with the market id is added.
+- 
 ---
 
 ## Later
