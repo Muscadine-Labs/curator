@@ -6,7 +6,7 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 
 ## Today
 
-- 
+- move vault addresses to prviate variables
 ---
 
 ## Later
