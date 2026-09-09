@@ -7,7 +7,7 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 - Create scripts to make a new v2 vault that has two adaptors that deposits into two morpho v2 vaults (muscadine USDC prime and frontier) The roles should be set all the same how muscadine USDC prime is, with owner, curator, allocator, sentinal and all the timelocks. The only difference is that it would not be apar of the morpho regristry so that would not be abicated. In the script to create the v2 vault, have a readme.md of every vault value before its deployed. The name would be Muscadine USDC Vinyard on base, mvUSDC
 
 - on business, Gross Protocol Revenue. Cost of Revenue Yields are distributed to vaults depositors/investors. total Revenue is wrong from defi lamma when cost of revenue is 0/
-- Find any errors from this branches commits, it was made from a bad model, revue using a few subagents. 
+- Find any errors from this branches commits, it was made from a bad model, revue using a few subagents. Make sure everything on curator for safe wallets correctly works. Also, review the allocator and sentinal pages for the read and write functions.
 - delete pologon from chain list.
 - -delete wyoming off of business
 
