@@ -6,15 +6,12 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 
 - Create scripts to make a new v2 vault that has two adaptors that deposits into two morpho v2 vaults (muscadine USDC prime and frontier) The roles should be set all the same how muscadine USDC prime is, with owner, curator, allocator, sentinal and all the timelocks. The only difference is that it would not be apar of the morpho regristry so that would not be abicated. In the script to create the v2 vault, have a readme.md of every vault value before its deployed. The name would be Muscadine USDC Vinyard on base, mvUSDC
 
+- on business, Gross Protocol Revenue. Cost of Revenue Yields are distributed to vaults depositors/investors. total Revenue is wrong from defi lamma when cost of revenue is 0/
+- Find any errors from this branches commits, it was made from a bad model, revue using a few subagents. 
 - delete pologon from chain list.
 
 - Delete on https://curator.muscadine.xyz/muscadine-frontends namesilio and add cloudfare.
   (Registrar/DNS change — needs Namesilo + Cloudflare account access, not a code change.)
-
-- Set `CURATOR_TRUSTED_PROXY_HOPS` in the production environment (Cloudflare + Vercel = `2`).
-  Until it is set, every login attempt shares one rate-limit bucket instead of one per IP.
-
-## Later
 
 - Safe: executed-transaction **history** tab (Transaction Service `getAllTransactions`,
   on-demand only — the free tier is 5 req/s / 50K per month).
