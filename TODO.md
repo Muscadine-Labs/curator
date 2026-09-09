@@ -9,6 +9,7 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 - on business, Gross Protocol Revenue. Cost of Revenue Yields are distributed to vaults depositors/investors. total Revenue is wrong from defi lamma when cost of revenue is 0/
 - Find any errors from this branches commits, it was made from a bad model, revue using a few subagents. 
 - delete pologon from chain list.
+- -delete wyoming off of business
 
 - Delete on https://curator.muscadine.xyz/muscadine-frontends namesilio and add cloudfare.
   (Registrar/DNS change — needs Namesilo + Cloudflare account access, not a code change.)
