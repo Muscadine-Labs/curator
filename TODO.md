@@ -10,6 +10,7 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 - Find any errors from this branches commits, it was made from a bad model, revue using a few subagents. Make sure everything on curator for safe wallets correctly works. Also, review the allocator and sentinal pages for the read and write functions.
 - delete pologon from chain list.
 - -delete wyoming off of business
+- have the ability to interact with the send assets gate, its controlled by out safe multi sig allocator and owner(or curator i forgot) Add the address on the vault pages, than on /curator have a page where i can interact with it (if multiple than i can interact with multiple, as of now there is only one gate for all of the vaults. 
 
 - Delete on https://curator.muscadine.xyz/muscadine-frontends namesilio and add cloudfare.
   (Registrar/DNS change — needs Namesilo + Cloudflare account access, not a code change.)
