@@ -26,6 +26,8 @@ import {
   useProtocolTransactions,
 } from '@/lib/hooks/useProtocolUsers';
 import type { ProtocolStats } from '@/lib/hooks/useProtocolStats';
+import { useRevenueSource } from '@/lib/RevenueSourceContext';
+import { getVaultPageHref } from '@/lib/config/vaults';
 import {
   formatAddress,
   formatFullUSD,
@@ -523,8 +525,23 @@ function UsersDetail() {
 }
 
 function TvlDetail({ stats }: { stats: ProtocolStats }) {
+  const { revenueSource } = useRevenueSource();
+  const isDefillama = revenueSource === 'defillama';
   const [page, setPage] = useState(0);
   const rows = useMemo(() => {
+    if (isDefillama) {
+      return (stats.tvlByTokenDefillama ?? [])
+        .map((v) => {
+          const latest = v.data[v.data.length - 1];
+          return {
+            name: v.name,
+            address: v.address,
+            tvl: latest?.value ?? 0,
+            href: null as string | null,
+          };
+        })
+        .sort((a, b) => b.tvl - a.tvl);
+    }
     return (stats.tvlByVault ?? [])
       .map((v) => {
         const latest = v.data[v.data.length - 1];
@@ -532,48 +549,65 @@ function TvlDetail({ stats }: { stats: ProtocolStats }) {
           name: v.name,
           address: v.address,
           tvl: latest?.value ?? 0,
+          href: getVaultPageHref(v.address),
         };
       })
       .sort((a, b) => b.tvl - a.tvl);
-  }, [stats.tvlByVault]);
+  }, [isDefillama, stats.tvlByTokenDefillama, stats.tvlByVault]);
 
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
   const paged = rows.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+  const totalTvl = isDefillama ? (stats.defillamaTvl ?? 0) : stats.totalDeposited;
 
   return (
     <div className="space-y-3">
       <div>
-        <h3 className="text-sm font-semibold">TVL by vault</h3>
+        <h3 className="text-sm font-semibold">{isDefillama ? 'TVL by token' : 'TVL by vault'}</h3>
         <p className="text-xs text-muted-foreground">
-          Protocol TVL {formatUSD(stats.totalDeposited)} across {rows.length} vaults
+          {isDefillama ? 'DefiLlama' : 'Protocol'} TVL {formatUSD(totalTvl)} across {rows.length}{' '}
+          {isDefillama ? 'tokens' : 'vaults'}
         </p>
       </div>
       <div className="space-y-2 sm:hidden">
-        {paged.map((row, i) => (
-          <Link
-            key={row.address}
-            href={`/vault/${row.address}`}
-            className="flex items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2.5"
-          >
-            <div className="min-w-0">
-              <p className="text-[10px] text-muted-foreground">
-                #{safePage * PAGE_SIZE + i + 1}
+        {paged.map((row, i) => {
+          const inner = (
+            <>
+              <div className="min-w-0">
+                <p className="text-[10px] text-muted-foreground">
+                  #{safePage * PAGE_SIZE + i + 1}
+                </p>
+                <p className="truncate text-sm font-medium">{row.name}</p>
+              </div>
+              <p className="shrink-0 font-mono text-xs tabular-nums">
+                {formatFullUSD(row.tvl)}
               </p>
-              <p className="truncate text-sm font-medium">{row.name}</p>
+            </>
+          );
+          return row.href ? (
+            <Link
+              key={row.address}
+              href={row.href}
+              className="flex items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2.5"
+            >
+              {inner}
+            </Link>
+          ) : (
+            <div
+              key={row.address}
+              className="flex items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2.5"
+            >
+              {inner}
             </div>
-            <p className="shrink-0 font-mono text-xs tabular-nums">
-              {formatFullUSD(row.tvl)}
-            </p>
-          </Link>
-        ))}
+          );
+        })}
       </div>
       <div className="hidden sm:block">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>#</TableHead>
-              <TableHead>Vault</TableHead>
+              <TableHead>{isDefillama ? 'Token' : 'Vault'}</TableHead>
               <TableHead className="text-right">TVL</TableHead>
             </TableRow>
           </TableHeader>
@@ -584,12 +618,13 @@ function TvlDetail({ stats }: { stats: ProtocolStats }) {
                   {safePage * PAGE_SIZE + i + 1}
                 </TableCell>
                 <TableCell>
-                  <Link
-                    href={`/vault/${row.address}`}
-                    className="text-sm font-medium hover:underline"
-                  >
-                    {row.name}
-                  </Link>
+                  {row.href ? (
+                    <Link href={row.href} className="text-sm font-medium hover:underline">
+                      {row.name}
+                    </Link>
+                  ) : (
+                    <span className="text-sm font-medium">{row.name}</span>
+                  )}
                 </TableCell>
                 <TableCell className="text-right font-mono text-xs">
                   {formatFullUSD(row.tvl)}
@@ -659,7 +694,102 @@ function FeesDetail({ stats }: { stats: ProtocolStats }) {
 }
 
 function VaultsDetail({ stats }: { stats: ProtocolStats }) {
-  return <TvlDetail stats={stats} />;
+  const [page, setPage] = useState(0);
+  const rows = useMemo(() => {
+    const list = stats.activeVaultsList;
+    if (list && list.length > 0) {
+      return [...list].sort((a, b) => b.tvl - a.tvl);
+    }
+    return (stats.tvlByVault ?? [])
+      .map((v) => ({
+        name: v.name,
+        address: v.address,
+        tvl: v.data[v.data.length - 1]?.value ?? 0,
+        kind: 'strategy' as const,
+      }))
+      .sort((a, b) => b.tvl - a.tvl);
+  }, [stats.activeVaultsList, stats.tvlByVault]);
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages - 1);
+  const paged = rows.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold">Active vaults</h3>
+        <p className="text-xs text-muted-foreground">
+          {stats.activeVaults} active vaults including fee wrappers
+        </p>
+      </div>
+      <div className="space-y-2 sm:hidden">
+        {paged.map((row, i) => (
+          <Link
+            key={row.address}
+            href={getVaultPageHref(row.address)}
+            className="flex items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2.5"
+          >
+            <div className="min-w-0">
+              <p className="text-[10px] text-muted-foreground">
+                #{safePage * PAGE_SIZE + i + 1}
+              </p>
+              <p className="truncate text-sm font-medium">{row.name}</p>
+              {row.kind === 'feeWrapper' && (
+                <p className="text-[10px] text-muted-foreground">Fee wrapper</p>
+              )}
+            </div>
+            <p className="shrink-0 font-mono text-xs tabular-nums">
+              {formatFullUSD(row.tvl)}
+            </p>
+          </Link>
+        ))}
+      </div>
+      <div className="hidden sm:block">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>#</TableHead>
+              <TableHead>Vault</TableHead>
+              <TableHead>Kind</TableHead>
+              <TableHead className="text-right">TVL</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {paged.map((row, i) => (
+              <TableRow key={row.address}>
+                <TableCell className="text-xs text-muted-foreground">
+                  {safePage * PAGE_SIZE + i + 1}
+                </TableCell>
+                <TableCell>
+                  <Link
+                    href={getVaultPageHref(row.address)}
+                    className="text-sm font-medium hover:underline"
+                  >
+                    {row.name}
+                  </Link>
+                </TableCell>
+                <TableCell>
+                  <Badge variant="secondary" className="text-[10px] font-normal">
+                    {row.kind === 'feeWrapper' ? 'Fee wrapper' : 'Strategy'}
+                  </Badge>
+                </TableCell>
+                <TableCell className="text-right font-mono text-xs">
+                  {formatFullUSD(row.tvl)}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <Pagination
+        page={safePage}
+        totalPages={totalPages}
+        total={rows.length}
+        pageSize={PAGE_SIZE}
+        onPage={setPage}
+      />
+    </div>
+  );
 }
 
 export function ProtocolStatsDetail({

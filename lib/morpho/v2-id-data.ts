@@ -1,4 +1,5 @@
 import {
+  decodeAbiParameters,
   encodeAbiParameters,
   parseAbiParameters,
   type Address,
@@ -54,6 +55,19 @@ export const EMPTY_ADAPTER_DATA = '0x' as Hex;
 export function encodeMarketParamsData(market: MarketParamsInput): Hex {
   const [loan, col, oracle, irm, lltv] = resolveMarketParamsTuple(market);
   return encodeAbiParameters(MARKET_PARAMS_ABI, [loan, col, oracle, irm, lltv]);
+}
+
+/** Collateral token from MorphoMarketV1Adapter allocate/deallocate `data`. */
+export function collateralAddressFromMarketData(data: Hex): Address | null {
+  if (!data || data === '0x' || data === EMPTY_ADAPTER_DATA) return null;
+  try {
+    const decoded = decodeAbiParameters(MARKET_PARAMS_ABI, data);
+    const col = decoded[1];
+    if (col === '0x0000000000000000000000000000000000000000') return null;
+    return col;
+  } catch {
+    return null;
+  }
 }
 
 /** Adapter cap idData = abi.encode("this", adapterAddress). */

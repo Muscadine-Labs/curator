@@ -133,7 +133,14 @@ export async function queueSafeTransaction(options: {
   upsertPendingTransaction(tx);
 
   if (options.safeAppSdk) {
-    return tryPublishViaSafeApp(tx, options.calldata, options.safeAppSdk);
+    const published = await tryPublishViaSafeApp(tx, options.calldata, options.safeAppSdk);
+    if (!published.serviceSynced) {
+      throw new Error(
+        published.serviceSyncError ??
+          'Safe App did not accept the transaction. It is saved locally — open the Safe queue to retry.'
+      );
+    }
+    return published;
   }
 
   if (options.proposer && isTransactionServiceConfigured()) {

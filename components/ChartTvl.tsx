@@ -18,6 +18,7 @@ interface ChartTvlProps {
   }>;
   isLoading?: boolean;
   title?: string;
+  breakdownLabel?: string;
 }
 
 const VAULT_COLORS = [
@@ -31,7 +32,13 @@ const VAULT_COLORS = [
   '#84cc16',
 ];
 
-export function ChartTvl({ totalData, vaultData, isLoading = false, title = 'TVL Over Time' }: ChartTvlProps) {
+export function ChartTvl({
+  totalData,
+  vaultData,
+  isLoading = false,
+  title = 'TVL Over Time',
+  breakdownLabel = 'By Vault',
+}: ChartTvlProps) {
   const [viewMode, setViewMode] = useState<ChartSourceMode>('total');
   const [range, setRange] = useState<TimeRange>('all');
 
@@ -189,7 +196,11 @@ export function ChartTvl({ totalData, vaultData, isLoading = false, title = 'TVL
           <div className="flex flex-wrap items-center gap-2">
             <TimeRangeFilter value={range} onChange={setRange} />
             {showToggle && (
-              <SourceModeFilter value={viewMode} onChange={setViewMode} />
+              <SourceModeFilter
+                value={viewMode}
+                onChange={setViewMode}
+                breakdownLabel={breakdownLabel}
+              />
             )}
           </div>
         </div>

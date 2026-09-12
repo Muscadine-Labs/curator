@@ -9,7 +9,7 @@ export default function CuratorMarketsPage() {
       title="Morpho Markets"
       description="Browse Morpho Blue and Midnight markets, filter by network and listing status, and see Muscadine vault caps."
     >
-      <CuratorMarketsBrowser />
+      <CuratorMarketsBrowser product="all" />
     </AppShell>
   );
 }

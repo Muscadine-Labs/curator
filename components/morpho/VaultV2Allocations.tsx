@@ -31,7 +31,7 @@ import {
   walletCanSignAllocation,
   type VaultWriteDestination,
 } from '@/lib/safe/vault-write-destination';
-import { ALLOCATION_SAFE_ROLE, type SafeRole } from '@/lib/safe/config';
+import { ALLOCATION_SAFE_ROLE, getSafeByRole, type SafeRole } from '@/lib/safe/config';
 import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
 import type { Address, Hex } from 'viem';
 import {
@@ -66,14 +66,16 @@ import { cycleAllocationHeaderSort, type AllocationHeaderSortColumn } from '@/li
 import { clearAllocationFilters } from '@/lib/allocation/allocation-filters-storage';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/[id]/risk/route';
 import type { VaultV2GovernanceResponse, CapInfo } from '@/app/api/vaults/[id]/governance/route';
-import { isAdapterCap, isMarketCap } from '@/lib/morpho/cap-utils';
+import { isAdapterCap, isCollateralCap, isMarketCap } from '@/lib/morpho/cap-utils';
 import { collectMorphoBlueMarketEntries } from '@/lib/morpho/v2-allocation-targets';
 import { isMorphoVaultV2Adapter } from '@/lib/morpho/vault-v2-adapter';
 import {
   EMPTY_ADAPTER_DATA,
   encodeAdapterCapIdData,
+  encodeCollateralCapIdData,
   encodeMarketCapIdData,
   encodeMarketParamsData,
+  collateralAddressFromMarketData,
 } from '@/lib/morpho/v2-id-data';
 import {
   AllocationFilters,
@@ -85,6 +87,7 @@ import {
 } from '@/lib/onchain/allocation-dust';
 import {
   buildRebalanceMulticallData,
+  buildCapIdStateMap,
   INSUFFICIENT_IDLE_FUNDING_ERROR,
   summarizeRebalanceFunding,
   computeDeployableIdle,
@@ -95,7 +98,10 @@ import {
   percentInputToRaw,
   rawToPercentInput,
   remainingDeployableIdleAfterMax,
+  rebalanceCallsFingerprint,
+  simulateVaultRebalance,
   trimPlanToVaultTotal,
+  validateRebalanceCapIds,
   type RebalancePlanRow,
 } from '@/lib/onchain/v2-rebalance-plan';
 import { vaultV2Abi } from '@/lib/onchain/abis';
@@ -204,13 +210,13 @@ function compareNullableBigInt(a: bigint | null, b: bigint | null, desc: boolean
 function hasRemainingCapacity(t: AllocTarget, totalRaw: bigint): boolean {
   if (t.isVaultIdle) return false;
   let hasHeadroom = false;
-  if (t.absoluteCapRaw != null && t.absoluteCapRaw > t.currentAssets) {
+  if (t.absoluteCapRaw != null && t.absoluteCapRaw > t.displayAssets) {
     hasHeadroom = true;
   }
   if (t.relativeCapWad != null && totalRaw > BigInt(0)) {
     const wad = BigInt('1000000000000000000');
     const maxRel = (totalRaw * t.relativeCapWad) / wad;
-    if (maxRel > t.currentAssets) hasHeadroom = true;
+    if (maxRel > t.displayAssets) hasHeadroom = true;
   }
   return hasHeadroom;
 }
@@ -362,6 +368,8 @@ function mapResultsToPlanRows(
       relativeCapWad: r.target.relativeCapWad,
       symbol: r.target.symbol,
       decimals: r.target.decimals,
+      displayAssets: r.target.displayAssets,
+      collateralAddress: collateralAddressFromMarketData(r.target.data),
     },
     assets: r.assets,
     current: r.current,
@@ -454,6 +462,10 @@ export function VaultV2Allocations({
       // Build idHash for each cap based on its kind.
       if (isAdapterCap(cap) && cap.adapterAddress) {
         const h = keccak256(encodeAdapterCapIdData(cap.adapterAddress));
+        map.set(h.toLowerCase(), cap);
+      }
+      if (isCollateralCap(cap) && cap.collateralAddress) {
+        const h = keccak256(encodeCollateralCapIdData(cap.collateralAddress));
         map.set(h.toLowerCase(), cap);
       }
       if (isMarketCap(cap) && cap.adapterAddress && cap.marketParams) {
@@ -1109,7 +1121,8 @@ export function VaultV2Allocations({
           t.currentAssets,
           t,
           chainTotalRaw,
-          deployableIdle
+          deployableIdle,
+          t.displayAssets
         );
 
         if (inputMode === 'percentage') {
@@ -1401,22 +1414,26 @@ export function VaultV2Allocations({
           dustRecipientIdx,
         };
       }
-      if (r.assets > t.absoluteCapRaw) {
-        return {
-          valid: false as const,
-          error: `${t.label}: allocation exceeds absolute cap (${formatRawTokenAmount(t.absoluteCapRaw, resolveAssetDecimals(t.symbol, t.decimals), getTokenDisplayDecimals(t.symbol, t.decimals))} ${t.symbol}).`,
-          results: [] as Result[],
-          inputSum,
-          sumAssets,
-          dustDiff,
-          dustRecipientIdx,
-        };
+      if (r.assets > r.current) {
+        const displayAfter = t.displayAssets + (r.assets - r.current);
+        if (displayAfter > t.absoluteCapRaw) {
+          return {
+            valid: false as const,
+            error: `${t.label}: allocation exceeds absolute cap (${formatRawTokenAmount(t.absoluteCapRaw, resolveAssetDecimals(t.symbol, t.decimals), getTokenDisplayDecimals(t.symbol, t.decimals))} ${t.symbol}). Accrued interest counts toward the cap.`,
+            results: [] as Result[],
+            inputSum,
+            sumAssets,
+            dustDiff,
+            dustRecipientIdx,
+          };
+        }
       }
       if (t.relativeCapWad != null && chainTotalRaw > BigInt(0)) {
         // allocation <= firstTotalAssets * relativeCap / 1e18 — chain total at tx start.
         const wad = BigInt('1000000000000000000');
         const maxAllowed = (chainTotalRaw * t.relativeCapWad) / wad;
-        if (t.relativeCapWad < wad && r.assets > maxAllowed) {
+        const displayAfter = t.displayAssets + (r.assets - r.current);
+        if (t.relativeCapWad < wad && displayAfter > maxAllowed) {
           return {
             valid: false as const,
             error: `${t.label}: allocation exceeds relative cap (${(Number(t.relativeCapWad) / 1e16).toFixed(2)}% of vault).`,
@@ -1428,6 +1445,23 @@ export function VaultV2Allocations({
           };
         }
       }
+    }
+
+    const capIdError = validateRebalanceCapIds(
+      mapResultsToPlanRows(adjustedResults),
+      buildCapIdStateMap(governance?.caps ?? []),
+      chainTotalRaw
+    );
+    if (capIdError) {
+      return {
+        valid: false as const,
+        error: capIdError,
+        results: [] as Result[],
+        inputSum,
+        sumAssets,
+        dustDiff,
+        dustRecipientIdx,
+      };
     }
 
     // Only strategy-adapter deltas produce on-chain calls; an idle-only edit
@@ -1474,13 +1508,42 @@ export function VaultV2Allocations({
         abi: vaultV2Abi,
         functionName: 'totalAssets',
       })) as bigint;
-      return finalizeRebalancePlan(publicClient, vaultAddress, rows, chainTotal);
+      return finalizeRebalancePlan(
+        publicClient,
+        vaultAddress,
+        rows,
+        chainTotal,
+        buildCapIdStateMap(governance?.caps ?? [])
+      );
     },
-    [publicClient, vaultAddress]
+    [publicClient, vaultAddress, governance?.caps]
+  );
+
+  const PLAN_MOVED_ERROR =
+    'On-chain allocations moved since preview — review the updated changes and confirm again.';
+
+  const previewFromRows = useCallback(
+    (rows: RebalancePlanRow[]) =>
+      buildAllocationRebalancePreview(
+        rows.map((r) => ({
+          label: r.target.label,
+          symbol: r.target.symbol ?? vaultSymbol,
+          decimals: r.target.decimals ?? vaultDecimals,
+          isVaultIdle: r.target.isVaultIdle,
+          currentAssets: r.current,
+          assets: r.assets,
+        })),
+        vaultSymbol
+      ),
+    [vaultSymbol, vaultDecimals]
   );
 
   const openRebalancePreview = useCallback(async () => {
-    if (!resolvedAllocations?.valid || !publicClient) return;
+    if (!resolvedAllocations?.valid) return;
+    if (!publicClient) {
+      setSubmitError('Connect a wallet so the app can simulate the rebalance on-chain.');
+      return;
+    }
 
     setPreparingPreview(true);
     setSubmitError(null);
@@ -1494,17 +1557,7 @@ export function VaultV2Allocations({
         return;
       }
 
-      const basePreview = buildAllocationRebalancePreview(
-        finalized.rows.map((r) => ({
-          label: r.target.label,
-          symbol: r.target.symbol ?? vaultSymbol,
-          decimals: r.target.decimals ?? vaultDecimals,
-          isVaultIdle: r.target.isVaultIdle,
-          currentAssets: r.current,
-          assets: r.assets,
-        })),
-        vaultSymbol
-      );
+      const basePreview = previewFromRows(finalized.rows);
 
       if (!basePreview) {
         setSubmitError('No on-chain allocation changes to submit.');
@@ -1534,8 +1587,7 @@ export function VaultV2Allocations({
     resolvedAllocations,
     publicClient,
     finalizePlanRows,
-    vaultSymbol,
-    vaultDecimals,
+    previewFromRows,
     governance?.allocators,
     walletAddress,
   ]);
@@ -1554,6 +1606,16 @@ export function VaultV2Allocations({
     }
     const submitRows = finalized.rows;
 
+    if (rebalanceCallsFingerprint(preparedSubmit.rows) !== rebalanceCallsFingerprint(submitRows)) {
+      const nextPreview = previewFromRows(submitRows);
+      setPreparedSubmit({
+        rows: submitRows,
+        preview: nextPreview ?? preparedSubmit.preview,
+      });
+      setSubmitError(PLAN_MOVED_ERROR);
+      return;
+    }
+
     const { deallocCalls, allocCalls } = buildRebalanceMulticallData(submitRows);
     const allCalls = [...deallocCalls, ...allocCalls];
     if (allCalls.length === 0) {
@@ -1567,6 +1629,12 @@ export function VaultV2Allocations({
     }
 
     try {
+      await simulateVaultRebalance({
+        client: publicClient,
+        vault,
+        account: walletAddress,
+        rows: submitRows,
+      });
       if (allCalls.length === 1) {
         const changed = submitRows.find(
           (r) => !r.target.isVaultIdle && r.assets !== r.current
@@ -1577,13 +1645,6 @@ export function VaultV2Allocations({
           const delta = changed.assets - changed.current;
           const adapter = changed.target.adapterAddress as Address;
           const data = changed.target.data;
-          await publicClient.simulateContract({
-            account: walletAddress,
-            address: vault,
-            abi: vaultV2Abi,
-            functionName: 'allocate',
-            args: [adapter, data, delta],
-          });
           await multicallWrite.write(
             v2WriteConfigs.allocate(vault, adapter, data, delta)
           );
@@ -1596,25 +1657,11 @@ export function VaultV2Allocations({
           if (safeDelta <= 0n) return;
           const adapter = changed.target.adapterAddress as Address;
           const data = changed.target.data;
-          await publicClient.simulateContract({
-            account: walletAddress,
-            address: vault,
-            abi: vaultV2Abi,
-            functionName: 'deallocate',
-            args: [adapter, data, safeDelta],
-          });
           await multicallWrite.write(
             v2WriteConfigs.deallocate(vault, adapter, data, safeDelta)
           );
         }
       } else {
-        await publicClient.simulateContract({
-          account: walletAddress,
-          address: vault,
-          abi: vaultV2Abi,
-          functionName: 'multicall',
-          args: [allCalls],
-        });
         await multicallWrite.write(v2WriteConfigs.multicall(vault, allCalls));
       }
     } catch (error) {
@@ -1631,6 +1678,7 @@ export function VaultV2Allocations({
     publicClient,
     walletAddress,
     finalizePlanRows,
+    previewFromRows,
   ]);
 
   const handleQueueInSafe = useCallback(
@@ -1641,11 +1689,33 @@ export function VaultV2Allocations({
       setQueueSafeError(null);
 
       try {
+        if (!publicClient) {
+          setQueueSafeError('Connect a wallet so the app can simulate the rebalance on-chain.');
+          return;
+        }
         const finalized = await finalizePlanRows(preparedSubmit.rows);
         if (finalized.error) {
           setQueueSafeError(finalized.error);
           return;
         }
+        if (
+          rebalanceCallsFingerprint(preparedSubmit.rows) !==
+          rebalanceCallsFingerprint(finalized.rows)
+        ) {
+          const nextPreview = previewFromRows(finalized.rows);
+          setPreparedSubmit({
+            rows: finalized.rows,
+            preview: nextPreview ?? preparedSubmit.preview,
+          });
+          setQueueSafeError(PLAN_MOVED_ERROR);
+          return;
+        }
+        await simulateVaultRebalance({
+          client: publicClient,
+          vault: getAddress(vaultAddress),
+          account: getSafeByRole(safeRole).address,
+          rows: finalized.rows,
+        });
         await queueVaultRebalanceInSafe({
           vaultAddress: getAddress(vaultAddress),
           submitRows: finalized.rows,
@@ -1669,7 +1739,18 @@ export function VaultV2Allocations({
         setQueueingSafe(false);
       }
     },
-    [allocatorSafeAppSdk, connector, finalizePlanRows, preparedSubmit, vaultAddress, vaultSymbol, walletAddress, router]
+    [
+      allocatorSafeAppSdk,
+      connector,
+      finalizePlanRows,
+      preparedSubmit,
+      previewFromRows,
+      publicClient,
+      vaultAddress,
+      vaultSymbol,
+      walletAddress,
+      router,
+    ]
   );
 
   const handlePreviewConfirm = useCallback(async () => {

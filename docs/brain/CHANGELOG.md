@@ -4,6 +4,31 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-09-12 — Allocation / Safe / sentinel write-path review
+
+- Unchanged rebalance rows snap to live `allocation(id)` so indexer/interest drift cannot inject phantom alloc/dealloc. Adapter/collateral cap occupancy is reread before cap checks.
+- Safe App publish failure now throws (local draft still saved). Rebalance simulates as the Allocator Safe before queue; confirm rebuilds the preview if calldata changed.
+- Gate writes pass a role-gated Safe App SDK. Sentinel deallocate amounts clamp to market liquidity. Extra vault/adapter revert selectors mapped in the wallet banner.
+
+---
+
+## 2026-09-12 — Overview DefiLlama TVL, Base default, markets sidebar
+
+- DefiLlama overview source now drives TVL KPI, TVL chart, and TVL detail (token series), not only revenue/fees/inflows.
+- Active vaults detail lists all 8 active vaults including fee wrappers (protocol TVL still excludes wrappers to avoid double-count).
+- Markets sidebar: Browse / Blue / Midnight routes. Network picker defaults to Base on load.
+- Liquidity adapter waits for the receipt before closing; gate Safe execute refetches the gate query; rebalance preview errors if RPC is missing.
+
+---
+
+## 2026-09-12 — Reallocate AbsoluteCapExceeded (0x4616e4af)
+
+- Multicall revert `0x4616e4af` is Vault V2 `AbsoluteCapExceeded()`. ABI had no custom errors, so viem could not decode it (same gap for Unauthorized, RelativeCapExceeded, timelock, adapter errors on other writes).
+- Allocate checks **market + adapter + collateral** IDs; accrued interest is written into `allocation(id)`. Planner only checked the market booked target.
+- Rebalance now simulates those IDs (dealloc first), Max uses display occupancy, pending-accept ABI includes `setIsAllocator` / gates / fee recipients. Wallet banner maps the selectors.
+
+---
+
 ## 2026-09-12 — Login password HMAC + Dependabot
 
 - Session HMAC uses `CURATOR_ADMIN_PASSWORD` in production when `CURATOR_SESSION_SECRET` is unset (`lib/auth/session.ts`). Fixes “Auth not configured” with only the documented env vars.

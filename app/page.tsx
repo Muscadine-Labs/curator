@@ -114,6 +114,11 @@ export default function Home() {
   const isRevenueLoading =
     revenueSource === 'treasury' ? isTreasuryLoading : isLoading;
 
+  const isDefillama = revenueSource === 'defillama';
+  const tvlValue = isDefillama ? (stats?.defillamaTvl ?? 0) : (stats?.totalDeposited || 0);
+  const tvlTrend = isDefillama ? stats?.tvlTrendDefillama : stats?.tvlTrend;
+  const tvlBreakdown = isDefillama ? stats?.tvlByTokenDefillama : stats?.tvlByVault;
+
   return (
     <AppShell
       title={
@@ -133,8 +138,8 @@ export default function Home() {
           onChange={(e) => setRevenueSource(e.target.value as RevenueSource)}
           className="h-8 rounded-md border border-input bg-background px-2 py-0 text-xs ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
         >
-          <option value="defillama">DefiLlama</option>
           <option value="treasury">Treasury Wallet</option>
+          <option value="defillama">DefiLlama</option>
         </select>
       }
     >
@@ -146,7 +151,7 @@ export default function Home() {
             </p>
             <KpiCard
               title="TVL"
-              value={stats?.totalDeposited || 0}
+              value={tvlValue}
               isLoading={isLoading}
               format="usd_full"
               compact
@@ -222,10 +227,11 @@ export default function Home() {
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <ChartTvl
-            totalData={stats?.tvlTrend}
-            vaultData={stats?.tvlByVault}
+            totalData={tvlTrend}
+            vaultData={tvlBreakdown}
             isLoading={isLoading}
-            title="TVL Over Time"
+            title={isDefillama ? 'TVL Over Time · DefiLlama' : 'TVL Over Time'}
+            breakdownLabel={isDefillama ? 'By Token' : 'By Vault'}
           />
           <ChartInflows
             dailyData={stats?.inflowsTrendDaily}

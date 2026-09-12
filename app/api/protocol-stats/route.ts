@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import {
   getActiveVaultAddressesForStats,
+  getConfiguredVaultDisplayName,
   getVaultAddressesForProtocolStats,
   isFeeWrapperAdapterAddress,
   withFeeWrapperLabel,
@@ -28,6 +29,9 @@ import {
   getCumulativeRevenueChart,
   getDailyInflowsChart,
   getCumulativeInflowsChart,
+  getTvlChart,
+  getLatestTvl,
+  getTvlByTokenSeries,
 } from '@/lib/defillama/service';
 import { unauthorizedUnlessAdmin } from '@/lib/auth/require-admin';
 
@@ -178,7 +182,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const stats = await withServerResponseCache('protocol-stats-v3', API_CACHE_MAX_AGE_MS, async () => {
+    const stats = await withServerResponseCache('protocol-stats-v4', API_CACHE_MAX_AGE_MS, async () => {
     const businessVaults = getVaultAddressesForProtocolStats();
     const activeVaultsForStats = getActiveVaultAddressesForStats();
     const addresses = businessVaults.map((v) => getAddress(v.address));
@@ -190,6 +194,30 @@ export async function GET(request: Request) {
     ).filter((v): v is VaultTvlSeries => v !== null);
 
     const tvlByVault = tvlByVaultResults.map(padSinglePointSeries);
+
+    const wrapperConfigs = activeVaultsForStats.filter((v) => v.kind === 'feeWrapper');
+    const wrapperSeries = (
+      await Promise.all(wrapperConfigs.map((v) => fetchVaultV2TvlSeries(getAddress(v.address))))
+    ).filter((v): v is VaultTvlSeries => v !== null);
+
+    const tvlByAddress = new Map<string, VaultTvlSeries>();
+    for (const series of [...tvlByVaultResults, ...wrapperSeries]) {
+      tvlByAddress.set(series.address.toLowerCase(), series);
+    }
+
+    const activeVaultsList = activeVaultsForStats.map((cfg) => {
+      const series = tvlByAddress.get(cfg.address.toLowerCase());
+      const latest = series?.data[series.data.length - 1]?.value ?? 0;
+      return {
+        name: withFeeWrapperLabel(
+          series?.name || getConfiguredVaultDisplayName(cfg),
+          cfg.address
+        ),
+        address: cfg.address.toLowerCase(),
+        tvl: latest,
+        kind: cfg.kind ?? 'strategy',
+      };
+    });
 
     const totalDeposited = tvlByVaultResults.reduce((sum, vault) => {
       const latest = vault.data[vault.data.length - 1];
@@ -267,6 +295,9 @@ export async function GET(request: Request) {
     let revenueTrendCumulative: Array<{ date: string; value: number }> = [];
     let inflowsTrendDaily: Array<{ date: string; value: number }> = [];
     let inflowsTrendCumulative: Array<{ date: string; value: number }> = [];
+    let tvlTrendDefillama: Array<{ date: string; value: number }> = [];
+    let tvlByTokenDefillama: VaultTvlSeries[] = [];
+    let defillamaTvl = 0;
 
     try {
       const [feesData, revenueData, protocolData] = await Promise.all([
@@ -290,6 +321,9 @@ export async function GET(request: Request) {
       if (protocolData) {
         inflowsTrendDaily = getDailyInflowsChart(protocolData, feesData);
         inflowsTrendCumulative = getCumulativeInflowsChart(protocolData, feesData);
+        tvlTrendDefillama = getTvlChart(protocolData);
+        tvlByTokenDefillama = getTvlByTokenSeries(protocolData);
+        defillamaTvl = getLatestTvl(protocolData);
       }
     } catch (error) {
       logger.error('Failed to fetch DefiLlama data', error as Error);
@@ -317,6 +351,10 @@ export async function GET(request: Request) {
         address: v.address,
         data: v.data,
       })),
+      tvlTrendDefillama,
+      tvlByTokenDefillama,
+      defillamaTvl,
+      activeVaultsList,
       feesTrendDaily,
       feesTrendCumulative,
       revenueTrendDaily,

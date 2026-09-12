@@ -383,3 +383,47 @@ export function getCumulativeInflowsChart(
   
   return result;
 }
+
+/** Protocol TVL over time from DefiLlama `tvl` (unix seconds). */
+export function getTvlChart(response: DefiLlamaProtocolResponse): ChartData[] {
+  if (!response.tvl || response.tvl.length === 0) {
+    return [];
+  }
+  return response.tvl.map((point) => ({
+    date: new Date(point.date * 1000).toISOString(),
+    value: point.totalLiquidityUSD || 0,
+  }));
+}
+
+export function getLatestTvl(response: DefiLlamaProtocolResponse): number {
+  const series = getTvlChart(response);
+  if (series.length === 0) return 0;
+  return series[series.length - 1]?.value ?? 0;
+}
+
+/** Token USD breakdown over time — DefiLlama equivalent of the Morpho by-vault TVL chart. */
+export function getTvlByTokenSeries(
+  response: DefiLlamaProtocolResponse
+): Array<{ name: string; address: string; data: ChartData[] }> {
+  if (!response.tokensInUsd || response.tokensInUsd.length === 0) {
+    return [];
+  }
+  const names = new Set<string>();
+  for (const snap of response.tokensInUsd) {
+    for (const name of Object.keys(snap.tokens ?? {})) {
+      names.add(name);
+    }
+  }
+  const sortedSnaps = [...response.tokensInUsd].sort((a, b) => a.date - b.date);
+  return [...names]
+    .sort()
+    .map((name) => ({
+      name,
+      address: name,
+      data: sortedSnaps.map((snap) => ({
+        date: new Date(snap.date * 1000).toISOString(),
+        value: snap.tokens?.[name] ?? 0,
+      })),
+    }))
+    .filter((series) => series.data.some((point) => point.value > 0));
+}

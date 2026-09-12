@@ -40,6 +40,9 @@ import { isWalletRejection } from '@/lib/utils/wallet-error';
 
 type GateWriteKind = 'whitelist' | 'whitelister';
 
+const WHITELIST_ROLES: SafeRole[] = ['allocator', 'curator'];
+const WHITELISTER_ROLES: SafeRole[] = ['curator'];
+
 function gateQueryKey(address: string) {
   return ['send-assets-gate', address] as const;
 }
@@ -80,8 +83,9 @@ export function SendAssetsGatePanel({
   label: string;
 }) {
   const router = useRouter();
-  const { address: walletAddress, isConnected, connector } = useAccount();
-  const { sdk: safeAppSdk } = useCuratorSafeApps();
+  const { address: walletAddress, connector } = useAccount();
+  const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
+    useCuratorSafeApps();
   const query = useQuery({
     queryKey: gateQueryKey(gateAddress),
     queryFn: async () => {
@@ -110,19 +114,31 @@ export function SendAssetsGatePanel({
     ? getAddress(stripGroupingSeparators(accountInput))
     : null;
 
-  const whitelistRoles: SafeRole[] = ['allocator', 'curator'];
-  const whitelisterRoles: SafeRole[] = ['curator'];
-  const eligibleRoles = kind === 'whitelist' ? whitelistRoles : whitelisterRoles;
+  const eligibleRoles = kind === 'whitelist' ? WHITELIST_ROLES : WHITELISTER_ROLES;
 
   const preview = useMemo(
     () => (parsedAccount ? previewFor(kind, parsedAccount, allowed) : null),
     [parsedAccount, kind, allowed]
   );
 
-  const coercedDestination: VaultWriteDestination =
-    destination.kind === 'safe' && !eligibleRoles.includes(destination.role)
-      ? { kind: 'safe', role: eligibleRoles[0]! }
-      : destination;
+  const coercedDestination = useMemo((): VaultWriteDestination => {
+    if (destination.kind === 'safe' && !eligibleRoles.includes(destination.role)) {
+      return { kind: 'safe', role: eligibleRoles[0]! };
+    }
+    return destination;
+  }, [destination, eligibleRoles]);
+
+  const gateSafeAppSdk = useMemo(() => {
+    if (
+      !safeAppConnected ||
+      !safeAppSdk ||
+      coercedDestination.kind !== 'safe' ||
+      safeAppRole !== coercedDestination.role
+    ) {
+      return null;
+    }
+    return safeAppSdk;
+  }, [safeAppConnected, safeAppSdk, safeAppRole, coercedDestination]);
 
   async function confirm() {
     if (!parsedAccount) return;
@@ -148,7 +164,7 @@ export function SendAssetsGatePanel({
         },
         proposer: walletAddress,
         provider: await getConnectorProvider(connector),
-        safeAppSdk,
+        safeAppSdk: gateSafeAppSdk,
       });
       router.push(`/safe/${coercedDestination.role}/transactions`);
     } catch (err) {
@@ -291,7 +307,7 @@ export function SendAssetsGatePanel({
           walletHint: `${confirmLabelForDestination({ kind: 'safe', role: eligibleRoles[0]! })} — gate writes are Safe-only.`,
           safeRoles: eligibleRoles,
           confirmEnabled: canConfirmVaultWriteDestination(coercedDestination, {
-            walletReady: isConnected,
+            walletReady: false,
             eligibleSafeRoles: eligibleRoles,
           }),
         }}

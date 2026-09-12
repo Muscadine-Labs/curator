@@ -9,6 +9,8 @@ import {
   FileText,
   LayoutGrid,
   LineChart,
+  Moon,
+  Waves,
   Shield,
   Users,
   Wrench,
@@ -252,6 +254,8 @@ function AreaSidebar({
   }
 
   if (area === 'markets') {
+    const onBlueMarket = pathname.startsWith('/market/');
+    const onMidnightMarket = pathname.startsWith('/midnight');
     return (
       <div className="space-y-1">
         <SectionLabel>Markets</SectionLabel>
@@ -259,7 +263,21 @@ function AreaSidebar({
           href="/markets"
           label="Browse"
           icon={LineChart}
-          active={pathname === '/markets' || pathname.startsWith('/market/') || pathname.startsWith('/midnight')}
+          active={pathname === '/markets'}
+          onClick={onLinkClick}
+        />
+        <NavLink
+          href="/markets/blue"
+          label="Blue"
+          icon={Waves}
+          active={pathname === '/markets/blue' || onBlueMarket}
+          onClick={onLinkClick}
+        />
+        <NavLink
+          href="/markets/midnight"
+          label="Midnight"
+          icon={Moon}
+          active={pathname === '/markets/midnight' || onMidnightMarket}
           onClick={onLinkClick}
         />
       </div>

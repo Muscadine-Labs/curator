@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { isBroadcastTxHash, isWalletRejection } from '@/lib/utils/wallet-error';
+import {
+  isBroadcastTxHash,
+  isWalletRejection,
+  summarizeWalletError,
+} from '@/lib/utils/wallet-error';
 
 const VALID_TX_HASH =
   '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef';
@@ -29,5 +33,23 @@ describe('isWalletRejection', () => {
   it('returns false for other errors', () => {
     expect(isWalletRejection(new Error('insufficient funds'))).toBe(false);
     expect(isWalletRejection(null)).toBe(false);
+  });
+});
+
+describe('summarizeWalletError', () => {
+  it('maps CapExceeded by selector without colliding with AbsoluteCapExceeded', () => {
+    expect(summarizeWalletError(new Error('reverted 0xa4875a49')).summary).toMatch(
+      /Morpho Blue market supply cap/i
+    );
+    expect(summarizeWalletError(new Error('AbsoluteCapExceeded()')).summary).toMatch(
+      /market \+ adapter \+ collateral/i
+    );
+  });
+
+  it('maps MarketNotCreated and NotInAdapterRegistry', () => {
+    expect(summarizeWalletError(new Error('MarketNotCreated()')).summary).toMatch(
+      /does not exist/i
+    );
+    expect(summarizeWalletError(new Error('0x133c5cc8')).summary).toMatch(/adapter registry/i);
   });
 });

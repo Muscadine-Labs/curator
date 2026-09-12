@@ -1073,10 +1073,19 @@ function DeallocatePanel({
         return;
       }
       parsed = clampDeallocateAmount(parsed, row.currentRaw);
+      const minTarget = minTargetFromLiquidity(row.currentRaw, row.liquidityAssets);
+      const maxWithdrawable =
+        row.currentRaw > minTarget ? row.currentRaw - minTarget : 0n;
+      if (parsed > maxWithdrawable) {
+        parsed = maxWithdrawable;
+      }
       if (parsed <= 0n) {
         setRowErrors((prev) => ({
           ...prev,
-          [row.key]: 'Amount must be greater than zero.',
+          [row.key]:
+            maxWithdrawable <= 0n
+              ? 'Not enough market liquidity to deallocate. Wait for borrowers to repay, or Min if any amount is withdrawable.'
+              : 'Amount must be greater than zero.',
         }));
         return;
       }

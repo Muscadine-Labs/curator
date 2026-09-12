@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAccount } from 'wagmi';
 import { useQueryClient } from '@tanstack/react-query';
@@ -106,6 +106,16 @@ export function VaultV2LiquidityAdapter({
   const { address: walletAddress, isConnected, connector } = useAccount();
   const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
     useCuratorSafeApps();
+
+  useEffect(() => {
+    if (!write.isSuccess) return;
+    setPreviewOpen(false);
+    setChanging(false);
+    void Promise.all([
+      queryClient.refetchQueries({ queryKey: vaultV2GovernanceQueryKey(vaultAddress) }),
+      queryClient.refetchQueries({ queryKey: ['vault-v2-risk', vaultAddress] }),
+    ]);
+  }, [write.isSuccess, queryClient, vaultAddress]);
 
   const allocators = useMemo(
     () => governance?.allocators ?? [],
@@ -215,16 +225,10 @@ export function VaultV2LiquidityAdapter({
 
     try {
       await write.write(buildWriteConfig(selected));
-      setPreviewOpen(false);
-      setChanging(false);
-      await Promise.all([
-        queryClient.refetchQueries({ queryKey: vaultV2GovernanceQueryKey(vaultAddress) }),
-        queryClient.refetchQueries({ queryKey: ['vault-v2-risk', vaultAddress] }),
-      ]);
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : 'Failed to update liquidity adapter.');
     }
-  }, [selected, buildWriteConfig, vaultAddress, write, queryClient]);
+  }, [selected, buildWriteConfig, write]);
 
   const queueInSafe = useCallback(
     async (safeRole: SafeRole) => {

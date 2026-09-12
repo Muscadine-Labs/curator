@@ -10,21 +10,25 @@ export type ChartSourceMode = 'total' | 'byVault';
 interface SourceModeFilterProps {
   value: ChartSourceMode;
   onChange: (value: ChartSourceMode) => void;
+  breakdownLabel?: string;
 }
-
-const OPTIONS: Array<{ value: ChartSourceMode; label: string }> = [
-  { value: 'total', label: 'Total' },
-  { value: 'byVault', label: 'By Vault' },
-];
 
 /**
  * Single-button dropdown for switching a chart between an aggregate Total
  * series and per-vault breakdown lines. Mirrors `TimeRangeFilter` and
  * `ViewModeFilter` so all chart headers share the same filter affordance.
  */
-export function SourceModeFilter({ value, onChange }: SourceModeFilterProps) {
+export function SourceModeFilter({
+  value,
+  onChange,
+  breakdownLabel = 'By Vault',
+}: SourceModeFilterProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const options: Array<{ value: ChartSourceMode; label: string }> = [
+    { value: 'total', label: 'Total' },
+    { value: 'byVault', label: breakdownLabel },
+  ];
 
   useEffect(() => {
     if (!open) return;
@@ -36,7 +40,7 @@ export function SourceModeFilter({ value, onChange }: SourceModeFilterProps) {
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open]);
 
-  const activeLabel = OPTIONS.find((o) => o.value === value)?.label ?? 'Total';
+  const activeLabel = options.find((o) => o.value === value)?.label ?? 'Total';
 
   return (
     <div className="relative" ref={containerRef}>
@@ -54,7 +58,7 @@ export function SourceModeFilter({ value, onChange }: SourceModeFilterProps) {
 
       {open && (
         <div className="absolute right-0 z-30 mt-1 w-40 rounded border bg-popover p-1 text-sm shadow-md">
-          {OPTIONS.map((opt) => {
+          {options.map((opt) => {
             const active = opt.value === value;
             return (
               <button

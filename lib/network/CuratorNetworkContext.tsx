@@ -4,7 +4,6 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -16,48 +15,23 @@ import {
   parseCuratorMarketChainId,
 } from '@/lib/constants';
 
-const STORAGE_KEY = 'curator-preferred-chain-id';
-
 type CuratorNetworkContextValue = {
   chainId: number;
   networkName: string;
   setChainId: (chainId: number) => Promise<void>;
   isWalletOnSelectedChain: boolean;
-  /** True after localStorage preference has been applied (avoids Base flash fetch). */
+  /** True when the selected network is ready for fetches. Always Base on load. */
   ready: boolean;
 };
 
 const CuratorNetworkContext = createContext<CuratorNetworkContextValue | null>(null);
 
-function readStoredChainId(): number {
-  if (typeof window === 'undefined') return BASE_CHAIN_ID;
-  try {
-    return parseCuratorMarketChainId(window.localStorage.getItem(STORAGE_KEY));
-  } catch {
-    return BASE_CHAIN_ID;
-  }
-}
-
-function persistChainId(chainId: number) {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, String(chainId));
-  } catch {
-    /* ignore quota / private mode */
-  }
-}
-
 export function CuratorNetworkProvider({ children }: { children: ReactNode }) {
   const { isConnected } = useAccount();
   const walletChainId = useChainId();
   const { switchChainAsync } = useSwitchChain();
-  // SSR + first client paint always Base to avoid hydration mismatch.
+  // Always start on Base. Explicit NetworkSwitcher changes last for this session only.
   const [chainId, setChainIdState] = useState(BASE_CHAIN_ID);
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    setChainIdState(readStoredChainId());
-    setReady(true);
-  }, []);
 
   // Preference drives browsing; wallet switch only on explicit NetworkSwitcher change
   // (setChainId). Do not auto-prompt switchChain on connect/mismatch — that spams wallets.
@@ -65,7 +39,6 @@ export function CuratorNetworkProvider({ children }: { children: ReactNode }) {
     async (nextRaw: number) => {
       const next = parseCuratorMarketChainId(String(nextRaw));
       setChainIdState(next);
-      persistChainId(next);
       if (isConnected && walletChainId !== next) {
         try {
           await switchChainAsync({ chainId: next });
@@ -86,9 +59,9 @@ export function CuratorNetworkProvider({ children }: { children: ReactNode }) {
       networkName,
       setChainId,
       isWalletOnSelectedChain: !isConnected || walletChainId === chainId,
-      ready,
+      ready: true,
     }),
-    [chainId, networkName, setChainId, isConnected, walletChainId, ready]
+    [chainId, networkName, setChainId, isConnected, walletChainId]
   );
 
   return (

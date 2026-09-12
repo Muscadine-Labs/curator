@@ -17,6 +17,19 @@ export interface ProtocolStats {
     address: string;
     data: Array<{ date: string; value: number }>;
   }>;
+  tvlTrendDefillama?: Array<{ date: string; value: number }>;
+  tvlByTokenDefillama?: Array<{
+    name: string;
+    address: string;
+    data: Array<{ date: string; value: number }>;
+  }>;
+  defillamaTvl?: number;
+  activeVaultsList?: Array<{
+    name: string;
+    address: string;
+    tvl: number;
+    kind?: 'strategy' | 'feeWrapper';
+  }>;
   feesTrendDaily: Array<{ date: string; value: number }>;
   feesTrendCumulative: Array<{ date: string; value: number }>;
   revenueTrendDaily: Array<{ date: string; value: number }>;

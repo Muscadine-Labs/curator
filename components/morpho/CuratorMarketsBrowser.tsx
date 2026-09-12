@@ -28,7 +28,13 @@ import { CuratorTableShell } from '@/components/morpho/CuratorChrome';
 
 type ListedFilter = 'all' | 'listed' | 'unlisted';
 type MuscadineFilter = 'all' | 'muscadine';
-type ProductFilter = 'all' | 'blue' | 'midnight';
+export type MarketsProductFilter = 'all' | 'blue' | 'midnight';
+
+const PRODUCT_HREF: Record<MarketsProductFilter, string> = {
+  all: '/markets',
+  blue: '/markets/blue',
+  midnight: '/markets/midnight',
+};
 type SortKey = 'pair' | 'lltv' | 'sizeUsd' | 'liquidity' | 'apy' | 'listed' | 'muscadine';
 type SortDir = 'asc' | 'desc';
 
@@ -235,7 +241,11 @@ function MidnightMarketsTable({
   );
 }
 
-export function CuratorMarketsBrowser() {
+export function CuratorMarketsBrowser({
+  product = 'all',
+}: {
+  product?: MarketsProductFilter;
+}) {
   const router = useRouter();
   const { chainId, networkName, ready } = useCuratorNetwork();
   const [search, setSearch] = useState('');
@@ -243,7 +253,7 @@ export function CuratorMarketsBrowser() {
   const [collateralFilter, setCollateralFilter] = useState('');
   const [listedFilter, setListedFilter] = useState<ListedFilter>('listed');
   const [muscadineFilter, setMuscadineFilter] = useState<MuscadineFilter>('all');
-  const [productFilter, setProductFilter] = useState<ProductFilter>('all');
+  const productFilter = product;
   const [sortKey, setSortKey] = useState<SortKey>('sizeUsd');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
@@ -267,7 +277,6 @@ export function CuratorMarketsBrowser() {
     setCollateralFilter('');
     setListedFilter('listed');
     setMuscadineFilter('all');
-    setProductFilter('all');
     setSortKey('sizeUsd');
     setSortDir('desc');
     void refetch();
@@ -353,7 +362,10 @@ export function CuratorMarketsBrowser() {
           <label className="text-xs font-medium text-muted-foreground">Product</label>
           <select
             value={productFilter}
-            onChange={(e) => setProductFilter(e.target.value as ProductFilter)}
+            onChange={(e) => {
+              const next = e.target.value as MarketsProductFilter;
+              router.push(PRODUCT_HREF[next]);
+            }}
             className="h-9 rounded-md border border-border bg-background px-3 text-sm"
           >
             <option value="all">All</option>
