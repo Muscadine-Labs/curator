@@ -3,11 +3,10 @@
 Morpho Vault V2 **send-assets gates** restrict who may call `deposit` / `mint`. Muscadine uses Morpho’s [`WhitelistSendAssetsGate`](https://github.com/morpho-org/vault-v2/tree/main/src/periphery/gates) ([concepts](https://docs.morpho.org/curate/concepts/gates/)).
 
 Config: `lib/config/deposit-gates.ts`  
-Calldata helpers: `lib/morpho/vault-v2-gates.ts`  
-Print Safe calldata (after gate deploy):
+Calldata / propose: https://github.com/Muscadine-Labs/muscadine-onchain (`npx tsx src/cli.ts gate …`)
 
 ```bash
-SEND_ASSETS_GATE_ADDRESS=0xYourGate npm run gates:calldata
+npx tsx src/cli.ts gate set-whitelisted --account 0x… --via safe:allocator
 ```
 
 ## Underlying-only rollout

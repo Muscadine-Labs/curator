@@ -213,9 +213,6 @@ export function VaultPageShell({ children }: { children: ReactNode }) {
               <Shield className="h-3 w-3" /> {vaultBadge}
             </Badge>
             <Button variant="outline" size="sm" asChild className="text-xs sm:text-sm">
-              <Link href={`/vaults/transact?vault=${vault.address}`}>Transact</Link>
-            </Button>
-            <Button variant="outline" size="sm" asChild className="text-xs sm:text-sm">
               <a
                 href={
                   vault.address

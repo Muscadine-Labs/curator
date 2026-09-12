@@ -11,12 +11,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "npx eslint . --max-warnings=0",
-    "test": "vitest run",
-    "gates:calldata": "node --experimental-strip-types scripts/print-deposit-gate-calldata.ts",
-    "gates:verify": "npx tsx scripts/verify-deposit-gate-rpc.ts",
-    "gates:propose": "npx tsx scripts/propose-deposit-gate-safe.ts",
-    "gates:propose-whitelister": "npx tsx scripts/propose-gate-whitelister.ts",
-    "vault:vineyard": "npx tsx scripts/create-usdc-vineyard-vault.ts"
+    "test": "vitest run"
   },
   "dependencies": {
     "@base-org/account": "^2.5.10",

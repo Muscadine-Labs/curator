@@ -6,7 +6,7 @@
  * stay open (`sendAssetsGate = 0x0`).
  *
  * Gate contract address is set after deployment via `SEND_ASSETS_GATE_ADDRESS` (or env).
- * See `docs/brain/deposit-gates.md` and `npm run gates:calldata`.
+ * See `docs/brain/deposit-gates.md`. Writes: muscadine-onchain `gate` commands.
  */
 import type { Address } from 'viem';
 import { getAddress } from 'viem';

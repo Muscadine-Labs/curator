@@ -39,15 +39,13 @@ npm run build   # next build
   wrapper address redirects there. Sidebar lists underlyings only. Wrappers are
   excluded from protocol TVL (deposits sit in
   the underlying vault). Unique-user counts include wrappers but skip
-  wrapper adapter contracts. Transact lists
+  wrapper adapter contracts. Catalog lists
   wrappers and test vaults using Morpho/on-chain names. `underlyingAddress` is
   the GraphQL fallback for the child vault. Send-assets gate (underlying strategy
-  vaults only): `lib/config/deposit-gates.ts` (`docs/brain/deposit-gates.md`,
-  `npm run gates:calldata`, **`npm run gates:verify`** after allowlist changes).
-  Fee wrappers stay open on-chain. Depositor allowlist in the app is still
-  config-driven; `/curator/gates` + `GET /api/gates/[address]` read the live
-  gate and queue `setIsWhitelisted` / `setIsWhitelister` through Allocator /
-  Curator Safes. Vault overview shows the gate address (`VaultV2GatesRead`).
+  vaults only): `lib/config/deposit-gates.ts` (`docs/brain/deposit-gates.md`).
+  Gate calldata / propose: muscadine-onchain CLI. In this app, `/curator/gates`
+  + `GET /api/gates/[address]` read the live gate and queue `setIsWhitelisted` /
+  `setIsWhitelister` through Allocator / Curator Safes.
 - **React Query polling** — dashboard hooks poll every 30s; indexed vault data
   (history, reallocations, holders, vault list) does not background-poll. The
   vaults sidebar is config-only (no Morpho fetch). On-chain vault
@@ -72,29 +70,19 @@ npm run build   # next build
   column / Morpho supply). Planning maps display → booked via
   `booked + (input − display)` so unchanged rows are no-ops and accrued interest
   is never treated as deployable cash. Min/Max write display-space values.
-- **User deposit/withdraw** — `/vaults/transact` (approve, deposit, withdraw,
-  Bundler3 WETH/ETH). **Blue market positions** — `/markets/positions` (borrow,
-  repay, withdraw collateral, supply; expandable wallet market list). Each amount
-  field has **MAX** (wallet ERC-20, LLTV-buffered borrow, min(wallet, debt) repay
-  by shares when full, max-safe collateral, supply shares on full exit). Browse
-  Loan / Collateral / Search filter Blue **and** Midnight (`market-pair-filter.ts`).
-  Create +
-  dead deposit/seed — `/markets/create` (Morpho app link after create).
-  Vault transact holdings — any Morpho vault via indexed positions API.
-  Configured dropdown includes wrappers and test vaults; fee wrappers
-  append ` (wrapper)` via `withFeeWrapperLabel`.
+- **User deposit/withdraw and Blue/Midnight lend-borrow** — `muscadine-onchain` CLI (https://github.com/Muscadine-Labs/muscadine-onchain). This dashboard does not transact those.
+- **Create Blue market / dead deposit** — same CLI (`blue create-market`).
+  Browse Loan / Collateral / Search filter Blue **and** Midnight (`market-pair-filter.ts`).
   Top nav: Overview · Vaults · Markets · Curator · Business; sidebar is
   area-scoped (`lib/nav/areas.ts`). Curator area: Curator tools · Bots ·
-  Multisig Safe. Overview Protocol KPIs open drill-downs (Users: holdings +
+  Send-assets gate · Multisig Safe. Overview Protocol KPIs open drill-downs (Users: holdings +
   combined txs; fee-wrapper adapters are labeled on holders/txs and omitted from unique-user counts). Bots (`/curator/bots`) watches allocator/sentinel/rebater activity
   (Allocator + Sentinel Safes on by default; other role holders off until toggled). Telegram:
   @MuscadineVaultBot. Bot repos: `Muscadine-Labs/muscadine-bots` is the
   **downstream** fork (`main`); `morpho-org/morpho-bots` is the upstream
   implementation (`MUSCADINE_BOTS_GITHUB_URL`, `MORPHO_BOTS_GITHUB_URL`).
-- **Tx preview** — Allocation, Sentinel, `/vaults/transact`, and `/markets/positions`
-  confirm writes through `TxPreviewDialog` + `lib/morpho/tx-preview.ts` before the
-  wallet signs. Transact/positions stay in the dialog through confirm and show a
-  tx link until **Done**.
+- **Tx preview** — Allocation, Sentinel, and other vault role writes confirm
+  through `TxPreviewDialog` + `lib/morpho/tx-preview.ts` before queueing to a Safe.
 - **V2 pending revoke** — per-row `rowId` + `activeRowId`; never key tx state by
   `item.data` alone (batched pending actions can share calldata).
 - **V2 cap labels / idData** — governance `marketParams` + `fetch-markets-by-id.ts`
@@ -129,13 +117,11 @@ npm run build   # next build
   `vaultV2transactions`. Client logs `extensions.warnings` via
   `lib/morpho/graphql-client.ts`. See `CLAUDE.md` §4.4.1.
 - **App routes** — `/` (Overview), `/vaults`, `/vault/[address]/*`,
-  `/vaults/transact`, `/markets`, `/markets/create`, `/markets/positions`,
-  `/market/blue/[id]`, `/midnight/[id]`, `/safe`, `/safe/[role]/{assets,transactions,history,settings}`,
+  `/markets`, `/market/blue/[id]`, `/midnight/[id]`, `/safe`, `/safe/[role]/{assets,transactions,history,settings}`,
   `/curator` (Curator tools hub), `/curator/gates` (send-assets gate), `/curator/bots` (bot watch + repos),
   `/monthly-statement`, `/muscadine-ledger`, `/muscadine-frontends`.
-  Old `/morpho/create-market` and `/morpho/transact` pages are gone (use
-  `/markets/create`, `/vaults/transact`, `/markets/positions`). Vault pages live
-  at `/vault/[address]/*`; catalog at `/vaults`.
+  Deposit/lend/create-market writes live in muscadine-onchain. Vault pages live
+  at `/vault/[address]/*`; catalog at `/vaults`. Markets browse at `/markets`.
 - **BFF routes (no `/curator` or `/v2` in API paths)** — `GET /api/markets`,
   `GET /api/markets/[marketId]`; on-chain vault reads at
   `GET /api/vaults/[id]/risk`, `…/governance`, `…/pending` (alongside
@@ -156,13 +142,13 @@ npm run build   # next build
   (`/v0/midnight/markets`, `/state`, `/books`); Morpho app is
   `https://markets.morpho.org/fixed/{chain}/{id}`. Use `sizeUsd` /
   `totalLiquidityUsd` for Blue sort columns; display token primary + USD
-  secondary via `TokenUsdValue` (§4.7). Positions live on `/markets/positions`
-  (`curatorMarketPositionsHref` includes `chainId`). `MarketOraclePanel` is used
+  secondary via `TokenUsdValue` (§4.7). Market writes live in muscadine-onchain;
+  this app only browses (`curatorBlueMarketHref` / `curatorMidnightMarketHref`). `MarketOraclePanel` is used
   on Blue detail and Midnight collateral detail (Base RPC). Allocation
   tab market names link in-app via `curatorBlueMarketHref`. Vault Risk
   Analytics tab uses the same helper. Midnight rows use `curatorMidnightMarketHref`.
-  Sidebar Curator area: Curator tools + Bots + Multisig Safe. Markets area: Browse /
-  Create / Positions. Vaults area: All vaults + Transact + vault tree.
+  Sidebar Curator area: Curator tools + Bots + Send-assets gate + Multisig Safe. Markets area: Browse.
+  Vaults area: All vaults + vault tree.
 - **Oracle freshness** — `resolveMarketOracleAddress` accepts `oracleAddress` or
   `oracle.address`; risk BFF GraphQL keeps minimal oracle fragments (`baseFeedOne`
   on positions only) to stay under Morpho complexity limits; on-chain
@@ -178,7 +164,7 @@ npm run build   # next build
 - **Curator networks** — Base, Ethereum, HyperEVM, Robinhood only
   (`CURATOR_MARKET_NETWORKS` + wagmi `chains`). Top-bar **NetworkSwitcher** sets
   preferred chain **without requiring a wallet**; when connected it also
-  `switchChain`. `/markets` and `/markets/create` follow that preference
+  `switchChain`. `/markets` follows that preference
   (not AppKit-only chain UI).
 - **Token display decimals** — `getTokenDisplayDecimals`: WETH/cbBTC → 6, USDC → 3
   (holders, txs, allocation history, markets token lines).

@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import {
-  ArrowDownUp,
   BookOpen,
   Bot,
   Droplets,
@@ -41,24 +40,6 @@ type HubLink = {
 };
 
 const IN_APP_TOOLS: readonly HubLink[] = [
-  {
-    title: 'Vault Transact',
-    description: 'Deposit or withdraw from managed Vault V2 (Bundler3 wrap/unwrap for WETH).',
-    href: '/vaults/transact',
-    icon: ArrowDownUp,
-  },
-  {
-    title: 'Market Positions',
-    description: 'Repay debt, withdraw collateral, or add/withdraw Blue market supply.',
-    href: '/markets/positions',
-    icon: LayoutGrid,
-  },
-  {
-    title: 'Create Morpho Blue market',
-    description: 'createMarket plus one-time dead deposit and optional rate seed.',
-    href: '/markets/create',
-    icon: Plus,
-  },
   {
     title: 'Send-assets gate',
     description: 'Whitelist adapters and depositors on the shared WhitelistSendAssetsGate.',

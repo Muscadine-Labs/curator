@@ -9,12 +9,10 @@ import {
   FileText,
   LayoutGrid,
   LineChart,
-  Plus,
   Shield,
   Users,
   Wrench,
   Bot,
-  ArrowDownUp,
   X,
   ChevronDown,
   ChevronRight,
@@ -188,13 +186,6 @@ function AreaSidebar({
             active={pathname === '/vaults'}
             onClick={onLinkClick}
           />
-          <NavLink
-            href="/vaults/transact"
-            label="Transact"
-            icon={ArrowDownUp}
-            active={isActive('/vaults/transact')}
-            onClick={onLinkClick}
-          />
         </div>
 
         {SIDEBAR_NETWORKS.filter(
@@ -269,20 +260,6 @@ function AreaSidebar({
           label="Browse"
           icon={LineChart}
           active={pathname === '/markets' || pathname.startsWith('/market/') || pathname.startsWith('/midnight')}
-          onClick={onLinkClick}
-        />
-        <NavLink
-          href="/markets/create"
-          label="Create market"
-          icon={Plus}
-          active={isActive('/markets/create')}
-          onClick={onLinkClick}
-        />
-        <NavLink
-          href="/markets/positions"
-          label="Positions"
-          icon={ArrowDownUp}
-          active={isActive('/markets/positions')}
           onClick={onLinkClick}
         />
       </div>

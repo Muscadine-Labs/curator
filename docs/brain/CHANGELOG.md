@@ -4,6 +4,13 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-09-12 — Split muscadine-onchain; drop deposit/lend UI
+
+- Onchain writes for Blue/Midnight lend-borrow, vault deposit/withdraw, Vineyard deploy, and gate calldata live in private CLI https://github.com/Muscadine-Labs/muscadine-onchain
+- Removed `/vaults/transact`, `/markets/create`, `/markets/positions` and related components/scripts from curator. Markets browse + vault curator ops + Safe stay.
+
+---
+
 ## 2026-09-12 — Pre-prod review fixes (Bugbot + Security)
 
 - Gate txs imported from Transaction Service decode `setIsWhitelisted` / `setIsWhitelister` / `multicall` on the configured send-assets gate (`lib/safe/decode-vault-calldata-preview.ts`). Preview shows the account and allow/deny.
