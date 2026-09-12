@@ -4,4 +4,5 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 
 ## Today
 - safe transcactions do not excute to wallet.
+- improve sendassets gte page to have box sections of who the whitlisters are, than who the whitlisted is, through onchain read functions. 
   
