@@ -48,8 +48,8 @@ function validateEnvVars(): EnvValidationResult {
   const isProductionRuntime =
     process.env.NODE_ENV === 'production' && process.env.NEXT_PHASE !== 'phase-production-build';
 
-  if (isProductionRuntime && !process.env.CURATOR_SESSION_SECRET?.trim()) {
-    errors.push('CURATOR_SESSION_SECRET is required in production (do not HMAC sessions with the login password)');
+  if (isProductionRuntime && !process.env.CURATOR_ADMIN_PASSWORD?.trim() && !process.env.CURATOR_OWNER_PASSWORD?.trim()) {
+    errors.push('CURATOR_ADMIN_PASSWORD is required in production');
   }
 
   if (

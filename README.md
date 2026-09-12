@@ -41,6 +41,7 @@ Fill in at minimum:
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_walletconnect_project_id
 NEXT_PUBLIC_ALCHEMY_API_KEY=your_alchemy_api_key
 ALCHEMY_API_KEY=your_alchemy_api_key
+CURATOR_ADMIN_PASSWORD=your_login_password
 ```
 
 Get keys from [Reown Cloud](https://dashboard.reown.com/) (WalletConnect project ID) and [Alchemy](https://www.alchemy.com/). For server RPC you can use `ALCHEMY_API_KEY` or `COINBASE_CDP_API_KEY` instead of Alchemy.
@@ -70,7 +71,7 @@ Copy `.env.example` → `.env.local`. Summary:
 | `NEXT_PUBLIC_ALCHEMY_API_KEY` | Recommended | Client RPC |
 | `NEXT_PUBLIC_APP_URL` | No | Default `http://localhost:3000` |
 | `NEXT_PUBLIC_SAFE_API_KEY` | No | Safe Transaction Service sync |
-| `CURATOR_ADMIN_PASSWORD` | No | Admin auth gate |
+| `CURATOR_ADMIN_PASSWORD` | **Yes to log in** | Username is `admin` |
 | `MORPHO_API_URL` | No | Morpho GraphQL override |
 | `NEXT_PUBLIC_VAULT_*` | No | Vault address overrides |
 

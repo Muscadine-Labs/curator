@@ -22,8 +22,8 @@ npm run build   # next build
   routes require the HttpOnly `curator_session` cookie (`proxy.ts` plus
   a route-level check). `apiFetch` sends `credentials: 'same-origin'`.
   `POST /api/auth/verify` is IP rate-limited (`AUTH_LOGIN_MAX_ATTEMPTS`).
-  Sessions are HMAC-signed with `CURATOR_SESSION_SECRET` (required in
-  production; development falls back to `CURATOR_ADMIN_PASSWORD`). Bump
+  Sessions are HMAC-signed with `CURATOR_SESSION_SECRET` when set, otherwise
+  `CURATOR_ADMIN_PASSWORD`. Bump
   `CURATOR_SESSION_VERSION` to invalidate sessions. Login rate limits use
   Upstash REST when `UPSTASH_REDIS_REST_*` are set; otherwise they are
   per-instance memory.

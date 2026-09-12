@@ -7,18 +7,11 @@ function sessionVersion(): string {
   return process.env.CURATOR_SESSION_VERSION || '1';
 }
 
-function isProductionRuntime(): boolean {
-  return (
-    process.env.NODE_ENV === 'production' && process.env.NEXT_PHASE !== 'phase-production-build'
-  );
-}
-
 function sessionSecret(): string {
   const dedicated = process.env.CURATOR_SESSION_SECRET?.trim();
   if (dedicated) return dedicated;
-  // Production must not HMAC sessions with the login password. Skip during
-  // `next build` so Vercel can compile without runtime secrets.
-  if (isProductionRuntime()) return '';
+  // Dedicated HMAC secret is optional. Production login uses the same env
+  // as local: CURATOR_ADMIN_PASSWORD (legacy CURATOR_OWNER_PASSWORD).
   return process.env.CURATOR_ADMIN_PASSWORD || process.env.CURATOR_OWNER_PASSWORD || '';
 }
 

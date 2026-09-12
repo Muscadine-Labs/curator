@@ -13,9 +13,11 @@ import {
   AUTH_LOGIN_WINDOW_MS,
 } from '@/lib/constants';
 
-const ADMIN_PASSWORD = process.env.CURATOR_ADMIN_PASSWORD || process.env.CURATOR_OWNER_PASSWORD;
-
 const GLOBAL_BUCKET = 'auth-verify:global';
+
+function adminPassword(): string {
+  return process.env.CURATOR_ADMIN_PASSWORD || process.env.CURATOR_OWNER_PASSWORD || '';
+}
 
 function tooManyAttempts(resetTime: number | null) {
   const headers = new Headers();
@@ -63,6 +65,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const ADMIN_PASSWORD = adminPassword();
   if (!ADMIN_PASSWORD) {
     return NextResponse.json({ error: 'Auth not configured' }, { status: 503 });
   }

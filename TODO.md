@@ -10,6 +10,8 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 
 ## Done
 
+- 2026-09-12 — Login HMAC uses `CURATOR_ADMIN_PASSWORD` when `CURATOR_SESSION_SECRET` is unset (production included). Dropped unused `@reduxjs/toolkit` / `react-redux` / `@base-org/account`. Vitest 4.1.11; sharp ≥0.35.4.
+
 - 2026-09-12 — Deleted leftover transact helpers (`blue-create-market`, vault-position API/hooks, Bundler3 constants, unused `@morpho-org/morpho-ts`). Old `/vaults/transact` and `/markets/{create,positions}` URLs redirect to catalog pages.
 
 - 2026-09-12 — Split onchain scripts to private `Muscadine-Labs/muscadine-onchain`. Removed vault deposit/withdraw and Blue market create/positions UIs from this dashboard. Kept allocation, sentinel, roles, gates, Safe, and market browse.

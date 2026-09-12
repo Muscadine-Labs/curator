@@ -4,6 +4,13 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-09-12 — Login password HMAC + Dependabot
+
+- Session HMAC uses `CURATOR_ADMIN_PASSWORD` in production when `CURATOR_SESSION_SECRET` is unset (`lib/auth/session.ts`). Fixes “Auth not configured” with only the documented env vars.
+- Dropped unused `@reduxjs/toolkit`, `react-redux`, `@base-org/account`. Vitest `4.1.11`, sharp `>=0.35.4`.
+
+---
+
 ## 2026-09-12 — Dead code after onchain split
 
 - Deleted unused create-market / vault-position leftovers: `blue-create-market.ts`, `create-market-deployments.ts`, `erc20-token-meta.ts`, `fetch-user-vault-positions.ts`, `useUserVaultPositions.ts`, `app/api/vaults/positions`, empty `scripts/tsconfig.json`, Bundler3 constants, `buildUserTxPreview`.

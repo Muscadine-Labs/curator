@@ -29,8 +29,8 @@ Copy `.env.example` → `.env.local`. See that file for the full list.
 | `NEXT_PUBLIC_ALCHEMY_API_KEY` | Recommended | Client Base RPC |
 | `NEXT_PUBLIC_APP_URL` | No | App origin (wallet metadata) |
 | `NEXT_PUBLIC_SAFE_API_KEY` | No | Safe Transaction Service |
-| `CURATOR_ADMIN_PASSWORD` | Login | Admin auth (dev session HMAC fallback) |
-| `CURATOR_SESSION_SECRET` | **Yes in production** | HMAC for `curator_session` (no password fallback in prod) |
+| `CURATOR_ADMIN_PASSWORD` | Login | Admin auth and session HMAC (unless `CURATOR_SESSION_SECRET` is set) |
+| `CURATOR_SESSION_SECRET` | No | Optional dedicated HMAC for `curator_session` |
 | `CURATOR_SESSION_VERSION` | No | Bump to invalidate all sessions |
 | `CURATOR_TRUSTED_PROXY_HOPS` | **Yes in production** | Proxy count in front of the app; required for per-IP login rate limiting |
 | `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | Recommended in production | Shared login rate-limit store across serverless isolates |
@@ -988,8 +988,8 @@ components.
   and bounds guessing to ~50/min. Login rate limits use Upstash REST when
   `UPSTASH_REDIS_REST_*` are set (shared across isolates); otherwise they are
   per-instance memory.
-- HMAC uses `CURATOR_SESSION_SECRET` (required in production). Dev falls back
-  to `CURATOR_ADMIN_PASSWORD` when the dedicated secret is unset.
+- HMAC uses `CURATOR_SESSION_SECRET` when set, otherwise
+  `CURATOR_ADMIN_PASSWORD` (same in production and development).
   Bump `CURATOR_SESSION_VERSION` to invalidate sessions. `proxy.ts` requires the cookie on `/api/*` except
   `/api/auth/verify`, `/api/auth/me`, `/api/auth/logout`.
   `GET /api/auth/me` is the session check. LocalStorage is not a session.
