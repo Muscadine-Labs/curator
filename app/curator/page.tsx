@@ -60,6 +60,12 @@ const IN_APP_TOOLS: readonly HubLink[] = [
     icon: Plus,
   },
   {
+    title: 'Send-assets gate',
+    description: 'Whitelist adapters and depositors on the shared WhitelistSendAssetsGate.',
+    href: '/curator/gates',
+    icon: Shield,
+  },
+  {
     title: 'Multisig Safe',
     description: 'Queue and execute Curator / Allocator / Sentinel Safe transactions.',
     href: '/safe',

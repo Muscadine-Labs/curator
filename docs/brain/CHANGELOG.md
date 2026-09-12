@@ -4,6 +4,42 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-09-12 — Pre-prod review fixes (Bugbot + Security)
+
+- Gate txs imported from Transaction Service decode `setIsWhitelisted` / `setIsWhitelister` / `multicall` on the configured send-assets gate (`lib/safe/decode-vault-calldata-preview.ts`). Preview shows the account and allow/deny.
+- MultiSend batch refuses **any** `serviceSynced` row (including the earliest nonce) and any `DelegateCall`.
+- JSON import drops stored previews and re-classifies from calldata (`sanitizeImportedPending`).
+- Login rate limits use Upstash REST when `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` are set; Redis errors fail closed. Without them, limits stay per-instance (warned in production).
+- Production HMAC requires `CURATOR_SESSION_SECRET` (no login-password fallback except during `next build`).
+
+---
+
+## 2026-09-12 — Safe subagent leftovers + dep bumps
+
+- Queue **auto-shares** to the Transaction Service when `NEXT_PUBLIC_SAFE_API_KEY` and a proposer wallet are present (`lib/safe/auto-share.ts`); uses wagmi `connector.getProvider()`, not `window.ethereum`.
+- Next nonce = max(on-chain, local pending, **service pending**) + 1.
+- Safe App embed: if `sdk.txs.send` returns a different hash, replace the local `safeTxHash`/nonce instead of leaving a forked proposal.
+- Service-imported Curator txs titled from `inferSafeTxSource` (sends are “Send …”, not “Vault action”).
+- Rebalance **re-finalizes** `allocation(id)` + idle cash at Confirm, not only at preview open.
+- Custom token add invalidates balances; failed ERC-20 reads stay omitted (not `0`).
+- Wrapper APY falls back to `netApy` when `avgNetApy` is null. Sentinel overview always includes Idle.
+- Bumped in-range: Next `16.3.5`, React `19.3.0`, protocol-kit `8.0.7`, lucide `1.45.0`. Left ESLint 9, wagmi 2, ox 0.14, vitest 3, TypeScript 6 (majors).
+
+---
+
+## 2026-09-12 — TODO.md Today: Vineyard, revenue, Safe, gates, Polygon, Wyoming
+
+- **Vineyard**: `lib/config/usdc-vineyard.ts`, `scripts/create-usdc-vineyard-vault.ts`, `scripts/usdc-vineyard/README.md`, `npm run vault:vineyard`. Prints full pre-deploy plan + live Prime snapshot. `--broadcast` deploys with Prime roles/timelocks; does **not** set or abdicate Morpho adapter registry `0x5C2531…`.
+- **DefiLlama**: `app/api/monthly-statement-defillama/route.ts` uses reported protocol revenue as Total Revenue even when 0; Cost of Revenue = yields − protocol take.
+- **Polygon** dropped from `CURATOR_MARKET_NETWORKS` / wallet. **Wyoming** dropped from ledger (`lib/constants/google-ledger.ts`). **NameSilo → Cloudflare** on `/muscadine-frontends` (`lib/constants/links.ts`).
+- **Send-assets gate UI**: vault overview (`VaultV2GatesRead`) + `/curator/gates` (`SendAssetsGatePanel`). `GET /api/gates/[address]`. Writes queue to Allocator/Curator Safe.
+- **Allocation / Sentinel**: fail closed on overshoot; caps keyed by `keccak256(encodeMarketCapIdData)`; unknown caps stay listed; `% Alloc` vs display total; `useVaultV2Governance({ initialData })`; `finalizeRebalancePlan` fails if `allocation(id)` or idle cash read fails; Sentinel deallocate needs booked + market params; wallet reject is cancel.
+- **Safe**: History tab (`GET /api/safe/[address]/history`), Settings (modules/guard + address book), MultiSend batch (`queueSafeBatch`), nonce = on-chain + queued local, sign/execute via wagmi + Base switch, send redirects to Transactions, import merges by `safeTxHash`.
+- **Depositors**: `DepositorAddress` shows Basename / ENS beside the truncated address (`useWalletDisplayName`).
+- Deploy Vineyard is **not** done in this session — config + scripts only.
+
+---
+
 ## 2026-09-08 — Safe review pass: transfer decoding, trust rules, tests
 
 - **Signing safety**: a transfer imported back from the Transaction Service had no stored preview, so `resolveSafePendingPreview` fell through to vault decoding. Vault shares are ERC-20s at a tracked vault address, so a share transfer rendered as *"Vault transaction / Undecoded calldata"* with a "View vault" link — an owner was asked to sign with no recipient and no amount on screen. `decode-vault-calldata-preview.ts` now decodes ERC-20 `transfer` and bare native value transfers, and `inferSafeTxSource` classifies them before vault inference.

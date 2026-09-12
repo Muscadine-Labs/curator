@@ -1,5 +1,10 @@
 import { decodeFunctionData, erc20Abi, getAddress, type Address, type Hex } from 'viem';
 import { vaultV2Abi } from '@/lib/onchain/abis';
+import { whitelistSendAssetsGateAbi } from '@/lib/onchain/whitelist-send-assets-gate-abi';
+import {
+  configuredSendAssetsGates,
+  resolveAllowlistLabel,
+} from '@/lib/config/deposit-gates';
 import { getVaultByAddress, getVaultAssetSymbol } from '@/lib/config/vaults';
 import { formatRawTokenAmount } from '@/lib/format/number';
 import { formatCapRelative } from '@/lib/morpho/v2-cap-format';
@@ -34,6 +39,87 @@ function decodeSingleVaultCall(data: Hex): DecodedVaultCall | null {
   } catch {
     return null;
   }
+}
+
+type DecodedGateWrite = {
+  action: 'set_whitelisted' | 'set_whitelister';
+  account: Address;
+  allowed: boolean;
+};
+
+export function isConfiguredGateAddress(address: Address): boolean {
+  const target = getAddress(address);
+  return configuredSendAssetsGates().some((gate) => gate.address === target);
+}
+
+function decodeGateWrites(data: Hex): DecodedGateWrite[] {
+  try {
+    const decoded = decodeFunctionData({ abi: whitelistSendAssetsGateAbi, data });
+    if (decoded.functionName === 'setIsWhitelisted' || decoded.functionName === 'setIsWhitelister') {
+      return [
+        {
+          action: decoded.functionName === 'setIsWhitelisted' ? 'set_whitelisted' : 'set_whitelister',
+          account: getAddress(decoded.args[0] as Address),
+          allowed: Boolean(decoded.args[1]),
+        },
+      ];
+    }
+    if (decoded.functionName === 'multicall') {
+      const inner = decoded.args[0] as readonly Hex[];
+      return inner.flatMap((call) => decodeGateWrites(call));
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+function inferGateSource(to: Address, data: Hex): SafeTransactionSource | null {
+  if (!isConfiguredGateAddress(to)) return null;
+  const writes = decodeGateWrites(data);
+  return {
+    type: 'gate',
+    action: writes[0]?.action ?? 'set_whitelisted',
+    gateAddress: getAddress(to),
+  };
+}
+
+function buildGatePreview(to: Address, data: Hex): TxPreview {
+  const writes = decodeGateWrites(data);
+  if (writes.length === 0) {
+    return {
+      title: 'Gate update',
+      description: `WhitelistSendAssetsGate ${shortAddress(to)}`,
+      changes: [
+        {
+          action: 'gate',
+          label: 'Undecoded gate calldata',
+          subtitle: `To ${to}`,
+        },
+      ],
+    };
+  }
+
+  const first = writes[0]!;
+  const title =
+    writes.length === 1
+      ? `Gate ${first.action === 'set_whitelisted' ? 'allowlist' : 'whitelister'} — ${
+          first.allowed ? 'allow' : 'deny'
+        } ${shortAddress(first.account)}`
+      : `Gate multicall (${writes.length} updates)`;
+
+  return {
+    title,
+    description: `WhitelistSendAssetsGate ${shortAddress(to)}`,
+    changes: writes.map((write) => ({
+      action: 'gate' as const,
+      label: resolveAllowlistLabel(write.account),
+      subtitle: `${
+        write.action === 'set_whitelisted' ? 'Depositor allowlist' : 'Whitelister'
+      } · ${write.account}`,
+      delta: write.allowed ? 'allow' : 'deny',
+    })),
+  };
 }
 
 function flattenVaultCalldata(data: Hex): DecodedVaultCall[] {
@@ -304,6 +390,10 @@ export function resolveSafePendingPreview(tx: SafePendingTransaction): TxPreview
     };
   }
 
+  if (tx.source.type === 'gate' || isConfiguredGateAddress(getAddress(tx.to))) {
+    return buildGatePreview(getAddress(tx.to), tx.data);
+  }
+
   const vaultAddress = resolveVaultAddressFromPending(tx);
   if (!vaultAddress) {
     return {
@@ -362,8 +452,36 @@ export function inferSafeTxSource(to: Address, data: Hex, value = '0'): SafeTran
     };
   }
 
+  const gate = inferGateSource(target, data);
+  if (gate) return gate;
+
   if (!getVaultByAddress(target)) return { type: 'manual' };
   return inferVaultSourceFromCalldata(target, data);
+}
+
+/** Human title for a service-imported Safe tx (not "Vault action" for transfers). */
+export function describeSafeTxSource(
+  source: SafeTransactionSource,
+  fallbackTo: string
+): string {
+  switch (source.type) {
+    case 'transfer':
+      return `Send ${source.tokenSymbol} → ${shortAddress(source.recipient)}`;
+    case 'allocation':
+      return source.vaultSymbol
+        ? `Vault rebalance — ${source.vaultSymbol}`
+        : `Vault rebalance — ${shortAddress(source.vaultAddress)}`;
+    case 'sentinel':
+      return `Sentinel ${source.action.replace(/_/g, ' ')}`;
+    case 'caps':
+      return 'Accept pending cap';
+    case 'curator':
+      return `Curator ${source.action.replace(/_/g, ' ')}`;
+    case 'gate':
+      return `Gate ${source.action.replace(/_/g, ' ')}`;
+    default:
+      return `Safe proposal — ${fallbackTo.slice(0, 10)}…`;
+  }
 }
 
 export function inferVaultSourceFromCalldata(

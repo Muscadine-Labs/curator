@@ -44,6 +44,11 @@ export type SafeTransactionSource =
       amount: string;
     }
   | {
+      type: 'gate';
+      action: 'set_whitelisted' | 'set_whitelister';
+      gateAddress: Address;
+    }
+  | {
       type: 'manual';
     };
 

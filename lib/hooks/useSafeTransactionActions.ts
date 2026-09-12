@@ -2,8 +2,8 @@
 
 import { useCallback, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { getAddress, type Address, type Hex } from 'viem';
-import { useAccount } from 'wagmi';
+import { getAddress, type Address, type EIP1193Provider, type Hex } from 'viem';
+import { useAccount, useSwitchChain } from 'wagmi';
 import {
   addSignature,
   removePendingTransaction,
@@ -13,26 +13,42 @@ import {
   executeSafePendingTransaction,
   signSafeTransactionHash,
 } from '@/lib/safe/protocol-kit-client';
-import { pendingStatusAfterSign, ownerHasSigned } from '@/lib/safe/queue-vault-write';
+import {
+  pendingStatusAfterSign,
+  ownerHasSigned,
+  requireSafeThreshold,
+} from '@/lib/safe/queue-vault-write';
 import {
   confirmPendingOnTransactionService,
   isTransactionServiceConfigured,
 } from '@/lib/safe/transaction-service';
 import { sharePendingWithTransactionService } from '@/lib/safe/service-sync';
 import { refetchVaultDataAfterSafeExecute } from '@/lib/safe/refetch-vault-after-safe-execute';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 import type { SafePendingTransaction } from '@/lib/safe/types';
 
 export function useSafeTransactionActions(threshold: number | undefined) {
   const queryClient = useQueryClient();
-  const { address: walletAddress } = useAccount();
+  const { address: walletAddress, connector } = useAccount();
+  const { switchChainAsync } = useSwitchChain();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const prepareSigner = useCallback(async (): Promise<{
+    signer: Address;
+    provider?: EIP1193Provider;
+  }> => {
+    if (!walletAddress) {
+      throw new Error('Connect your wallet using the button in the top bar.');
+    }
+    await switchChainAsync({ chainId: BASE_CHAIN_ID });
+    const provider = (await connector?.getProvider()) as EIP1193Provider | undefined;
+    return { signer: getAddress(walletAddress), provider };
+  }, [walletAddress, connector, switchChainAsync]);
+
   const signPending = useCallback(
     async (tx: SafePendingTransaction) => {
-      if (!walletAddress) {
-        throw new Error('Connect your wallet using the button in the top bar.');
-      }
+      const { signer, provider } = await prepareSigner();
 
       setActiveId(tx.id);
       setError(null);
@@ -40,17 +56,18 @@ export function useSafeTransactionActions(threshold: number | undefined) {
       try {
         const signature = await signSafeTransactionHash({
           safeAddress: tx.safeAddress,
-          signer: getAddress(walletAddress),
+          signer,
           safeTxHash: tx.safeTxHash,
+          provider,
         });
 
-        const updated = addSignature(tx.id, walletAddress, signature);
+        const updated = addSignature(tx.id, signer, signature);
         const nextCount = updated?.signatures.length ?? tx.signatures.length + 1;
-        const effectiveThreshold = threshold ?? 1;
+        const effectiveThreshold = requireSafeThreshold(threshold);
 
         updatePendingTransaction(tx.id, {
           status: pendingStatusAfterSign(nextCount, effectiveThreshold),
-          proposer: tx.proposer ?? getAddress(walletAddress),
+          proposer: tx.proposer ?? signer,
         });
 
         if (isTransactionServiceConfigured()) {
@@ -58,7 +75,7 @@ export function useSafeTransactionActions(threshold: number | undefined) {
             if (!tx.serviceSynced) {
               await sharePendingWithTransactionService({
                 txId: tx.id,
-                senderAddress: getAddress(walletAddress),
+                senderAddress: signer,
                 senderSignature: signature as Hex,
               });
             } else {
@@ -80,14 +97,12 @@ export function useSafeTransactionActions(threshold: number | undefined) {
         setActiveId(null);
       }
     },
-    [walletAddress, threshold]
+    [prepareSigner, threshold]
   );
 
   const sharePending = useCallback(
     async (tx: SafePendingTransaction) => {
-      if (!walletAddress) {
-        throw new Error('Connect your wallet using the button in the top bar.');
-      }
+      const { signer, provider } = await prepareSigner();
 
       setActiveId(tx.id);
       setError(null);
@@ -95,21 +110,22 @@ export function useSafeTransactionActions(threshold: number | undefined) {
       try {
         const signature = await signSafeTransactionHash({
           safeAddress: tx.safeAddress,
-          signer: getAddress(walletAddress),
+          signer,
           safeTxHash: tx.safeTxHash,
+          provider,
         });
 
-        if (!ownerHasSigned(tx.signatures, walletAddress)) {
-          const updated = addSignature(tx.id, walletAddress, signature);
+        if (!ownerHasSigned(tx.signatures, signer)) {
+          const updated = addSignature(tx.id, signer, signature);
           const nextCount = updated?.signatures.length ?? tx.signatures.length + 1;
           updatePendingTransaction(tx.id, {
-            status: pendingStatusAfterSign(nextCount, threshold ?? 1),
+            status: pendingStatusAfterSign(nextCount, requireSafeThreshold(threshold)),
           });
         }
 
         await sharePendingWithTransactionService({
           txId: tx.id,
-          senderAddress: getAddress(walletAddress),
+          senderAddress: signer,
           senderSignature: signature as Hex,
         });
       } catch (e) {
@@ -122,16 +138,14 @@ export function useSafeTransactionActions(threshold: number | undefined) {
         setActiveId(null);
       }
     },
-    [walletAddress, threshold]
+    [prepareSigner, threshold]
   );
 
   const executePending = useCallback(
     async (tx: SafePendingTransaction) => {
-      if (!walletAddress) {
-        throw new Error('Connect your wallet using the button in the top bar.');
-      }
+      const { signer, provider } = await prepareSigner();
 
-      const effectiveThreshold = threshold ?? 1;
+      const effectiveThreshold = requireSafeThreshold(threshold);
       if (tx.signatures.length < effectiveThreshold) {
         throw new Error(`Need ${effectiveThreshold} signature(s); have ${tx.signatures.length}.`);
       }
@@ -142,7 +156,7 @@ export function useSafeTransactionActions(threshold: number | undefined) {
       try {
         const { hash } = await executeSafePendingTransaction({
           safeAddress: tx.safeAddress,
-          signer: getAddress(walletAddress),
+          signer,
           expectedSafeTxHash: tx.safeTxHash,
           transactionData: {
             to: tx.to,
@@ -157,13 +171,18 @@ export function useSafeTransactionActions(threshold: number | undefined) {
             nonce: tx.nonce,
           },
           signatures: tx.signatures,
+          provider,
         });
 
         updatePendingTransaction(tx.id, {
           status: 'executed',
           executedTxHash: hash,
         });
-        await refetchVaultDataAfterSafeExecute(queryClient, tx);
+        await Promise.allSettled([
+          refetchVaultDataAfterSafeExecute(queryClient, tx),
+          queryClient.invalidateQueries({ queryKey: ['safe-info', tx.safeAddress] }),
+          queryClient.invalidateQueries({ queryKey: ['safe-balances'] }),
+        ]);
         return hash;
       } catch (e) {
         const message = e instanceof Error ? e.message : 'Failed to execute transaction.';
@@ -173,7 +192,7 @@ export function useSafeTransactionActions(threshold: number | undefined) {
         setActiveId(null);
       }
     },
-    [walletAddress, threshold, queryClient]
+    [prepareSigner, threshold, queryClient]
   );
 
   const cancelPending = useCallback((id: string) => {

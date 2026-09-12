@@ -308,6 +308,13 @@ function AreaSidebar({
           onClick={onLinkClick}
         />
         <NavLink
+          href="/curator/gates"
+          label="Send-assets gate"
+          icon={Shield}
+          active={isActive('/curator/gates')}
+          onClick={onLinkClick}
+        />
+        <NavLink
           href="/safe"
           label="Multisig Safe"
           icon={Users}

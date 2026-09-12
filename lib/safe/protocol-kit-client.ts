@@ -5,6 +5,11 @@ import { OperationType } from '@safe-global/types-kit';
 import type Safe from '@safe-global/protocol-kit';
 import { EthSafeSignature } from '@safe-global/protocol-kit';
 import { BASE_CHAIN_ID } from '@/lib/constants';
+import { getSafePendingSnapshot } from '@/lib/safe/pending-store';
+import {
+  fetchPendingMultisigTransactions,
+  isTransactionServiceConfigured,
+} from '@/lib/safe/transaction-service';
 
 export type StoredSafeTransactionData = {
   to: Address;
@@ -25,17 +30,17 @@ function resolveRpcUrl(): string {
   return 'https://mainnet.base.org';
 }
 
-function getInjectedEthereum(): EIP1193Provider | undefined {
-  if (typeof window === 'undefined') return undefined;
-  return (window as unknown as { ethereum?: EIP1193Provider }).ethereum;
-}
-
-function resolveProvider(signer?: Address): string | EIP1193Provider {
-  const ethereum = getInjectedEthereum();
-  if (ethereum && signer) {
-    return ethereum;
+function resolveProvider(
+  signer?: Address,
+  injected?: EIP1193Provider
+): string | EIP1193Provider {
+  if (!signer) return resolveRpcUrl();
+  if (!injected) {
+    throw new Error(
+      'Connect a wallet to sign. Signing uses the wagmi connector provider, not window.ethereum.'
+    );
   }
-  return resolveRpcUrl();
+  return injected;
 }
 
 async function loadSafeKit(): Promise<typeof Safe> {
@@ -58,13 +63,16 @@ const readOnlyKitCache = new Map<Address, Promise<InstanceType<typeof Safe>>>();
 export async function initSafeProtocolKit(options: {
   safeAddress: Address;
   signer?: Address;
+  provider?: EIP1193Provider;
 }): Promise<InstanceType<typeof Safe>> {
   const safeAddress = getAddress(options.safeAddress);
 
   const build = () =>
     loadSafeKit().then((SafeKit) =>
       SafeKit.init({
-        provider: resolveProvider(options.signer) as Parameters<typeof SafeKit.init>[0]['provider'],
+        provider: resolveProvider(options.signer, options.provider) as Parameters<
+          typeof SafeKit.init
+        >[0]['provider'],
         signer: options.signer,
         safeAddress,
       })
@@ -110,6 +118,32 @@ async function buildSafeTransaction(
   });
 }
 
+export async function resolveNextSafeNonce(safeAddress: Address): Promise<number> {
+  const protocolKit = await initSafeProtocolKit({ safeAddress });
+  const onChain = Number(await protocolKit.getNonce());
+  const pending = getSafePendingSnapshot().filter((tx) => {
+    if (tx.safeAddress.toLowerCase() !== safeAddress.toLowerCase()) return false;
+    return tx.status === 'awaiting_signatures' || tx.status === 'ready';
+  });
+  let highest = onChain - 1;
+  for (const tx of pending) {
+    const n = Number(tx.nonce);
+    if (Number.isFinite(n)) highest = Math.max(highest, n);
+  }
+  if (isTransactionServiceConfigured()) {
+    try {
+      const serviceTxs = await fetchPendingMultisigTransactions(safeAddress);
+      for (const tx of serviceTxs) {
+        const n = Number(tx.nonce);
+        if (Number.isFinite(n)) highest = Math.max(highest, n);
+      }
+    } catch {
+      // Local + on-chain nonce still used if the service is unreachable.
+    }
+  }
+  return Math.max(onChain, highest + 1);
+}
+
 export async function createSafeTransactionFromCalldata(options: {
   safeAddress: Address;
   to: Address;
@@ -120,16 +154,42 @@ export async function createSafeTransactionFromCalldata(options: {
   safeTxHash: Hex;
   transactionData: StoredSafeTransactionData;
 }> {
-  const protocolKit = await initSafeProtocolKit({ safeAddress: options.safeAddress });
-  const safeTransaction = await protocolKit.createTransaction({
-    transactions: [
+  return createSafeTransactionFromCalls({
+    safeAddress: options.safeAddress,
+    calls: [
       {
-        to: getAddress(options.to),
-        value: (options.value ?? 0n).toString(),
+        to: options.to,
         data: options.data,
-        operation: options.operation ?? OperationType.Call,
+        value: options.value,
+        operation: options.operation,
       },
     ],
+  });
+}
+
+export async function createSafeTransactionFromCalls(options: {
+  safeAddress: Address;
+  calls: ReadonlyArray<{
+    to: Address;
+    data: Hex;
+    value?: bigint;
+    operation?: OperationType;
+  }>;
+  nonce?: number;
+}): Promise<{
+  safeTxHash: Hex;
+  transactionData: StoredSafeTransactionData;
+}> {
+  const protocolKit = await initSafeProtocolKit({ safeAddress: options.safeAddress });
+  const nonce = options.nonce ?? (await resolveNextSafeNonce(options.safeAddress));
+  const safeTransaction = await protocolKit.createTransaction({
+    transactions: options.calls.map((call) => ({
+      to: getAddress(call.to),
+      value: (call.value ?? 0n).toString(),
+      data: call.data,
+      operation: call.operation ?? OperationType.Call,
+    })),
+    options: { nonce },
   });
 
   const safeTxHash = (await protocolKit.getTransactionHash(safeTransaction)) as Hex;
@@ -156,10 +216,12 @@ export async function signSafeTransactionHash(options: {
   safeAddress: Address;
   signer: Address;
   safeTxHash: Hex;
+  provider?: EIP1193Provider;
 }): Promise<Hex> {
   const protocolKit = await initSafeProtocolKit({
     safeAddress: options.safeAddress,
     signer: options.signer,
+    provider: options.provider,
   });
   const signature = await protocolKit.signHash(options.safeTxHash);
   return signature.data as Hex;
@@ -171,10 +233,12 @@ export async function executeSafePendingTransaction(options: {
   expectedSafeTxHash: Hex;
   transactionData: StoredSafeTransactionData;
   signatures: ReadonlyArray<{ signer: Address; data: Hex }>;
+  provider?: EIP1193Provider;
 }): Promise<{ hash: Hex }> {
   const protocolKit = await initSafeProtocolKit({
     safeAddress: options.safeAddress,
     signer: options.signer,
+    provider: options.provider,
   });
 
   const safeTransaction = await buildSafeTransaction(protocolKit, options.transactionData);

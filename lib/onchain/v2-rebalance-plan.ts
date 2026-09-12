@@ -1,6 +1,7 @@
 import type { Address, Hex, PublicClient } from 'viem';
 import { clampDeallocateAmount } from '@/lib/format/allocation-display';
 import { vaultV2Abi } from '@/lib/onchain/abis';
+import { erc20ApproveAbi } from '@/lib/onchain/vault-v2-factory';
 import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
 
 export type RebalanceTarget = {
@@ -228,12 +229,18 @@ export function resolveDeployableIdleBase(
   return idleRow?.current ?? BigInt(0);
 }
 
+const ALLOCATION_READ_ERROR =
+  'Failed to read live allocation(id) — refresh and retry.';
+const MISSING_ALLOCATION_ID_ERROR =
+  'Missing allocation id for a strategy row — refresh and retry.';
+const IDLE_READ_ERROR = 'Failed to read vault idle cash — refresh and retry.';
+
 /** Refresh strategy row `current` from live `allocation(id)` before building calldata. */
 export async function refreshPlanRowsFromChain(
   client: PublicClient,
   vaultAddress: string,
   rows: ReadonlyArray<RebalancePlanRow>
-): Promise<RebalancePlanRow[]> {
+): Promise<{ rows: RebalancePlanRow[]; error: string | null }> {
   const vault = vaultAddress as Address;
   const indices: number[] = [];
   const contracts: {
@@ -245,7 +252,10 @@ export async function refreshPlanRowsFromChain(
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]!;
-    if (row.target.isVaultIdle || !row.target.capIdHash) continue;
+    if (row.target.isVaultIdle) continue;
+    if (!row.target.capIdHash) {
+      return { rows: rows.map((r) => ({ ...r })), error: MISSING_ALLOCATION_ID_ERROR };
+    }
     indices.push(i);
     contracts.push({
       address: vault,
@@ -255,21 +265,40 @@ export async function refreshPlanRowsFromChain(
     });
   }
 
-  if (contracts.length === 0) {
-    return rows.map((r) => ({ ...r }));
-  }
-
-  const results = await client.multicall({ contracts, allowFailure: true });
   const list = rows.map((r) => ({ ...r, target: { ...r.target } }));
-
-  indices.forEach((rowIdx, j) => {
-    const result = results[j];
-    if (result?.status === 'success') {
+  if (contracts.length > 0) {
+    const results = await client.multicall({ contracts, allowFailure: true });
+    for (let j = 0; j < indices.length; j++) {
+      const result = results[j];
+      if (result?.status !== 'success') {
+        return { rows: list, error: ALLOCATION_READ_ERROR };
+      }
+      const rowIdx = indices[j]!;
       list[rowIdx] = { ...list[rowIdx]!, current: result.result };
     }
-  });
+  }
 
-  return list;
+  const idleIdx = list.findIndex((r) => r.target.isVaultIdle);
+  if (idleIdx >= 0) {
+    try {
+      const asset = await client.readContract({
+        address: vault,
+        abi: vaultV2Abi,
+        functionName: 'asset',
+      });
+      const idleCash = await client.readContract({
+        address: asset,
+        abi: erc20ApproveAbi,
+        functionName: 'balanceOf',
+        args: [vault],
+      });
+      list[idleIdx] = { ...list[idleIdx]!, current: idleCash };
+    } catch {
+      return { rows: list, error: IDLE_READ_ERROR };
+    }
+  }
+
+  return { rows: list, error: null };
 }
 
 /** Refresh on-chain currents and validate total + idle funding (shared by preview + submit). */
@@ -283,7 +312,11 @@ export async function finalizeRebalancePlan(
   error: string | null;
   clampWarning: string | null;
 }> {
-  let plan = await refreshPlanRowsFromChain(client, vaultAddress, rows);
+  const refreshed = await refreshPlanRowsFromChain(client, vaultAddress, rows);
+  if (refreshed.error) {
+    return { rows: refreshed.rows, error: refreshed.error, clampWarning: null };
+  }
+  let plan = refreshed.rows;
 
   const surplusResult = applySubmitTimeSurplus(plan, chainTotalAssets);
   if (surplusResult.error) {

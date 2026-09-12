@@ -21,6 +21,7 @@ import { isBroadcastTxHash, isWalletRejection } from '@/lib/utils/wallet-error';
 import { buildAllocationRebalancePreview } from '@/lib/morpho/tx-preview';
 import type { TxPreview } from '@/lib/morpho/tx-preview';
 import { queueVaultRebalanceInSafe } from '@/lib/safe/queue-vault-write';
+import { getConnectorProvider } from '@/lib/wallet/connector-provider';
 import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import {
   defaultAllocationDestination,
@@ -442,7 +443,7 @@ export function VaultV2Allocations({
     isLoading: govLoading,
     error: govError,
     refetch: refetchGov,
-  } = useVaultV2Governance(vaultAddress);
+  } = useVaultV2Governance(vaultAddress, { initialData: preloadedData ?? undefined });
   const risk = fetchedRisk ?? preloadedRisk;
   const governance = fetchedGov ?? preloadedData;
   const capsUnavailable = !governance && govLoading;
@@ -453,6 +454,10 @@ export function VaultV2Allocations({
       // Build idHash for each cap based on its kind.
       if (isAdapterCap(cap) && cap.adapterAddress) {
         const h = keccak256(encodeAdapterCapIdData(cap.adapterAddress));
+        map.set(h.toLowerCase(), cap);
+      }
+      if (isMarketCap(cap) && cap.adapterAddress && cap.marketParams) {
+        const h = keccak256(encodeMarketCapIdData(cap.adapterAddress, cap.marketParams));
         map.set(h.toLowerCase(), cap);
       }
       if (isMarketCap(cap) && cap.marketKey) {
@@ -567,7 +572,7 @@ export function VaultV2Allocations({
           morphoHref: curatorVaultHref(underlyingAddress),
           isIdle: false,
           isMorphoBlue: false,
-          supplyApy: underlying?.avgNetApy ?? null,
+          supplyApy: underlying?.avgNetApy ?? underlying?.netApy ?? null,
           borrowApy: null,
           utilization: null,
           liquidity: underlyingLiq,
@@ -813,7 +818,7 @@ export function VaultV2Allocations({
   const multicallWrite = useVaultWrite({ chainId: chainId ?? BASE_CHAIN_ID });
   const resetMulticallWrite = multicallWrite.reset;
   const publicClient = usePublicClient({ chainId: chainId ?? BASE_CHAIN_ID });
-  const { address: walletAddress, isConnected } = useAccount();
+  const { address: walletAddress, isConnected, connector } = useAccount();
   const router = useRouter();
   const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
     useCuratorSafeApps();
@@ -1204,6 +1209,17 @@ export function VaultV2Allocations({
     const inputSum = results.reduce((s, r) => s + r.assets, BigInt(0));
     const diff = planningTotalRaw - inputSum;
     const overshoot = diff < BigInt(0);
+    if (overshoot) {
+      return {
+        valid: false as const,
+        error: 'Over-allocated. Reduce a target.',
+        results,
+        inputSum,
+        sumAssets: inputSum,
+        dustDiff: BigInt(0),
+        dustRecipientIdx: null as number | null,
+      };
+    }
     const idleIdx = results.findIndex((r) => r.target.isVaultIdle);
 
     let adjustedResults = results;
@@ -1447,6 +1463,22 @@ export function VaultV2Allocations({
     setPreparedSubmit(null);
   }, [resolvedAllocations]);
 
+  const finalizePlanRows = useCallback(
+    async (rows: RebalancePlanRow[]) => {
+      if (!publicClient) {
+        return { rows, error: 'Wallet RPC client is not ready.', clampWarning: null };
+      }
+      const vault = getAddress(vaultAddress);
+      const chainTotal = (await publicClient.readContract({
+        address: vault,
+        abi: vaultV2Abi,
+        functionName: 'totalAssets',
+      })) as bigint;
+      return finalizeRebalancePlan(publicClient, vaultAddress, rows, chainTotal);
+    },
+    [publicClient, vaultAddress]
+  );
+
   const openRebalancePreview = useCallback(async () => {
     if (!resolvedAllocations?.valid || !publicClient) return;
 
@@ -1454,20 +1486,8 @@ export function VaultV2Allocations({
     setSubmitError(null);
 
     try {
-      const vault = getAddress(vaultAddress);
-      const chainTotal = (await publicClient.readContract({
-        address: vault,
-        abi: vaultV2Abi,
-        functionName: 'totalAssets',
-      })) as bigint;
-
       const planRows = mapResultsToPlanRows(resolvedAllocations.results);
-      const finalized = await finalizeRebalancePlan(
-        publicClient,
-        vaultAddress,
-        planRows,
-        chainTotal
-      );
+      const finalized = await finalizePlanRows(planRows);
 
       if (finalized.error) {
         setSubmitError(finalized.error);
@@ -1513,7 +1533,7 @@ export function VaultV2Allocations({
   }, [
     resolvedAllocations,
     publicClient,
-    vaultAddress,
+    finalizePlanRows,
     vaultSymbol,
     vaultDecimals,
     governance?.allocators,
@@ -1527,7 +1547,12 @@ export function VaultV2Allocations({
     setSubmitError(null);
 
     const vault = getAddress(vaultAddress);
-    const submitRows = preparedSubmit.rows;
+    const finalized = await finalizePlanRows(preparedSubmit.rows);
+    if (finalized.error) {
+      setSubmitError(finalized.error);
+      return;
+    }
+    const submitRows = finalized.rows;
 
     const { deallocCalls, allocCalls } = buildRebalanceMulticallData(submitRows);
     const allCalls = [...deallocCalls, ...allocCalls];
@@ -1605,6 +1630,7 @@ export function VaultV2Allocations({
     multicallWrite,
     publicClient,
     walletAddress,
+    finalizePlanRows,
   ]);
 
   const handleQueueInSafe = useCallback(
@@ -1615,13 +1641,19 @@ export function VaultV2Allocations({
       setQueueSafeError(null);
 
       try {
+        const finalized = await finalizePlanRows(preparedSubmit.rows);
+        if (finalized.error) {
+          setQueueSafeError(finalized.error);
+          return;
+        }
         await queueVaultRebalanceInSafe({
           vaultAddress: getAddress(vaultAddress),
-          submitRows: preparedSubmit.rows,
+          submitRows: finalized.rows,
           preview: preparedSubmit.preview,
           vaultSymbol,
           safeRole,
           proposer: walletAddress ? getAddress(walletAddress) : undefined,
+          provider: await getConnectorProvider(connector),
           safeAppSdk: allocatorSafeAppSdk,
         });
         setRebalancePreviewOpen(false);
@@ -1637,7 +1669,7 @@ export function VaultV2Allocations({
         setQueueingSafe(false);
       }
     },
-    [allocatorSafeAppSdk, preparedSubmit, vaultAddress, vaultSymbol, walletAddress, router]
+    [allocatorSafeAppSdk, connector, finalizePlanRows, preparedSubmit, vaultAddress, vaultSymbol, walletAddress, router]
   );
 
   const handlePreviewConfirm = useCallback(async () => {
@@ -1693,13 +1725,16 @@ export function VaultV2Allocations({
     [inputValues, parseInputToRaw, targetsWithCaps, planningTotalRaw]
   );
 
+  const displayTotalRaw = targetsWithCaps.reduce((s, t) => s + t.displayAssets, BigInt(0));
+
   const getRowPercent = useCallback(
     (targetIdx: number): number => {
       const t = targetsWithCaps[targetIdx];
       if (!t) return 0;
+      const denom = editing ? planningTotalRaw : displayTotalRaw;
       if (!editing) {
-        return planningTotalRaw > BigInt(0)
-          ? Number((t.displayAssets * BigInt(10000)) / planningTotalRaw) / 100
+        return denom > BigInt(0)
+          ? Number((t.displayAssets * BigInt(10000)) / denom) / 100
           : 0;
       }
       const v = inputValues[targetIdx]?.trim() ?? '';
@@ -1718,7 +1753,7 @@ export function VaultV2Allocations({
         ? Number((raw * BigInt(10000)) / planningTotalRaw) / 100
         : 0;
     },
-    [editing, inputMode, inputValues, parseInputToRaw, targetsWithCaps, planningTotalRaw]
+    [editing, inputMode, inputValues, parseInputToRaw, targetsWithCaps, planningTotalRaw, displayTotalRaw]
   );
 
   if (!risk && isLoading) {
@@ -1767,7 +1802,7 @@ export function VaultV2Allocations({
     govLoaded &&
     !t.isVaultIdle &&
     t.displayAssets === BigInt(0) &&
-    (t.absoluteCapRaw == null || t.absoluteCapRaw === BigInt(0)) &&
+    t.absoluteCapRaw === BigInt(0) &&
     (t.relativeCapWad == null || t.relativeCapWad === BigInt(0));
 
   // Map target index -> whether it should be shown

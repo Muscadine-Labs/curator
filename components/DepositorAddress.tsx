@@ -1,8 +1,10 @@
 'use client';
 
+import { getAddress, isAddress } from 'viem';
 import { Badge } from '@/components/ui/badge';
 import { resolveDepositorLabel } from '@/lib/format/address-label';
 import { formatAddress } from '@/lib/format/number';
+import { useWalletDisplayName } from '@/lib/hooks/useWalletDisplayName';
 import { cn } from '@/lib/utils';
 
 type DepositorAddressProps = {
@@ -14,7 +16,7 @@ type DepositorAddressProps = {
   onClick?: (e: React.MouseEvent<HTMLAnchorElement>) => void;
 };
 
-/** Truncated address with a Treasury / vault / Safe badge when the holder is known. */
+/** Truncated address with a Treasury / vault / Safe badge, or Basename / ENS beside the address. */
 export function DepositorAddress({
   address,
   href,
@@ -24,6 +26,8 @@ export function DepositorAddress({
   onClick,
 }: DepositorAddressProps) {
   const known = resolveDepositorLabel(address);
+  const checksum = isAddress(address) ? getAddress(address) : undefined;
+  const { name } = useWalletDisplayName(known ? undefined : checksum);
   const truncated = formatAddress(address, startChars, endChars);
   const addrClass = cn(
     'font-mono text-xs',
@@ -50,6 +54,10 @@ export function DepositorAddress({
         <Badge variant="outline" className="text-[10px] font-medium">
           {known.label}
         </Badge>
+      ) : name ? (
+        <span className="max-w-[12rem] truncate text-xs font-medium text-foreground" title={name}>
+          {name}
+        </span>
       ) : null}
       {addrEl}
     </span>

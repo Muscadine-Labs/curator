@@ -33,6 +33,7 @@ import type { VaultV2GovernanceResponse } from '@/app/api/vaults/[id]/governance
 import type { V2VaultRiskResponse } from '@/app/api/vaults/[id]/risk/route';
 import { vaultV2GovernanceQueryKey } from '@/lib/hooks/useVaultV2Governance';
 import { queueSafeTransaction } from '@/lib/safe/queue-vault-write';
+import { getConnectorProvider } from '@/lib/wallet/connector-provider';
 import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import { ALLOCATION_SAFE_ROLE, type SafeRole } from '@/lib/safe/config';
 import {
@@ -102,7 +103,7 @@ export function VaultV2LiquidityAdapter({
   const write = useVaultWrite({ chainId });
   const queryClient = useQueryClient();
   const router = useRouter();
-  const { address: walletAddress, isConnected } = useAccount();
+  const { address: walletAddress, isConnected, connector } = useAccount();
   const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
     useCuratorSafeApps();
 
@@ -245,6 +246,8 @@ export function VaultV2LiquidityAdapter({
             vaultAddress: getAddress(vaultAddress),
             vaultSymbol: assetSymbol ?? undefined,
           },
+          proposer: walletAddress ? getAddress(walletAddress) : undefined,
+          provider: await getConnectorProvider(connector),
           safeAppSdk: allocatorSafeAppSdk,
         });
         setPreviewOpen(false);
@@ -264,7 +267,9 @@ export function VaultV2LiquidityAdapter({
       assetSymbol,
       allocatorSafeAppSdk,
       closePanel,
+      connector,
       router,
+      walletAddress,
     ]
   );
 

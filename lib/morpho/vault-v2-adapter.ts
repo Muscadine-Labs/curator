@@ -16,6 +16,7 @@ export type VaultV2UnderlyingInfo = {
   name: string | null;
   symbol: string | null;
   avgNetApy?: number | null;
+  netApy?: number | null;
   liquidity?: string | null;
   liquidityUsd?: number | null;
 };
@@ -42,6 +43,7 @@ export type GraphUnderlyingVaultFields = {
   name?: string | null;
   symbol?: string | null;
   avgNetApy?: number | null;
+  netApy?: number | null;
   liquidity?: string | number | null;
   liquidityUsd?: number | null;
 };
@@ -64,6 +66,7 @@ export function mergeUnderlyingVaultInfo(
     name: graph?.name ?? (childCfg ? getConfiguredVaultDisplayName(childCfg) : null),
     symbol: graph?.symbol ?? childCfg?.assetSymbol ?? null,
     avgNetApy: graph?.avgNetApy ?? null,
+    netApy: graph?.netApy ?? null,
     liquidity,
     liquidityUsd: graph?.liquidityUsd ?? null,
   };

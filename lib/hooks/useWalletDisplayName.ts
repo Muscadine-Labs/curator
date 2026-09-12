@@ -92,5 +92,10 @@ export function useWalletDisplayName(address?: Address) {
   });
 
   const truncated = address ? truncateAddress(address) : '';
-  return { displayName: query.data || truncated };
+  return {
+    name: query.data ?? null,
+    truncated,
+    displayName: query.data || truncated,
+    isLoading: query.isLoading,
+  };
 }

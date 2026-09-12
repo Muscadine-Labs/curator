@@ -25,7 +25,11 @@ async function fetchVaultV2Governance(vaultAddress: string): Promise<VaultV2Gove
   return res.json();
 }
 
-export function useVaultV2Governance(vaultAddress: string | null | undefined) {
+export function useVaultV2Governance(
+  vaultAddress: string | null | undefined,
+  options?: { initialData?: VaultV2GovernanceResponse }
+) {
+  const hasInitial = options?.initialData !== undefined;
   return useQuery({
     queryKey: vaultV2GovernanceQueryKey(vaultAddress),
     queryFn: () => {
@@ -35,7 +39,9 @@ export function useVaultV2Governance(vaultAddress: string | null | undefined) {
       return fetchVaultV2Governance(vaultAddress);
     },
     enabled: Boolean(vaultAddress),
+    initialData: options?.initialData,
     ...ON_CHAIN_VAULT_QUERY_OPTIONS,
+    refetchOnMount: hasInitial ? false : ON_CHAIN_VAULT_QUERY_OPTIONS.refetchOnMount,
   });
 }
 

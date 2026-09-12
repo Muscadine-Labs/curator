@@ -25,7 +25,9 @@ export type TxPreviewAction =
   | 'repay'
   | 'add_collateral'
   | 'withdraw_collateral'
-  | 'exit';
+  | 'exit'
+  | 'gate'
+  | 'batch';
 
 export type UserTxKind =
   | 'deposit'
@@ -324,6 +326,10 @@ export function txPreviewActionLabel(action: TxPreviewAction): string {
       return 'Withdraw collateral';
     case 'exit':
       return 'Exit';
+    case 'gate':
+      return 'Gate';
+    case 'batch':
+      return 'Batch';
   }
 }
 

@@ -71,9 +71,10 @@ export async function readSafeTokenBalances(
 
   knownErc20.forEach((token, i) => {
     const result = results[i];
+    if (result?.status !== 'success') return;
     out.push({
       ...token,
-      balance: result?.status === 'success' ? (result.result as bigint) : 0n,
+      balance: result.result as bigint,
     });
   });
 

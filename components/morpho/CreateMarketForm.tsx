@@ -617,8 +617,7 @@ export function CreateMarketForm() {
           <AlertTitle>Unsupported network</AlertTitle>
           <AlertDescription>
             No Morpho Blue / AdaptiveCurveIRM / oracle factory addresses are configured for{' '}
-            {networkName}. Switch Account → Network to Base, Ethereum, HyperEVM, Robinhood, or
-            Polygon.
+            {networkName}. Switch Account → Network to Base, Ethereum, HyperEVM, or Robinhood.
           </AlertDescription>
         </Alert>
       </AppShell>

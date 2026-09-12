@@ -26,7 +26,10 @@ import {
   isTransactionServiceConfigured,
   SAFE_TX_SERVICE_RATE_LIMITS,
 } from '@/lib/safe/transaction-service';
+import { queueSafeBatch } from '@/lib/safe/queue-vault-write';
+import { getConnectorProvider } from '@/lib/wallet/connector-provider';
 import { syncPendingFromTransactionService } from '@/lib/safe/service-sync';
+import { useAccount } from 'wagmi';
 
 function statusBadge(status: SafePendingTransaction['status']) {
   switch (status) {
@@ -84,11 +87,15 @@ function PendingTransactionCard({
   owners,
   threshold,
   serviceEnabled,
+  selected,
+  onToggleSelected,
 }: {
   tx: SafePendingTransaction;
   owners: string[];
-  threshold: number;
+  threshold: number | undefined;
   serviceEnabled: boolean;
+  selected: boolean;
+  onToggleSelected: (id: string) => void;
 }) {
   const {
     walletAddress,
@@ -106,7 +113,11 @@ function PendingTransactionCard({
     owners.some((o) => getAddress(o).toLowerCase() === getAddress(walletAddress).toLowerCase());
   const signed = walletAddress ? ownerHasSigned(tx, walletAddress) : false;
   const busy = activeId === tx.id;
-  const canExecute = tx.status === 'ready' && tx.signatures.length >= threshold;
+  const canExecute =
+    tx.status === 'ready' &&
+    threshold != null &&
+    threshold >= 1 &&
+    tx.signatures.length >= threshold;
   const canShare =
     serviceEnabled &&
     !tx.serviceSynced &&
@@ -128,7 +139,15 @@ function PendingTransactionCard({
     <div className="rounded-xl border border-border px-4 py-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 space-y-1">
-          <p className="font-medium text-foreground">{tx.description}</p>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={() => onToggleSelected(tx.id)}
+              disabled={tx.status === 'stale' || tx.status === 'executed'}
+            />
+            <span className="font-medium text-foreground">{tx.description}</span>
+          </label>
           <p className="break-all font-mono text-[11px] text-muted-foreground">
             {tx.safeTxHash}
           </p>
@@ -146,7 +165,7 @@ function PendingTransactionCard({
         <span>
           Signatures:{' '}
           <span className="font-semibold text-foreground">
-            {tx.signatures.length} / {threshold}
+            {tx.signatures.length} / {threshold != null && threshold >= 1 ? threshold : '—'}
           </span>
         </span>
         <span>Nonce: {tx.nonce}</span>
@@ -260,12 +279,16 @@ function PendingTransactionCard({
 export function SafeTransactionQueue({ account }: { account: SafeAccountConfig }) {
   const pending = useSafePendingForRole(account.role);
   const { data: info } = useSafeInfo(account.address);
+  const { address: walletAddress, connector } = useAccount();
   const [importError, setImportError] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncCooldownUntil, setSyncCooldownUntil] = useState(0);
   const [, setCooldownTick] = useState(0);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [batchError, setBatchError] = useState<string | null>(null);
+  const [batching, setBatching] = useState(false);
 
   const syncOnCooldown = syncCooldownUntil > Date.now();
 
@@ -276,7 +299,7 @@ export function SafeTransactionQueue({ account }: { account: SafeAccountConfig }
     return () => window.clearTimeout(id);
   }, [syncCooldownUntil, syncOnCooldown]);
 
-  const threshold = info?.threshold ?? 1;
+  const threshold = info?.threshold;
   const owners = info?.owners ?? [];
   const serviceEnabled = isTransactionServiceConfigured();
 
@@ -295,6 +318,9 @@ export function SafeTransactionQueue({ account }: { account: SafeAccountConfig }
     setSyncMessage(null);
 
     try {
+      if (threshold == null || threshold < 1) {
+        throw new Error('Safe threshold is still loading. Wait a moment and sync again.');
+      }
       const result = await syncPendingFromTransactionService({
         role: account.role,
         threshold,
@@ -311,6 +337,27 @@ export function SafeTransactionQueue({ account }: { account: SafeAccountConfig }
       setSyncing(false);
     }
   }, [account.role, threshold]);
+
+  const selectedPending = pending.filter((tx) => selectedIds.includes(tx.id));
+
+  const handleBatch = useCallback(async () => {
+    setBatchError(null);
+    setBatching(true);
+    try {
+      await queueSafeBatch({
+        safeRole: account.role,
+        txs: selectedPending,
+        proposer: walletAddress ? getAddress(walletAddress) : undefined,
+        provider: await getConnectorProvider(connector),
+        threshold,
+      });
+      setSelectedIds([]);
+    } catch (error) {
+      setBatchError(error instanceof Error ? error.message : 'Failed to batch proposals.');
+    } finally {
+      setBatching(false);
+    }
+  }, [account.role, selectedPending, walletAddress, connector, threshold]);
 
   return (
     <CuratorPanel
@@ -331,6 +378,17 @@ export function SafeTransactionQueue({ account }: { account: SafeAccountConfig }
             </Button>
           )}
           <QueueImportExport onError={setImportError} />
+          {selectedPending.length >= 2 ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={batching}
+              onClick={() => void handleBatch()}
+            >
+              {batching ? 'Batching…' : `Batch ${selectedPending.length} into MultiSend`}
+            </Button>
+          ) : null}
         </div>
       }
     >
@@ -353,10 +411,17 @@ export function SafeTransactionQueue({ account }: { account: SafeAccountConfig }
           <p className="text-xs text-emerald-700 dark:text-emerald-400">{syncMessage}</p>
         )}
 
-        {(importError || syncError) && (
+        {selectedPending.length >= 2 && (
+          <p className="text-xs text-muted-foreground">
+            MultiSend needs a contiguous nonce range. Rows already shared with owners (except the
+            earliest nonce) cannot be batched — they would stay executable after the batch.
+          </p>
+        )}
+
+        {(importError || syncError || batchError) && (
           <p className="flex items-start gap-2 text-xs text-red-600 dark:text-red-400">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            {importError ?? syncError}
+            {importError ?? syncError ?? batchError}
           </p>
         )}
 
@@ -378,6 +443,12 @@ export function SafeTransactionQueue({ account }: { account: SafeAccountConfig }
               owners={owners}
               threshold={threshold}
               serviceEnabled={serviceEnabled}
+              selected={selectedIds.includes(tx.id)}
+              onToggleSelected={(id) =>
+                setSelectedIds((prev) =>
+                  prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+                )
+              }
             />
           ))
         )}

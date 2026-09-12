@@ -51,6 +51,7 @@ type GraphAdapter = {
     name?: string | null;
     symbol?: string | null;
     avgNetApy?: number | null;
+    netApy?: number | null;
     liquidity?: string | number | null;
     liquidityUsd?: number | null;
   } | null;
@@ -197,6 +198,7 @@ const VAULT_V2_RISK_QUERY = gql`
               name
               symbol
               avgNetApy
+              netApy
               liquidity
               liquidityUsd
             }

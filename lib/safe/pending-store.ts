@@ -1,4 +1,5 @@
 import { getAddress, type Address } from 'viem';
+import { inferSafeTxSource } from '@/lib/safe/decode-vault-calldata-preview';
 import type { SafePendingTransaction, SafeTransactionStatus } from '@/lib/safe/types';
 import type { SafeRole } from '@/lib/safe/config';
 
@@ -156,13 +157,32 @@ export function exportPendingBundle(): string {
   return JSON.stringify(readStore(), null, 2);
 }
 
+/**
+ * Drop a stored preview and re-classify from calldata. A JSON bundle is
+ * untrusted: a misleading title must not survive import while the calldata
+ * does something else.
+ */
+export function sanitizeImportedPending(tx: SafePendingTransaction): SafePendingTransaction {
+  return {
+    ...tx,
+    preview: null,
+    source: inferSafeTxSource(getAddress(tx.to), tx.data, tx.value || '0'),
+  };
+}
+
 export function importPendingBundle(json: string): { ok: true; count: number } | { ok: false; error: string } {
   try {
     const parsed = JSON.parse(json) as StoreSnapshot;
     if (!Array.isArray(parsed.transactions)) {
       return { ok: false, error: 'Invalid bundle: missing transactions array.' };
     }
-    writeStore(parsed);
+    const existing = readStore().transactions;
+    const byHash = new Map(existing.map((tx) => [tx.safeTxHash.toLowerCase(), tx]));
+    for (const tx of parsed.transactions) {
+      if (!tx?.safeTxHash) continue;
+      byHash.set(String(tx.safeTxHash).toLowerCase(), sanitizeImportedPending(tx));
+    }
+    writeStore({ transactions: [...byHash.values()] });
     notifyListeners();
     return { ok: true, count: parsed.transactions.length };
   } catch {

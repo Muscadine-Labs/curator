@@ -45,6 +45,22 @@ function validateEnvVars(): EnvValidationResult {
     warnings.push('NEXT_PUBLIC_ALCHEMY_API_KEY is not set. Client wallet RPC uses public chain endpoints');
   }
 
+  const isProductionRuntime =
+    process.env.NODE_ENV === 'production' && process.env.NEXT_PHASE !== 'phase-production-build';
+
+  if (isProductionRuntime && !process.env.CURATOR_SESSION_SECRET?.trim()) {
+    errors.push('CURATOR_SESSION_SECRET is required in production (do not HMAC sessions with the login password)');
+  }
+
+  if (
+    isProductionRuntime &&
+    (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN)
+  ) {
+    warnings.push(
+      'UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN unset — login rate limits are per-instance, not global'
+    );
+  }
+
   return {
     isValid: errors.length === 0,
     errors,

@@ -8,18 +8,15 @@ export const BASE_CHAIN_ID = 8453;
 export const HYPEREVM_CHAIN_ID = 999;
 /** Robinhood Chain mainnet */
 export const ROBINHOOD_CHAIN_ID = 4663;
-export const POLYGON_CHAIN_ID = 137;
-
 /**
  * Canonical curator networks — top-bar wallet + /markets + /market must match.
- * Order: Base, Ethereum, HyperEVM, Robinhood, Polygon.
+ * Order: Base, Ethereum, HyperEVM, Robinhood.
  */
 export const CURATOR_MARKET_NETWORKS = [
   { chainId: BASE_CHAIN_ID, name: 'Base', morphoSlug: 'base' },
   { chainId: ETHEREUM_CHAIN_ID, name: 'Ethereum', morphoSlug: 'ethereum' },
   { chainId: HYPEREVM_CHAIN_ID, name: 'HyperEVM', morphoSlug: 'hyperevm' },
   { chainId: ROBINHOOD_CHAIN_ID, name: 'Robinhood', morphoSlug: 'robinhood' },
-  { chainId: POLYGON_CHAIN_ID, name: 'Polygon', morphoSlug: 'polygon' },
 ] as const;
 
 /** Sidebar vault grouping — same chain set as markets/wallet. */
@@ -32,14 +29,12 @@ const ETHEREUM_SCAN_URL = 'https://etherscan.io';
 const BASE_SCAN_URL = 'https://basescan.org';
 const HYPEREVM_SCAN_URL = 'https://hyperevmscan.io';
 const ROBINHOOD_SCAN_URL = 'https://explorer.mainnet.chain.robinhood.com';
-const POLYGON_SCAN_URL = 'https://polygonscan.com';
 
 const CHAIN_SCAN_URLS: Record<number, string> = {
   [ETHEREUM_CHAIN_ID]: ETHEREUM_SCAN_URL,
   [BASE_CHAIN_ID]: BASE_SCAN_URL,
   [HYPEREVM_CHAIN_ID]: HYPEREVM_SCAN_URL,
   [ROBINHOOD_CHAIN_ID]: ROBINHOOD_SCAN_URL,
-  [POLYGON_CHAIN_ID]: POLYGON_SCAN_URL,
 };
 
 export function getScanUrlForChain(chainId: number): string {
@@ -50,7 +45,6 @@ export function getScanNameForChain(chainId: number): string {
   if (chainId === ETHEREUM_CHAIN_ID) return 'Etherscan';
   if (chainId === HYPEREVM_CHAIN_ID) return 'HyperEVM Scan';
   if (chainId === ROBINHOOD_CHAIN_ID) return 'Robinhood Explorer';
-  if (chainId === POLYGON_CHAIN_ID) return 'Polygonscan';
   return 'Basescan';
 }
 

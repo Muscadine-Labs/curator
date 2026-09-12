@@ -22,8 +22,11 @@ npm run build   # next build
   routes require the HttpOnly `curator_session` cookie (`proxy.ts` plus
   a route-level check). `apiFetch` sends `credentials: 'same-origin'`.
   `POST /api/auth/verify` is IP rate-limited (`AUTH_LOGIN_MAX_ATTEMPTS`).
-  Sessions are HMAC-signed with `CURATOR_SESSION_SECRET` when set, otherwise
-  `CURATOR_ADMIN_PASSWORD`. Bump `CURATOR_SESSION_VERSION` to invalidate sessions.
+  Sessions are HMAC-signed with `CURATOR_SESSION_SECRET` (required in
+  production; development falls back to `CURATOR_ADMIN_PASSWORD`). Bump
+  `CURATOR_SESSION_VERSION` to invalidate sessions. Login rate limits use
+  Upstash REST when `UPSTASH_REDIS_REST_*` are set; otherwise they are
+  per-instance memory.
 - **V2-only vault config:** all tracked vaults are Morpho V2 (`lib/config/vaults.ts`).
   No MetaMorpho / V1 vault routes. Blue market risk uses `blue-market-data.ts` +
   `compute-blue-market-risk.ts`. MetaMorpho adapters are ignored in risk, allocation,
@@ -40,8 +43,11 @@ npm run build   # next build
   wrappers and test vaults using Morpho/on-chain names. `underlyingAddress` is
   the GraphQL fallback for the child vault. Send-assets gate (underlying strategy
   vaults only): `lib/config/deposit-gates.ts` (`docs/brain/deposit-gates.md`,
-  `npm run gates:calldata`, **`npm run gates:verify`** after allowlist changes). Fee wrappers stay open on-chain.
-  App uses config-only allowlist — no gate RPC in app; sync `app/src/lib/deposit-gate-config.ts`.
+  `npm run gates:calldata`, **`npm run gates:verify`** after allowlist changes).
+  Fee wrappers stay open on-chain. Depositor allowlist in the app is still
+  config-driven; `/curator/gates` + `GET /api/gates/[address]` read the live
+  gate and queue `setIsWhitelisted` / `setIsWhitelister` through Allocator /
+  Curator Safes. Vault overview shows the gate address (`VaultV2GatesRead`).
 - **React Query polling** — dashboard hooks poll every 30s; indexed vault data
   (history, reallocations, holders, vault list) does not background-poll. The
   vaults sidebar is config-only (no Morpho fetch). On-chain vault
@@ -110,7 +116,10 @@ npm run build   # next build
   **localStorage is always kept** (export/import); optional Transaction Service
   sync via `NEXT_PUBLIC_SAFE_API_KEY` and `@safe-global/api-kit` ^5.x
   (`lib/safe/transaction-service.ts`, `service-sync.ts`, rate limit in
-  `transaction-service-rate-limit.ts` — manual sync only, no polling). Safe Apps
+  `transaction-service-rate-limit.ts` — manual sync only, no polling). Tabs:
+  Home / Assets / Transactions / **History** (executed txs, on-demand) /
+  **Settings** (modules, guard, address book). Queue several proposals into one
+  MultiSend via `queueSafeBatch`. Safe Apps
   SDK embed via `CuratorSafeAppsProvider` (`lib/safe/safe-apps-context.tsx`);
   manifest at `public/manifest.json` (`muscadinelogo.svg`). Post-execute refetch
   via `refetch-vault-after-safe-execute.ts`; queue previews always shown (stored
@@ -121,7 +130,8 @@ npm run build   # next build
   `lib/morpho/graphql-client.ts`. See `CLAUDE.md` §4.4.1.
 - **App routes** — `/` (Overview), `/vaults`, `/vault/[address]/*`,
   `/vaults/transact`, `/markets`, `/markets/create`, `/markets/positions`,
-  `/market/blue/[id]`, `/midnight/[id]`, `/safe`, `/curator` (Curator tools hub), `/curator/bots` (bot watch + repos),
+  `/market/blue/[id]`, `/midnight/[id]`, `/safe`, `/safe/[role]/{assets,transactions,history,settings}`,
+  `/curator` (Curator tools hub), `/curator/gates` (send-assets gate), `/curator/bots` (bot watch + repos),
   `/monthly-statement`, `/muscadine-ledger`, `/muscadine-frontends`.
   Old `/morpho/create-market` and `/morpho/transact` pages are gone (use
   `/markets/create`, `/vaults/transact`, `/markets/positions`). Vault pages live
@@ -132,7 +142,9 @@ npm run build   # next build
   `…/history`, `…/holders`, etc.); protocol drill-downs at
   `GET /api/protocol-users`, `GET /api/protocol-transactions`; bot watch at
   `GET /api/bots/activity?panel=allocator|sentinel|rebater`; Midnight books at
-  `GET /api/markets/midnight`, `GET /api/markets/midnight/[id]`.
+  `GET /api/markets/midnight`, `GET /api/markets/midnight/[id]`; send-assets
+  gate state at `GET /api/gates/[address]`; Safe extras at
+  `GET /api/safe/[address]/history`, `GET /api/safe/[address]/settings`.
 - **Vault pages** — `app/vault/[address]/{page,allocation,caps,…}` via
   `VaultPageShell` (`'use client'` + React Query); keep **dynamic** (no
   SSG/`generateStaticParams` for vault addresses).
@@ -163,7 +175,7 @@ npm run build   # next build
   deployable cash only (accrual residual is not Idle). Post-tx: refetch risk +
   governance, exit edit. Allocations **Min** = allocation minus withdrawable
   market liquidity (0 when fully liquid); replaces former Zero.
-- **Curator networks** — Base, Ethereum, HyperEVM, Robinhood, Polygon only
+- **Curator networks** — Base, Ethereum, HyperEVM, Robinhood only
   (`CURATOR_MARKET_NETWORKS` + wagmi `chains`). Top-bar **NetworkSwitcher** sets
   preferred chain **without requiring a wallet**; when connected it also
   `switchChain`. `/markets` and `/markets/create` follow that preference

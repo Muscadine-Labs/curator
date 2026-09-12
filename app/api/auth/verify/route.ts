@@ -46,13 +46,21 @@ export async function POST(req: NextRequest) {
   // let concurrent requests all pass the check before any of them counted.
   // A successful login clears both buckets below, so charging every attempt
   // costs a legitimate admin nothing.
-  if (!consumeRateLimit(clientBucket, AUTH_LOGIN_MAX_ATTEMPTS, AUTH_LOGIN_WINDOW_MS)) {
-    return tooManyAttempts(peekRateLimit(clientBucket, AUTH_LOGIN_MAX_ATTEMPTS).resetTime);
+  if (!(await consumeRateLimit(clientBucket, AUTH_LOGIN_MAX_ATTEMPTS, AUTH_LOGIN_WINDOW_MS))) {
+    return tooManyAttempts(
+      (await peekRateLimit(clientBucket, AUTH_LOGIN_MAX_ATTEMPTS)).resetTime
+    );
   }
   if (
-    !consumeRateLimit(GLOBAL_BUCKET, AUTH_LOGIN_GLOBAL_MAX_ATTEMPTS, AUTH_LOGIN_GLOBAL_WINDOW_MS)
+    !(await consumeRateLimit(
+      GLOBAL_BUCKET,
+      AUTH_LOGIN_GLOBAL_MAX_ATTEMPTS,
+      AUTH_LOGIN_GLOBAL_WINDOW_MS
+    ))
   ) {
-    return tooManyAttempts(peekRateLimit(GLOBAL_BUCKET, AUTH_LOGIN_GLOBAL_MAX_ATTEMPTS).resetTime);
+    return tooManyAttempts(
+      (await peekRateLimit(GLOBAL_BUCKET, AUTH_LOGIN_GLOBAL_MAX_ATTEMPTS)).resetTime
+    );
   }
 
   if (!ADMIN_PASSWORD) {
@@ -72,8 +80,8 @@ export async function POST(req: NextRequest) {
       const token = await createSessionToken();
       const res = NextResponse.json({ ok: true, role: 'admin' });
       res.headers.append('Set-Cookie', sessionSetCookieHeader(token));
-      resetRateLimit(clientBucket);
-      resetRateLimit(GLOBAL_BUCKET);
+      await resetRateLimit(clientBucket);
+      await resetRateLimit(GLOBAL_BUCKET);
       return res;
     } catch {
       return NextResponse.json({ error: 'Auth not configured' }, { status: 503 });

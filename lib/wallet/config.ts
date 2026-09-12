@@ -5,7 +5,6 @@ import {
   BASE_CHAIN_ID,
   ETHEREUM_CHAIN_ID,
   HYPEREVM_CHAIN_ID,
-  POLYGON_CHAIN_ID,
   ROBINHOOD_CHAIN_ID,
 } from '@/lib/constants';
 import { base as baseChain } from '@/lib/onchain/base-chain';
@@ -44,20 +43,6 @@ const mainnet = eip155Network({
   },
 });
 
-const polygon = eip155Network({
-  id: POLYGON_CHAIN_ID,
-  name: 'Polygon',
-  nativeCurrency: { name: 'POL', symbol: 'POL', decimals: 18 },
-  rpcUrls: { default: { http: [PUBLIC_RPC[POLYGON_CHAIN_ID]] } },
-  blockExplorers: { default: { name: 'Polygonscan', url: 'https://polygonscan.com' } },
-  contracts: {
-    multicall3: {
-      address: '0xca11bde05977b3631167028862be2a173976ca11',
-      blockCreated: 25770160,
-    },
-  },
-});
-
 const hyperEvm = eip155Network({
   id: HYPEREVM_CHAIN_ID,
   name: 'HyperEVM',
@@ -87,13 +72,12 @@ const robinhood = eip155Network({
 
 const base = eip155Network(baseChain);
 
-/** Same five networks as CURATOR_MARKET_NETWORKS (order: Base → Ethereum → HyperEVM → Robinhood → Polygon). */
+/** Same networks as CURATOR_MARKET_NETWORKS (order: Base → Ethereum → HyperEVM → Robinhood). */
 export const networks: [AppKitNetwork, ...AppKitNetwork[]] = [
   base,
   mainnet,
   hyperEvm,
   robinhood,
-  polygon,
 ];
 
 /** viem/wagmi chain list used by `useVaultWrite` to switch before signing. */
@@ -127,7 +111,6 @@ export const wagmiAdapter = new WagmiAdapter({
     [ETHEREUM_CHAIN_ID]: transportFor(ETHEREUM_CHAIN_ID),
     [HYPEREVM_CHAIN_ID]: transportFor(HYPEREVM_CHAIN_ID),
     [ROBINHOOD_CHAIN_ID]: transportFor(ROBINHOOD_CHAIN_ID),
-    [POLYGON_CHAIN_ID]: transportFor(POLYGON_CHAIN_ID),
   },
 });
 

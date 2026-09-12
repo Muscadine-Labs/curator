@@ -3,7 +3,6 @@ import {
   BASE_CHAIN_ID,
   ETHEREUM_CHAIN_ID,
   HYPEREVM_CHAIN_ID,
-  POLYGON_CHAIN_ID,
   ROBINHOOD_CHAIN_ID,
   MORPHO_APP_ORIGIN,
   MORPHO_MARKETS_ORIGIN,
@@ -21,7 +20,6 @@ export function morphoChainSlug(chainId: number): string {
   if (chainId === BASE_CHAIN_ID) return 'base';
   if (chainId === ETHEREUM_CHAIN_ID) return 'ethereum';
   if (chainId === HYPEREVM_CHAIN_ID) return 'hyperevm';
-  if (chainId === POLYGON_CHAIN_ID) return 'polygon';
   if (chainId === ROBINHOOD_CHAIN_ID) return 'robinhood';
   return 'base';
 }

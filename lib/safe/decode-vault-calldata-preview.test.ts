@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { encodeFunctionData, erc20Abi, getAddress, type Hex } from 'viem';
 import {
+  describeSafeTxSource,
   inferSafeTxSource,
   resolveSafePendingPreview,
   resolveVaultAddressFromPending,
 } from '@/lib/safe/decode-vault-calldata-preview';
 import { vaultV2Abi } from '@/lib/onchain/abis';
+import { DEPOSIT_GATE_CONTRACT_ADDRESS } from '@/lib/config/deposit-gates';
+import {
+  encodeGateSetIsWhitelisted,
+  encodeGateSetIsWhitelister,
+} from '@/lib/morpho/vault-v2-gates';
+import { sanitizeImportedPending } from '@/lib/safe/pending-store';
 import type { SafePendingTransaction } from '@/lib/safe/types';
 
 const RECIPIENT = getAddress('0x000000000000000000000000000000000000dEaD');
@@ -13,6 +20,7 @@ const ZERO = getAddress('0x0000000000000000000000000000000000000000');
 const USDC = getAddress('0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913');
 /** A tracked vault — its shares are an ERC-20 at the same address. */
 const VAULT_SHARES = getAddress('0x036A01eFdDC87F6634FFDE0533EE528b90fc7A45');
+const ACCOUNT = getAddress('0x628037c2d25f5e5f6f90415cff6d7e8860f41c08');
 
 const transferData = (amount: bigint) =>
   encodeFunctionData({ abi: erc20Abi, functionName: 'transfer', args: [RECIPIENT, amount] });
@@ -71,6 +79,37 @@ describe('inferSafeTxSource', () => {
   it('falls back to manual for an unrecognised target and calldata', () => {
     expect(inferSafeTxSource(RECIPIENT, '0xdeadbeef')).toEqual({ type: 'manual' });
   });
+
+  it('classifies a configured-gate allowlist write', () => {
+    const data = encodeGateSetIsWhitelisted(ACCOUNT, true);
+    expect(inferSafeTxSource(DEPOSIT_GATE_CONTRACT_ADDRESS, data)).toMatchObject({
+      type: 'gate',
+      action: 'set_whitelisted',
+      gateAddress: DEPOSIT_GATE_CONTRACT_ADDRESS,
+    });
+  });
+
+  it('classifies a configured-gate whitelister write', () => {
+    const data = encodeGateSetIsWhitelister(ACCOUNT, false);
+    expect(inferSafeTxSource(DEPOSIT_GATE_CONTRACT_ADDRESS, data)).toMatchObject({
+      type: 'gate',
+      action: 'set_whitelister',
+      gateAddress: DEPOSIT_GATE_CONTRACT_ADDRESS,
+    });
+  });
+});
+
+describe('describeSafeTxSource', () => {
+  it('labels a Curator-origin transfer as a send, not a vault action', () => {
+    const source = inferSafeTxSource(USDC, transferData(1_000_000n));
+    expect(describeSafeTxSource(source, USDC)).toMatch(/^Send /);
+    expect(describeSafeTxSource(source, USDC)).not.toMatch(/Vault/i);
+  });
+
+  it('labels native ETH sends', () => {
+    const source = inferSafeTxSource(RECIPIENT, '0x', '1');
+    expect(describeSafeTxSource(source, RECIPIENT)).toContain('ETH');
+  });
 });
 
 describe('resolveSafePendingPreview — token movements', () => {
@@ -117,5 +156,39 @@ describe('resolveVaultAddressFromPending', () => {
       args: [RECIPIENT, '0x', 5_000_000n],
     });
     expect(resolveVaultAddressFromPending(imported(VAULT_SHARES, data))).toBe(VAULT_SHARES);
+  });
+});
+
+describe('imported gate writes', () => {
+  it('shows the account and allow/deny, not a generic Safe transaction', () => {
+    const preview = resolveSafePendingPreview(
+      imported(DEPOSIT_GATE_CONTRACT_ADDRESS, encodeGateSetIsWhitelisted(ACCOUNT, false))
+    );
+    expect(preview.title).toMatch(/deny/i);
+    expect(preview.changes[0]?.subtitle).toContain(ACCOUNT);
+    expect(preview.changes[0]?.delta).toBe('deny');
+  });
+
+  it('labels imported gate txs as Gate …, not a vault action', () => {
+    const source = inferSafeTxSource(
+      DEPOSIT_GATE_CONTRACT_ADDRESS,
+      encodeGateSetIsWhitelisted(ACCOUNT, true)
+    );
+    expect(describeSafeTxSource(source, DEPOSIT_GATE_CONTRACT_ADDRESS)).toMatch(/^Gate /);
+  });
+
+  it('drops a stored preview and re-classifies from calldata on import', () => {
+    const tx = imported(
+      DEPOSIT_GATE_CONTRACT_ADDRESS,
+      encodeGateSetIsWhitelisted(ACCOUNT, true)
+    ) as SafePendingTransaction;
+    tx.source = { type: 'manual' };
+    tx.preview = {
+      title: 'Send 1.000000 USDC',
+      changes: [{ action: 'withdraw', label: 'USDC' }],
+    };
+    const cleaned = sanitizeImportedPending(tx);
+    expect(cleaned.preview).toBeNull();
+    expect(cleaned.source).toMatchObject({ type: 'gate', action: 'set_whitelisted' });
   });
 });

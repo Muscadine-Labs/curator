@@ -1,6 +1,6 @@
 'use client';
 
-import { getAddress, type Address } from 'viem';
+import { getAddress, type Address, type EIP1193Provider } from 'viem';
 import type SafeAppsSDK from '@safe-global/safe-apps-sdk';
 import type { TxPreview } from '@/lib/morpho/tx-preview';
 import { formatRawTokenAmount } from '@/lib/format/number';
@@ -51,6 +51,7 @@ export async function queueSafeTransfer(options: {
   amount: bigint;
   balance: bigint;
   proposer?: Address;
+  provider?: EIP1193Provider;
   safeAppSdk?: SafeAppsSDK | null;
 }): Promise<SafePendingTransaction> {
   if (options.amount > options.balance) {
@@ -76,6 +77,7 @@ export async function queueSafeTransfer(options: {
       amount: options.amount.toString(),
     },
     proposer: options.proposer,
+    provider: options.provider,
     safeAppSdk: options.safeAppSdk,
   });
 }

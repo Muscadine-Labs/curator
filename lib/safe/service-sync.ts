@@ -2,13 +2,12 @@
 
 import { getAddress, type Address, type Hex } from 'viem';
 import { getSafeByRole, type SafeRole } from '@/lib/safe/config';
-import { withDecodedPendingPreview, inferSafeTxSource } from '@/lib/safe/decode-vault-calldata-preview';
+import { withDecodedPendingPreview, inferSafeTxSource, describeSafeTxSource } from '@/lib/safe/decode-vault-calldata-preview';
 import {
   fetchPendingMultisigTransactions,
   isTransactionServiceConfigured,
   mapServiceConfirmations,
   proposePendingToTransactionService,
-  serviceTxDescription,
 } from '@/lib/safe/transaction-service';
 import {
   getPendingById,
@@ -62,6 +61,7 @@ function mergeServiceTx(
   }
 
   const target = getAddress(serviceTx.to);
+  const source = inferSafeTxSource(target, (serviceTx.data ?? '0x') as Hex, serviceTx.value);
 
   return withDecodedPendingPreview({
     id: newPendingId(),
@@ -80,8 +80,8 @@ function mergeServiceTx(
     nonce: String(serviceTx.nonce),
     status: pendingStatusAfterSign(incomingSignatures.length, threshold),
     proposer: incomingSignatures[0]?.signer ?? null,
-    description: serviceTxDescription(serviceTx),
-    source: inferSafeTxSource(target, (serviceTx.data ?? '0x') as Hex, serviceTx.value),
+    description: describeSafeTxSource(source, serviceTx.to),
+    source,
     preview: null,
     signatures: incomingSignatures,
     createdAt: now,

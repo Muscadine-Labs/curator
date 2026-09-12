@@ -110,15 +110,13 @@ export async function GET(request: Request) {
 
     for (const month of allMonths) {
       const assetsYields = monthlyFees.get(month.key) || 0; // Total yields generated
-      const reportedProtocolRevenue = monthlyRevenue.get(month.key) || 0; // Reported protocol revenue
+      const protocolRevenue = monthlyRevenue.get(month.key) || 0; // Curator / protocol take
 
-      // Use DefiLlama reported protocol revenue; if it's missing/zero, derive as Fees (all revenue goes to protocol)
-      const protocolRevenue = reportedProtocolRevenue > 0 ? reportedProtocolRevenue : assetsYields;
-
-      // Cost of revenue is Fees - ProtocolRevenue (what's left after protocol takes its share)
+      // Gross = all vault yields. Cost of revenue = yields paid to depositors.
+      // Total Revenue (grossProfit) = DefiLlama protocol revenue — including 0.
+      // Do not treat a 0 protocol-revenue report as "all fees go to the protocol";
+      // that zeroed Cost of Revenue and inflated Total Revenue.
       const costOfRevenue = Math.max(assetsYields - protocolRevenue, 0);
-
-      // Gross Protocol Revenue column in UI is the total yields generated (assetsYields)
       const grossProtocolRevenue = assetsYields;
       const grossProfit = protocolRevenue;
 

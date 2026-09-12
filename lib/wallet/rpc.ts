@@ -2,7 +2,6 @@ import {
   BASE_CHAIN_ID,
   ETHEREUM_CHAIN_ID,
   HYPEREVM_CHAIN_ID,
-  POLYGON_CHAIN_ID,
   ROBINHOOD_CHAIN_ID,
 } from '@/lib/constants';
 
@@ -11,13 +10,11 @@ export const PUBLIC_RPC: Record<number, string> = {
   [ETHEREUM_CHAIN_ID]: 'https://ethereum.publicnode.com',
   [HYPEREVM_CHAIN_ID]: 'https://rpc.hyperliquid.xyz/evm',
   [ROBINHOOD_CHAIN_ID]: 'https://rpc.mainnet.chain.robinhood.com',
-  [POLYGON_CHAIN_ID]: 'https://polygon-bor.publicnode.com',
 };
 
 const ALCHEMY_HOST: Partial<Record<number, string>> = {
   [BASE_CHAIN_ID]: 'base-mainnet',
   [ETHEREUM_CHAIN_ID]: 'eth-mainnet',
-  [POLYGON_CHAIN_ID]: 'polygon-mainnet',
 };
 
 function alchemyUrl(host: string): string | null {

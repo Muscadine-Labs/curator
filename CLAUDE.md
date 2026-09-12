@@ -29,10 +29,11 @@ Copy `.env.example` → `.env.local`. See that file for the full list.
 | `NEXT_PUBLIC_ALCHEMY_API_KEY` | Recommended | Client Base RPC |
 | `NEXT_PUBLIC_APP_URL` | No | App origin (wallet metadata) |
 | `NEXT_PUBLIC_SAFE_API_KEY` | No | Safe Transaction Service |
-| `CURATOR_ADMIN_PASSWORD` | Login | Admin auth + default session HMAC |
-| `CURATOR_SESSION_SECRET` | No | Optional dedicated HMAC for `curator_session` |
+| `CURATOR_ADMIN_PASSWORD` | Login | Admin auth (dev session HMAC fallback) |
+| `CURATOR_SESSION_SECRET` | **Yes in production** | HMAC for `curator_session` (no password fallback in prod) |
 | `CURATOR_SESSION_VERSION` | No | Bump to invalidate all sessions |
 | `CURATOR_TRUSTED_PROXY_HOPS` | **Yes in production** | Proxy count in front of the app; required for per-IP login rate limiting |
+| `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | Recommended in production | Shared login rate-limit store across serverless isolates |
 | `MORPHO_API_URL`, `NEXT_PUBLIC_VAULT_*` | No | Overrides |
 
 ---
@@ -783,7 +784,7 @@ Midnight lend stays on Morpho’s quote/router
 **BFF** — `GET /api/markets` and `GET /api/markets/[marketId]`
 (`lib/morpho/curator-markets.ts`). Midnight: `GET /api/markets/midnight` and
 `GET /api/markets/midnight/[id]` (`lib/morpho/midnight-markets.ts`). Networks (same as top-bar wallet): Base,
-Ethereum, HyperEVM, Robinhood, Polygon (`CURATOR_MARKET_NETWORKS`). `/markets`
+Ethereum, HyperEVM, Robinhood (`CURATOR_MARKET_NETWORKS`). `/markets`
 mirrors the wallet chain (no independent network `<select>`). List query uses
 `orderBy: SizeUsd` server-side; client re-sorts via column headers.
 
@@ -1002,8 +1003,11 @@ components.
 - If `CURATOR_TRUSTED_PROXY_HOPS` is set **higher than the real number of
   proxies**, or the origin is reachable without passing through them, per-IP
   limits become forgeable again. The global cap is the backstop for that case
-  and bounds guessing to ~50/min.
-  HMAC uses `CURATOR_SESSION_SECRET` when set, otherwise `CURATOR_ADMIN_PASSWORD`.
+  and bounds guessing to ~50/min. Login rate limits use Upstash REST when
+  `UPSTASH_REDIS_REST_*` are set (shared across isolates); otherwise they are
+  per-instance memory.
+- HMAC uses `CURATOR_SESSION_SECRET` (required in production). Dev falls back
+  to `CURATOR_ADMIN_PASSWORD` when the dedicated secret is unset.
   Bump `CURATOR_SESSION_VERSION` to invalidate sessions. `proxy.ts` requires the cookie on `/api/*` except
   `/api/auth/verify`, `/api/auth/me`, `/api/auth/logout`.
   `GET /api/auth/me` is the session check. LocalStorage is not a session.
@@ -1373,11 +1377,21 @@ client serializes calls with ≥210ms spacing.
   dropped if the reads fail. Cached ≤15s. There is **no** Safe Transaction
   Service balances call — the free tier is 5 req/s and this route is on the
   hot path.
+- `GET /api/safe/[address]/history` — executed multisig txs from the Transaction
+  Service (`getMultisigTransactions`, executed only). On-demand; same rate
+  limit. Requires `NEXT_PUBLIC_SAFE_API_KEY`.
+- `GET /api/safe/[address]/settings` — on-chain modules + guard
+  (`readSafeOnChainSettings`). Address book is client-only
+  (`lib/safe/address-book.ts`).
+- `GET /api/gates/[address]` — live WhitelistSendAssetsGate state for a
+  configured gate. Writes are Safe-only via `/curator/gates`.
 
 ### 13.3.1 Assets, send and receive
 
-`/safe/[role]` is three route segments — **Home** (`page.tsx`, owners/proposers/
-details), **Assets** (`assets/`), **Transactions** (`transactions/`, the queue)
+`/safe/[role]` is five route segments — **Home** (`page.tsx`, owners/proposers/
+details), **Assets** (`assets/`), **Transactions** (`transactions/`, the queue),
+**History** (`history/`, executed txs), **Settings** (`settings/`, modules,
+guard, address book)
 — under a shared `layout.tsx` that renders `SafeAccountHeader` (chain-prefixed
 `base:0x…` address, copy, threshold, ETH balance, Send/Receive) and
 `SafeRoleSubnav`.
@@ -1402,11 +1416,12 @@ details), **Assets** (`assets/`), **Transactions** (`transactions/`, the queue)
 
 | Concern | File |
 | ------- | ---- |
-| Queue any Safe tx | `lib/safe/queue-vault-write.ts` (`queueSafeTransaction`) |
+| Queue any Safe tx | `lib/safe/queue-vault-write.ts` (`queueSafeTransaction`, `queueSafeBatch`) |
 | Queue from vault | `lib/safe/build-vault-calldata.ts` |
 | Queue a transfer | `lib/safe/queue-transfer.ts`, `build-transfer-calldata.ts` |
 | Token registry + balances | `lib/safe/tokens.ts`, `read-balances.ts`, `custom-token-store.ts` |
 | Assets / send / receive UI | `components/safe/SafeAssetsPanel.tsx`, `SafeSendDialog.tsx`, `SafeReceiveDialog.tsx`, `SafeModal.tsx` |
+| History / settings UI | `components/safe/SafeHistoryPanel.tsx`, `SafeSettingsPanel.tsx`, `lib/safe/address-book.ts` |
 | Safe page shell | `app/safe/[role]/layout.tsx`, `components/safe/SafeAccountHeader.tsx`, `SafeRoleSubnav.tsx` |
 | Fund a Safe from a wallet | `lib/hooks/useSafeFunding.ts` |
 | Calldata preview decode | `lib/safe/decode-vault-calldata-preview.ts` |
@@ -1438,6 +1453,12 @@ details), **Assets** (`assets/`), **Transactions** (`transactions/`, the queue)
   open. Left mounted, `useState(initialToken)` keeps the first mount's value and
   every later launch preselects the wrong asset.
 - Post-queue redirects go to `/safe/[role]/transactions`, not `/safe/[role]`.
+- Next Safe nonce comes from on-chain **plus** queued local proposals
+  (`resolveNextSafeNonce`) so two queued txs cannot share a nonce.
+- Sign/execute use the AppKit/wagmi provider and switch to Base first.
+- Over-allocated rebalance plans fail closed (do not trim then submit).
+- Sentinel deallocate requires booked `allocation(id)` and market params
+  (`data` is never `0x` for a Blue market).
 
 ---
 
@@ -1584,7 +1605,7 @@ Still uncovered and high value: `lib/morpho/cap-decrease-input.ts`,
 
 UI counterpart to `morpho-markets-scripts` `deploy:markets` (`createMarket`). **No
 server private keys** — the connected wallet signs on the **selected top-bar
-network** (Base, Ethereum, HyperEVM, Robinhood, Polygon).
+network** (Base, Ethereum, HyperEVM, Robinhood).
 
 ### Flow
 

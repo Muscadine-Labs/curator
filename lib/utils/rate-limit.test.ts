@@ -1,5 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { resolveClientIp } from '@/lib/utils/rate-limit';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  consumeRateLimit,
+  hasSharedRateLimitStore,
+  resolveClientIp,
+} from '@/lib/utils/rate-limit';
 
 function req(headers: Record<string, string>): Request {
   return new Request('https://curator.muscadine.xyz/api/auth/verify', { headers });
@@ -7,17 +11,26 @@ function req(headers: Record<string, string>): Request {
 
 const ORIGINAL_HOPS = process.env.CURATOR_TRUSTED_PROXY_HOPS;
 const ORIGINAL_VERCEL = process.env.VERCEL;
+const ORIGINAL_UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
+const ORIGINAL_UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 
 beforeEach(() => {
   delete process.env.CURATOR_TRUSTED_PROXY_HOPS;
   delete process.env.VERCEL;
+  delete process.env.UPSTASH_REDIS_REST_URL;
+  delete process.env.UPSTASH_REDIS_REST_TOKEN;
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   if (ORIGINAL_HOPS === undefined) delete process.env.CURATOR_TRUSTED_PROXY_HOPS;
   else process.env.CURATOR_TRUSTED_PROXY_HOPS = ORIGINAL_HOPS;
   if (ORIGINAL_VERCEL === undefined) delete process.env.VERCEL;
   else process.env.VERCEL = ORIGINAL_VERCEL;
+  if (ORIGINAL_UPSTASH_URL === undefined) delete process.env.UPSTASH_REDIS_REST_URL;
+  else process.env.UPSTASH_REDIS_REST_URL = ORIGINAL_UPSTASH_URL;
+  if (ORIGINAL_UPSTASH_TOKEN === undefined) delete process.env.UPSTASH_REDIS_REST_TOKEN;
+  else process.env.UPSTASH_REDIS_REST_TOKEN = ORIGINAL_UPSTASH_TOKEN;
 });
 
 describe('resolveClientIp — trust rules', () => {
@@ -92,5 +105,39 @@ describe('resolveClientIp — trust rules', () => {
 
   it('reports a stable identifier when no headers are present', () => {
     expect(resolveClientIp(req({}))).toEqual({ ip: 'unknown', trusted: false });
+  });
+});
+
+describe('shared login rate-limit store', () => {
+  it('stays in-memory when Upstash env is unset', () => {
+    expect(hasSharedRateLimitStore()).toBe(false);
+  });
+
+  it('counts against Upstash when REST env is set', async () => {
+    process.env.UPSTASH_REDIS_REST_URL = 'https://example.upstash.io';
+    process.env.UPSTASH_REDIS_REST_TOKEN = 'token';
+    const replies = [1, -1, 'OK'];
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ result: replies.shift() }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(hasSharedRateLimitStore()).toBe(true);
+    expect(await consumeRateLimit('auth-verify:test', 10, 60_000)).toBe(true);
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it('fails closed when Upstash is unreachable', async () => {
+    process.env.UPSTASH_REDIS_REST_URL = 'https://example.upstash.io';
+    process.env.UPSTASH_REDIS_REST_TOKEN = 'token';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 500,
+        json: async () => ({}),
+      }))
+    );
+    expect(await consumeRateLimit('auth-verify:test', 10, 60_000)).toBe(false);
   });
 });

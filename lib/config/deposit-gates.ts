@@ -141,6 +141,21 @@ export function depositGateFullWhitelist(): AllowlistedAddress[] {
   return depositGateWhitelistForUnderlying();
 }
 
+export type ConfiguredSendAssetsGate = {
+  address: Address;
+  label: string;
+};
+
+/** Gates the curator UI can interact with. One shared gate today. */
+export function configuredSendAssetsGates(): ConfiguredSendAssetsGate[] {
+  return [
+    {
+      address: DEPOSIT_GATE_CONTRACT_ADDRESS,
+      label: 'Shared send-assets gate (all underlying vaults)',
+    },
+  ];
+}
+
 export function resolveAllowlistLabel(address: string): string {
   const normalized = address.toLowerCase();
   for (const row of depositGateFullWhitelist()) {

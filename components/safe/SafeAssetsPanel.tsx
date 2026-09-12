@@ -15,7 +15,13 @@ import { isNativeToken, SAFE_AMOUNT_DP } from '@/lib/safe/tokens';
 import type { SafeTokenBalance } from '@/lib/safe/read-balances';
 import { safeBalancesQueryKey, useCustomTokens, useSafeBalances } from '@/lib/hooks/useSafeBalances';
 
-function AddTokenForm({ account }: { account: SafeAccountConfig }) {
+function AddTokenForm({
+  account,
+  onAdded,
+}: {
+  account: SafeAccountConfig;
+  onAdded: (token: string) => void;
+}) {
   const [value, setValue] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -26,6 +32,7 @@ function AddTokenForm({ account }: { account: SafeAccountConfig }) {
         e.preventDefault();
         try {
           addCustomToken(account.role, value.trim());
+          onAdded(value.trim());
           setValue('');
           setError(null);
         } catch (err) {
@@ -166,10 +173,18 @@ export function SafeAssetsPanel({ account }: { account: SafeAccountConfig }) {
           </ul>
         )}
         <div className="border-t border-border px-4 py-3">
-          <AddTokenForm account={account} />
+          <AddTokenForm
+            account={account}
+            onAdded={() => {
+              queryClient.invalidateQueries({
+                queryKey: ['safe-balances', account.address],
+              });
+            }}
+          />
           <p className="mt-2 text-xs text-muted-foreground">
             Balances are read on-chain for a curated token set. A Safe can hold any token — add
-            one by address to track it here.
+            one by address to track it here. If it does not appear, the address is not a readable
+            ERC-20 on Base.
           </p>
         </div>
       </CuratorPanel>

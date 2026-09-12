@@ -29,7 +29,7 @@ export const MUSCADINE_DEVELOPMENT_LINKS: readonly ExternalLinkItem[] = [
 
 export const MUSCADINE_BUSINESS_SERVICES: readonly ExternalLinkItem[] = [
   { name: 'Georgia Secretary of State', url: 'https://ecorp.sos.ga.gov/', description: 'ecorp.sos.ga.gov' },
-  { name: 'NameSilo', url: 'https://www.namesilo.com/', description: 'Domain registrar' },
+  { name: 'Cloudflare', url: 'https://www.cloudflare.com/', description: 'DNS and CDN' },
 ];
 
 export const MUSCADINE_SAFE_LINKS: readonly ExternalLinkItem[] = [

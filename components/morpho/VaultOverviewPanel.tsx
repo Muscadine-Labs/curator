@@ -10,6 +10,7 @@ import type { VaultV2GovernanceResponse } from '@/app/api/vaults/[id]/governance
 import { VaultOverviewHistoryChart } from '@/components/morpho/VaultOverviewHistoryChart';
 import { TokenUsdValue } from '@/components/morpho/TokenUsdValue';
 import { VaultV2Roles } from '@/components/morpho/VaultV2Roles';
+import { VaultV2GatesRead } from '@/components/morpho/VaultV2GatesRead';
 import { VaultV2Adapters } from '@/components/morpho/VaultV2Adapters';
 import { VaultHolders } from '@/components/morpho/VaultHolders';
 import { VaultTransactions } from '@/components/morpho/VaultTransactions';
@@ -225,6 +226,8 @@ export function VaultOverviewPanel({
       </CuratorPanel>
 
       <VaultV2Roles vaultAddress={vault.address} preloadedData={governance} />
+
+      <VaultV2GatesRead vaultAddress={vault.address} timelocks={governance?.timelocks} />
 
       <VaultV2Adapters
         vaultAddress={vault.address}

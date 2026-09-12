@@ -1,9 +1,11 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAccount } from 'wagmi';
+import { useSyncExternalStore } from 'react';
 import { getAddress, isAddress, parseUnits, zeroAddress } from 'viem';
-import { AlertTriangle, ArrowRight, Check } from 'lucide-react';
+import { AlertTriangle, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TxErrorBanner } from '@/components/TxErrorBanner';
 import { Input } from '@/components/ui/input';
@@ -14,13 +16,19 @@ import { formatRawTokenAmount } from '@/lib/format/number';
 import type { SafeAccountConfig } from '@/lib/safe/config';
 import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import { queueSafeTransfer } from '@/lib/safe/queue-transfer';
+import { getConnectorProvider } from '@/lib/wallet/connector-provider';
 import type { SafeTokenBalance } from '@/lib/safe/read-balances';
 import { isNativeToken, SAFE_AMOUNT_DP } from '@/lib/safe/tokens';
 import { cn } from '@/lib/utils';
+import {
+  listAddressBook,
+  subscribeAddressBook,
+  upsertAddressBookEntry,
+} from '@/lib/safe/address-book';
 
 const ZERO_ADDRESS = getAddress(zeroAddress);
 
-type Step = 'form' | 'review' | 'queued';
+type Step = 'form' | 'review';
 
 function tokenKey(token: SafeTokenBalance): string {
   return String(token.address);
@@ -39,8 +47,10 @@ export function SafeSendDialog({
   onOpenChange: (open: boolean) => void;
   initialToken?: string;
 }) {
-  const { address: walletAddress } = useAccount();
+  const { address: walletAddress, connector } = useAccount();
   const { sdk: safeAppSdk } = useCuratorSafeApps();
+  const router = useRouter();
+  const addressBook = useSyncExternalStore(subscribeAddressBook, listAddressBook, () => []);
 
   const sendable = useMemo(() => balances.filter((b) => b.balance > 0n), [balances]);
   const [selectedKey, setSelectedKey] = useState<string | null>(initialToken ?? null);
@@ -96,36 +106,16 @@ export function SafeSendDialog({
         amount: parsedAmount,
         balance: selected.balance,
         proposer: walletAddress,
+        provider: await getConnectorProvider(connector),
         safeAppSdk,
       });
-      // No balance refetch: queueing is off-chain until owners sign and execute.
-      setStep('queued');
+      upsertAddressBookEntry(normalizedRecipient, '');
+      router.push(`/safe/${account.role}/transactions`);
     } catch (err) {
       setError(err ?? new Error('Failed to queue the transfer.'));
     } finally {
       setIsQueueing(false);
     }
-  }
-
-  if (step === 'queued') {
-    return (
-      <SafeModal open={open} title="Queued for signatures" onOpenChange={onOpenChange}>
-        <div className="space-y-3 text-center">
-          <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-950/50">
-            <Check className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-          </div>
-          <p className="text-sm text-foreground">
-            The transfer is in the {account.label} Safe queue.
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Nothing moves until owners sign to threshold and someone executes it.
-          </p>
-          <Button className="w-full" onClick={() => onOpenChange(false)}>
-            Done
-          </Button>
-        </div>
-      </SafeModal>
-    );
   }
 
   if (step === 'review' && selected) {
@@ -220,7 +210,15 @@ export function SafeSendDialog({
                 placeholder="0x…"
                 spellCheck={false}
                 className="font-mono text-xs"
+                list="safe-send-address-book"
               />
+              <datalist id="safe-send-address-book">
+                {addressBook.map((row) => (
+                  <option key={row.address} value={row.address}>
+                    {row.label}
+                  </option>
+                ))}
+              </datalist>
               {recipient.length > 0 && !recipientValid ? (
                 <p className="text-xs text-red-600 dark:text-red-400">
                   Not a valid address.

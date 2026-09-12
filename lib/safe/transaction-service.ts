@@ -6,6 +6,10 @@ import { OperationType, type SafeTransactionData } from '@safe-global/types-kit'
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import type { SafePendingTransaction, SafeOwnerSignature } from '@/lib/safe/types';
 import { withSafeTxServiceRateLimit } from '@/lib/safe/transaction-service-rate-limit';
+import {
+  describeSafeTxSource,
+  inferSafeTxSource,
+} from '@/lib/safe/decode-vault-calldata-preview';
 
 export const SAFE_TX_SERVICE_ORIGIN = 'Curator';
 
@@ -125,6 +129,27 @@ export async function fetchPendingMultisigTransactions(
   return (response.results ?? []) as ServiceMultisigTx[];
 }
 
+export type ServiceHistoryTx = ServiceMultisigTx & {
+  executionDate?: string | null;
+  isSuccessful?: boolean | null;
+  transactionHash?: string | null;
+};
+
+/** Executed Safe txs — on-demand only (free tier 5 req/s / 50K month). */
+export async function fetchExecutedMultisigTransactions(
+  safeAddress: Address
+): Promise<ServiceHistoryTx[]> {
+  const apiKit = await loadApiKit();
+  const response = await withSafeTxServiceRateLimit(() =>
+    apiKit.getMultisigTransactions(getAddress(safeAddress), {
+      executed: true,
+      ordering: '-nonce',
+      limit: 40,
+    })
+  );
+  return (response.results ?? []) as ServiceHistoryTx[];
+}
+
 export function mapServiceConfirmations(
   confirmations: ServiceConfirmation[] | undefined
 ): SafeOwnerSignature[] {
@@ -138,9 +163,10 @@ export function mapServiceConfirmations(
 }
 
 export function serviceTxDescription(tx: ServiceMultisigTx): string {
-  if (tx.origin === SAFE_TX_SERVICE_ORIGIN) {
-    return `Vault action — ${tx.to.slice(0, 10)}…`;
-  }
-  if (tx.origin) return `Safe proposal — ${tx.origin}`;
-  return `Safe proposal — ${tx.to.slice(0, 10)}…`;
+  const source = inferSafeTxSource(
+    getAddress(tx.to),
+    (tx.data ?? '0x') as Hex,
+    tx.value
+  );
+  return describeSafeTxSource(source, tx.to);
 }

@@ -23,7 +23,7 @@ interface GoogleSheetsData {
   rows: Array<Record<string, string>>;
 }
 
-type LedgerState = 'Georgia' | 'Wyoming';
+type LedgerState = 'Georgia';
 
 export default function MuscadineLedgerPage() {
   const [activeTab, setActiveTab] = useState<'view' | 'edit'>('view');
@@ -464,7 +464,6 @@ export default function MuscadineLedgerPage() {
                   className="px-3 py-2 text-sm border border-slate-300 rounded-md dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="Georgia">Georgia</option>
-                  <option value="Wyoming">Wyoming</option>
                 </select>
                 <select
                   value={selectedYear}

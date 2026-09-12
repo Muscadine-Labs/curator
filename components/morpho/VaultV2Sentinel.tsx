@@ -34,7 +34,7 @@ import { VaultV2Pending } from '@/components/morpho/VaultV2Pending';
 import { useVaultV2Governance, vaultV2GovernanceQueryKey } from '@/lib/hooks/useVaultV2Governance';
 import { useVaultV2Risk } from '@/lib/hooks/useVaultV2Risk';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
-import { isBroadcastTxHash } from '@/lib/utils/wallet-error';
+import { isBroadcastTxHash, isWalletRejection } from '@/lib/utils/wallet-error';
 import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
 import { minTargetFromLiquidity } from '@/lib/onchain/v2-rebalance-plan';
 import {
@@ -62,7 +62,7 @@ import {
   getTokenDisplayDecimals,
   resolveAssetDecimals,
 } from '@/lib/format/asset-decimals';
-import { marketKeyFromGraphQL, morphoMarketHref, curatorVaultHref } from '@/lib/morpho/morpho-app-links';
+import { marketKeyFromGraphQL, curatorBlueMarketHref, curatorVaultHref } from '@/lib/morpho/morpho-app-links';
 import { resolveUnderlyingVaultAddress } from '@/lib/config/vaults';
 import { isMorphoVaultV2Adapter } from '@/lib/morpho/vault-v2-adapter';
 import type { CapInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/[id]/governance/route';
@@ -77,6 +77,7 @@ import type { TxPreview } from '@/lib/morpho/tx-preview';
 import type { Address, Hex } from 'viem';
 import { getAddress } from 'viem';
 import { queueSafeTransaction } from '@/lib/safe/queue-vault-write';
+import { getConnectorProvider } from '@/lib/wallet/connector-provider';
 import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import type { SafeRole } from '@/lib/safe/config';
 import { SENTINEL_SAFE_ROLE } from '@/lib/safe/config';
@@ -178,7 +179,9 @@ export function VaultV2Sentinel({
   assetDecimals,
   emergencyActionsUrl,
 }: VaultV2SentinelProps) {
-  const { data: fetchedGov, isLoading: govLoading } = useVaultV2Governance(vaultAddress);
+  const { data: fetchedGov, isLoading: govLoading } = useVaultV2Governance(vaultAddress, {
+    initialData: preloadedGovernance ?? undefined,
+  });
   const { data: fetchedRisk, isLoading: riskLoading } = useVaultV2Risk(vaultAddress, {
     initialData: preloadedRisk ?? undefined,
   });
@@ -192,8 +195,8 @@ export function VaultV2Sentinel({
     if (!risk) {
       return { totalRaw: 0n, overviewSegments: [] as OverviewSegment[], deallocateRows: [] as DeallocateRow[] };
     }
-    return buildOverviewAndDeallocate(risk, governance, vaultAddress);
-  }, [risk, governance, vaultAddress]);
+    return buildOverviewAndDeallocate(risk, governance, vaultAddress, chainId);
+  }, [risk, governance, vaultAddress, chainId]);
 
   if ((!preloadedGovernance && govLoading) || (!preloadedRisk && riskLoading)) {
     return (
@@ -368,7 +371,7 @@ function DecreaseCapsPanel({
   const pendingCalldataRef = useRef<{ to: Address; data: Hex } | null>(null);
   const queryClient = useQueryClient();
   const router = useRouter();
-  const { address: walletAddress, isConnected } = useAccount();
+  const { address: walletAddress, isConnected, connector } = useAccount();
   const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
     useCuratorSafeApps();
   const sentinelSafeAppSdk = useMemo(
@@ -417,6 +420,7 @@ function DecreaseCapsPanel({
         await write.write(config);
       } catch (e) {
         setActiveRowKey(null);
+        if (isWalletRejection(e)) return;
         setRowErrors((prev) => ({
           ...prev,
           [rowKey]: e instanceof Error ? e.message : 'Failed to submit transaction.',
@@ -595,6 +599,7 @@ function DecreaseCapsPanel({
           preview: txPreview,
           source,
           proposer: walletAddress ? getAddress(walletAddress) : undefined,
+          provider: await getConnectorProvider(connector),
           safeAppSdk: sentinelSafeAppSdk,
         });
         setPreviewOpen(false);
@@ -610,7 +615,7 @@ function DecreaseCapsPanel({
         setQueueingSafe(false);
       }
     },
-    [router, sentinelSafeAppSdk, txPreview, walletAddress]
+    [router, sentinelSafeAppSdk, txPreview, walletAddress, connector]
   );
 
   const handlePreviewConfirm = useCallback(async () => {
@@ -955,7 +960,7 @@ function DeallocatePanel({
   const pendingCalldataRef = useRef<{ to: Address; data: Hex } | null>(null);
   const queryClient = useQueryClient();
   const router = useRouter();
-  const { address: walletAddress, isConnected } = useAccount();
+  const { address: walletAddress, isConnected, connector } = useAccount();
   const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
     useCuratorSafeApps();
   const sentinelSafeAppSdk = useMemo(
@@ -1004,6 +1009,7 @@ function DeallocatePanel({
         await write.write(config);
       } catch (e) {
         setActiveRowKey(null);
+        if (isWalletRejection(e)) return;
         setRowErrors((prev) => ({
           ...prev,
           [rowKey]: e instanceof Error ? e.message : 'Failed to submit transaction.',
@@ -1152,6 +1158,7 @@ function DeallocatePanel({
           preview: txPreview,
           source,
           proposer: walletAddress ? getAddress(walletAddress) : undefined,
+          provider: await getConnectorProvider(connector),
           safeAppSdk: sentinelSafeAppSdk,
         });
         setPreviewOpen(false);
@@ -1167,7 +1174,7 @@ function DeallocatePanel({
         setQueueingSafe(false);
       }
     },
-    [router, sentinelSafeAppSdk, txPreview, walletAddress]
+    [router, sentinelSafeAppSdk, txPreview, walletAddress, connector]
   );
 
   const handlePreviewConfirm = useCallback(async () => {
@@ -1405,7 +1412,8 @@ function findCapByRowKey(
 function buildOverviewAndDeallocate(
   risk: V2VaultRiskResponse,
   governance: VaultV2GovernanceResponse | null | undefined,
-  wrapperVaultAddress: string
+  wrapperVaultAddress: string,
+  chainId: number
 ): {
   totalRaw: bigint;
   overviewSegments: OverviewSegment[];
@@ -1425,16 +1433,14 @@ function buildOverviewAndDeallocate(
   const overviewSegments: OverviewSegment[] = [];
   const deallocateRows: DeallocateRow[] = [];
 
-  if (idleRaw > 0n || (risk.idleAssetsUsd ?? 0) > 0) {
-    overviewSegments.push({
-      key: 'idle',
-      label: 'Idle',
-      morphoHref: null,
-      pct: 0,
-      raw: idleRaw,
-      color: BAR_COLORS[0],
-    });
-  }
+  overviewSegments.push({
+    key: 'idle',
+    label: 'Idle',
+    morphoHref: null,
+    pct: 0,
+    raw: idleRaw,
+    color: BAR_COLORS[0],
+  });
 
   deallocateRows.push({
     key: 'idle',
@@ -1455,7 +1461,11 @@ function buildOverviewAndDeallocate(
 
   for (const adapter of risk.adapters ?? []) {
     if (isMorphoVaultV2Adapter(adapter)) {
-      const raw = parseBig(adapter.bookedAllocationAssets ?? adapter.allocationAssets);
+      const booked =
+        adapter.bookedAllocationAssets != null
+          ? parseBig(adapter.bookedAllocationAssets)
+          : null;
+      const raw = booked ?? 0n;
       totalRaw += raw;
       const underlying = adapter.underlying;
       const label = adapter.adapterLabel || underlying?.name || underlying?.symbol || 'Underlying vault';
@@ -1489,24 +1499,26 @@ function buildOverviewAndDeallocate(
           }
         })(),
         allocationPct: 0,
-        supplyApy: underlying?.avgNetApy ?? null,
+        supplyApy: underlying?.avgNetApy ?? underlying?.netApy ?? null,
         liquidityUsd: underlying?.liquidityUsd ?? null,
         absoluteCap: adapterCap?.absoluteCap ?? null,
         relativeCap: adapterCap?.relativeCap ?? null,
-        canDeallocate: raw > 0n,
+        canDeallocate: booked != null && booked > 0n,
       });
       continue;
     }
 
     for (const m of adapter.markets ?? []) {
-      const raw = parseBig(m.bookedAllocationAssets ?? m.allocationAssets);
+      const booked =
+        m.bookedAllocationAssets != null ? parseBig(m.bookedAllocationAssets) : null;
+      const raw = booked ?? 0n;
       totalRaw += raw;
       const key = marketKeyFromGraphQL(m.market);
       const cap = key ? capByMarket.get(key.toLowerCase()) : undefined;
       const col = m.market?.collateralAsset?.symbol;
       const loan = m.market?.loanAsset?.symbol;
       const label = formatMarketPairLabel(col, loan);
-      const morphoHref = key ? morphoMarketHref(key) : null;
+      const morphoHref = key ? curatorBlueMarketHref(key, chainId) : null;
       overviewSegments.push({
         key: key ?? `${adapter.adapterAddress}-${col}-${loan}`,
         label,
@@ -1538,7 +1550,7 @@ function buildOverviewAndDeallocate(
         liquidityUsd: m.market?.state?.liquidityAssetsUsd ?? null,
         absoluteCap: cap?.absoluteCap ?? null,
         relativeCap: cap?.relativeCap ?? null,
-        canDeallocate: raw > 0n,
+        canDeallocate: booked != null && booked > 0n && Boolean(m.market),
       });
     }
   }

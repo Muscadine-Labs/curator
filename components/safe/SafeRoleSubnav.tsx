@@ -10,6 +10,8 @@ const SECTIONS = [
   { segment: '', label: 'Home' },
   { segment: 'assets', label: 'Assets' },
   { segment: 'transactions', label: 'Transactions' },
+  { segment: 'history', label: 'History' },
+  { segment: 'settings', label: 'Settings' },
 ] as const;
 
 export function SafeRoleSubnav({ role }: { role: SafeRole }) {

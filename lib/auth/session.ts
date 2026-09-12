@@ -7,13 +7,19 @@ function sessionVersion(): string {
   return process.env.CURATOR_SESSION_VERSION || '1';
 }
 
-function sessionSecret(): string {
+function isProductionRuntime(): boolean {
   return (
-    process.env.CURATOR_SESSION_SECRET ||
-    process.env.CURATOR_ADMIN_PASSWORD ||
-    process.env.CURATOR_OWNER_PASSWORD ||
-    ''
+    process.env.NODE_ENV === 'production' && process.env.NEXT_PHASE !== 'phase-production-build'
   );
+}
+
+function sessionSecret(): string {
+  const dedicated = process.env.CURATOR_SESSION_SECRET?.trim();
+  if (dedicated) return dedicated;
+  // Production must not HMAC sessions with the login password. Skip during
+  // `next build` so Vercel can compile without runtime secrets.
+  if (isProductionRuntime()) return '';
+  return process.env.CURATOR_ADMIN_PASSWORD || process.env.CURATOR_OWNER_PASSWORD || '';
 }
 
 function bytesToB64Url(bytes: Uint8Array): string {

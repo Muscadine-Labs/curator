@@ -48,6 +48,7 @@ import {
   type VaultWriteDestination,
 } from '@/lib/safe/vault-write-destination';
 import { queueSafeTransaction } from '@/lib/safe/queue-vault-write';
+import { getConnectorProvider } from '@/lib/wallet/connector-provider';
 import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import { vaultV2GovernanceQueryKey } from '@/lib/hooks/useVaultV2Governance';
 import type { SafeRole } from '@/lib/safe/config';
@@ -100,7 +101,7 @@ export function VaultV2Pending({
   const acceptWrite = useVaultWrite({ chainId });
   const queryClient = useQueryClient();
   const router = useRouter();
-  const { isConnected, address: walletAddress } = useAccount();
+  const { isConnected, address: walletAddress, connector } = useAccount();
   const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
     useCuratorSafeApps();
 
@@ -286,6 +287,8 @@ export function VaultV2Pending({
             vaultAddress: getAddress(vaultAddress),
             vaultSymbol: vaultSymbol ?? undefined,
           },
+          proposer: walletAddress ? getAddress(walletAddress) : undefined,
+          provider: await getConnectorProvider(connector),
           safeAppSdk: safeAppSdkForRevokeRole,
         });
         setRevokePreviewOpen(false);
@@ -300,7 +303,7 @@ export function VaultV2Pending({
         setQueueingRevokeSafe(false);
       }
     },
-    [revokeItem, revokePreview, router, safeAppSdkForRevokeRole, vaultAddress, vaultSymbol]
+    [revokeItem, revokePreview, router, safeAppSdkForRevokeRole, vaultAddress, vaultSymbol, walletAddress, connector]
   );
 
   const handleRevokeConfirm = useCallback(async () => {
@@ -399,6 +402,8 @@ export function VaultV2Pending({
             vaultAddress: getAddress(vaultAddress),
             vaultSymbol: vaultSymbol ?? undefined,
           },
+          proposer: walletAddress ? getAddress(walletAddress) : undefined,
+          provider: await getConnectorProvider(connector),
           safeAppSdk: safeAppSdkForRole,
         });
         setAcceptPreviewOpen(false);
@@ -413,7 +418,7 @@ export function VaultV2Pending({
         setQueueingSafe(false);
       }
     },
-    [acceptItem, acceptPreview, router, safeAppSdkForRole, vaultAddress, vaultSymbol]
+    [acceptItem, acceptPreview, router, safeAppSdkForRole, vaultAddress, vaultSymbol, walletAddress, connector]
   );
 
   const handleAcceptConfirm = useCallback(async () => {
