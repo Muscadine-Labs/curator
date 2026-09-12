@@ -48,14 +48,6 @@ export function morphoCuratorVaultHref(vaultAddress: string, chainId: number): s
   return `https://curator.morpho.org/vaults/${chainId}/${vaultAddress}`;
 }
 
-/** Morpho app — Blue market lend/borrow (writes are muscadine-onchain, not this dashboard). */
-export function curatorMarketPositionsHref(
-  marketId: string | null | undefined,
-  chainId: number = BASE_CHAIN_ID
-): string | null {
-  return morphoMarketHref(marketId, chainId);
-}
-
 /** Curator Morpho Blue market detail page. */
 export function curatorBlueMarketHref(
   marketId: string | null | undefined,

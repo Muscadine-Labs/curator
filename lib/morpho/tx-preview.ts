@@ -29,16 +29,6 @@ export type TxPreviewAction =
   | 'gate'
   | 'batch';
 
-export type UserTxKind =
-  | 'deposit'
-  | 'withdraw'
-  | 'supply'
-  | 'borrow'
-  | 'repay'
-  | 'add_collateral'
-  | 'withdraw_collateral'
-  | 'exit';
-
 export type TxPreviewChange = {
   action: TxPreviewAction;
   label: string;
@@ -331,39 +321,4 @@ export function txPreviewActionLabel(action: TxPreviewAction): string {
     case 'batch':
       return 'Batch';
   }
-}
-
-const USER_TX_TITLE: Record<UserTxKind, string> = {
-  deposit: 'Review deposit',
-  withdraw: 'Review withdraw',
-  supply: 'Review supply',
-  borrow: 'Review borrow',
-  repay: 'Review repay',
-  add_collateral: 'Review add collateral',
-  withdraw_collateral: 'Review withdraw collateral',
-  exit: 'Review exit',
-};
-
-export function buildUserTxPreview(input: {
-  kind: UserTxKind;
-  amount: string;
-  targetLabel: string;
-  fromLabel: string;
-  toLabel: string;
-  description?: string | null;
-  footnote?: string | null;
-}): TxPreview {
-  return {
-    title: USER_TX_TITLE[input.kind],
-    description: input.description ?? null,
-    changes: [
-      {
-        action: input.kind,
-        label: input.targetLabel,
-        subtitle: `${input.fromLabel} → ${input.toLabel}`,
-        delta: input.amount,
-      },
-    ],
-    footnote: input.footnote ?? null,
-  };
 }

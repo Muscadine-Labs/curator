@@ -66,9 +66,10 @@ Muscadine for managing and reporting on Morpho-style vaults on Base (chainId
   `graphql-request` in `lib/morpho/graphql-client.ts`. **Vault list, detail,
   history, risk, and protocol stats BFF routes use this client directly** — not
   the Morpho SDK runtime.
-- **Onchain SDK**: `@morpho-org/morpho-ts` — Morpho / IRM / oracle factory
-  addresses for create-market. Typed vault writes use ABIs in
-  `lib/onchain/abis.ts` + `vault-writes.ts`, not `@morpho-org/morpho-sdk-v2`.
+- **Onchain writes (allocator / sentinel / Safe UI)**: ABIs in
+  `lib/onchain/abis.ts` + `vault-writes.ts`. Blue create-market, vault
+  deposit/withdraw, gates, and Vineyard deploy live in
+  [muscadine-onchain](https://github.com/Muscadine-Labs/muscadine-onchain).
 - **Auth**: Custom curator auth (`lib/auth/*`) with signed session tokens
 
 ---
@@ -455,8 +456,7 @@ from `lib/config/vaults.ts` with:
   default as the strategy vault; GraphQL `innerVault` fallback)
 
 `?includeAll=true` includes test vaults (`excludeFromBusinessViews`); default list
-is business vaults only (including fee wrappers). `/vaults/transact` uses
-`getAllVaultAddresses()` (wrappers + test) and shows Morpho/on-chain names.
+is business vaults only (including fee wrappers).
 
 Protocol TVL (`getVaultAddressesForProtocolStats`) excludes fee wrappers so
 deposits are not double-counted. Unique users and the active-vault KPI
@@ -465,12 +465,11 @@ contracts are omitted from the user set.
 
 **Top nav + Sidebar** — Topbar areas: Overview · Vaults · Markets · Curator ·
 Business (`lib/nav/areas.ts`). Sidebar is **area-scoped**. Under **Vaults**: All
-vaults (`/vaults`), Transact (`/vaults/transact`), then network vault trees
-(Underlying → Wrapper, then Prime → Frontier → Vineyard → Test) via `useVaultList`
-sidebar filters. The `/vaults` catalog (`VaultsCatalog`) uses the same grouping
-(`groupVaultsByKindAndCategory`). Legacy
-page/API paths still **redirect** via `next.config.ts`. Catalog is `/vaults`;
-vault ops are `/vault/[address]/*`; user deposit/withdraw is `/vaults/transact`.
+vaults (`/vaults`), then network vault trees (Underlying → Wrapper, then Prime →
+Frontier → Vineyard → Test). The `/vaults` catalog (`VaultsCatalog`) uses
+`groupVaultsByKindAndCategory`. Legacy page/API paths still **redirect** via
+`next.config.ts` (`/vaults/transact` → `/vaults`). Catalog is `/vaults`; vault
+ops are `/vault/[address]/*`. User deposit/withdraw is muscadine-onchain.
 
 Ethereum appears in `SIDEBAR_NETWORKS` but has no configured vaults — expand
 **Base**, not Ethereum, to see vault links.
@@ -731,9 +730,9 @@ the treasury dashboard without restoring the tx-classification pipeline in
 
 ### 4.7 Curator Morpho Markets browser
 
-**Routes** — `/markets` (list), `/markets/create`, `/markets/positions`,
-`/market/blue/[id]?chainId=` (Blue detail), and `/midnight/[id]?chainId=`
-(Midnight detail). Markets sidebar: Browse · Create · Positions.
+**Routes** — `/markets` (list), `/market/blue/[id]?chainId=` (Blue detail), and
+`/midnight/[id]?chainId=` (Midnight detail). Old `/markets/create` and
+`/markets/positions` redirect to `/markets`.
 **Product toggle** on Browse: **All / Blue — variable rate / Midnight — fixed rate**
 (default All, listed-only). Blue is variable rate
 ([app.morpho.org/variable](https://app.morpho.org/variable),
@@ -760,24 +759,9 @@ asks & bids.
 Curator top-nav area holds Curator tools (`/curator`) + Bots + Multisig Safe. Business area:
 `/monthly-statement`, `/muscadine-ledger`, `/muscadine-frontends`.
 
-**Wallet positions** — `/markets/positions` shows connected-wallet Blue
-supply/borrow/collateral. Deep link with network:
-`/markets/positions?market=<id>&chainId=<id>` via `curatorMarketPositionsHref`
-(same pattern as `projects/app` holdings). Blue market detail **Interact** uses
-this helper; Midnight uses external **Trade on Morpho**.
-**Amount MAX** — each manage input matches Muscadine app (`VaultTransactPanel`):
-available amount + **MAX** fills exact `formatUnits` (not `maxDeposit`/`maxWithdraw`,
-which Vault V2 always returns 0). Sources: wallet ERC-20 for supply / add
-collateral; LLTV-buffered remaining borrow; `min(wallet, debt)` for repay (full
-debt → repay **shares**); max-safe collateral withdraw; supplied assets (full
-exit → withdraw **shares**). Do not prefill amounts; warn when typed > available.
-**Review before sign** — Deposit/Withdraw and every positions action (borrow, repay,
-add/withdraw collateral, supply/withdraw supply, exit all) open `TxPreviewDialog`
-(`buildUserTxPreview`) instead of sending to the wallet immediately. The dialog stays
-open through signing and shows a confirmed tx link until **Done**. Same chrome as
-Allocation / Sentinel (no Safe destination on these user flows).
-Morpho: [borrow assets-flow](https://docs.morpho.org/developers/borrow/tutorials/assets-flow/)
-(full repay by shares), [earn assets-flow](https://docs.morpho.org/developers/earn/tutorials/assets-flow/).
+**Wallet positions / lend-borrow** — not in this dashboard. Blue market detail
+**Interact** links the Morpho app; Midnight uses **Trade on Morpho**. Writes:
+muscadine-onchain (`blue`, `midnight`, `vault deposit|withdraw`).
 Midnight lend stays on Morpho’s quote/router
 ([lend-at-a-fixed-rate](https://docs.morpho.org/developers/midnight/tutorials/lend-at-a-fixed-rate/)).
 
@@ -888,9 +872,7 @@ These rules are baked into `VaultV2Allocations.tsx`, `VaultV2Sentinel.tsx`,
    implicit Idle. Never **auto**-inflate a strategy target to absorb
    under-allocation — only an explicit curator choice may do so, and it still
    passes cap validation. **`TxPreviewDialog`** shows human-readable deltas
-   (`lib/morpho/tx-preview.ts`) before the wallet signs. The same dialog is used
-   on `/vaults/transact` and `/markets/positions` (`buildUserTxPreview`) — review
-   → confirm in wallet → confirmed, without Safe destination options.
+   (`lib/morpho/tx-preview.ts`) before the wallet signs.
 5. **V2 idle row** — editable for planning; never in `allocate`/`deallocate`
    calldata.
 6. Use `formatRawTokenAmount` for all raw bigint display (avoid `1.23e-6`).
@@ -1224,7 +1206,7 @@ npm run build
 | Concern                          | File                                                     |
 | -------------------------------- | -------------------------------------------------------- |
 | V2 allocation UI + allocate/etc. | `components/morpho/VaultV2Allocations.tsx`              |
-| Tx preview dialog + builders     | `components/morpho/TxPreviewDialog.tsx`, `lib/morpho/tx-preview.ts` (`buildUserTxPreview` for transact/positions) |
+| Tx preview dialog + builders     | `components/morpho/TxPreviewDialog.tsx`, `lib/morpho/tx-preview.ts` |
 | Allocation list shell + sections | `components/morpho/AllocationListView.tsx`               |
 | Allocation filter persistence  | `lib/allocation/allocation-filters-storage.ts`, `usePersistedAllocationFilters.ts` |
 | V2 adapters UI (incl. idle)      | `components/morpho/VaultV2Adapters.tsx`                 |
@@ -1273,8 +1255,8 @@ npm run build
 | Curator markets BFF + scoring    | `lib/morpho/curator-markets.ts`, `app/api/markets/` |
 | Markets browser UI               | `components/morpho/CuratorMarketsBrowser.tsx`, `lib/morpho/market-pair-filter.ts`, `app/markets/page.tsx` |
 | Market detail + oracle panel     | Blue: `app/market/blue/[id]/page.tsx`; Midnight: `MidnightMarketView` + `MarketOraclePanel`; `lib/morpho/oracle-price.ts` |
-| Create Blue market               | `app/markets/create/`, `components/morpho/CreateMarketForm.tsx`, `lib/morpho/blue-create-market.ts` |
-| Vault / market transact          | `app/vaults/transact/` (`VaultTransactBox`), `app/markets/positions/` (`MarketPositionBox`), `AmountMaxInput.tsx`; review via `TxPreviewDialog` |
+| Create Blue market / vault deposit | muscadine-onchain CLI (not this dashboard) |
+| Amount MAX (Safe send/receive)   | `components/morpho/AmountMaxInput.tsx` |
 | Nav areas                        | `lib/nav/areas.ts`, `components/layout/Topbar.tsx`, `Sidebar.tsx` |
 | Oracle Portal link               | `MORPHO_ORACLE_PORTAL_URL` in `lib/constants/links.ts` → https://oracles.morpho.dev/ |
 | Brain / session loop             | `docs/brain/`, `.cursor/rules/muscadine-brain.mdc`, `.cursor/mcp.json` |
@@ -1601,65 +1583,28 @@ Still uncovered and high value: `lib/morpho/cap-decrease-input.ts`,
 
 ---
 
-## 18. Create Morpho Blue Market (`/markets/create`)
+## 18. Create Morpho Blue Market
 
-UI counterpart to `morpho-markets-scripts` `deploy:markets` (`createMarket`). **No
-server private keys** — the connected wallet signs on the **selected top-bar
-network** (Base, Ethereum, HyperEVM, Robinhood).
+Create-market UI was removed from this dashboard. Use
+[muscadine-onchain](https://github.com/Muscadine-Labs/muscadine-onchain):
 
-### Flow
+```bash
+npx tsx src/cli.ts blue create-market --loan 0x… --collateral 0x… --oracle 0x… --irm 0x… --lltv …
+npx tsx src/cli.ts blue dead-deposit --market 0x… --approve
+```
 
-1. Pick network in the top-bar switcher (works **without** a wallet; preference
-   is stored in `localStorage` via `CuratorNetworkProvider`).
-2. Paste **loan** and **collateral** token addresses — UI resolves ERC-20
-   `symbol` / `name` / `decimals` on that chain and rejects non-contracts.
-3. **Oracle** — on [oracles.morpho.dev](https://oracles.morpho.dev/) build feeds and
-   export the **Gnosis Safe Payload** JSON for the **same chainId**. Paste into
-   Curator → **Deploy oracle** (wallet signs `createMorphoChainlinkOracleV2` on
-   that chain’s factory from `@morpho-org/morpho-ts`). Receipt event auto-fills
-   the oracle address. You can also paste an already-deployed address.
-4. Set IRM (default AdaptiveCurveIRM for the selected chain) + LLTV WAD.
-5. Client checks Morpho Blue: `isIrmEnabled`, `isLltvEnabled`, and whether
-   `idToMarketParams(marketId)` is already occupied.
-6. Call `Morpho.createMarket(marketParams)` via `useVaultWrite` on the selected chain.
-   Success UI shows market id + Morpho app / Curator / explorer links (Curator detail
-   may lag until Morpho indexes). **Stay on the page** for bootstrap steps.
-7. **Dead deposit** — approve loan token + `supply(…, shares=1e9, onBehalf=dEaD)`.
-8. **Seed rate (optional)** — supply loan assets, `supplyCollateral`, borrow ~90% of
-   seed supply (AdaptiveCurve target) using oracle price for collateral sizing.
-9. **Exit / manage later** — `curatorMarketPositionsHref(id, chainId)` →
-   `/markets/positions?market=<id>&chainId=<id>`: repay by
-   shares + withdrawCollateral, add/withdraw loan supply, add collateral. Dead
-   deposit is never withdrawn from Curator UI. Vault user deposit/withdraw is
-   `/vaults/transact`.
+Or Morpho’s curator UI: https://curator.morpho.org/markets/create
 
-Deployments (Morpho / AdaptiveCurveIRM / chainlinkOracleFactory) live in
-`lib/morpho/create-market-deployments.ts` (sourced from morpho-ts).
-
-### Key files
-
-- `lib/morpho/create-market-deployments.ts` — per-chain Morpho / IRM / oracle factory
-- `lib/network/CuratorNetworkContext.tsx` — top-bar network preference (no wallet required)
-- `lib/morpho/blue-create-market.ts` — `computeMarketId`, oracle lookup, ABI
-- `lib/morpho/oracle-safe-payload.ts` — parse portal Gnosis Safe JSON + receipt event
-- `lib/morpho/erc20-token-meta.ts` — on-chain ERC-20 name/symbol/decimals
-- `lib/morpho/market-bootstrap.ts` — dead deposit + rate seed + exit/manage helpers
-- `lib/nav/areas.ts` — top-nav area resolution
-- `components/morpho/CreateMarketForm.tsx` — form + validation + tx
-- `components/morpho/MarketBootstrapPanel.tsx` — post-create dead deposit / seed UI
-- `components/morpho/MarketPositionBox.tsx` — `/markets/positions` (MAX amounts + review dialog)
-- `components/morpho/AmountMaxInput.tsx` — wallet/position MAX amount field
-- `components/NetworkSwitcher.tsx` — top-bar select
-- `app/markets/create/page.tsx` — route
-- Hub entry: `app/curator/page.tsx` (Curator top-nav area)
+Hub still links those Morpho pages (`app/curator/page.tsx`). Markets browse stays
+at `/markets`. Old `/markets/create` and `/markets/positions` redirect to `/markets`.
 
 ---
 
-_Last updated: 2026-09-02. When you change reallocation logic, allocation
+_Last updated: 2026-09-12. When you change reallocation logic, allocation
 list/filters (§5), caps/adapters display, V2 idData/Sentinel (§3.2, §4.2), tx
 preview, client fetch/cache (§4.3), app/API route paths (§2, §4.7, `next.config.ts`
 redirects), Morpho GraphQL field names (§4.4.1), Curator markets browser (§4.7),
-create-market (§18), vault list/sidebar (§4.3.1), vault overview/history (share price in §4.4), risk scoring (§4.5), V2 idle/Blue/fee-wrapper display (§3.2.1), pending/emergency
+vault list/sidebar (§4.3.1), vault overview/history (share price in §4.4), risk scoring (§4.5), V2 idle/Blue/fee-wrapper display (§3.2.1), pending/emergency
 tabs, wallet stack, Multisig Safe (§13), formatting, CCTP status (§14 removed), global
 density (§16), brain/MCP (`docs/brain/`), or add a new vault interaction, update Sections 3–6, 4.2–4.7, 9–10,
 13–14, 16–18 accordingly, and append `docs/brain/CHANGELOG.md`._

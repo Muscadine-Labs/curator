@@ -97,12 +97,6 @@ export const BASE_USDC_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as
 export const BASE_CBBTC_ADDRESS = '0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf' as const;
 /** Base WETH (canonical wrapped ETH). */
 export const BASE_WETH_ADDRESS = '0x4200000000000000000000000000000000000006' as const;
-/** Morpho Bundler3 on Base — atomic multi-step vault/WETH flows. */
-export const BUNDLER3_ADDRESS = '0x6BFd8137e702540E7A42B74178A4a49Ba43920C4' as const;
-/** Morpho GeneralAdapter1 on Base (wrap/unwrap + ERC-4626 via Bundler3). */
-export const GENERAL_ADAPTER_ADDRESS = '0xb98c948CFA24072e58935BC004a8A7b376AE746A' as const;
-/** ETH kept in wallet when wrapping for WETH vault deposits. */
-export const ETH_GAS_RESERVE = 0.0001;
 
 export const EXTERNAL_API_TIMEOUT_MS = 60000;
 export const RATE_LIMIT_REQUESTS_PER_MINUTE = 60;

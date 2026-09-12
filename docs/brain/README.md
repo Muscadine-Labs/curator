@@ -50,11 +50,12 @@ Single entry for AI sessions. Deep architecture stays in **`CLAUDE.md`**. This f
 | Multisig Safe | §13 |
 | CCTP | §14 (removed — not in tree) |
 | Theme / density | §16 |
-| Create Blue market | §18 |
+| Blue market writes | muscadine-onchain (not this dashboard) |
 
 ## Related repos
 
-- Scripts (deploy markets/oracles): `~/Desktop/morpho-markets-scripts` — source of truth for MarketPlans / feeds; curator UI mirrors `createMarket` at `/markets/create`.
+- Onchain writes (create market, deposit, gates, Vineyard): https://github.com/Muscadine-Labs/muscadine-onchain
+- MarketPlans / oracle feeds still live in `~/Desktop/morpho-markets-scripts` if you need the old deploy notebooks.
 - **Oracle validation:** https://oracles.morpho.dev/
 
 ## Refactor status

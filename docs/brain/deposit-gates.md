@@ -65,13 +65,13 @@ Partner wallets whitelisted on underlying can **deposit underlying directly** (b
 ## Rollout (no gate deploy in this repo)
 
 1. Deploy `WhitelistSendAssetsGate(roleSetter = Curator Safe)` externally on Base.
-2. `SEND_ASSETS_GATE_ADDRESS=0x… npm run gates:calldata` → gate `multicall` to whitelist all 9 addresses (+ `setIsWhitelister` on Curator Safe).
-3. Curator Safe: `vault.submit(setSendAssetsGate(gate))` on **each of the four underlying vaults** (7d timelock each).
-4. After timelock: accept with the same calldata (Curator Pending tab or direct call).
+2. muscadine-onchain `gate whitelist-config` → gate `multicall` to appoint whitelisters + allowlist adapters/depositors.
+3. Curator Safe: `vault.submit(setSendAssetsGate(gate))` on **each of the four underlying vaults** (7d timelock each) via muscadine-onchain `gate submit-send-assets-gate`.
+4. After timelock: accept with the same calldata (Curator Pending tab or muscadine-onchain `vault accept`).
 
 Gate `multicall` must first call `setIsWhitelister` for **Curator Safe** and **Allocator Safe** (`0x2Ed45BB3542d06d81D117acd8A561e910A17A618`), then `setIsWhitelisted` for each depositor sender. Either whitelister can later add/remove allowlist entries; only **roleSetter** (Curator Safe) can appoint or revoke whitelisters.
 
-Production gate deployed from Morpho [`vault-v2` `main`](https://github.com/morpho-org/vault-v2/tree/main/src/periphery/gates) **2026-09-05**: `0xb7f2598ac79a3c6406dddb81edcc60ea72a134b9` ([Basescan](https://basescan.org/address/0xb7f2598ac79a3c6406dddb81edcc60ea72a134b9)). Appoint whitelisters: `GATE_ADDRESS=0xb7… npm run gates:propose-whitelister`.
+Production gate deployed from Morpho [`vault-v2` `main`](https://github.com/morpho-org/vault-v2/tree/main/src/periphery/gates) **2026-09-05**: `0xb7f2598ac79a3c6406dddb81edcc60ea72a134b9` ([Basescan](https://basescan.org/address/0xb7f2598ac79a3c6406dddb81edcc60ea72a134b9)). Appoint whitelisters: `npx tsx src/cli.ts gate set-whitelister --account 0x…`.
 
 ## App UI (app.muscadine.xyz)
 
@@ -86,16 +86,16 @@ Gate UI is **always active** in the app (config allowlist only; no env toggle, n
 After **any** allowlist or gate change:
 
 1. Update `lib/config/deposit-gates.ts` (curator) and `app/src/lib/deposit-gate-config.ts` (same depositor addresses).
-2. **`npm run gates:verify`** in curator — RPC read-only; must pass before shipping app config.
+2. **`npx tsx src/cli.ts gate verify`** in muscadine-onchain — RPC read-only; must pass before shipping app config.
 3. Redeploy app when depositor list or gate-active flag changes.
 
 Optional backlog: revert app to live `canSendAssets` RPC — see `app/TODO.md`.
 
-## On-chain verification (curator CLI)
+## On-chain verification (muscadine-onchain)
 
 ```bash
 # After allowlist edits, timelock accepts, or before app deploy
-npm run gates:verify
+npx tsx src/cli.ts gate verify
 ```
 
 Checks:

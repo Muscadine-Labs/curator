@@ -170,6 +170,9 @@ const nextConfig: NextConfig = {
       { source: '/api/vaults/v2/:id/risk', destination: '/api/vaults/:id/risk', permanent: true },
       { source: '/api/vaults/v2/:id/governance', destination: '/api/vaults/:id/governance', permanent: true },
       { source: '/api/vaults/v2/:id/pending', destination: '/api/vaults/:id/pending', permanent: true },
+      { source: '/vaults/transact', destination: '/vaults', permanent: true },
+      { source: '/markets/create', destination: '/markets', permanent: true },
+      { source: '/markets/positions', destination: '/markets', permanent: true },
     ];
   },
 };

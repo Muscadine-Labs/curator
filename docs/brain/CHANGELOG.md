@@ -4,6 +4,13 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-09-12 — Dead code after onchain split
+
+- Deleted unused create-market / vault-position leftovers: `blue-create-market.ts`, `create-market-deployments.ts`, `erc20-token-meta.ts`, `fetch-user-vault-positions.ts`, `useUserVaultPositions.ts`, `app/api/vaults/positions`, empty `scripts/tsconfig.json`, Bundler3 constants, `buildUserTxPreview`.
+- Dropped unused `@morpho-org/morpho-ts`. Redirect `/vaults/transact`, `/markets/create`, `/markets/positions` to catalog pages.
+
+---
+
 ## 2026-09-12 — Split muscadine-onchain; drop deposit/lend UI
 
 - Onchain writes for Blue/Midnight lend-borrow, vault deposit/withdraw, Vineyard deploy, and gate calldata live in private CLI https://github.com/Muscadine-Labs/muscadine-onchain
