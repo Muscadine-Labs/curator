@@ -11,3 +11,4 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 - Delete Portfolio and api portfolio off muscadine pages. Add https://reown.com/ reown to rpc, wallet infra. move Cloudflare to the vercel infra section.
 - On the fee wrapper, you repeat alot of the same info, we dont need apy and fees twice. 
   
+-on fee wrapper, have the ability to chang the liqudity adaptor (either will be morpho v2 vault or idle, and its allocation. maybe have one or two tabs underneth the fee wrapper tab. like overview, allocation and caps/timelocks. no repeating information, that goes with everything in the repo. 
