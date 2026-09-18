@@ -13,4 +13,4 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
   
 -on fee wrapper, have the ability to change the liqudity adaptor (either will be morpho v2 vault or idle, and its allocation. maybe have one or two tabs underneth the fee wrapper tab. like overview, allocation and caps/timelocks. no repeating information, that goes with everything in the repo. 
 
--review defillamas docs, make sure we dont have any old v1 endpoints for the api.
+-review defillamas docs, make sure we dont have any old v1 endpoints for the api. The same goes with morpho grapgh ql /api's.
