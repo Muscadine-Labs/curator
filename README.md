@@ -4,7 +4,7 @@ Next.js dashboard for Muscadine vaults on Morpho.
 
 ## Quick Start (macOS)
 
-Prerequisites: [Node.js](https://nodejs.org/) (LTS) and [Git](https://git-scm.com/). Check with:
+Prerequisites: [Node.js](https://nodejs.org/) **24.x** and [Git](https://git-scm.com/). Check with:
 
 ```bash
 node -v
@@ -72,8 +72,13 @@ Copy `.env.example` → `.env.local`. Summary:
 | `NEXT_PUBLIC_APP_URL` | No | Default `http://localhost:3000` |
 | `NEXT_PUBLIC_SAFE_API_KEY` | No | Safe Transaction Service sync |
 | `CURATOR_ADMIN_PASSWORD` | **Yes to log in** | Username is `admin` |
+| `CURATOR_SESSION_SECRET` | No | Dedicated session HMAC; login password is the fallback |
+| `CURATOR_SESSION_VERSION` | No | Bump to invalidate sessions |
+| `CURATOR_TRUSTED_PROXY_HOPS` | **Yes in production** | Proxy count for per-IP login rate limits |
+| `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | Recommended in production | Shared login rate-limit store |
 | `MORPHO_API_URL` | No | Morpho GraphQL override |
 | `NEXT_PUBLIC_VAULT_*` | No | Vault address overrides |
+| `SEND_ASSETS_GATE_ADDRESS` | No | Override the built-in send-assets gate |
 
 ## Scripts
 
@@ -85,12 +90,13 @@ Copy `.env.example` → `.env.local`. Summary:
 
 ## Tech Stack
 
-- Next.js 16 (App Router)
-- TypeScript
-- Tailwind CSS + shadcn/ui
-- Wagmi + Reown AppKit (wallet)
+- Next.js 16.3 (App Router, webpack)
+- TypeScript 6
+- Tailwind CSS 4 + shadcn/ui
+- Wagmi 2 + Reown AppKit (wallet)
 - Viem (blockchain)
-- React Query (data fetching)
+- TanStack Query (data fetching)
+- Vitest 4
 
 ## License
 

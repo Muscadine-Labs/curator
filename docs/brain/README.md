@@ -60,4 +60,4 @@ Single entry for AI sessions. Deep architecture stays in **`CLAUDE.md`**. This f
 
 ## Refactor status
 
-Brain hub + Morpho MCP + session rule are **in use** (closed loop). Optional next: thin `AGENTS.md` further; split oversized `CLAUDE.md` chapters into `docs/brain/topics/` only when a section is edited often (avoid big-bang rewrite) — tracked under Later in `TODO.md`.
+Brain hub + Morpho MCP + session rule are **in use** (closed loop). `TODO.md` has no Later items. Optional next, only if asked: thin `AGENTS.md` further, or split oversized `CLAUDE.md` chapters into `docs/brain/topics/` when a section is edited often.

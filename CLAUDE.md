@@ -35,7 +35,9 @@ Copy `.env.example` → `.env.local`. See that file for the full list.
 | `CURATOR_TRUSTED_PROXY_HOPS` | **Yes in production** | Proxy count in front of the app; required for per-IP login rate limiting |
 | `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | Recommended in production | Shared login rate-limit store across serverless isolates |
 | `MORPHO_API_URL`, `NEXT_PUBLIC_VAULT_*` | No | Overrides |
+| `SEND_ASSETS_GATE_ADDRESS` (or `GATE_ADDRESS`) | No | Override the built-in send-assets gate |
 | `SEND_ASSETS_GATE_DEPLOY_BLOCK` | No | First block of a redeployed send-assets gate (roster event scan start); default gate is built in |
+| `ALLOCATOR_SAFE_8453` | No | Override the Allocator Safe used as a gate whitelister |
 
 ---
 
@@ -1179,9 +1181,10 @@ components.
 - **Historical liquidity** is not on `VaultHistory` or `VaultV2History`; only spot
   fields on `vaultByAddress` / `vaultV2ByAddress`.
 
-### V1 vault page fails to load / empty GraphQL
+### GraphQL `warnings` on the wrong object
 
 - Ensure `warnings` is queried on the vault object, not nested under `state`.
+  There is no V1 vault page.
 
 ### V2 cap validation always fails
 
@@ -1222,9 +1225,8 @@ components.
 
 ### Pending tab visible with nothing to accept
 
-- V2: pending embeds in **Caps** tab (count in tab label); Sentinel shows a
-  read-only pending section with empty state. No standalone Pending tab on V2.
-- V1: hide the tab when `pending.length === 0`.
+- Pending embeds in the **Caps** tab (count in the tab label). Sentinel shows a
+  read-only pending section with an empty state. There is no standalone Pending tab.
 
 ### Markets browser shows wrong size ranking
 
@@ -1241,12 +1243,12 @@ components.
 
 ### Vault list empty or only V2 Prime in sidebar
 
+- The sidebar is config-only (`getSidebarNavVaults`). An empty tree means the
+  vault is missing from `lib/config/vaults.ts`, not a failed V1 GraphQL batch.
 - Check server logs for `GraphQL Error: Cannot query field "whitelisted"` or
-  `"uniqueKey"` — update queries per §4.4.1.
-- V1 batch query uses `.catch(() => ({ items: [] }))`; one invalid field drops
-  **all** V1 vaults from the list without surfacing an error to the UI.
+  `"uniqueKey"` on catalog/detail queries — update those queries per §4.4.1.
 - Hard-refresh or bump `useVaultList` / `useVaultHistory` query keys after schema fixes.
-- Confirm sidebar network **Base** is expanded (vaults are chainId `8453` only).
+- Confirm the sidebar network **Base** is expanded (vaults are chainId `8453` only).
 
 ### History chart crashes on “Price per share”
 
@@ -1262,21 +1264,27 @@ components.
 npm install
 npm run dev            # next dev
 npm run lint           # eslint . --max-warnings=0
-npm run typecheck      # or: npx tsc --noEmit
+npx tsc --noEmit
 npm run build
+npm test               # vitest run
 ```
 
-### ESLint
+Node **24.x** (`engines` in `package.json`).
 
-- **Pin ESLint 9** — `eslint@^9.39.4` and `@eslint/js@^9.39.4`. Do **not** upgrade to
+### Dependency pins
+
+Ranges in `package.json` match the installed versions. Do not take these majors:
+
+- **ESLint 9** — `eslint@^9.39.5` and `@eslint/js@^9.39.5`. Do **not** upgrade to
   ESLint 10 while using `eslint-config-next`; transitive plugins (`eslint-plugin-react`,
   etc.) still break on removed ESLint 10 APIs.
-- **Pin wagmi 2** — `@reown/appkit-adapter-wagmi` peers `wagmi@2`. Do not
-  upgrade to wagmi 3 until AppKit supports it.
-- **Pin TypeScript 6** — `typescript-eslint` peers `typescript <6.1.0` for the
-  tooling path used by `eslint-config-next`; stay on `typescript@^6.0.x` (not 7).
-- **`sharp` override** — Next still optional-deps `sharp@^0.34.5`; override to
-  `>=0.35.3` for GHSA-f88m-g3jw-g9cj (libvips CVEs).
+- **wagmi 2** — `wagmi@^2.19.5`. `@reown/appkit-adapter-wagmi` peers `wagmi@2`.
+  Do not upgrade to wagmi 3 until AppKit supports it.
+- **TypeScript 6** — installed `typescript-eslint` peers `typescript >=4.8.4 <6.1.0`;
+  stay on `typescript@^6.0.3` (not 7).
+- **ox 0.14 / Vitest 4** — `ox@^0.14.48`, `vitest@^4.1.11`. ox 1 and Vitest 5 are majors.
+- **`sharp` override** — `>=0.35.4`, matching Next’s optional `sharp@^0.35.4`
+  (libvips CVEs, GHSA-f88m-g3jw-g9cj).
 - **`eslint.config.mjs`** — official Next.js flat config:
   `eslint-config-next/core-web-vitals` + `eslint-config-next/typescript` (lints all
   `.ts`/`.tsx`, not just `.js`).
@@ -1596,7 +1604,7 @@ import `lib/cctp/` until Cross-Chain Transfer is reintroduced under Later.
   migration (wallet stack is `@reown/appkit` + `@reown/appkit-adapter-wagmi` +
   `wagmi`).
 - **Unused test/lint devDeps** — `fake-indexeddb` is required for the SSR
-  indexedDB polyfill (`lib/wallet/polyfill-indexeddb.ts`), not for Jest.
+  indexedDB polyfill (`lib/wallet/polyfill-indexeddb.ts`), not for tests.
   `@eslint/*` and `eslint-config-next` are wired in `eslint.config.mjs` (ESLint 9
   flat config — see §11). **Don't remove `fake-indexeddb`.**
 - **Vitest** — configured; `npm test` runs the suite. Add pure `lib/` unit tests
@@ -1606,12 +1614,9 @@ import `lib/cctp/` until Cross-Chain Transfer is reintroduced under Later.
   types). They are kept as a shared vocabulary; remove individual ones only
   when you have a concrete reason. `filterDataByDate` was removed in favor of
   `filterDataByRange` (the superset).
-- **Required peer deps pinned to fix build**:
-  - `@swc/helpers` — required by Next.js client chunks under the webpack
-    builder.
-  - `@reduxjs/toolkit` + `react-redux` — required by `recharts` v3's
-    Redux-backed state.
-  Both are now listed in `package.json`.
+- **`@swc/helpers`** is a direct devDependency. Next.js client chunks under the
+  webpack builder need it. `@reduxjs/toolkit` and `react-redux` were removed;
+  they are not dependencies.
 
 If knip is re-run in the future, evaluate each flagged item individually; a
 flag is a _signal_, not a mandate to delete.
@@ -1684,10 +1689,9 @@ deposit/withdraw toggle in `VaultTransactions`) so they're never stranded on
 an empty tail page. Fetch limits remain generous so the UI sees a deep
 history:
 
-- `/api/vaults/[id]/holders` defaults to `first=100`, caps at `1000`. The V1
-  GraphQL query also returns `vaultByAddress.asset { symbol, decimals }` so
-  the UI can format share → asset amounts with the correct decimals (the fix
-  for the previous "0.000" display on V1 vaults with 6-decimal USDC).
+- `/api/vaults/[id]/holders` defaults to `first=100`, caps at `1000`. The V2
+  query (`vaultV2ByAddress`) returns `asset { symbol, decimals }` so the UI
+  can format share → asset amounts with the correct decimals.
 - `useVaultHolders` defaults to `first=500`.
 - `VaultHolders` accepts `assetDecimals` / `assetSymbol` props as a fallback
   when the API doesn't supply them.

@@ -4,6 +4,13 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-09-25 — Docs match installed dependency pins
+
+- `package.json` floors raised to the versions already installed (no upgrades). Majors still held: ESLint 9.39.5, wagmi 2.19.5, TypeScript 6.0.3, ox 0.14.48, Vitest 4.1.11.
+- `CLAUDE.md` §11 pins, sharp override (`>=0.35.4`, same as Next’s optional dep), and the removed Redux peer note. Holders/sidebar pitfalls no longer describe a V1 vault list. `README.md` and `.env.example` include Node 24 and the gate/session/rate-limit env vars the code reads.
+
+---
+
 ## 2026-09-25 — Reallocation: withdraw accrued interest, exact relative caps
 
 - Deallocations were capped at booked `allocation(id)`, which does not include interest accrued since the market was last touched, so "0" and fully liquid Min left that interest supplied while the preview said 0. The risk overlay now emits `liveAllocationAssets` (on-chain live read only), plan rows carry `displayTarget` when the booked target clamps to 0, and `deallocateAmountForRow` (`lib/onchain/v2-rebalance-plan.ts`) is the single rule for multicall, single-call, Safe queue, funding, cap simulation and preview. Stale live reads (booked moved by submit) fall back to booked. Sentinel Deallocate to Idle uses the live position too.
