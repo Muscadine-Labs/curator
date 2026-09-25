@@ -27,7 +27,11 @@ export type TxPreviewAction =
   | 'withdraw_collateral'
   | 'exit'
   | 'gate'
-  | 'batch';
+  | 'batch'
+  | 'accept'
+  | 'revoke'
+  | 'config'
+  | 'call';
 
 export type TxPreviewChange = {
   action: TxPreviewAction;
@@ -52,6 +56,14 @@ export type AllocationRebalanceRow = {
   isVaultIdle?: boolean;
   currentAssets: bigint;
   assets: bigint;
+  /**
+   * Amount `deallocate` will withdraw (`deallocateAmountForRow`). It can exceed
+   * `currentAssets − assets` when the row exits through accrued interest.
+   */
+  deallocateAssets?: bigint;
+  /** Live position before / after, when a row exits through accrued interest. */
+  beforeAssets?: bigint;
+  afterAssets?: bigint;
 };
 
 function capKindLabel(cap: CapInfo): string {
@@ -74,14 +86,15 @@ export function collectAllocationRebalanceChanges(
     if (row.isVaultIdle) continue;
     if (row.assets === row.currentAssets) continue;
 
-    const before = formatToken(row.currentAssets, row.symbol, row.decimals);
-    const after = formatToken(row.assets, row.symbol, row.decimals);
+    const before = formatToken(row.beforeAssets ?? row.currentAssets, row.symbol, row.decimals);
+    const after = formatToken(row.afterAssets ?? row.assets, row.symbol, row.decimals);
 
     if (row.assets < row.currentAssets) {
       const rawDelta =
-        row.assets === 0n
+        row.deallocateAssets ??
+        (row.assets === 0n
           ? row.currentAssets
-          : clampDeallocateAmount(row.currentAssets - row.assets, row.currentAssets);
+          : clampDeallocateAmount(row.currentAssets - row.assets, row.currentAssets));
       if (rawDelta <= 0n) continue;
       changes.push({
         action: 'deallocate',
@@ -278,7 +291,7 @@ export function buildLiquidityAdapterPreview(input: {
       'Sets which adapter and market provide withdrawable liquidity for deposits and withdrawals. Callable by an on-chain allocator — applies immediately (not timelocked).',
     changes: [
       {
-        action: 'allocate',
+        action: 'config',
         label: selectedLabel,
         subtitle: `${currentLabel} → ${selectedLabel}`,
       },
@@ -320,5 +333,13 @@ export function txPreviewActionLabel(action: TxPreviewAction): string {
       return 'Gate';
     case 'batch':
       return 'Batch';
+    case 'accept':
+      return 'Accept';
+    case 'revoke':
+      return 'Revoke';
+    case 'config':
+      return 'Configure';
+    case 'call':
+      return 'Call';
   }
 }

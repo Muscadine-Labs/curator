@@ -12,9 +12,16 @@ import { publicClient } from '@/lib/onchain/client';
 import { whitelistSendAssetsGateAbi } from '@/lib/onchain/whitelist-send-assets-gate-abi';
 import {
   configuredSendAssetsGates,
+  depositGateDeployBlock,
   depositGateFullWhitelist,
   depositGateGateWhitelisters,
 } from '@/lib/config/deposit-gates';
+import { getSafeByAddress } from '@/lib/safe/config';
+import { getConfiguredVaultDisplayName, getVaultByAddress } from '@/lib/config/vaults';
+import {
+  readGateRosterCandidates,
+  type GateRosterScanStatus,
+} from '@/lib/morpho/send-assets-gate-roster.server';
 
 export type GateAccountStatus = {
   address: Address;
@@ -28,7 +35,23 @@ export type SendAssetsGateState = {
   label: string;
   roleSetter: Address | null;
   accounts: GateAccountStatus[];
+  /**
+   * Event-history scan state. Until `complete`, `accounts` covers configured
+   * addresses plus whatever the scan has reached so far.
+   */
+  rosterScan: { status: GateRosterScanStatus; progress: number };
 };
+
+/** Config label, else a known Safe / vault, else a neutral fallback. */
+function labelForRosterAccount(address: Address, configured: Map<string, string>): string {
+  const fromConfig = configured.get(address.toLowerCase());
+  if (fromConfig) return fromConfig;
+  const safe = getSafeByAddress(address);
+  if (safe) return safe.label === 'Treasury' ? 'Treasury' : `${safe.label} Safe`;
+  const vault = getVaultByAddress(address);
+  if (vault) return getConfiguredVaultDisplayName(vault);
+  return 'Account';
+}
 
 export async function GET(
   request: NextRequest,
@@ -61,17 +84,34 @@ export async function GET(
       throw new AppError('Gate is not in curator config', 404, 'GATE_NOT_FOUND');
     }
 
-    const accounts = [
+    const configuredRows = [
       ...depositGateGateWhitelisters(),
       ...depositGateFullWhitelist(),
     ];
-    const seen = new Set<string>();
-    const unique = accounts.filter((row) => {
+    const configuredLabels = new Map<string, string>();
+    for (const row of configuredRows) {
       const key = row.address.toLowerCase();
-      if (seen.has(key)) return false;
+      if (!configuredLabels.has(key)) configuredLabels.set(key, row.label);
+    }
+
+    // Config seeds the list; the gate's own events add anyone whitelisted
+    // outside this app's config (e.g. a partner added from the Update form).
+    const roster = await readGateRosterCandidates(address, depositGateDeployBlock(address));
+    const seen = new Set<string>();
+    const unique: Array<{ address: Address; label: string }> = [];
+    for (const candidate of [
+      ...configuredRows.map((row) => row.address),
+      ...roster.accounts,
+    ]) {
+      const checksummed = getAddress(candidate);
+      const key = checksummed.toLowerCase();
+      if (seen.has(key)) continue;
       seen.add(key);
-      return true;
-    });
+      unique.push({
+        address: checksummed,
+        label: labelForRosterAccount(checksummed, configuredLabels),
+      });
+    }
 
     const roleSetterRead = await publicClient.multicall({
       allowFailure: true,
@@ -126,6 +166,7 @@ export async function GET(
       label: configured.label,
       roleSetter,
       accounts: accountStatus,
+      rosterScan: { status: roster.status, progress: roster.progress },
     };
     return NextResponse.json(response, {
       headers: mergeApiOnChainVaultHeaders(rateLimitResult.headers),

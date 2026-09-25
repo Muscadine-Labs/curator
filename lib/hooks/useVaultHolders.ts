@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import type { VaultHoldersResponse } from '@/app/api/vaults/[id]/holders/route';
-import { apiFetch } from '@/lib/data/api-fetch';
+import { apiErrorMessage, apiFetch } from '@/lib/data/api-fetch';
 import { INDEXED_VAULT_QUERY_OPTIONS } from '@/lib/data/query-config';
 
 async function fetchVaultHolders(
@@ -8,17 +8,9 @@ async function fetchVaultHolders(
   first = 500
 ): Promise<VaultHoldersResponse> {
   const res = await apiFetch(
-    `/api/vaults/${vaultAddress}/holders?first=${first}`,
-    { credentials: 'omit' }
-  );
+    `/api/vaults/${vaultAddress}/holders?first=${first}`);
   if (!res.ok) {
-    const text = await res.text();
-    try {
-      const json = JSON.parse(text);
-      throw new Error(json.message || json.error || 'Failed to fetch vault holders');
-    } catch {
-      throw new Error(text || 'Failed to fetch vault holders');
-    }
+    throw new Error(await apiErrorMessage(res, 'Failed to fetch vault holders'));
   }
   return res.json();
 }

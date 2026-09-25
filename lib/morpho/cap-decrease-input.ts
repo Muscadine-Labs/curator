@@ -1,3 +1,4 @@
+import { parseUnits } from 'viem';
 import { parseHumanTokenInput } from '@/lib/format/allocation-display';
 
 export type CapDecreaseMode = 'absolute' | 'relative';
@@ -28,6 +29,10 @@ export function parseCapDecreaseInput(input: {
       return { ok: false, error: 'Invalid token amount.' };
     }
 
+    if (parsed < 0n) {
+      return { ok: false, error: 'Cap cannot be negative.' };
+    }
+
     let current: bigint;
     try {
       current = BigInt(input.currentAbsoluteRaw);
@@ -45,12 +50,16 @@ export function parseCapDecreaseInput(input: {
     return { ok: true, mode: 'absolute', value: parsed };
   }
 
-  const pct = Number(trimmed);
+  // Plain decimal only: Number() would also accept '1e1' or '0x10'.
+  const pct = /^\d+(\.\d+)?$|^\.\d+$/.test(trimmed) ? Number(trimmed) : NaN;
   if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
     return { ok: false, error: 'Relative cap must be a percentage between 0 and 100.' };
   }
 
-  const wad = BigInt(Math.round(pct * 1e16));
+  // Exact decimal → WAD. `Math.round(pct * 1e16)` is off by a few wei for ~7%
+  // of 2-dp inputs (0.28 → 2800000000000001), which rejects re-entering the
+  // current cap and writes a dirty WAD on-chain.
+  const wad = parseUnits(trimmed, 16);
   let current: bigint;
   try {
     current = BigInt(input.currentRelativeRaw);

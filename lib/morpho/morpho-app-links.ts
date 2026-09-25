@@ -48,22 +48,53 @@ export function morphoCuratorVaultHref(vaultAddress: string, chainId: number): s
   return `https://curator.morpho.org/vaults/${chainId}/${vaultAddress}`;
 }
 
+function marketHref(
+  path: string,
+  chainId: number,
+  returnTo?: string | null
+): string {
+  const params = new URLSearchParams({ chainId: String(chainId) });
+  const safeReturn = safeReturnPath(returnTo);
+  if (safeReturn) params.set('from', safeReturn);
+  return `${path}?${params.toString()}`;
+}
+
+const RETURN_PATH_BASE = 'https://curator.invalid';
+// Browsers read `\` as `/` and drop tab/CR/LF inside URLs, so `/\evil.com` and
+// `/<TAB>/evil.com` are protocol-relative even though they start with one `/`.
+const UNSAFE_RETURN_CHARS = /[\\\u0000-\u001f\u007f]/;
+
+/** In-app path to return to, or null when the query is missing or unsafe. */
+export function safeReturnPath(from: string | null | undefined): string | null {
+  if (!from || !from.startsWith('/') || from.startsWith('//')) return null;
+  if (UNSAFE_RETURN_CHARS.test(from)) return null;
+  try {
+    const url = new URL(from, RETURN_PATH_BASE);
+    if (url.origin !== RETURN_PATH_BASE) return null;
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return null;
+  }
+}
+
 /** Curator Morpho Blue market detail page. */
 export function curatorBlueMarketHref(
   marketId: string | null | undefined,
-  chainId: number = BASE_CHAIN_ID
+  chainId: number = BASE_CHAIN_ID,
+  returnTo?: string | null
 ): string | null {
   if (!marketId) return null;
-  return `/market/blue/${encodeURIComponent(marketId)}?chainId=${chainId}`;
+  return marketHref(`/market/blue/${encodeURIComponent(marketId)}`, chainId, returnTo);
 }
 
 /** In-app Midnight market detail (`/midnight/{id}`). */
 export function curatorMidnightMarketHref(
   marketId: string | null | undefined,
-  chainId: number = BASE_CHAIN_ID
+  chainId: number = BASE_CHAIN_ID,
+  returnTo?: string | null
 ): string | null {
   if (!marketId) return null;
-  return `/midnight/${encodeURIComponent(marketId)}?chainId=${chainId}`;
+  return marketHref(`/midnight/${encodeURIComponent(marketId)}`, chainId, returnTo);
 }
 
 /**

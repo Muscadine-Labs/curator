@@ -17,6 +17,7 @@ import { apiFetch } from '@/lib/data/api-fetch';
 import type { SafeAccountConfig } from '@/lib/safe/config';
 import type { SafeOnChainSettings } from '@/lib/safe/onchain-reads';
 import {
+  EMPTY_ADDRESS_BOOK,
   listAddressBook,
   removeAddressBookEntry,
   subscribeAddressBook,
@@ -24,8 +25,6 @@ import {
 } from '@/lib/safe/address-book';
 import { useState } from 'react';
 import { getAddress, isAddress } from 'viem';
-
-const EMPTY_BOOK: ReturnType<typeof listAddressBook> = [];
 
 export function SafeSettingsPanel({ account }: { account: SafeAccountConfig }) {
   const settings = useQuery({
@@ -42,7 +41,11 @@ export function SafeSettingsPanel({ account }: { account: SafeAccountConfig }) {
     refetchOnWindowFocus: false,
   });
 
-  const book = useSyncExternalStore(subscribeAddressBook, listAddressBook, () => EMPTY_BOOK);
+  const book = useSyncExternalStore(
+    subscribeAddressBook,
+    listAddressBook,
+    () => EMPTY_ADDRESS_BOOK
+  );
   const [newAddress, setNewAddress] = useState('');
   const [newLabel, setNewLabel] = useState('');
 

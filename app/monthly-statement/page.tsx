@@ -43,6 +43,8 @@ interface MonthlyStatementResponse {
   statements: MonthlyStatementData[];
   daily?: Array<{ date: string; value: number }>;
   vaults: VaultMonthlyData[];
+  /** Revenue may be overstated (self-deposits not fully subtracted). */
+  warning?: string | null;
 }
 
 interface DefiLlamaMonthlyData {
@@ -838,6 +840,11 @@ export default function MonthlyStatementPage() {
               <CardContent>
               <TabsContent value="treasury" className="mt-0">
               <div className="mt-4">
+                {data?.warning ? (
+                  <p className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                    {data.warning}
+                  </p>
+                ) : null}
                 {isLoadingData ? (
                   <Skeleton className="h-64 w-full" />
                 ) : error ? (

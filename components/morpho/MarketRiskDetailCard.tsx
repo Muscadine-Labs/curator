@@ -61,8 +61,10 @@ export function MarketRiskDetailCard({
     market.marketTotalSupplyUsd ?? market.state?.supplyAssetsUsd ?? 0;
   const marketDisplaySizeUsd =
     market.state?.sizeUsd ?? market.marketTotalSupplyUsd ?? market.state?.supplyAssetsUsd ?? null;
-  const marketDisplayLiquidityUsd =
-    market.state?.totalLiquidityUsd ?? market.state?.liquidityAssetsUsd ?? null;
+  // Pair the token amount with its own USD value. `totalLiquidityUsd` also
+  // counts Public Allocator reallocatable liquidity, so it is not the dollar
+  // value of `liquidityAssets`.
+  const marketDisplayLiquidityUsd = market.state?.liquidityAssetsUsd ?? null;
 
   const vaultAllocationPercent =
     vaultTotalUsd > 0 ? (vaultSupplyUsd / vaultTotalUsd) * 100 : 0;
@@ -281,7 +283,7 @@ export function MarketRiskDetailCard({
               />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground mb-1">Total Liquidity</p>
+              <p className="text-xs text-muted-foreground mb-1">Available Liquidity</p>
               <TokenUsdValue
                 underlying={market.state?.liquidityAssets ?? null}
                 usd={marketDisplayLiquidityUsd}

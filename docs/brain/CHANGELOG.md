@@ -4,6 +4,55 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-09-25 — Reallocation: withdraw accrued interest, exact relative caps
+
+- Deallocations were capped at booked `allocation(id)`, which does not include interest accrued since the market was last touched, so "0" and fully liquid Min left that interest supplied while the preview said 0. The risk overlay now emits `liveAllocationAssets` (on-chain live read only), plan rows carry `displayTarget` when the booked target clamps to 0, and `deallocateAmountForRow` (`lib/onchain/v2-rebalance-plan.ts`) is the single rule for multicall, single-call, Safe queue, funding, cap simulation and preview. Stale live reads (booked moved by submit) fall back to booked. Sentinel Deallocate to Idle uses the live position too.
+- Sentinel relative cap decreases parse the percent exactly (`parseUnits(pct, 16)`); float math was a few wei off for ~7% of 2-dp inputs.
+- Tests: `v2-rebalance-plan.test.ts` (interest exit), `cap-decrease-input.test.ts` (exact WAD).
+
+---
+
+## 2026-09-25 — Risk cap scale, cap id verification, review leftovers
+
+- Risk caps now match their labels on the current grade scale: weak oracle ≤ 76 (C+ max), very high utilization ≤ 79 (B− max), partial coverage ≤ 83 (B max). They were 54 / 60 / 68 (F / D / C−). Caps are declared as grades in `RISK_SCORE_CAPS` and derived from `GRADE_FLOORS`, and `getMarketRiskGrade` is now the single grade scale (the vault risk route and on-chain overlay had their own copies). This raises grades for markets hit by a cap, as requested.
+- `resolveCapIdData` only encodes market params that hash to `cap.marketKey` and always uses the cap's adapter. Partial params used to encode a nonexistent market id, so a Sentinel decrease-to-0 could succeed on-chain as a no-op and the cap overlay could show that cap as 0. Public Allocator reads use the same check.
+- Fee-wrapper liquidity options sort Idle last consistently (comparator was asymmetric).
+- Address book snapshot is keyed on the raw localStorage string, so another tab's edits show up even when nothing was subscribed, and an upsert no longer overwrites them.
+- Safe history fetch has a timeout (`EXTERNAL_API_TIMEOUT_MS`).
+- Tests: `compute-blue-market-risk.test.ts`, `v2-id-data.test.ts`.
+
+---
+
+## 2026-09-25 — Code review fixes (Safe, gates, allocation, risk, BFF)
+
+- Safe execute sent the inner tx `value` as `msg.value`, so the executor paid for ETH the Safe sent out. Now `value: 0` plus threshold and Safe-balance checks, and the row is marked executed only after a successful receipt (`lib/safe/protocol-kit-client.ts`, `useSafeTransactionActions.ts`).
+- Sign / Share / auto-share recompute `safeTxHash` from the stored fields before signing. DelegateCall to anything but a Base MultiSend is flagged and blocked; MultiSend batches decode per call; undecodable vault `multicall` calls stay in the preview (`lib/safe/multisend.ts`).
+- Batches must include the last queued nonce. Bundle import merges signatures. Post-execute refetch matches keys case-insensitively. Send keeps saved address-book labels. Receive shows Failed on a reverted funding tx.
+- Open redirect: `safeReturnPath` rejects `/\host` and control characters.
+- Gate roster comes from the gate's events plus config, scanned in 6s slices with progress (`send-assets-gate-roster.server.ts`).
+- Allocation: display uses the adapter's live position (`expectedSupplyAssets` / `realAssets`) and idle uses `balanceOf(vault)`; % mode no longer turns untouched rows into deallocations; Idle is re-anchored on live cash at submit. Governance overlays on-chain `liquidityAdapter()` / `liquidityData()`.
+- Fee wrapper: one liquidity adapter panel, pending shown on Caps / timelocks, Allocation has an error state.
+- Risk: cap-only markets get real borrow/supply/collateral USD; missing borrow data no longer scores as "safest". Score-cap labels corrected to the grades they actually give (54 = F, 60 = D, 68 = C−); numbers unchanged pending a policy call.
+- BFF: errors redact RPC URLs/secrets; hooks show `{ message }` instead of raw JSON; int query params are bounded; vault detail returns 502 on GraphQL failure; treasury statement flags (and does not cache) results missing self-deposits; protocol TVL trend no longer includes the synthetic T−30d point; Google Sheets CSV handles quoted newlines.
+- Pending timelocks: status re-derived on the client; null `validAt` is never Executable. Accept/revoke previews no longer say "Allocate".
+- Bots: Safe-executed actions come from Transaction Service history and are decoded through `execTransaction` / MultiSend.
+
+---
+
+## 2026-09-24 — Safe wallet execute, history, gates, markets, fee wrapper
+
+- Send and Settings crashed with React #185 because the address book snapshot was a new array every read (`lib/safe/address-book.ts`).
+- Execute now builds Safe calldata in protocol-kit and sends it with wagmi `sendTransaction`, so the connected wallet prompts (`lib/hooks/useSafeTransactionActions.ts`).
+- History reads Transaction Service v2 directly (`lib/safe/transaction-service.ts`); the api-kit GET helper was returning an empty list.
+- Gate page splits on-chain whitelisters and whitelisted accounts, each with a Basescan link.
+- Market links carry a `from` path back to the vault section or the markets filter query. Liquidity USD uses available liquidity (`liquidityAssetsUsd`), matching the token amount.
+- Muscadine pages: dropped Portfolio and Portfolio API, added Reown under RPC & wallet, moved Cloudflare next to Vercel.
+- Fee wrapper tabs: Overview, Allocation (Morpho vault adapter or idle), Caps / timelocks. APY and fee percents appear once.
+- DefiLlama still uses current `/summary/fees` and `/protocol`. Morpho stays on `api.morpho.org/graphql`. `npm audit` reported no advisories.
+- In-range npm bumps: Next `16.3.6`, viem `2.56.9`, ox `0.14.48`, Reown `1.8.24`, TanStack Query `5.103.2`, lucide `1.48.0`, tailwind-merge `3.7.0`. Left majors (wagmi 3, ox 1, ESLint 10, TypeScript 7, Vitest 5).
+
+---
+
 ## 2026-09-12 — Allocation / Safe / sentinel write-path review
 
 - Unchanged rebalance rows snap to live `allocation(id)` so indexer/interest drift cannot inject phantom alloc/dealloc. Adapter/collateral cap occupancy is reread before cap checks.

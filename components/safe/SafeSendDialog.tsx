@@ -21,6 +21,7 @@ import type { SafeTokenBalance } from '@/lib/safe/read-balances';
 import { isNativeToken, SAFE_AMOUNT_DP } from '@/lib/safe/tokens';
 import { cn } from '@/lib/utils';
 import {
+  EMPTY_ADDRESS_BOOK,
   listAddressBook,
   subscribeAddressBook,
   upsertAddressBookEntry,
@@ -50,7 +51,11 @@ export function SafeSendDialog({
   const { address: walletAddress, connector } = useAccount();
   const { sdk: safeAppSdk } = useCuratorSafeApps();
   const router = useRouter();
-  const addressBook = useSyncExternalStore(subscribeAddressBook, listAddressBook, () => []);
+  const addressBook = useSyncExternalStore(
+    subscribeAddressBook,
+    listAddressBook,
+    () => EMPTY_ADDRESS_BOOK
+  );
 
   const sendable = useMemo(() => balances.filter((b) => b.balance > 0n), [balances]);
   const [selectedKey, setSelectedKey] = useState<string | null>(initialToken ?? null);

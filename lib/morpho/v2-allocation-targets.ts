@@ -22,6 +22,8 @@ export type BlueMarketEntry = {
   };
   allocationAssets: string | null;
   bookedAllocationAssets?: string | null;
+  /** On-chain live adapter position; null when not read (see `V2MarketRiskData`). */
+  liveAllocationAssets?: string | null;
   allocationUsd: number;
 };
 
@@ -52,6 +54,7 @@ function riskMarketToEntry(
     market: m.market,
     allocationAssets: m.allocationAssets,
     bookedAllocationAssets: m.bookedAllocationAssets ?? m.allocationAssets,
+    liveAllocationAssets: m.liveAllocationAssets ?? null,
     allocationUsd: m.allocationUsd ?? 0,
   };
 }

@@ -1,4 +1,4 @@
-import { getAddress, type Address } from 'viem';
+import { getAddress, isAddress, type Address } from 'viem';
 import { inferSafeTxSource } from '@/lib/safe/decode-vault-calldata-preview';
 import type { SafePendingTransaction, SafeTransactionStatus } from '@/lib/safe/types';
 import type { SafeRole } from '@/lib/safe/config';
@@ -166,7 +166,37 @@ export function sanitizeImportedPending(tx: SafePendingTransaction): SafePending
   return {
     ...tx,
     preview: null,
-    source: inferSafeTxSource(getAddress(tx.to), tx.data, tx.value || '0'),
+    source: inferSafeTxSource(getAddress(tx.to), tx.data, tx.value || '0', tx.operation),
+  };
+}
+
+/**
+ * Fold an imported copy of a proposal we already hold into the local one. The
+ * local row keeps its own fields; only signatures are unioned by signer, so
+ * importing another owner's bundle never drops a signature collected here.
+ */
+function mergeImportedPending(
+  local: SafePendingTransaction,
+  imported: SafePendingTransaction
+): SafePendingTransaction {
+  const signatures = [...local.signatures];
+  const seen = new Set(signatures.map((sig) => sig.signer.toLowerCase()));
+  for (const sig of imported.signatures ?? []) {
+    if (!sig?.signer || !isAddress(sig.signer)) continue;
+    const key = sig.signer.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    signatures.push({ ...sig, signer: getAddress(sig.signer) });
+  }
+  const becameReady =
+    local.status === 'awaiting_signatures' &&
+    imported.status === 'ready' &&
+    signatures.length > local.signatures.length;
+  return {
+    ...local,
+    signatures,
+    status: becameReady ? 'ready' : local.status,
+    updatedAt: new Date().toISOString(),
   };
 }
 
@@ -180,7 +210,9 @@ export function importPendingBundle(json: string): { ok: true; count: number } |
     const byHash = new Map(existing.map((tx) => [tx.safeTxHash.toLowerCase(), tx]));
     for (const tx of parsed.transactions) {
       if (!tx?.safeTxHash) continue;
-      byHash.set(String(tx.safeTxHash).toLowerCase(), sanitizeImportedPending(tx));
+      const key = String(tx.safeTxHash).toLowerCase();
+      const local = byHash.get(key);
+      byHash.set(key, local ? mergeImportedPending(local, tx) : sanitizeImportedPending(tx));
     }
     writeStore({ transactions: [...byHash.values()] });
     notifyListeners();

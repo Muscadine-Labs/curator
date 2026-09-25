@@ -12,8 +12,6 @@ export const MUSCADINE_DOMAINS: readonly ExternalLinkItem[] = [
   { name: 'Analytics', url: 'https://analytics.muscadine.xyz', description: 'Analytics' },
   { name: 'App', url: 'https://app.muscadine.xyz', description: 'App' },
   { name: 'Curator', url: 'https://curator.muscadine.xyz', description: 'Curator' },
-  { name: 'Portfolio', url: 'https://portfolio.muscadine.xyz', description: 'Portfolio' },
-  { name: 'Portfolio API', url: 'https://api-portfolio.muscadine.io', description: 'Portfolio API' },
 ];
 
 export const MUSCADINE_DEVELOPMENT_LINKS: readonly ExternalLinkItem[] = [
@@ -25,11 +23,11 @@ export const MUSCADINE_DEVELOPMENT_LINKS: readonly ExternalLinkItem[] = [
     description: 'Drive folder',
     displayText: 'drive.google.com',
   },
+  { name: 'Cloudflare', url: 'https://www.cloudflare.com/', description: 'DNS and CDN' },
 ];
 
 export const MUSCADINE_BUSINESS_SERVICES: readonly ExternalLinkItem[] = [
   { name: 'Georgia Secretary of State', url: 'https://ecorp.sos.ga.gov/', description: 'ecorp.sos.ga.gov' },
-  { name: 'Cloudflare', url: 'https://www.cloudflare.com/', description: 'DNS and CDN' },
 ];
 
 export const MUSCADINE_SAFE_LINKS: readonly ExternalLinkItem[] = [
@@ -54,6 +52,7 @@ export const COINBASE_DEV_LINKS: readonly ExternalLinkItem[] = [
 
 export const INFRASTRUCTURE_DEV_LINKS: readonly ExternalLinkItem[] = [
   { name: 'Alchemy', url: 'https://dashboard.alchemy.com/', description: 'RPC dashboard' },
+  { name: 'Reown', url: 'https://reown.com/', description: 'Wallet infra (AppKit)' },
   { name: 'WalletConnect Cloud', url: 'https://cloud.walletconnect.com/', description: 'WalletConnect' },
 ];
 

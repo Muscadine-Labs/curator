@@ -151,13 +151,19 @@ export function VaultV2Pending({
     [revokeEligibleSafes]
   );
 
+  // Status is re-derived from validAt on the client so an item whose timelock
+  // elapses while the page is open flips to Executable without a refetch.
   const pending = useMemo(
     () =>
       (data?.pending ?? []).map((item, index) => ({
         ...item,
         rowId: item.rowId ?? index,
+        status:
+          item.validAt > 0 && item.validAt * 1000 <= nowMs
+            ? ('ready' as const)
+            : ('waiting' as const),
       })),
-    [data?.pending]
+    [data?.pending, nowMs]
   );
 
   const filtered = useMemo(() => {

@@ -3,7 +3,7 @@ import type { CapInfo } from '@/app/api/vaults/[id]/governance/route';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { getVaultV2PublicAllocatorAddress } from '@/lib/constants/bots';
 import { isMarketCap } from '@/lib/morpho/cap-utils';
-import { encodeMarketCapIdData } from '@/lib/morpho/v2-id-data';
+import { resolveCapIdData } from '@/lib/morpho/v2-id-data';
 import { publicClient } from '@/lib/onchain/client';
 import { vaultV2BluePublicAllocatorAbi } from '@/lib/onchain/abis';
 import { logger } from '@/lib/utils/logger';
@@ -34,11 +34,10 @@ function vaultHasPublicAllocator(
 }
 
 function adapterMarketCapId(cap: CapInfo): Hex | null {
-  if (!isMarketCap(cap) || !cap.adapterAddress || !cap.marketParams) return null;
-  if (!cap.marketParams.loanAsset?.address || !cap.marketParams.collateralAsset?.address) {
-    return null;
-  }
-  return keccak256(encodeMarketCapIdData(cap.adapterAddress, cap.marketParams));
+  if (!isMarketCap(cap)) return null;
+  // resolveCapIdData only encodes params that hash back to the cap's market.
+  const idData = resolveCapIdData(cap, null);
+  return idData ? keccak256(idData) : null;
 }
 
 /**

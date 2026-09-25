@@ -270,11 +270,14 @@ export async function GET(request: Request) {
       }
     }
 
+    // Aggregate the real series only: the synthetic T−30d point that
+    // padSinglePointSeries adds for per-vault lines would show up here as a
+    // one-day TVL spike that never happened.
     const tvlByDate = new Map<string, number>();
-    for (const vault of tvlByVault) {
+    for (const vault of tvlByVaultResults) {
       for (const point of vault.data) {
         const date = new Date(point.date);
-        date.setHours(0, 0, 0, 0);
+        date.setUTCHours(0, 0, 0, 0);
         const dateKey = date.toISOString();
         tvlByDate.set(dateKey, (tvlByDate.get(dateKey) ?? 0) + point.value);
       }

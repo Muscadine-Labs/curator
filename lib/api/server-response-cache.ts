@@ -43,7 +43,9 @@ function withTimeout<T>(loader: () => Promise<T>, timeoutMs: number): Promise<T>
 export async function withServerResponseCache<T>(
   key: string,
   ttlMs: number,
-  loader: () => Promise<T>
+  loader: () => Promise<T>,
+  /** Return false to serve this result without caching it (e.g. partial data). */
+  shouldCache: (data: T) => boolean = () => true
 ): Promise<T> {
   const now = Date.now();
   pruneExpired(now);
@@ -62,7 +64,7 @@ export async function withServerResponseCache<T>(
   const ttl = clampCacheTtlMs(ttlMs);
   const promise = withTimeout(loader, DEFAULT_LOADER_TIMEOUT_MS)
     .then((data) => {
-      store.set(key, { data, expiresAt: Date.now() + ttl });
+      if (shouldCache(data)) store.set(key, { data, expiresAt: Date.now() + ttl });
       inflight.delete(key);
       return data;
     })

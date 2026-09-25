@@ -11,6 +11,7 @@ import {
   type Hex,
 } from 'viem';
 import { vaultV2Abi } from '@/lib/onchain/abis';
+import { decodeMultiSend, isKnownMultiSend } from '@/lib/safe/multisend';
 
 const MARKET_PARAMS_ABI = parseAbiParameters(
   'address, address, address, address, uint256'
@@ -183,6 +184,13 @@ export function decodeCapIdData(idData: Hex): {
  * raw tx input (direct call or multicall).
  */
 export function decodeVaultV2Calldata(data: Hex | undefined | null): DecodedVaultCallSummary {
+  return decodeVaultV2CalldataList(data ? [data] : []);
+}
+
+/** Merge the decoded summaries of several vault calls (e.g. a Safe MultiSend). */
+export function decodeVaultV2CalldataList(
+  datas: ReadonlyArray<Hex | undefined | null>
+): DecodedVaultCallSummary {
   const empty: DecodedVaultCallSummary = {
     hasAllocate: false,
     hasDeallocate: false,
@@ -192,8 +200,6 @@ export function decodeVaultV2Calldata(data: Hex | undefined | null): DecodedVaul
     capChanges: [],
     roleChanges: [],
   };
-  if (!data || data === '0x') return empty;
-
   const inspect = (calldata: Hex): void => {
     try {
       const decoded = decodeFunctionData({
@@ -293,8 +299,49 @@ export function decodeVaultV2Calldata(data: Hex | undefined | null): DecodedVaul
     }
   };
 
-  inspect(data);
+  for (const data of datas) {
+    if (data && data !== '0x') inspect(data);
+  }
   return empty;
+}
+
+const EXEC_TRANSACTION_ABI = parseAbiItem(
+  'function execTransaction(address to, uint256 value, bytes data, uint8 operation, uint256 safeTxGas, uint256 baseGas, uint256 gasPrice, address gasToken, address refundReceiver, bytes signatures) payable returns (bool)'
+);
+
+/**
+ * Vault calls inside a transaction's input. A role Safe acts through
+ * `execTransaction`, whose outer calldata the vault ABI cannot decode; unwrap
+ * it (and a MultiSend batch inside it) to reach the calls made to `vault`.
+ * `viaSafe` is true when the input was a Safe execution.
+ */
+export function decodeTransactionVaultCalls(
+  input: Hex | undefined | null,
+  vault: Address
+): { summary: DecodedVaultCallSummary; viaSafe: boolean } {
+  if (!input || input === '0x') {
+    return { summary: decodeVaultV2CalldataList([]), viaSafe: false };
+  }
+  let exec: readonly unknown[] | null = null;
+  try {
+    const decoded = decodeFunctionData({ abi: [EXEC_TRANSACTION_ABI], data: input });
+    exec = decoded.args as readonly unknown[];
+  } catch {
+    exec = null;
+  }
+  if (!exec) return { summary: decodeVaultV2Calldata(input), viaSafe: false };
+
+  const [to, , data, operation] = exec as [Address, bigint, Hex, number];
+  const target = vault.toLowerCase();
+  let calls: Hex[] = [];
+  if (operation === 0 && to.toLowerCase() === target) {
+    calls = [data];
+  } else if (operation === 1 && isKnownMultiSend(to)) {
+    calls = (decodeMultiSend(data) ?? [])
+      .filter((inner) => inner.operation === 0 && inner.to.toLowerCase() === target)
+      .map((inner) => inner.data);
+  }
+  return { summary: decodeVaultV2CalldataList(calls), viaSafe: true };
 }
 
 export function isHexAddress(value: string | null | undefined): value is Address {

@@ -318,7 +318,9 @@ export async function GET(
         graphqlError instanceof Error ? graphqlError : new Error(String(graphqlError)),
         { address }
       );
-      data = { vaultV2ByAddress: null };
+      // Surface the failure: a 200 "Unknown V2 Vault" placeholder would be
+      // cached by React Query as real data with no error state or retry.
+      throw new AppError('Morpho API request failed for this vault. Retry shortly.', 502, 'UPSTREAM_ERROR');
     }
 
     const vaultData = data.vaultV2ByAddress;

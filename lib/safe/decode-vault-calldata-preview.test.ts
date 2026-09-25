@@ -5,6 +5,7 @@ import {
   inferSafeTxSource,
   resolveSafePendingPreview,
   resolveVaultAddressFromPending,
+  safePendingWarnings,
 } from '@/lib/safe/decode-vault-calldata-preview';
 import { vaultV2Abi } from '@/lib/onchain/abis';
 import { DEPOSIT_GATE_CONTRACT_ADDRESS } from '@/lib/config/deposit-gates';
@@ -190,5 +191,39 @@ describe('imported gate writes', () => {
     const cleaned = sanitizeImportedPending(tx);
     expect(cleaned.preview).toBeNull();
     expect(cleaned.source).toMatchObject({ type: 'gate', action: 'set_whitelisted' });
+  });
+});
+
+describe('vault multicall with non-vault inner calls', () => {
+  const deallocate = encodeFunctionData({
+    abi: vaultV2Abi,
+    functionName: 'deallocate',
+    args: [RECIPIENT, '0x', 1_000_000n],
+  });
+  const hidden = encodeFunctionData({
+    abi: vaultV2Abi,
+    functionName: 'multicall',
+    args: [[deallocate, transferData(42n)]],
+  });
+
+  it('keeps an undecodable inner call in the preview instead of dropping it', () => {
+    const preview = resolveSafePendingPreview(imported(VAULT_SHARES, hidden));
+    expect(preview.changes).toHaveLength(2);
+    expect(preview.changes.some((c) => c.label === 'ERC-20 transfer')).toBe(true);
+    expect(preview.footnote).toMatch(/could not be decoded/);
+  });
+
+  it('warns on the queue card even when a stored preview hides it', () => {
+    const tx = {
+      ...imported(VAULT_SHARES, hidden),
+      preview: { title: 'Rebalance', description: '', changes: [{ action: 'deallocate' as const, label: 'x' }] },
+    };
+    const warnings = safePendingWarnings(tx);
+    expect(warnings.blocking).toBe(false);
+    expect(warnings.messages[0]).toMatch(/1 call in this vault transaction could not be decoded/);
+  });
+
+  it('never labels a DelegateCall as a transfer', () => {
+    expect(inferSafeTxSource(RECIPIENT, transferData(1n), '0', 1)).toEqual({ type: 'manual' });
   });
 });

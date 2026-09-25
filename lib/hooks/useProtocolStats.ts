@@ -182,9 +182,7 @@ export const useProtocolStats = () => {
   return useQuery<ProtocolStats>({
     queryKey: ['protocol-stats'],
     queryFn: async () => {
-      const response = await apiFetch('/api/protocol-stats', {
-        credentials: 'omit',
-      });
+      const response = await apiFetch('/api/protocol-stats');
       if (!response.ok) throw new Error('Failed to fetch protocol stats');
       return response.json();
     },
@@ -216,9 +214,7 @@ export const useVaultList = (filters?: {
       if (filters?.sidebar) searchParams.set('sidebar', 'true');
       else if (filters?.includeAll) searchParams.set('includeAll', 'true');
       
-      const response = await apiFetch(`/api/vaults?${searchParams}`, {
-        credentials: 'omit',
-      });
+      const response = await apiFetch(`/api/vaults?${searchParams}`);
       if (!response.ok) throw new Error('Failed to fetch vaults');
       return response.json();
     },
@@ -231,9 +227,7 @@ export const useVault = (id: string) => {
   return useQuery<VaultDetail>({
     queryKey: ['vault', id],
     queryFn: async () => {
-      const response = await apiFetch(`/api/vaults/${id}`, {
-        credentials: 'omit',
-      });
+      const response = await apiFetch(`/api/vaults/${id}`);
       if (!response.ok) throw new Error('Failed to fetch vault');
       return response.json();
     },

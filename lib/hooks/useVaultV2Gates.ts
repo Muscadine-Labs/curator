@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import type { VaultV2GatesResponse } from '@/app/api/vaults/[id]/gates/route';
-import { apiFetch } from '@/lib/data/api-fetch';
+import { apiErrorMessage, apiFetch } from '@/lib/data/api-fetch';
 import { ON_CHAIN_VAULT_QUERY_OPTIONS } from '@/lib/data/query-config';
 
 export function vaultV2GatesQueryKey(vaultAddress: string | null | undefined) {
@@ -8,18 +8,10 @@ export function vaultV2GatesQueryKey(vaultAddress: string | null | undefined) {
 }
 
 async function fetchVaultV2Gates(vaultAddress: string): Promise<VaultV2GatesResponse> {
-  const res = await apiFetch(`/api/vaults/${vaultAddress}/gates`, {
-    credentials: 'omit',
-  });
+  const res = await apiFetch(`/api/vaults/${vaultAddress}/gates`);
 
   if (!res.ok) {
-    const text = await res.text();
-    try {
-      const json = JSON.parse(text);
-      throw new Error(json.message || json.error || 'Failed to fetch vault gates');
-    } catch {
-      throw new Error(text || 'Failed to fetch vault gates');
-    }
+    throw new Error(await apiErrorMessage(res, 'Failed to fetch vault gates'));
   }
 
   return res.json();

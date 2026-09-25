@@ -28,6 +28,7 @@ import {
 } from '@/lib/morpho/vault-v2-adapter';
 import {
   computeBlueMarketRiskScores,
+  getMarketRiskGrade,
   isMarketIdle,
   type MarketRiskGrade,
   type MarketRiskScores,
@@ -92,10 +93,12 @@ export type V2MarketRiskData = {
   market: BlueMarketData;
   scores: MarketRiskScores | null;
   allocationUsd: number;
-  /** Economic position (max of Morpho supply and on-chain booked allocation). */
+  /** Economic position: live adapter read, else max(Morpho supply, booked allocation). */
   allocationAssets: string | null;
   /** Vault `allocation(id)` at last rebalance — used for write deltas. */
   bookedAllocationAssets?: string | null;
+  /** Adapter position read on-chain (`expectedSupplyAssets`); null when that read failed. */
+  liveAllocationAssets?: string | null;
   oracleTimestampData?: OracleTimestampData | null;
   absoluteCap?: string | null;
   relativeCap?: string | null;
@@ -108,6 +111,8 @@ export type V2AdapterRiskData = {
   allocationUsd: number;
   allocationAssets: string | null;
   bookedAllocationAssets?: string | null;
+  /** Fee-wrapper adapter `realAssets()` read on-chain; null when that read failed. */
+  liveAllocationAssets?: string | null;
   riskScore: number;
   riskGrade: MarketRiskGrade;
   markets: V2MarketRiskData[];
@@ -241,20 +246,6 @@ const VAULT_V2_RISK_QUERY = gql`
   }
 `;
 
-function getGradeFromScore(score: number): MarketRiskGrade {
-  if (score >= 93) return 'A+';
-  if (score >= 90) return 'A';
-  if (score >= 87) return 'A−';
-  if (score >= 84) return 'B+';
-  if (score >= 80) return 'B';
-  if (score >= 77) return 'B−';
-  if (score >= 74) return 'C+';
-  if (score >= 70) return 'C';
-  if (score >= 65) return 'C−';
-  if (score >= 60) return 'D';
-  return 'F';
-}
-
 async function buildMarketRisk(
   market: BlueMarketData,
   supplyUsd: number | null | undefined,
@@ -331,11 +322,13 @@ function capToBlueMarketData(cap: CapInfo): BlueMarketData | null {
     irmAddress: cap.marketParams.irmAddress ?? null,
     lltv: cap.marketParams.lltv ?? null,
     realizedBadDebt: null,
+    // Without these USD totals the scorer reads a missing borrow as "no borrow"
+    // and grades a heavily borrowed cap-only market as safest.
     state: cap.marketParams.state
       ? {
-          supplyAssetsUsd: null,
-          borrowAssetsUsd: null,
-          collateralAssetsUsd: null,
+          supplyAssetsUsd: cap.marketParams.state.supplyAssetsUsd ?? null,
+          borrowAssetsUsd: cap.marketParams.state.borrowAssetsUsd ?? null,
+          collateralAssetsUsd: cap.marketParams.state.collateralAssetsUsd ?? null,
           liquidityAssets:
             cap.marketParams.state.liquidityAssets != null
               ? String(cap.marketParams.state.liquidityAssets)
@@ -349,7 +342,7 @@ function capToBlueMarketData(cap: CapInfo): BlueMarketData | null {
     vaultSupplyAssets,
     vaultSupplyAssetsUsd: null,
     vaultTotalAssetsUsd: null,
-    marketTotalSupplyUsd: null,
+    marketTotalSupplyUsd: cap.marketParams.state?.supplyAssetsUsd ?? null,
   });
 }
 
@@ -514,14 +507,14 @@ function computeWeightedRisk(markets: V2MarketRiskData[]): { weightedScore: numb
     const avgScore = scoreCount > 0 ? scoreSum / scoreCount : 0;
     return {
       weightedScore: avgScore,
-      grade: getGradeFromScore(avgScore),
+      grade: getMarketRiskGrade(avgScore),
     };
   }
 
   const weightedScore = weightedSum / totalWeight;
   return {
     weightedScore,
-    grade: getGradeFromScore(weightedScore),
+    grade: getMarketRiskGrade(weightedScore),
   };
 }
 
@@ -626,7 +619,7 @@ export async function GET(
           : null,
       idleAssetsUsd: data.vault.idleAssetsUsd ?? null,
       vaultRiskScore,
-      vaultRiskGrade: getGradeFromScore(vaultRiskScore),
+      vaultRiskGrade: getMarketRiskGrade(vaultRiskScore),
       vaultAsset,
       adapters: adapterRisks,
     };

@@ -20,6 +20,7 @@ import { txPreviewActionLabel } from '@/lib/morpho/tx-preview';
 import { updatePendingTransaction } from '@/lib/safe/pending-store';
 import {
   resolveSafePendingPreview,
+  safePendingWarnings,
   resolveVaultAddressFromPending,
 } from '@/lib/safe/decode-vault-calldata-preview';
 import {
@@ -113,13 +114,16 @@ function PendingTransactionCard({
     owners.some((o) => getAddress(o).toLowerCase() === getAddress(walletAddress).toLowerCase());
   const signed = walletAddress ? ownerHasSigned(tx, walletAddress) : false;
   const busy = activeId === tx.id;
+  const warnings = useMemo(() => safePendingWarnings(tx), [tx]);
   const canExecute =
+    !warnings.blocking &&
     tx.status === 'ready' &&
     threshold != null &&
     threshold >= 1 &&
     tx.signatures.length >= threshold;
   const canShare =
     serviceEnabled &&
+    !warnings.blocking &&
     !tx.serviceSynced &&
     isOwner &&
     tx.status !== 'stale' &&
@@ -191,12 +195,22 @@ function PendingTransactionCard({
         </ul>
       )}
 
-      {error && activeId === tx.id && (
+      {warnings.messages.length > 0 && (
+        <div className="mt-3 space-y-1 rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+          {warnings.messages.map((message) => (
+            <p key={message}>{message}</p>
+          ))}
+        </div>
+      )}
+
+      {/* Each card owns its action hook, so `error` is this row's. It is set as
+          the action fails, after which activeId is already cleared. */}
+      {error && (
         <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error.slice(0, 300)}</p>
       )}
 
       <div className="mt-4 flex flex-wrap gap-2">
-        {isOwner && !signed && tx.status !== 'stale' && tx.status !== 'executed' && (
+        {isOwner && !signed && !warnings.blocking && tx.status !== 'stale' && tx.status !== 'executed' && (
           <Button size="sm" disabled={busy} onClick={() => void signPending(tx)}>
             {busy ? 'Signing…' : 'Sign (EIP-712)'}
           </Button>

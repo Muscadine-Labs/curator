@@ -32,6 +32,9 @@ const MARKETS_FOR_CAPS_QUERY = gql`
           utilization
           liquidityAssets
           liquidityAssetsUsd
+          supplyAssetsUsd
+          borrowAssetsUsd
+          collateralAssetsUsd
         }
       }
     }
@@ -44,6 +47,10 @@ export type MarketStateSnapshot = {
   utilization?: number | null;
   liquidityAssets?: string | number | null;
   liquidityAssetsUsd?: number | null;
+  /** Needed to score cap-only markets (no vault position to read them from). */
+  supplyAssetsUsd?: number | null;
+  borrowAssetsUsd?: number | null;
+  collateralAssetsUsd?: number | null;
 };
 
 type GraphMarketItem = {

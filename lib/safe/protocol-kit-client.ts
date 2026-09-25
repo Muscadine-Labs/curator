@@ -24,6 +24,24 @@ export type StoredSafeTransactionData = {
   nonce: string;
 };
 
+/** Pick the fields that define a Safe tx (and its `safeTxHash`) off a stored proposal. */
+export function storedSafeTransactionData(
+  tx: StoredSafeTransactionData
+): StoredSafeTransactionData {
+  return {
+    to: tx.to,
+    value: tx.value,
+    data: tx.data,
+    operation: tx.operation,
+    safeTxGas: tx.safeTxGas,
+    baseGas: tx.baseGas,
+    gasPrice: tx.gasPrice,
+    gasToken: tx.gasToken,
+    refundReceiver: tx.refundReceiver,
+    nonce: tx.nonce,
+  };
+}
+
 function resolveRpcUrl(): string {
   const key = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY?.trim();
   if (key) return `https://base-mainnet.g.alchemy.com/v2/${key}`;
@@ -212,10 +230,33 @@ export async function createSafeTransactionFromCalls(options: {
   };
 }
 
+/**
+ * Rebuild the Safe tx from its stored fields and confirm it hashes to the
+ * `safeTxHash` we are about to sign or execute. Proposals imported from the
+ * Transaction Service carry the service's hash next to separate `to`/`data`
+ * fields; the owner reads a preview decoded from `data`, so signing the stored
+ * hash without this check could approve a different transaction.
+ */
+async function buildVerifiedSafeTransaction(
+  protocolKit: InstanceType<typeof Safe>,
+  transactionData: StoredSafeTransactionData,
+  expectedSafeTxHash: Hex
+) {
+  const safeTransaction = await buildSafeTransaction(protocolKit, transactionData);
+  const recomputedHash = (await protocolKit.getTransactionHash(safeTransaction)) as Hex;
+  if (recomputedHash.toLowerCase() !== expectedSafeTxHash.toLowerCase()) {
+    throw new Error(
+      'Safe transaction hash mismatch — nonce may have changed or parameters drifted. Remove stale queue items and re-queue.'
+    );
+  }
+  return { safeTransaction, safeTxHash: recomputedHash };
+}
+
 export async function signSafeTransactionHash(options: {
   safeAddress: Address;
   signer: Address;
   safeTxHash: Hex;
+  transactionData: StoredSafeTransactionData;
   provider?: EIP1193Provider;
 }): Promise<Hex> {
   const protocolKit = await initSafeProtocolKit({
@@ -223,10 +264,23 @@ export async function signSafeTransactionHash(options: {
     signer: options.signer,
     provider: options.provider,
   });
-  const signature = await protocolKit.signHash(options.safeTxHash);
+  const { safeTxHash } = await buildVerifiedSafeTransaction(
+    protocolKit,
+    options.transactionData,
+    options.safeTxHash
+  );
+  const signature = await protocolKit.signHash(safeTxHash);
   return signature.data as Hex;
 }
 
+/**
+ * Encode `execTransaction` for the connected wallet to send.
+ *
+ * The outer call always carries `value: 0`. `execTransaction` is payable, so
+ * forwarding the inner Safe tx's `value` would make the executor fund the
+ * transfer out of their own wallet instead of the Safe's balance. Mirrors
+ * protocol-kit's `executeTransaction` pre-checks (threshold, Safe ETH balance).
+ */
 export async function executeSafePendingTransaction(options: {
   safeAddress: Address;
   signer: Address;
@@ -234,32 +288,44 @@ export async function executeSafePendingTransaction(options: {
   transactionData: StoredSafeTransactionData;
   signatures: ReadonlyArray<{ signer: Address; data: Hex }>;
   provider?: EIP1193Provider;
-}): Promise<{ hash: Hex }> {
+}): Promise<{ to: Address; data: Hex; value: bigint }> {
   const protocolKit = await initSafeProtocolKit({
     safeAddress: options.safeAddress,
     signer: options.signer,
     provider: options.provider,
   });
 
-  const safeTransaction = await buildSafeTransaction(protocolKit, options.transactionData);
-
-  const recomputedHash = (await protocolKit.getTransactionHash(safeTransaction)) as Hex;
-  if (recomputedHash.toLowerCase() !== options.expectedSafeTxHash.toLowerCase()) {
-    throw new Error(
-      'Safe transaction hash mismatch — nonce may have changed or parameters drifted. Remove stale queue items and re-queue.'
-    );
-  }
+  const { safeTransaction } = await buildVerifiedSafeTransaction(
+    protocolKit,
+    options.transactionData,
+    options.expectedSafeTxHash
+  );
 
   for (const sig of options.signatures) {
     safeTransaction.addSignature(new EthSafeSignature(getAddress(sig.signer), sig.data));
   }
 
-  const response = await protocolKit.executeTransaction(safeTransaction);
-  const hash = response.hash as Hex | undefined;
-  if (!hash) {
-    throw new Error('Safe execution did not return a transaction hash.');
+  const threshold = await protocolKit.getThreshold();
+  if (safeTransaction.signatures.size < threshold) {
+    throw new Error(
+      `Need ${threshold} signature(s); have ${safeTransaction.signatures.size}.`
+    );
   }
-  return { hash };
+
+  const innerValue = BigInt(options.transactionData.value || '0');
+  if (innerValue > 0n) {
+    const balance = await protocolKit.getBalance();
+    if (innerValue > balance) {
+      throw new Error('The Safe does not hold enough ETH for this transfer.');
+    }
+  }
+
+  const data = (await protocolKit.getEncodedTransaction(safeTransaction)) as Hex;
+  return {
+    to: getAddress(options.safeAddress),
+    data,
+    value: 0n,
+  };
 }
 
 export { BASE_CHAIN_ID };

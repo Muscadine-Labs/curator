@@ -1,19 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import type { VaultV2PendingResponse } from '@/app/api/vaults/[id]/pending/route';
-import { apiFetch } from '@/lib/data/api-fetch';
+import { apiErrorMessage, apiFetch } from '@/lib/data/api-fetch';
 import { INDEXED_VAULT_QUERY_OPTIONS } from '@/lib/data/query-config';
 
 async function fetchVaultV2Pending(vaultAddress: string): Promise<VaultV2PendingResponse> {
-  const res = await apiFetch(`/api/vaults/${vaultAddress}/pending`, { credentials: 'omit' });
+  const res = await apiFetch(`/api/vaults/${vaultAddress}/pending`);
 
   if (!res.ok) {
-    const text = await res.text();
-    try {
-      const json = JSON.parse(text);
-      throw new Error(json.message || json.error || 'Failed to fetch pending changes');
-    } catch {
-      throw new Error(text || 'Failed to fetch pending changes');
-    }
+    throw new Error(await apiErrorMessage(res, 'Failed to fetch pending changes'));
   }
 
   return res.json();

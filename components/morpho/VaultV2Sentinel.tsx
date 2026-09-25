@@ -109,7 +109,14 @@ type DeallocateRow = {
   lltv: string | null;
   adapterAddress: string;
   idData: Hex;
+  /** Booked `allocation(id)`. */
   currentRaw: bigint;
+  /**
+   * What `deallocate` can withdraw: the adapter's live position (booked plus
+   * interest accrued since the market was last touched) when read on-chain,
+   * else booked. Capping at booked left that interest behind on a full exit.
+   */
+  positionRaw: bigint;
   /** Market withdrawable liquidity (raw loan assets); used for Min deallocate. */
   liquidityAssets: bigint | null;
   allocationPct: number;
@@ -543,11 +550,22 @@ function DecreaseCapsPanel({
               parsed.value
             );
 
-      pendingCalldataRef.current = vaultWriteToCalldata({
-        address: writeConfig.address,
-        functionName: writeConfig.functionName,
-        args: writeConfig.args,
-      });
+      try {
+        pendingCalldataRef.current = vaultWriteToCalldata({
+          address: writeConfig.address,
+          functionName: writeConfig.functionName,
+          args: writeConfig.args,
+        });
+      } catch (encodeError) {
+        setRowErrors((prev) => ({
+          ...prev,
+          [rowKey]:
+            encodeError instanceof Error
+              ? `Could not encode cap decrease: ${encodeError.message.split('\n')[0]}`
+              : 'Could not encode cap decrease.',
+        }));
+        return;
+      }
 
       setRowErrors((prev) => {
         if (!prev[rowKey]) return prev;
@@ -1032,8 +1050,8 @@ function DeallocatePanel({
   /** Fill deallocate amount with withdrawable liquidity (Allocations Min semantics). */
   const setRowMinDeallocate = (row: DeallocateRow) => {
     if (!row.canDeallocate || row.currentRaw === 0n) return;
-    const minTarget = minTargetFromLiquidity(row.currentRaw, row.liquidityAssets);
-    const amount = row.currentRaw > minTarget ? row.currentRaw - minTarget : 0n;
+    const minTarget = minTargetFromLiquidity(row.positionRaw, row.liquidityAssets);
+    const amount = row.positionRaw > minTarget ? row.positionRaw - minTarget : 0n;
     if (amount <= 0n) return;
     setAmount(
       row.key,
@@ -1072,10 +1090,10 @@ function DeallocatePanel({
         setRowErrors((prev) => ({ ...prev, [row.key]: 'Invalid token amount.' }));
         return;
       }
-      parsed = clampDeallocateAmount(parsed, row.currentRaw);
-      const minTarget = minTargetFromLiquidity(row.currentRaw, row.liquidityAssets);
+      parsed = clampDeallocateAmount(parsed, row.positionRaw);
+      const minTarget = minTargetFromLiquidity(row.positionRaw, row.liquidityAssets);
       const maxWithdrawable =
-        row.currentRaw > minTarget ? row.currentRaw - minTarget : 0n;
+        row.positionRaw > minTarget ? row.positionRaw - minTarget : 0n;
       if (parsed > maxWithdrawable) {
         parsed = maxWithdrawable;
       }
@@ -1094,7 +1112,7 @@ function DeallocatePanel({
         label: row.label,
         lltv: row.lltv,
         amountRaw: parsed,
-        currentRaw: row.currentRaw,
+        currentRaw: row.positionRaw,
         symbol: assetSymbol,
         chainDecimals,
         assetDecimals,
@@ -1264,9 +1282,9 @@ function DeallocatePanel({
                 </TableRow>
               ) : (
                 rows.map((row) => {
-                  const minTarget = minTargetFromLiquidity(row.currentRaw, row.liquidityAssets);
+                  const minTarget = minTargetFromLiquidity(row.positionRaw, row.liquidityAssets);
                   const minDeallocate =
-                    row.currentRaw > minTarget ? row.currentRaw - minTarget : 0n;
+                    row.positionRaw > minTarget ? row.positionRaw - minTarget : 0n;
                   const amountPlaceholder =
                     minDeallocate > 0n
                       ? formatRawTokenAmount(minDeallocate, chainDecimals, displayDecimals)
@@ -1292,7 +1310,7 @@ function DeallocatePanel({
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatAllocationTableAmount(
-                          row.currentRaw,
+                          row.positionRaw,
                           assetSymbol,
                           assetDecimals ?? chainDecimals
                         )}
@@ -1418,6 +1436,13 @@ function findCapByRowKey(
   return null;
 }
 
+/** Live adapter position when read on-chain and at least booked; else booked. */
+function livePosition(live: string | null | undefined, booked: bigint): bigint {
+  if (booked === 0n) return 0n;
+  const parsed = live != null ? parseBig(live) : null;
+  return parsed != null && parsed > booked ? parsed : booked;
+}
+
 function buildOverviewAndDeallocate(
   risk: V2VaultRiskResponse,
   governance: VaultV2GovernanceResponse | null | undefined,
@@ -1459,6 +1484,7 @@ function buildOverviewAndDeallocate(
     adapterAddress: '',
     idData: '0x',
     currentRaw: idleRaw,
+    positionRaw: idleRaw,
     liquidityAssets: null,
     allocationPct: 0,
     supplyApy: null,
@@ -1498,6 +1524,7 @@ function buildOverviewAndDeallocate(
         adapterAddress: adapter.adapterAddress,
         idData: EMPTY_ADAPTER_DATA,
         currentRaw: raw,
+        positionRaw: livePosition(adapter.liveAllocationAssets, raw),
         liquidityAssets: (() => {
           const liq = underlying?.liquidity;
           if (liq == null) return null;
@@ -1527,7 +1554,9 @@ function buildOverviewAndDeallocate(
       const col = m.market?.collateralAsset?.symbol;
       const loan = m.market?.loanAsset?.symbol;
       const label = formatMarketPairLabel(col, loan);
-      const morphoHref = key ? curatorBlueMarketHref(key, chainId) : null;
+      const morphoHref = key
+        ? curatorBlueMarketHref(key, chainId, `/vault/${wrapperVaultAddress}/sentinel`)
+        : null;
       overviewSegments.push({
         key: key ?? `${adapter.adapterAddress}-${col}-${loan}`,
         label,
@@ -1545,6 +1574,7 @@ function buildOverviewAndDeallocate(
         adapterAddress: adapter.adapterAddress,
         idData: m.market ? encodeMarketParamsData(m.market) : ('0x' as Hex),
         currentRaw: raw,
+        positionRaw: livePosition(m.liveAllocationAssets, raw),
         liquidityAssets: (() => {
           const liq = m.market?.state?.liquidityAssets;
           if (liq == null) return null;

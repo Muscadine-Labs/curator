@@ -31,10 +31,16 @@ export function useSafeFunding() {
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
+  const receipt = useWaitForTransactionReceipt({
     hash: txHash ?? undefined,
     chainId: BASE_CHAIN_ID,
   });
+  const isConfirming = receipt.isLoading;
+  // wagmi's receipt wait errors on a reverted tx; a finished wait that is not a
+  // success must never read as "Confirmed".
+  const isSuccess = receipt.isSuccess && receipt.data?.status === 'success';
+  const isFailed =
+    txHash != null && (receipt.isError || (receipt.isSuccess && receipt.data?.status !== 'success'));
 
   const reset = useCallback(() => {
     setTxHash(null);
@@ -85,5 +91,15 @@ export function useSafeFunding() {
     ]
   );
 
-  return { fund, txHash, isPending, isConfirming, isSuccess, error, reset };
+  return {
+    fund,
+    txHash,
+    isPending,
+    isConfirming,
+    isSuccess,
+    isFailed,
+    receiptError: receipt.error,
+    error,
+    reset,
+  };
 }

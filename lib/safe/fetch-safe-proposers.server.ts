@@ -1,3 +1,4 @@
+import { publicErrorMessage } from '@/lib/utils/error-handler';
 import { getAddress, type Address } from 'viem';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import type { SafeProposer, SafeProposersInfo } from '@/lib/safe/types';
@@ -30,7 +31,7 @@ export async function fetchSafeProposers(safeAddress: Address): Promise<SafeProp
     return {
       proposers: [],
       proposersConfigured: true,
-      proposersError: error instanceof Error ? error.message : 'Failed to load proposers',
+      proposersError: publicErrorMessage(error, 'Failed to load proposers'),
     };
   }
 }

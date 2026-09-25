@@ -12,7 +12,7 @@ import { MarketRiskDetailCard } from '@/components/morpho/MarketRiskDetailCard';
 import { MarketOraclePanel } from '@/components/morpho/MarketOraclePanel';
 import { MarketInteractButton } from '@/components/morpho/MarketInteractButton';
 import { useCuratorMarketDetail } from '@/lib/hooks/useCuratorMarkets';
-import { morphoMarketHref } from '@/lib/morpho/morpho-app-links';
+import { morphoMarketHref, safeReturnPath } from '@/lib/morpho/morpho-app-links';
 import { asBlueMarketData } from '@/lib/morpho/blue-market-data';
 import { formatPercentage } from '@/lib/format/number';
 import { formatLltvPill } from '@/components/morpho/AllocationListView';
@@ -57,6 +57,8 @@ export default function CuratorBlueMarketPage() {
   const searchParams = useSearchParams();
   const marketId = decodeURIComponent(params.id as string);
   const chainId = parseCuratorMarketChainId(searchParams.get('chainId'));
+  const backHref = safeReturnPath(searchParams.get('from')) ?? '/markets';
+  const backLabel = backHref.startsWith('/vault/') ? 'Vault' : 'Morpho Markets';
 
   const { data, isLoading, error } = useCuratorMarketDetail(marketId, chainId);
   const market = data?.market;
@@ -143,8 +145,8 @@ export default function CuratorBlueMarketPage() {
           headerDescription
         )
       }
-      backHref="/markets"
-      backLabel="Morpho Markets"
+      backHref={backHref}
+      backLabel={backLabel}
       actions={
         market ? (
           <div className="flex flex-wrap items-center gap-2">

@@ -180,6 +180,15 @@ function computeOracleScore(
  * - Negative headroom (underwater) = 0
  * - Positive headroom scored based on ratio
  */
+/**
+ * A market whose borrow USD is missing but whose utilization shows borrowing
+ * has unknown exposure. Reading the missing value as 0 would score it "no
+ * borrow = safest", so callers treat it like missing state (highest risk).
+ */
+function hasUnknownBorrow(state: NonNullable<BlueMarketData['state']>): boolean {
+  return state.borrowAssetsUsd == null && (state.utilization ?? 0) > 0;
+}
+
 function computeLiquidationHeadroomScore(market: BlueMarketData): number {
   const state = market.state;
   if (!state) {
@@ -194,6 +203,10 @@ function computeLiquidationHeadroomScore(market: BlueMarketData): number {
   // Convert LTV from wei format to ratio for calculations
   // Wei to ratio: divide by 1e18 (e.g., 860000000000000000 -> 0.86)
   const lltvRatio = Number(lltvRaw) / 1e18;
+
+  if (hasUnknownBorrow(state)) {
+    return 0;
+  }
 
   // Get USD values - MUST use collateralAssetsUsd (borrower-side collateral)
   const collateralUsd = state.collateralAssetsUsd ? Number(state.collateralAssetsUsd) : 0;
@@ -333,6 +346,10 @@ function computeCoverageRatioScore(market: BlueMarketData): number {
   // Wei to ratio: divide by 1e18 (e.g., 860000000000000000 -> 0.86)
   const lltvRatio = Number(lltvRaw) / 1e18;
 
+  if (hasUnknownBorrow(state)) {
+    return 0;
+  }
+
   // Get USD values - MUST use collateralAssetsUsd (borrower-side collateral)
   const collateralUsd = state.collateralAssetsUsd ? Number(state.collateralAssetsUsd) : 0;
   const borrowUsd = state.borrowAssetsUsd ? Number(state.borrowAssetsUsd) : 0;
@@ -395,27 +412,56 @@ function computeCoverageRatioScore(market: BlueMarketData): number {
   }
 }
 
+/** Lowest score for each grade, best first. Anything under the last floor is F. */
+const GRADE_FLOORS: ReadonlyArray<readonly [MarketRiskGrade, number]> = [
+  ['A+', 93],
+  ['A', 90],
+  ['A−', 87],
+  ['B+', 84],
+  ['B', 80],
+  ['B−', 77],
+  ['C+', 74],
+  ['C', 70],
+  ['C−', 65],
+  ['D', 60],
+];
+
 /**
- * Map market risk score to letter grade (0-100 scale)
+ * Map market risk score to letter grade (0-100 scale). Single source for the
+ * scale: market, adapter and vault grades all go through here.
  */
-function getMarketRiskGrade(score: number): MarketRiskGrade {
-  if (score >= 93) return 'A+';
-  if (score >= 90) return 'A';
-  if (score >= 87) return 'A−';
-  if (score >= 84) return 'B+';
-  if (score >= 80) return 'B';
-  if (score >= 77) return 'B−';
-  if (score >= 74) return 'C+';
-  if (score >= 70) return 'C';
-  if (score >= 65) return 'C−';
-  if (score >= 60) return 'D';
+export function getMarketRiskGrade(score: number): MarketRiskGrade {
+  for (const [grade, floor] of GRADE_FLOORS) {
+    if (score >= floor) return grade;
+  }
   return 'F';
 }
+
+/** Highest whole score that still grades as `grade`. */
+function ceilingForGrade(grade: MarketRiskGrade): number {
+  const index = GRADE_FLOORS.findIndex(([g]) => g === grade);
+  if (index <= 0) return 100;
+  return GRADE_FLOORS[index - 1][1] - 1;
+}
+
+/**
+ * Best grade a market can reach when one component is failing. Stated as
+ * grades and derived from the scale, so retuning a grade floor moves the cap
+ * with it.
+ */
+export const RISK_SCORE_CAPS = {
+  /** oracleScore ≤ 20 (missing/opaque oracle) ⇒ C+ at best. */
+  weakOracle: ceilingForGrade('C+'),
+  /** utilizationScore ≤ 20 (very high utilization) ⇒ B− at best. */
+  highUtilization: ceilingForGrade('B−'),
+  /** coverageRatioScore < 100 (cannot fully cover shock liquidations) ⇒ B at best. */
+  partialCoverage: ceilingForGrade('B'),
+} as const;
 
 /**
  * Apply global caps based on component scores (0-100 scale)
  */
-function applyGlobalCaps(
+export function applyGlobalCaps(
   oracleScore: number,
   utilizationScore: number,
   coverageRatioScore: number,
@@ -423,21 +469,14 @@ function applyGlobalCaps(
 ): number {
   let cappedScore = baseScore;
 
-  // oracleScore ≤ 20 ⇒ grade ≤ C+ (54)
-  if (oracleScore <= 20 && cappedScore > 54) {
-    cappedScore = 54; // C+ max
+  if (oracleScore <= 20) {
+    cappedScore = Math.min(cappedScore, RISK_SCORE_CAPS.weakOracle);
   }
-
-  // utilization ≥ 95% ⇒ grade ≤ B− (60)
-  // (handled in utilizationScore, but also check if utilizationScore ≤ 20)
-  if (utilizationScore <= 20 && cappedScore > 60) {
-    cappedScore = 60; // B− max
+  if (utilizationScore <= 20) {
+    cappedScore = Math.min(cappedScore, RISK_SCORE_CAPS.highUtilization);
   }
-
-  // Coverage ratio < 1.0 (cannot fully cover -5% shock liquidations) ⇒ grade ≤ B (68)
-  // If coverage ratio score < 100, then cannot fully cover liquidations
-  if (coverageRatioScore < 100 && cappedScore > 68) {
-    cappedScore = 68; // B max
+  if (coverageRatioScore < 100) {
+    cappedScore = Math.min(cappedScore, RISK_SCORE_CAPS.partialCoverage);
   }
 
   return cappedScore;

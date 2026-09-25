@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Lock } from 'lucide-react';
 import { AddressBadge } from '@/components/AddressBadge';
 import { Button } from '@/components/ui/button';
@@ -16,23 +16,21 @@ import {
 import { VaultHolders } from '@/components/morpho/VaultHolders';
 import { VaultTransactions } from '@/components/morpho/VaultTransactions';
 import { VaultOverviewHistoryChart } from '@/components/morpho/VaultOverviewHistoryChart';
+import { VaultV2Allocations } from '@/components/morpho/VaultV2Allocations';
+import { VaultV2Caps } from '@/components/morpho/VaultV2Caps';
+import { VaultV2Timelocks } from '@/components/morpho/VaultV2Timelocks';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TokenUsdValue } from '@/components/morpho/TokenUsdValue';
 import { useVault } from '@/lib/hooks/useProtocolStats';
 import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
+import { useVaultV2Risk } from '@/lib/hooks/useVaultV2Risk';
+import { useVaultV2Pending } from '@/lib/hooks/useVaultV2Pending';
 import { useVaultV2Gates } from '@/lib/hooks/useVaultV2Gates';
 import { getScanUrlForChain } from '@/lib/constants';
 import { formatPercentage } from '@/lib/format/number';
 import { resolveTokenDisplayProps } from '@/lib/format/asset-decimals';
 import { formatMaxRateApr } from '@/lib/morpho/vault-v2-api';
-import {
-  FEE_WRAPPER_TIMELOCK_FUNCTIONS,
-  vaultGateStatuses,
-} from '@/lib/morpho/vault-v2-gate-state';
-import {
-  describeVaultV2Function,
-  formatTimelockStatus,
-  formatVaultV2FunctionTitle,
-} from '@/lib/morpho/vault-v2-timelocks';
+import { vaultGateStatuses } from '@/lib/morpho/vault-v2-gate-state';
 import {
   morphoCuratorVaultHref,
   morphoVaultHref,
@@ -92,12 +90,10 @@ export function FeeWrapperPanel({
   underlyingAddress,
   feeWrapperAddress,
   underlyingName,
-  underlyingApy,
 }: {
   underlyingAddress: string;
   feeWrapperAddress: string | null;
   underlyingName: string;
-  underlyingApy: number | null;
 }) {
   const router = useRouter();
 
@@ -109,7 +105,10 @@ export function FeeWrapperPanel({
 
   const wrapperQuery = useVault(feeWrapperAddress ?? '');
   const governanceQuery = useVaultV2Governance(feeWrapperAddress);
+  const riskQuery = useVaultV2Risk(feeWrapperAddress);
   const gatesQuery = useVaultV2Gates(feeWrapperAddress);
+  const pendingQuery = useVaultV2Pending(feeWrapperAddress);
+  const [section, setSection] = useState('overview');
 
   if (!feeWrapperAddress) return null;
 
@@ -160,12 +159,7 @@ export function FeeWrapperPanel({
   const morphoAppUrl = morphoVaultHref(wrapper.address, wrapper.chainId);
   const morphoCuratorUrl = morphoCuratorVaultHref(wrapper.address, wrapper.chainId);
   const gateRows = vaultGateStatuses(gatesQuery.data, governance?.timelocks ?? []);
-  const timelockByFn = new Map(
-    (governance?.timelocks ?? []).map((t) => [t.functionName, t])
-  );
-  const featuredTimelocks = FEE_WRAPPER_TIMELOCK_FUNCTIONS.map((fn) => timelockByFn.get(fn)).filter(
-    (t): t is NonNullable<typeof t> => Boolean(t)
-  );
+  const pendingCount = pendingQuery.data?.pending?.length ?? 0;
 
   return (
     <div className="space-y-6">
@@ -194,7 +188,7 @@ export function FeeWrapperPanel({
         }
       />
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <CompactStat label="TVL" hint="Total deposits in wrapper">
           <TokenUsdValue
             underlying={wrapper.analytics?.totalAssetsUnderlying ?? wrapper.totalAssetsUnderlying}
@@ -217,20 +211,21 @@ export function FeeWrapperPanel({
             align="left"
           />
         </CompactStat>
-        <CompactStat label="APY" hint="Wrapper net APY">
-          {wrapper.apy != null ? formatPercentage(wrapper.apy, 2) : '—'}
-        </CompactStat>
         <CompactStat label="Users" hint="Public depositors">
           {wrapper.depositors != null ? wrapper.depositors.toLocaleString() : '—'}
         </CompactStat>
-        <CompactStat label="Performance fee" hint="Charged on harvest">
-          {perfFee != null ? formatPercentage(perfFee, 2) : '0%'}
-        </CompactStat>
-        <CompactStat label="Management fee" hint="Annual on AUM">
-          {mgmtFee != null ? formatPercentage(mgmtFee, 2) : '0%'}
-        </CompactStat>
       </div>
 
+      <Tabs value={section} onValueChange={setSection}>
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="allocation">Allocation</TabsTrigger>
+          <TabsTrigger value="caps">
+            {pendingCount > 0 ? `Caps / timelocks (${pendingCount})` : 'Caps / timelocks'}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview" className="space-y-6">
       <div className="grid gap-4 lg:grid-cols-2">
         <CuratorPanel title="Overview">
           <CuratorKvList>
@@ -304,9 +299,6 @@ export function FeeWrapperPanel({
                 truncate
               />
             </CuratorKvRow>
-            <CuratorKvRow label="Instant APY" description="Current yield of the underlying vault">
-              {underlyingApy != null ? formatPercentage(underlyingApy, 2) : '—'}
-            </CuratorKvRow>
           </CuratorKvList>
         </CuratorPanel>
 
@@ -371,32 +363,6 @@ export function FeeWrapperPanel({
         </CuratorPanel>
       </div>
 
-      {featuredTimelocks.length > 0 ? (
-        <CuratorPanel title="Timelocks" description="Waiting periods before wrapper admin changes take effect.">
-          <CuratorKvList>
-            {featuredTimelocks.map((t) => {
-              const status = formatTimelockStatus(t.durationSeconds, t.abdicatedAt);
-              return (
-                <CuratorKvRow
-                  key={t.selector}
-                  label={formatVaultV2FunctionTitle(t.functionName).replace(/^Set /, '')}
-                  description={describeVaultV2Function(t.functionName, t.abdicatedAt)}
-                >
-                  <span
-                    className={cn(
-                      status.variant === 'abdicated' &&
-                        'text-amber-700 dark:text-amber-400'
-                    )}
-                  >
-                    {status.label}
-                  </span>
-                </CuratorKvRow>
-              );
-            })}
-          </CuratorKvList>
-        </CuratorPanel>
-      ) : null}
-
       <VaultHolders
         vaultAddress={wrapper.address}
         chainId={wrapper.chainId}
@@ -422,6 +388,35 @@ export function FeeWrapperPanel({
         collapsible
         defaultOpen={false}
       />
+        </TabsContent>
+
+        <TabsContent value="allocation" className="space-y-6">
+          {/* Allocations renders the liquidity adapter panel and its own error state. */}
+          <VaultV2Allocations
+            vaultAddress={wrapper.address}
+            chainId={wrapper.chainId}
+            preloadedData={governance}
+            preloadedRisk={riskQuery.data}
+            liquidityAdapterVariant="vault-or-idle"
+          />
+        </TabsContent>
+
+        <TabsContent value="caps" className="space-y-6">
+          <VaultV2Caps
+            vaultAddress={wrapper.address}
+            chainId={wrapper.chainId}
+            preloadedData={governance}
+            preloadedRisk={riskQuery.data}
+            preloadedPending={pendingQuery.data}
+            assetSymbol={assetSymbol}
+            assetDecimals={wrapper.assetDecimals}
+            totalAssetsUnderlying={
+              wrapper.analytics?.totalAssetsUnderlying ?? wrapper.totalAssetsUnderlying
+            }
+          />
+          <VaultV2Timelocks vaultAddress={wrapper.address} preloadedData={governance} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

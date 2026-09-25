@@ -32,9 +32,9 @@ export async function GET(request: Request) {
   }
 
   try {
-    const { statements, daily, vaults } = await computeTreasuryStatement();
+    const { statements, daily, vaults, warning } = await computeTreasuryStatement();
     const responseHeaders = mergeApiCacheHeaders(rateLimitResult.headers);
-    return NextResponse.json({ statements, daily, vaults }, { headers: responseHeaders });
+    return NextResponse.json({ statements, daily, vaults, warning }, { headers: responseHeaders });
   } catch (err) {
     const { error, statusCode } = handleApiError(err, 'Failed to fetch monthly statement');
     return NextResponse.json(error, { status: statusCode });

@@ -70,6 +70,11 @@ export function SafeHistoryPanel({ account }: { account: SafeAccountConfig }) {
               <li key={tx.safeTxHash} className="py-3">
                 <p className="text-sm font-medium text-foreground">
                   Nonce {tx.nonce}
+                  {tx.executionDate ? (
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      {new Date(tx.executionDate).toLocaleString()}
+                    </span>
+                  ) : null}
                   {tx.isSuccessful === false ? (
                     <span className="ml-2 text-xs text-red-600">failed</span>
                   ) : null}

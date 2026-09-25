@@ -62,6 +62,11 @@ export interface TreasuryStatementResult {
   statements: MonthlyStatementData[];
   daily: Array<{ date: string; value: number }>;
   vaults: VaultMonthlyData[];
+  /**
+   * Set when treasury self-deposits could not be fully loaded. Those deposits
+   * are then not subtracted, so revenue is overstated; the result is not cached.
+   */
+  warning: string | null;
 }
 
 type TimeseriesPoint = { x?: number | null; y?: number | string | null };
@@ -507,10 +512,17 @@ async function computeTreasuryStatementUncached(): Promise<TreasuryStatementResu
     monthsWithData: statements.length,
   });
 
+  const warning = transferFetch.error
+    ? 'Treasury self-deposits could not be loaded, so they are not subtracted — revenue may be overstated. Retry shortly.'
+    : transferFetch.truncated
+      ? 'Treasury transfer history was cut off at the page limit, so older self-deposits may not be subtracted — revenue may be overstated.'
+      : null;
+
   return {
     statements,
     daily,
     vaults: Array.from(vaultMonthlyMap.values()),
+    warning,
   };
 }
 
@@ -518,6 +530,7 @@ export function computeTreasuryStatement(): Promise<TreasuryStatementResult> {
   return withServerResponseCache(
     'treasury-statement-daily-shares-v4',
     API_CACHE_MAX_AGE_MS,
-    computeTreasuryStatementUncached
+    computeTreasuryStatementUncached,
+    (result) => result.warning == null
   );
 }
