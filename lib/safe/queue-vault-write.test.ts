@@ -63,4 +63,27 @@ describe('prepareSafeBatchSelection', () => {
       prepareSafeBatchSelection([queued({ nonce: '11' }), queued({ nonce: '12', operation: 1 })])
     ).toThrow(/DelegateCall/);
   });
+
+  it('rejects a range that would strand a later queued nonce', () => {
+    const five = queued({ nonce: '5' });
+    const six = queued({ nonce: '6' });
+    const seven = queued({ nonce: '7' });
+    expect(() => prepareSafeBatchSelection([five, six], [five, six, seven])).toThrow(
+      /nonce 7 would be stranded/
+    );
+  });
+
+  it('accepts the tail of the queue and ignores executed or other-Safe rows', () => {
+    const five = queued({ nonce: '5' });
+    const six = queued({ nonce: '6' });
+    const executed = queued({ nonce: '9', status: 'executed' });
+    const otherSafe = queued({
+      nonce: '9',
+      id: 'other',
+      safeAddress: getAddress('0x0000000000000000000000000000000000000001'),
+    });
+    expect(
+      prepareSafeBatchSelection([five, six], [five, six, executed, otherSafe]).map((t) => t.nonce)
+    ).toEqual(['5', '6']);
+  });
 });

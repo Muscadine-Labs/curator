@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import type { BotActivityResponse } from '@/app/api/bots/activity/route';
-import { apiFetch } from '@/lib/data/api-fetch';
+import { apiErrorMessage, apiFetch } from '@/lib/data/api-fetch';
 import { INDEXED_VAULT_QUERY_OPTIONS } from '@/lib/data/query-config';
 
 export type BotActivityPanel = 'allocator' | 'sentinel' | 'rebater';
@@ -19,12 +19,9 @@ export function useBotActivity(options?: {
         limit: String(limit),
         panel,
       });
-      const res = await apiFetch(`/api/bots/activity?${params}`, {
-        credentials: 'omit',
-      });
+      const res = await apiFetch(`/api/bots/activity?${params}`);
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || 'Failed to fetch bot activity');
+        throw new Error(await apiErrorMessage(res, 'Failed to fetch bot activity'));
       }
       return res.json();
     },

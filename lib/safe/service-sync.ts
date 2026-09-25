@@ -61,7 +61,12 @@ function mergeServiceTx(
   }
 
   const target = getAddress(serviceTx.to);
-  const source = inferSafeTxSource(target, (serviceTx.data ?? '0x') as Hex, serviceTx.value);
+  const source = inferSafeTxSource(
+    target,
+    (serviceTx.data ?? '0x') as Hex,
+    serviceTx.value,
+    serviceTx.operation
+  );
 
   return withDecodedPendingPreview({
     id: newPendingId(),

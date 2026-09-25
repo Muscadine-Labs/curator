@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { parseBoundedIntParam } from '@/lib/api/query-params';
 import { gql } from 'graphql-request';
 import { getAddress } from 'viem';
 import {
@@ -190,7 +191,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const url = new URL(request.url);
-    const perVault = Math.min(Number(url.searchParams.get('perVault') || '40'), 100);
+    const perVault = parseBoundedIntParam(url.searchParams.get('perVault'), 40, { min: 1, max: 100 });
 
     const payload = await withServerResponseCache(
       `protocol-txs-v2-${perVault}`,

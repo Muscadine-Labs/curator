@@ -11,6 +11,20 @@ export const vaultV2Abi = [
   },
   {
     type: "function",
+    name: "liquidityAdapter",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "liquidityData",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "bytes" }],
+  },
+  {
+    type: "function",
     name: "curator",
     stateMutability: "view",
     inputs: [],

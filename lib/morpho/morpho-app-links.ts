@@ -54,16 +54,27 @@ function marketHref(
   returnTo?: string | null
 ): string {
   const params = new URLSearchParams({ chainId: String(chainId) });
-  if (returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//')) {
-    params.set('from', returnTo);
-  }
+  const safeReturn = safeReturnPath(returnTo);
+  if (safeReturn) params.set('from', safeReturn);
   return `${path}?${params.toString()}`;
 }
+
+const RETURN_PATH_BASE = 'https://curator.invalid';
+// Browsers read `\` as `/` and drop tab/CR/LF inside URLs, so `/\evil.com` and
+// `/<TAB>/evil.com` are protocol-relative even though they start with one `/`.
+const UNSAFE_RETURN_CHARS = /[\\\u0000-\u001f\u007f]/;
 
 /** In-app path to return to, or null when the query is missing or unsafe. */
 export function safeReturnPath(from: string | null | undefined): string | null {
   if (!from || !from.startsWith('/') || from.startsWith('//')) return null;
-  return from;
+  if (UNSAFE_RETURN_CHARS.test(from)) return null;
+  try {
+    const url = new URL(from, RETURN_PATH_BASE);
+    if (url.origin !== RETURN_PATH_BASE) return null;
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return null;
+  }
 }
 
 /** Curator Morpho Blue market detail page. */

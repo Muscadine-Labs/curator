@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import type { VaultTransactionsResponse } from '@/app/api/vaults/[id]/transactions/route';
-import { apiFetch } from '@/lib/data/api-fetch';
+import { apiErrorMessage, apiFetch } from '@/lib/data/api-fetch';
 import { INDEXED_VAULT_QUERY_OPTIONS } from '@/lib/data/query-config';
 
 async function fetchVaultTransactions(
@@ -8,17 +8,9 @@ async function fetchVaultTransactions(
   first = 100
 ): Promise<VaultTransactionsResponse> {
   const res = await apiFetch(
-    `/api/vaults/${vaultAddress}/transactions?first=${first}`,
-    { credentials: 'omit' }
-  );
+    `/api/vaults/${vaultAddress}/transactions?first=${first}`);
   if (!res.ok) {
-    const text = await res.text();
-    try {
-      const json = JSON.parse(text);
-      throw new Error(json.message || json.error || 'Failed to fetch vault transactions');
-    } catch {
-      throw new Error(text || 'Failed to fetch vault transactions');
-    }
+    throw new Error(await apiErrorMessage(res, 'Failed to fetch vault transactions'));
   }
   return res.json();
 }

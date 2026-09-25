@@ -180,6 +180,15 @@ function computeOracleScore(
  * - Negative headroom (underwater) = 0
  * - Positive headroom scored based on ratio
  */
+/**
+ * A market whose borrow USD is missing but whose utilization shows borrowing
+ * has unknown exposure. Reading the missing value as 0 would score it "no
+ * borrow = safest", so callers treat it like missing state (highest risk).
+ */
+function hasUnknownBorrow(state: NonNullable<BlueMarketData['state']>): boolean {
+  return state.borrowAssetsUsd == null && (state.utilization ?? 0) > 0;
+}
+
 function computeLiquidationHeadroomScore(market: BlueMarketData): number {
   const state = market.state;
   if (!state) {
@@ -194,6 +203,10 @@ function computeLiquidationHeadroomScore(market: BlueMarketData): number {
   // Convert LTV from wei format to ratio for calculations
   // Wei to ratio: divide by 1e18 (e.g., 860000000000000000 -> 0.86)
   const lltvRatio = Number(lltvRaw) / 1e18;
+
+  if (hasUnknownBorrow(state)) {
+    return 0;
+  }
 
   // Get USD values - MUST use collateralAssetsUsd (borrower-side collateral)
   const collateralUsd = state.collateralAssetsUsd ? Number(state.collateralAssetsUsd) : 0;
@@ -333,6 +346,10 @@ function computeCoverageRatioScore(market: BlueMarketData): number {
   // Wei to ratio: divide by 1e18 (e.g., 860000000000000000 -> 0.86)
   const lltvRatio = Number(lltvRaw) / 1e18;
 
+  if (hasUnknownBorrow(state)) {
+    return 0;
+  }
+
   // Get USD values - MUST use collateralAssetsUsd (borrower-side collateral)
   const collateralUsd = state.collateralAssetsUsd ? Number(state.collateralAssetsUsd) : 0;
   const borrowUsd = state.borrowAssetsUsd ? Number(state.borrowAssetsUsd) : 0;
@@ -423,21 +440,24 @@ function applyGlobalCaps(
 ): number {
   let cappedScore = baseScore;
 
-  // oracleScore ≤ 20 ⇒ grade ≤ C+ (54)
+  // These ceilings predate the current grade scale (getMarketRiskGrade): the
+  // old labels read "C+ / B− / B max", but on today's scale 54 grades F, 60
+  // grades D and 68 grades C−. The numbers are what ships; retuning them to the
+  // labels would raise grades for risky markets, so that is a policy decision.
+
+  // oracleScore ≤ 20 (missing/opaque oracle) ⇒ score ≤ 54 (grade F)
   if (oracleScore <= 20 && cappedScore > 54) {
-    cappedScore = 54; // C+ max
+    cappedScore = 54;
   }
 
-  // utilization ≥ 95% ⇒ grade ≤ B− (60)
-  // (handled in utilizationScore, but also check if utilizationScore ≤ 20)
+  // utilizationScore ≤ 20 (very high utilization) ⇒ score ≤ 60 (grade D)
   if (utilizationScore <= 20 && cappedScore > 60) {
-    cappedScore = 60; // B− max
+    cappedScore = 60;
   }
 
-  // Coverage ratio < 1.0 (cannot fully cover -5% shock liquidations) ⇒ grade ≤ B (68)
-  // If coverage ratio score < 100, then cannot fully cover liquidations
+  // Coverage ratio < 1.0 (cannot fully cover shock liquidations) ⇒ score ≤ 68 (grade C−)
   if (coverageRatioScore < 100 && cappedScore > 68) {
-    cappedScore = 68; // B max
+    cappedScore = 68;
   }
 
   return cappedScore;

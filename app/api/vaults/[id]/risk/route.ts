@@ -331,11 +331,13 @@ function capToBlueMarketData(cap: CapInfo): BlueMarketData | null {
     irmAddress: cap.marketParams.irmAddress ?? null,
     lltv: cap.marketParams.lltv ?? null,
     realizedBadDebt: null,
+    // Without these USD totals the scorer reads a missing borrow as "no borrow"
+    // and grades a heavily borrowed cap-only market as safest.
     state: cap.marketParams.state
       ? {
-          supplyAssetsUsd: null,
-          borrowAssetsUsd: null,
-          collateralAssetsUsd: null,
+          supplyAssetsUsd: cap.marketParams.state.supplyAssetsUsd ?? null,
+          borrowAssetsUsd: cap.marketParams.state.borrowAssetsUsd ?? null,
+          collateralAssetsUsd: cap.marketParams.state.collateralAssetsUsd ?? null,
           liquidityAssets:
             cap.marketParams.state.liquidityAssets != null
               ? String(cap.marketParams.state.liquidityAssets)
@@ -349,7 +351,7 @@ function capToBlueMarketData(cap: CapInfo): BlueMarketData | null {
     vaultSupplyAssets,
     vaultSupplyAssetsUsd: null,
     vaultTotalAssetsUsd: null,
-    marketTotalSupplyUsd: null,
+    marketTotalSupplyUsd: cap.marketParams.state?.supplyAssetsUsd ?? null,
   });
 }
 

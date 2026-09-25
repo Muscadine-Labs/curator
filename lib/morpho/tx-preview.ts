@@ -27,7 +27,11 @@ export type TxPreviewAction =
   | 'withdraw_collateral'
   | 'exit'
   | 'gate'
-  | 'batch';
+  | 'batch'
+  | 'accept'
+  | 'revoke'
+  | 'config'
+  | 'call';
 
 export type TxPreviewChange = {
   action: TxPreviewAction;
@@ -278,7 +282,7 @@ export function buildLiquidityAdapterPreview(input: {
       'Sets which adapter and market provide withdrawable liquidity for deposits and withdrawals. Callable by an on-chain allocator — applies immediately (not timelocked).',
     changes: [
       {
-        action: 'allocate',
+        action: 'config',
         label: selectedLabel,
         subtitle: `${currentLabel} → ${selectedLabel}`,
       },
@@ -320,5 +324,13 @@ export function txPreviewActionLabel(action: TxPreviewAction): string {
       return 'Gate';
     case 'batch':
       return 'Batch';
+    case 'accept':
+      return 'Accept';
+    case 'revoke':
+      return 'Revoke';
+    case 'config':
+      return 'Configure';
+    case 'call':
+      return 'Call';
   }
 }

@@ -44,6 +44,7 @@ interface MonthlyStatementResponse {
     total: { usd: number };
   }>;
   daily?: Array<{ date: string; value: number }>;
+  warning?: string | null;
 }
 
 export default function Home() {
@@ -205,6 +206,14 @@ export default function Home() {
               <span className="ml-1.5 font-normal normal-case tracking-normal text-muted-foreground/80">
                 · {revenueSource === 'treasury' ? 'Treasury wallet' : 'DefiLlama'}
               </span>
+              {revenueSource === 'treasury' && monthlyData?.warning ? (
+                <span
+                  className="ml-1.5 font-normal normal-case tracking-normal text-amber-600 dark:text-amber-400"
+                  title={monthlyData.warning}
+                >
+                  · may be overstated
+                </span>
+              ) : null}
             </p>
             <KpiCard
               title="Total Revenue"

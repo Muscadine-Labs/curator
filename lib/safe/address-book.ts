@@ -47,11 +47,23 @@ export function listAddressBook(): SafeAddressBookEntry[] {
   return readEntries();
 }
 
+/**
+ * Add or move an entry to the front. An empty `label` (e.g. recording a Send
+ * recipient) keeps the existing label rather than overwriting it with the
+ * shortened address.
+ */
 export function upsertAddressBookEntry(address: string, label: string): void {
   if (!isAddress(address)) return;
   const normalized = getAddress(address);
-  const trimmed = label.trim() || `${normalized.slice(0, 6)}…${normalized.slice(-4)}`;
-  const next = readEntries().filter(
+  const entries = readEntries();
+  const existing = entries.find(
+    (row) => row.address.toLowerCase() === normalized.toLowerCase()
+  );
+  const trimmed =
+    label.trim() ||
+    existing?.label?.trim() ||
+    `${normalized.slice(0, 6)}…${normalized.slice(-4)}`;
+  const next = entries.filter(
     (row) => row.address.toLowerCase() !== normalized.toLowerCase()
   );
   next.unshift({ address: normalized, label: trimmed });

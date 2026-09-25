@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { parseBoundedIntParam } from '@/lib/api/query-params';
 import { gql } from 'graphql-request';
 import { getAddress, isAddress } from 'viem';
 import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
@@ -136,8 +137,8 @@ export async function GET(
     }
 
     const url = new URL(request.url);
-    const first = Math.min(Number(url.searchParams.get('first') || '100'), 500);
-    const skip = Math.min(Number(url.searchParams.get('skip') || '0'), 10_000);
+    const first = parseBoundedIntParam(url.searchParams.get('first'), 100, { min: 1, max: 500 });
+    const skip = parseBoundedIntParam(url.searchParams.get('skip'), 0, { min: 0, max: 10_000 });
 
     const chainId = vaultConfig.chainId ?? BASE_CHAIN_ID;
     const data = await morphoGraphQLClient.request<V2GraphResponse>(V2_REALLOCATIONS_QUERY, {

@@ -243,7 +243,7 @@ export function buildPendingAcceptPreview(input: {
     });
   } else {
     changes.push({
-      action: 'allocate',
+      action: 'accept',
       label: formatVaultV2FunctionTitle(item.functionName),
       subtitle: summary,
     });
@@ -303,7 +303,7 @@ export function buildPendingRevokePreview(input: {
       : 'Cancel this pending timelock action before it executes. Callable by an on-chain sentinel or curator.',
     changes: [
       {
-        action: 'allocate',
+        action: 'revoke',
         label: formatVaultV2FunctionTitle(item.functionName),
         subtitle: summary,
         before: summary,

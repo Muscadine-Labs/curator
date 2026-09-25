@@ -20,6 +20,7 @@ import {
   updatePendingTransaction,
   removePendingTransaction,
   getPendingById,
+  getSafePendingSnapshot,
 } from '@/lib/safe/pending-store';
 import {
   fetchPendingMultisigTransactions,
@@ -192,9 +193,14 @@ export async function queueVaultRebalanceInSafe(options: {
  * local MultiSend would leave the original service proposal executable at that
  * nonce. DelegateCall rows are refused because this UI cannot safely fold them
  * into a Call MultiSend.
+ *
+ * The range must also be the tail of the Safe's queue. Folding N proposals into
+ * one nonce frees N−1 nonces; a later queued proposal is already signed for its
+ * old nonce, so it would sit behind a gap nothing can fill and never execute.
  */
 export function prepareSafeBatchSelection(
-  txs: ReadonlyArray<SafePendingTransaction>
+  txs: ReadonlyArray<SafePendingTransaction>,
+  queue: ReadonlyArray<SafePendingTransaction> = []
 ): SafePendingTransaction[] {
   if (txs.length < 2) {
     throw new Error('Select at least two queued proposals to batch.');
@@ -224,6 +230,25 @@ export function prepareSafeBatchSelection(
     }
   }
 
+  const selectedIds = new Set(sorted.map((tx) => tx.id));
+  const lastNonce = nonces[nonces.length - 1]!;
+  const laterQueued = queue.filter(
+    (tx) =>
+      !selectedIds.has(tx.id) &&
+      tx.safeAddress.toLowerCase() === safeAddress &&
+      (tx.status === 'awaiting_signatures' || tx.status === 'ready') &&
+      Number(tx.nonce) > lastNonce
+  );
+  if (laterQueued.length > 0) {
+    const later = laterQueued
+      .map((tx) => Number(tx.nonce))
+      .sort((a, b) => a - b)
+      .join(', ');
+    throw new Error(
+      `Batch must include the last queued nonce. Proposals at nonce ${later} would be stranded behind the freed nonces — include them or remove them first.`
+    );
+  }
+
   for (const tx of sorted) {
     if (tx.serviceSynced) {
       throw new Error(
@@ -247,7 +272,7 @@ export async function queueSafeBatch(options: {
   provider?: EIP1193Provider;
   threshold?: number;
 }): Promise<SafePendingTransaction> {
-  const ordered = prepareSafeBatchSelection(options.txs);
+  const ordered = prepareSafeBatchSelection(options.txs, getSafePendingSnapshot());
   const nonce = Number(ordered[0]!.nonce);
   const { safeTxHash, transactionData } = await createSafeTransactionFromCalls({
     safeAddress: getSafeByRole(options.safeRole).address,

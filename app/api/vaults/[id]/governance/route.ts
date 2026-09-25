@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { gql } from 'graphql-request';
-import { getAddress, isAddress } from 'viem';
+import { getAddress, isAddress, keccak256, zeroAddress, type Address, type Hex } from 'viem';
 import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
 import { getVaultByAddress } from '@/lib/config/vaults';
 import { handleApiError, AppError } from '@/lib/utils/error-handler';
@@ -16,6 +16,9 @@ import {
 } from '@/lib/morpho/v2-public-allocator';
 import { mergeApiOnChainVaultHeaders } from '@/lib/api/response-cache';
 import { logger } from '@/lib/utils/logger';
+import { publicClient } from '@/lib/onchain/client';
+import { vaultV2Abi } from '@/lib/onchain/abis';
+import { isMarketCap } from '@/lib/morpho/cap-utils';
 import { unauthorizedUnlessAdmin } from '@/lib/auth/require-admin';
 import { isMorphoVaultV2Adapter, mergeUnderlyingVaultInfo } from '@/lib/morpho/vault-v2-adapter';
 
@@ -139,6 +142,9 @@ export type CapInfo = {
       utilization?: number | null;
       liquidityAssets?: string | number | null;
       liquidityAssetsUsd?: number | null;
+      supplyAssetsUsd?: number | null;
+      borrowAssetsUsd?: number | null;
+      collateralAssetsUsd?: number | null;
     } | null;
   } | null;
 };
@@ -371,6 +377,74 @@ function mapLiquidityData(data: GraphLiquidityData): LiquidityDataInfo | null {
   return null;
 }
 
+/** Live `liquidityAdapter()` / `liquidityData()`; null when the read fails. */
+async function readOnChainLiquidity(
+  vault: Address
+): Promise<{ adapter: Address; data: Hex } | null> {
+  const [adapter, data] = await publicClient.multicall({
+    allowFailure: true,
+    contracts: [
+      { address: vault, abi: vaultV2Abi, functionName: 'liquidityAdapter' },
+      { address: vault, abi: vaultV2Abi, functionName: 'liquidityData' },
+    ],
+  });
+  if (adapter?.status !== 'success' || data?.status !== 'success') return null;
+  return { adapter: getAddress(adapter.result), data: data.result };
+}
+
+/**
+ * The Morpho indexer lags `setLiquidityAdapterAndData`, so a post-write refetch
+ * would still report the old adapter as current. Prefer the on-chain values and
+ * re-derive the display fields from the adapters / caps we already loaded.
+ */
+function overlayOnChainLiquidity(
+  onChain: { adapter: Address; data: Hex },
+  graph: { liquidityAdapter: AdapterInfo | null; liquidityData: LiquidityDataInfo | null },
+  adapters: AdapterInfo[],
+  caps: CapInfo[]
+): { liquidityAdapter: AdapterInfo | null; liquidityData: LiquidityDataInfo | null } {
+  const adapterLower = onChain.adapter.toLowerCase();
+  if (adapterLower === zeroAddress) {
+    return { liquidityAdapter: null, liquidityData: null };
+  }
+
+  const liquidityAdapter =
+    graph.liquidityAdapter?.address?.toLowerCase() === adapterLower
+      ? graph.liquidityAdapter
+      : adapters.find((a) => a.address.toLowerCase() === adapterLower) ?? {
+          address: onChain.adapter,
+          type: 'Unknown',
+          assets: null,
+          assetsUsd: null,
+          factoryAddress: null,
+          forceDeallocatePenalty: null,
+        };
+
+  if (onChain.data === '0x') {
+    return { liquidityAdapter, liquidityData: null };
+  }
+
+  // Blue adapter data is abi.encode(marketParams); its hash is the market id.
+  const marketId = keccak256(onChain.data).toLowerCase();
+  if (graph.liquidityData?.kind === 'market' && graph.liquidityData.marketKey?.toLowerCase() === marketId) {
+    return { liquidityAdapter, liquidityData: graph.liquidityData };
+  }
+  const cap = caps.find(
+    (c) =>
+      isMarketCap(c) &&
+      c.marketKey?.toLowerCase() === marketId &&
+      (!c.adapterAddress || c.adapterAddress.toLowerCase() === adapterLower)
+  );
+  return {
+    liquidityAdapter,
+    liquidityData: {
+      kind: 'market',
+      marketKey: cap?.marketKey ?? marketId,
+      marketParams: cap?.marketParams ?? null,
+    },
+  };
+}
+
 function mapTimelock(entry: {
   selector?: string | null;
   functionName?: string | null;
@@ -455,7 +529,8 @@ export async function GET(
         ?.map((item) => mapAdapter(item, address))
         .filter((a): a is AdapterInfo => a !== null) ?? [];
 
-    const liquidityAdapter = mapAdapter(data.vault.liquidityAdapter, address);
+    let liquidityAdapter = mapAdapter(data.vault.liquidityAdapter, address);
+    let liquidityData = mapLiquidityData(data.vault.liquidityData ?? null);
 
     const capsRaw =
       data.vault.caps?.items
@@ -474,6 +549,23 @@ export async function GET(
       logger.warn('On-chain cap overlay failed; returning GraphQL caps', {
         vaultAddress: address,
         error: overlayError instanceof Error ? overlayError : new Error(String(overlayError)),
+      });
+    }
+
+    try {
+      const onChainLiquidity = await readOnChainLiquidity(getAddress(address));
+      if (onChainLiquidity) {
+        ({ liquidityAdapter, liquidityData } = overlayOnChainLiquidity(
+          onChainLiquidity,
+          { liquidityAdapter, liquidityData },
+          adapters,
+          caps
+        ));
+      }
+    } catch (liquidityError) {
+      logger.warn('On-chain liquidity adapter read failed; returning GraphQL value', {
+        vaultAddress: address,
+        error: liquidityError instanceof Error ? liquidityError : new Error(String(liquidityError)),
       });
     }
 
@@ -514,7 +606,7 @@ export async function GET(
           ? String(data.vault.liquidity)
           : null,
       liquidityUsd: data.vault.liquidityUsd ?? null,
-      liquidityData: mapLiquidityData(data.vault.liquidityData ?? null),
+      liquidityData,
       owner: data.vault.owner?.address ?? null,
       curator: data.vault.curator?.address ?? null,
       allocators,

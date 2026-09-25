@@ -44,6 +44,8 @@ type GateWriteKind = 'whitelist' | 'whitelister';
 const WHITELIST_ROLES: SafeRole[] = ['allocator', 'curator'];
 const WHITELISTER_ROLES: SafeRole[] = ['curator'];
 
+const GATE_SCAN_POLL_MS = 3_000;
+
 function gateQueryKey(address: string) {
   return ['send-assets-gate', address] as const;
 }
@@ -81,22 +83,16 @@ function GateRoster({
   description,
   rows,
   empty,
-  loading,
 }: {
   title: string;
   description: string;
   rows: SendAssetsGateState['accounts'];
   empty: string;
-  loading: boolean;
 }) {
   const scan = getScanUrlForChain(BASE_CHAIN_ID);
   return (
     <CuratorPanel title={title} description={description}>
-      {loading ? (
-        <div className="p-4">
-          <Skeleton className="h-24 w-full" />
-        </div>
-      ) : rows.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="px-4 py-3">
           <CuratorEmptyText>{empty}</CuratorEmptyText>
         </div>
@@ -115,6 +111,56 @@ function GateRoster({
         </ul>
       )}
     </CuratorPanel>
+  );
+}
+
+function GateRosters({ state }: { state: SendAssetsGateState }) {
+  const unreadable = state.accounts.filter(
+    (row) => row.isWhitelisted == null || row.isWhitelister == null
+  );
+  const scan = state.rosterScan ?? { status: 'failed' as const, progress: 0 };
+  return (
+    <>
+      {scan.status !== 'complete' || unreadable.length > 0 ? (
+        <div className="space-y-1 rounded-xl border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-xs text-amber-700 dark:text-amber-400">
+          {scan.status === 'scanning' ? (
+            <p>
+              Scanning the gate&apos;s event history (
+              {Math.floor(scan.progress * 100)}% done). Accounts added outside
+              this app&apos;s config may be missing until it finishes.
+            </p>
+          ) : null}
+          {scan.status === 'failed' ? (
+            <p>
+              Could not scan the gate&apos;s event history. The lists below only cover
+              configured accounts, so an address added elsewhere may be missing.
+            </p>
+          ) : null}
+          {unreadable.length > 0 ? (
+            <p>
+              Could not read {unreadable.length} account
+              {unreadable.length === 1 ? '' : 's'} from the gate:{' '}
+              {unreadable.map((row) => short(row.address)).join(', ')}. They are left out
+              of the lists below.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      <GateRoster
+        title="Whitelisters"
+        description="Accounts isWhitelister() returns true for. They can change the deposit allowlist."
+        rows={state.accounts.filter((row) => row.isWhitelister === true)}
+        empty="No whitelisters on this gate."
+      />
+
+      <GateRoster
+        title="Whitelisted"
+        description="Accounts isWhitelisted() returns true for. They can deposit into gated vaults."
+        rows={state.accounts.filter((row) => row.isWhitelisted === true)}
+        empty="No whitelisted accounts on this gate."
+      />
+    </>
   );
 }
 
@@ -140,6 +186,9 @@ export function SendAssetsGatePanel({
       return (await res.json()) as SendAssetsGateState;
     },
     ...ON_CHAIN_VAULT_QUERY_OPTIONS,
+    // The server scans gate history a few seconds per request; poll until done.
+    refetchInterval: (q) =>
+      q.state.data?.rosterScan?.status === 'scanning' ? GATE_SCAN_POLL_MS : false,
   });
 
   const [accountInput, setAccountInput] = useState('');
@@ -256,21 +305,15 @@ export function SendAssetsGatePanel({
         )}
       </CuratorPanel>
 
-      <GateRoster
-        title="Whitelisters"
-        description="Accounts isWhitelister() returns true for. They can change the deposit allowlist."
-        rows={(query.data?.accounts ?? []).filter((row) => row.isWhitelister)}
-        empty="No whitelisters on this gate."
-        loading={!query.data}
-      />
-
-      <GateRoster
-        title="Whitelisted"
-        description="Accounts isWhitelisted() returns true for. They can deposit into gated vaults."
-        rows={(query.data?.accounts ?? []).filter((row) => row.isWhitelisted)}
-        empty="No whitelisted accounts on this gate."
-        loading={!query.data}
-      />
+      {query.isLoading ? (
+        <CuratorPanel title="Whitelisters" description="Loading gate roster…">
+          <div className="p-4">
+            <Skeleton className="h-24 w-full" />
+          </div>
+        </CuratorPanel>
+      ) : query.data ? (
+        <GateRosters state={query.data} />
+      ) : null}
 
       <CuratorPanel
         title="Update gate"

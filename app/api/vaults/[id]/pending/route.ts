@@ -99,12 +99,13 @@ export async function GET(
       data.vault.pendingConfigs?.items
         ?.filter((item): item is GraphPendingItem => Boolean(item?.data && item?.functionName))
         .map((item, index) => {
-          const validAt =
+          const rawValidAt =
             item.validAt == null
               ? 0
               : typeof item.validAt === 'string'
                 ? Number(item.validAt)
                 : item.validAt;
+          const validAt = Number.isFinite(rawValidAt) && rawValidAt > 0 ? rawValidAt : 0;
           const decoded = mapPendingDecoded(item.decodedData);
 
           return {
@@ -113,7 +114,8 @@ export async function GET(
             functionName: item.functionName!,
             txHash: item.txHash ?? '',
             validAt,
-            status: validAt <= now ? 'ready' : 'waiting',
+            // validAt 0 means the indexer did not report it — never "ready".
+            status: validAt > 0 && validAt <= now ? 'ready' : 'waiting',
             summary: describePendingDecoded(decoded),
             decoded,
           };

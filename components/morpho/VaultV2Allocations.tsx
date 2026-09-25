@@ -142,6 +142,8 @@ interface VaultV2AllocationsProps {
   preloadedData?: VaultV2GovernanceResponse | null;
   /** Preloaded risk data (adapters+markets+allocations). Optional. */
   preloadedRisk?: V2VaultRiskResponse | null;
+  /** Fee wrappers pick a Morpho vault adapter or idle; strategy vaults pick a market. */
+  liquidityAdapterVariant?: 'market' | 'vault-or-idle';
 }
 
 function MorphoAllocationLink({
@@ -299,6 +301,12 @@ function resolveTargetAssetsFromInput(
     return { assets: t.currentAssets, error: null };
   }
   if (inputMode === 'percentage') {
+    // Switching to % mode writes each row as a 2-dp percent, rounded down. An
+    // untouched row must resolve back to its booked amount, or every row
+    // becomes a small phantom deallocation in the multicall.
+    if (v === rawToPercentInput(t.currentAssets, totalRaw)) {
+      return { assets: t.currentAssets, error: null };
+    }
     const parsed = percentInputToRaw(v, totalRaw);
     if (parsed.error) {
       return { assets: t.currentAssets, error: `Invalid percentage for ${t.label}` };
@@ -438,6 +446,7 @@ export function VaultV2Allocations({
   chainId,
   preloadedData,
   preloadedRisk,
+  liquidityAdapterVariant = 'market',
 }: VaultV2AllocationsProps) {
   const queryClient = useQueryClient();
   const {
@@ -2164,6 +2173,7 @@ export function VaultV2Allocations({
         risk={risk}
         assetSymbol={vaultSymbol}
         assetDecimals={vaultDecimals}
+        variant={liquidityAdapterVariant}
       />
       <div className="space-y-4">
         <CuratorPageHeader

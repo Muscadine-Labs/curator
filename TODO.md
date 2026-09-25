@@ -5,6 +5,7 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 ## Today
 
 ## Done
+- 2026-09-25 — Code review: fixed 35 issues across Safe execute/sign, gates, allocation planning, risk scoring, fee wrapper tabs, BFF errors, treasury statement, bots. See `docs/brain/CHANGELOG.md`.
 - 2026-09-24 — Safe execute prompts the connected wallet; Send and Settings no longer hit React #185; history loads executed Transaction Service v2 txs.
 - 2026-09-24 — Send-assets gate shows on-chain whitelisters and whitelisted accounts with Basescan links.
 - 2026-09-24 — Market back link returns to the vault section or the markets filter query. Liquidity USD matches available token liquidity.

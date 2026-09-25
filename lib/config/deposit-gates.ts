@@ -40,12 +40,26 @@ export const SEND_ASSETS_GATE_ADDRESS: Address | null = process.env.SEND_ASSETS_
     ? getAddress(process.env.GATE_ADDRESS)
     : null;
 
+const DEFAULT_GATE_ADDRESS = '0xb7f2598ac79a3c6406dddb81edcc60ea72a134b9';
+const DEFAULT_GATE_DEPLOY_BLOCK = 50_928_622n;
+
 /** Default production gate (Base, 2026-09-05 deploy). Override via env when redeploying. */
 export const DEPOSIT_GATE_CONTRACT_ADDRESS: Address = getAddress(
   process.env.SEND_ASSETS_GATE_ADDRESS ??
     process.env.GATE_ADDRESS ??
-    '0xb7f2598ac79a3c6406dddb81edcc60ea72a134b9'
+    DEFAULT_GATE_ADDRESS
 );
+
+/**
+ * First block of the default gate (`0xb7f2…34b9`), where the roster event scan
+ * starts. A redeployed gate sets `SEND_ASSETS_GATE_DEPLOY_BLOCK`; without it the
+ * server finds the block by bisecting `eth_getCode`.
+ */
+export function depositGateDeployBlock(gate: Address): bigint | null {
+  const fromEnv = process.env.SEND_ASSETS_GATE_DEPLOY_BLOCK?.trim();
+  if (fromEnv && /^\d+$/.test(fromEnv)) return BigInt(fromEnv);
+  return gate.toLowerCase() === DEFAULT_GATE_ADDRESS ? DEFAULT_GATE_DEPLOY_BLOCK : null;
+}
 
 /**
  * Safes that may call `setIsWhitelisted` on the gate (`roleSetter` appoints via

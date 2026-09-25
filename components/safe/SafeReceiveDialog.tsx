@@ -149,7 +149,12 @@ export function SafeReceiveDialog({
 
   const overBalance = walletBalance != null && parsedAmount > walletBalance;
   const canSend =
-    isConnected && selected != null && parsedAmount > 0n && !overBalance && !funding.isPending;
+    isConnected &&
+    selected != null &&
+    parsedAmount > 0n &&
+    !overBalance &&
+    !funding.isPending &&
+    !funding.isConfirming;
 
   return (
     <SafeModal
@@ -257,7 +262,14 @@ export function SafeReceiveDialog({
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline dark:text-blue-400"
                 >
-                  {funding.isConfirming ? 'Confirming…' : 'Confirmed'} — view transaction
+                  {funding.isConfirming
+                    ? 'Confirming…'
+                    : funding.isSuccess
+                      ? 'Confirmed'
+                      : funding.isFailed
+                        ? 'Failed'
+                        : 'Submitted'}{' '}
+                  — view transaction
                   <ExternalLink className="h-3 w-3" />
                 </a>
               ) : null}

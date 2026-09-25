@@ -18,13 +18,13 @@ import { VaultTransactions } from '@/components/morpho/VaultTransactions';
 import { VaultOverviewHistoryChart } from '@/components/morpho/VaultOverviewHistoryChart';
 import { VaultV2Allocations } from '@/components/morpho/VaultV2Allocations';
 import { VaultV2Caps } from '@/components/morpho/VaultV2Caps';
-import { VaultV2LiquidityAdapter } from '@/components/morpho/VaultV2LiquidityAdapter';
 import { VaultV2Timelocks } from '@/components/morpho/VaultV2Timelocks';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TokenUsdValue } from '@/components/morpho/TokenUsdValue';
 import { useVault } from '@/lib/hooks/useProtocolStats';
 import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
 import { useVaultV2Risk } from '@/lib/hooks/useVaultV2Risk';
+import { useVaultV2Pending } from '@/lib/hooks/useVaultV2Pending';
 import { useVaultV2Gates } from '@/lib/hooks/useVaultV2Gates';
 import { getScanUrlForChain } from '@/lib/constants';
 import { formatPercentage } from '@/lib/format/number';
@@ -107,6 +107,7 @@ export function FeeWrapperPanel({
   const governanceQuery = useVaultV2Governance(feeWrapperAddress);
   const riskQuery = useVaultV2Risk(feeWrapperAddress);
   const gatesQuery = useVaultV2Gates(feeWrapperAddress);
+  const pendingQuery = useVaultV2Pending(feeWrapperAddress);
   const [section, setSection] = useState('overview');
 
   if (!feeWrapperAddress) return null;
@@ -158,6 +159,7 @@ export function FeeWrapperPanel({
   const morphoAppUrl = morphoVaultHref(wrapper.address, wrapper.chainId);
   const morphoCuratorUrl = morphoCuratorVaultHref(wrapper.address, wrapper.chainId);
   const gateRows = vaultGateStatuses(gatesQuery.data, governance?.timelocks ?? []);
+  const pendingCount = pendingQuery.data?.pending?.length ?? 0;
 
   return (
     <div className="space-y-6">
@@ -218,7 +220,9 @@ export function FeeWrapperPanel({
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="allocation">Allocation</TabsTrigger>
-          <TabsTrigger value="caps">Caps / timelocks</TabsTrigger>
+          <TabsTrigger value="caps">
+            {pendingCount > 0 ? `Caps / timelocks (${pendingCount})` : 'Caps / timelocks'}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
@@ -387,24 +391,13 @@ export function FeeWrapperPanel({
         </TabsContent>
 
         <TabsContent value="allocation" className="space-y-6">
-          {governance && riskQuery.data ? (
-            <VaultV2LiquidityAdapter
-              vaultAddress={wrapper.address}
-              chainId={wrapper.chainId}
-              governance={governance}
-              risk={riskQuery.data}
-              assetSymbol={assetSymbol}
-              assetDecimals={wrapper.assetDecimals}
-              variant="vault-or-idle"
-            />
-          ) : (
-            <Skeleton className="h-40 w-full rounded-xl" />
-          )}
+          {/* Allocations renders the liquidity adapter panel and its own error state. */}
           <VaultV2Allocations
             vaultAddress={wrapper.address}
             chainId={wrapper.chainId}
             preloadedData={governance}
             preloadedRisk={riskQuery.data}
+            liquidityAdapterVariant="vault-or-idle"
           />
         </TabsContent>
 
@@ -414,6 +407,7 @@ export function FeeWrapperPanel({
             chainId={wrapper.chainId}
             preloadedData={governance}
             preloadedRisk={riskQuery.data}
+            preloadedPending={pendingQuery.data}
             assetSymbol={assetSymbol}
             assetDecimals={wrapper.assetDecimals}
             totalAssetsUnderlying={

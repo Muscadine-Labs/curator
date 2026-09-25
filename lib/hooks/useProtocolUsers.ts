@@ -8,7 +8,7 @@ export function useProtocolUsers(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['protocol-users'],
     queryFn: async (): Promise<ProtocolUsersResponse> => {
-      const res = await apiFetch('/api/protocol-users', { credentials: 'omit' });
+      const res = await apiFetch('/api/protocol-users');
       if (!res.ok) throw new Error('Failed to fetch protocol users');
       return res.json();
     },
@@ -21,7 +21,7 @@ export function useProtocolTransactions(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['protocol-transactions'],
     queryFn: async (): Promise<ProtocolTransactionsResponse> => {
-      const res = await apiFetch('/api/protocol-transactions', { credentials: 'omit' });
+      const res = await apiFetch('/api/protocol-transactions');
       if (!res.ok) throw new Error('Failed to fetch protocol transactions');
       return res.json();
     },

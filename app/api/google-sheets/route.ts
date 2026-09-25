@@ -4,6 +4,7 @@ import { handleApiError } from '@/lib/utils/error-handler';
 import { logger } from '@/lib/utils/logger';
 import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
 import { unauthorizedUnlessAdmin } from '@/lib/auth/require-admin';
+import { parseCsvRecords } from '@/lib/utils/csv';
 
 // Ensure Node.js runtime for API routes
 export const runtime = 'nodejs';
@@ -30,69 +31,11 @@ async function fetchPublicGoogleSheet(sheetId: string, sheetName?: string): Prom
       throw new Error(`Failed to fetch Google Sheet: ${response.status} ${response.statusText}`);
     }
 
-    const csvText = await response.text();
-    
-    // Parse CSV to JSON
-    const lines = csvText.split('\n').filter(line => line.trim());
-    if (lines.length === 0) {
-      return [];
-    }
-
-    // Parse header row
-    const headers = parseCSVLine(lines[0]);
-    
-    // Parse data rows
-    const rows: Array<Record<string, string>> = [];
-    for (let i = 1; i < lines.length; i++) {
-      const values = parseCSVLine(lines[i]);
-      const row: Record<string, string> = {};
-      headers.forEach((header, index) => {
-        row[header] = values[index] || '';
-      });
-      rows.push(row);
-    }
-
-    return rows;
+    return parseCsvRecords(await response.text());
   } catch (err) {
     logger.error('Error fetching Google Sheet', err instanceof Error ? err : new Error(String(err)), { sheetId });
     throw err;
   }
-}
-
-/**
- * Parse a CSV line handling quoted fields
- */
-function parseCSVLine(line: string): string[] {
-  const result: string[] = [];
-  let current = '';
-  let inQuotes = false;
-
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    const nextChar = line[i + 1];
-
-    if (char === '"') {
-      if (inQuotes && nextChar === '"') {
-        // Escaped quote
-        current += '"';
-        i++; // Skip next quote
-      } else {
-        // Toggle quote state
-        inQuotes = !inQuotes;
-      }
-    } else if (char === ',' && !inQuotes) {
-      // Field separator
-      result.push(current.trim());
-      current = '';
-    } else {
-      current += char;
-    }
-  }
-  
-  // Add last field
-  result.push(current.trim());
-  
-  return result;
 }
 
 export async function GET(request: Request) {

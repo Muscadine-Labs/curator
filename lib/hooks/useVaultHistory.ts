@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import type { VaultHistoryResponse } from '@/app/api/vaults/[id]/history/route';
 import type { VaultHistorySeries } from '@/lib/morpho/vault-history';
-import { apiFetch } from '@/lib/data/api-fetch';
+import { apiErrorMessage, apiFetch } from '@/lib/data/api-fetch';
 import { INDEXED_VAULT_QUERY_OPTIONS } from '@/lib/data/query-config';
 
 const EMPTY_HISTORY_SERIES: VaultHistorySeries = {
@@ -25,15 +25,9 @@ export function normalizeVaultHistoryResponse(
 }
 
 async function fetchVaultHistory(vaultAddress: string): Promise<VaultHistoryResponse> {
-  const res = await apiFetch(`/api/vaults/${vaultAddress}/history`, { credentials: 'omit' });
+  const res = await apiFetch(`/api/vaults/${vaultAddress}/history`);
   if (!res.ok) {
-    const text = await res.text();
-    try {
-      const json = JSON.parse(text);
-      throw new Error(json.message || json.error || 'Failed to fetch vault history');
-    } catch {
-      throw new Error(text || 'Failed to fetch vault history');
-    }
+    throw new Error(await apiErrorMessage(res, 'Failed to fetch vault history'));
   }
   const json = (await res.json()) as VaultHistoryResponse;
   return normalizeVaultHistoryResponse(json);

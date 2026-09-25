@@ -6,7 +6,10 @@ import {
   getPendingById,
   updatePendingTransaction,
 } from '@/lib/safe/pending-store';
-import { signSafeTransactionHash } from '@/lib/safe/protocol-kit-client';
+import {
+  signSafeTransactionHash,
+  storedSafeTransactionData,
+} from '@/lib/safe/protocol-kit-client';
 import { readSafeOnChainInfo } from '@/lib/safe/onchain-reads';
 import {
   isTransactionServiceConfigured,
@@ -45,6 +48,7 @@ export async function autoShareQueuedTransaction(options: {
       safeAddress: tx.safeAddress,
       signer: options.proposer,
       safeTxHash: tx.safeTxHash,
+      transactionData: storedSafeTransactionData(tx),
       provider: options.provider,
     });
 

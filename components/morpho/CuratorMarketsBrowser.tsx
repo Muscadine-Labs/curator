@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ArrowDown, ArrowUp, ArrowUpDown, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -35,6 +35,36 @@ const PRODUCT_HREF: Record<MarketsProductFilter, string> = {
   blue: '/markets/blue',
   midnight: '/markets/midnight',
 };
+type BrowserFilters = {
+  search: string;
+  loan: string;
+  collateral: string;
+  listed: ListedFilter;
+  muscadine: MuscadineFilter;
+};
+
+function filtersFromQuery(query: string): BrowserFilters {
+  const params = new URLSearchParams(query);
+  const listed = params.get('listed');
+  return {
+    search: params.get('q') ?? '',
+    loan: params.get('loan') ?? '',
+    collateral: params.get('collateral') ?? '',
+    listed: listed === 'all' || listed === 'unlisted' || listed === 'listed' ? listed : 'listed',
+    muscadine: params.get('muscadine') === 'muscadine' ? 'muscadine' : 'all',
+  };
+}
+
+function filtersToQuery(filters: BrowserFilters): string {
+  const params = new URLSearchParams();
+  if (filters.search.trim()) params.set('q', filters.search.trim());
+  if (filters.loan.trim()) params.set('loan', filters.loan.trim());
+  if (filters.collateral.trim()) params.set('collateral', filters.collateral.trim());
+  if (filters.listed !== 'listed') params.set('listed', filters.listed);
+  if (filters.muscadine !== 'all') params.set('muscadine', filters.muscadine);
+  return params.toString();
+}
+
 type SortKey = 'pair' | 'lltv' | 'sizeUsd' | 'liquidity' | 'apy' | 'listed' | 'muscadine';
 type SortDir = 'asc' | 'desc';
 
@@ -250,34 +280,48 @@ export function CuratorMarketsBrowser({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { chainId, networkName, ready } = useCuratorNetwork();
-  const [search, setSearch] = useState(() => searchParams.get('q') ?? '');
-  const [loanFilter, setLoanFilter] = useState(() => searchParams.get('loan') ?? '');
-  const [collateralFilter, setCollateralFilter] = useState(
-    () => searchParams.get('collateral') ?? ''
-  );
-  const [listedFilter, setListedFilter] = useState<ListedFilter>(() => {
-    const raw = searchParams.get('listed');
-    return raw === 'all' || raw === 'unlisted' || raw === 'listed' ? raw : 'listed';
-  });
-  const [muscadineFilter, setMuscadineFilter] = useState<MuscadineFilter>(() =>
-    searchParams.get('muscadine') === 'muscadine' ? 'muscadine' : 'all'
+  const initialFilters = filtersFromQuery(searchParams.toString());
+  const [search, setSearch] = useState(initialFilters.search);
+  const [loanFilter, setLoanFilter] = useState(initialFilters.loan);
+  const [collateralFilter, setCollateralFilter] = useState(initialFilters.collateral);
+  const [listedFilter, setListedFilter] = useState<ListedFilter>(initialFilters.listed);
+  const [muscadineFilter, setMuscadineFilter] = useState<MuscadineFilter>(
+    initialFilters.muscadine
   );
   const productFilter = product;
   const [sortKey, setSortKey] = useState<SortKey>('sizeUsd');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
+  // Two-way URL sync. `lastSyncedQuery` is the query we last read or wrote, so
+  // our own writes are not read back as navigation, while a real navigation
+  // (sidebar "Markets", Back) resets the filters instead of being overwritten.
+  const urlQuery = searchParams.toString();
+  const lastSyncedQuery = useRef(urlQuery);
+
   useEffect(() => {
-    const params = new URLSearchParams();
-    if (search.trim()) params.set('q', search.trim());
-    if (loanFilter.trim()) params.set('loan', loanFilter.trim());
-    if (collateralFilter.trim()) params.set('collateral', collateralFilter.trim());
-    if (listedFilter !== 'listed') params.set('listed', listedFilter);
-    if (muscadineFilter !== 'all') params.set('muscadine', muscadineFilter);
-    const next = params.toString();
-    const current = searchParams.toString();
-    if (next === current) return;
-    router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
-  }, [search, loanFilter, collateralFilter, listedFilter, muscadineFilter, pathname, router, searchParams]);
+    if (urlQuery === lastSyncedQuery.current) return;
+    lastSyncedQuery.current = urlQuery;
+    const next = filtersFromQuery(urlQuery);
+    setSearch(next.search);
+    setLoanFilter(next.loan);
+    setCollateralFilter(next.collateral);
+    setListedFilter(next.listed);
+    setMuscadineFilter(next.muscadine);
+  }, [urlQuery]);
+
+  useEffect(() => {
+    const next = filtersToQuery({
+      search,
+      loan: loanFilter,
+      collateral: collateralFilter,
+      listed: listedFilter,
+      muscadine: muscadineFilter,
+    });
+    if (next === lastSyncedQuery.current) return;
+    lastSyncedQuery.current = next;
+    // Native replaceState syncs useSearchParams without an RSC round trip per keystroke.
+    window.history.replaceState(null, '', next ? `${pathname}?${next}` : pathname);
+  }, [search, loanFilter, collateralFilter, listedFilter, muscadineFilter, pathname]);
 
   const { data, isLoading, error, refetch } = useCuratorMarkets(chainId, {
     enabled: ready && productFilter !== 'midnight',

@@ -3,7 +3,7 @@
  * Client wallet RPCs stay in `lib/wallet/config.ts` (Reown AppKit).
  */
 
-const BASE_PUBLIC_RPC = 'https://mainnet.base.org';
+export const BASE_PUBLIC_RPC = 'https://mainnet.base.org';
 
 export function getAlchemyBaseRpcUrl(): string | null {
   const key = process.env.ALCHEMY_API_KEY?.trim();

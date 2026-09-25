@@ -4,6 +4,22 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-09-25 — Code review fixes (Safe, gates, allocation, risk, BFF)
+
+- Safe execute sent the inner tx `value` as `msg.value`, so the executor paid for ETH the Safe sent out. Now `value: 0` plus threshold and Safe-balance checks, and the row is marked executed only after a successful receipt (`lib/safe/protocol-kit-client.ts`, `useSafeTransactionActions.ts`).
+- Sign / Share / auto-share recompute `safeTxHash` from the stored fields before signing. DelegateCall to anything but a Base MultiSend is flagged and blocked; MultiSend batches decode per call; undecodable vault `multicall` calls stay in the preview (`lib/safe/multisend.ts`).
+- Batches must include the last queued nonce. Bundle import merges signatures. Post-execute refetch matches keys case-insensitively. Send keeps saved address-book labels. Receive shows Failed on a reverted funding tx.
+- Open redirect: `safeReturnPath` rejects `/\host` and control characters.
+- Gate roster comes from the gate's events plus config, scanned in 6s slices with progress (`send-assets-gate-roster.server.ts`).
+- Allocation: display uses the adapter's live position (`expectedSupplyAssets` / `realAssets`) and idle uses `balanceOf(vault)`; % mode no longer turns untouched rows into deallocations; Idle is re-anchored on live cash at submit. Governance overlays on-chain `liquidityAdapter()` / `liquidityData()`.
+- Fee wrapper: one liquidity adapter panel, pending shown on Caps / timelocks, Allocation has an error state.
+- Risk: cap-only markets get real borrow/supply/collateral USD; missing borrow data no longer scores as "safest". Score-cap labels corrected to the grades they actually give (54 = F, 60 = D, 68 = C−); numbers unchanged pending a policy call.
+- BFF: errors redact RPC URLs/secrets; hooks show `{ message }` instead of raw JSON; int query params are bounded; vault detail returns 502 on GraphQL failure; treasury statement flags (and does not cache) results missing self-deposits; protocol TVL trend no longer includes the synthetic T−30d point; Google Sheets CSV handles quoted newlines.
+- Pending timelocks: status re-derived on the client; null `validAt` is never Executable. Accept/revoke previews no longer say "Allocate".
+- Bots: Safe-executed actions come from Transaction Service history and are decoded through `execTransaction` / MultiSend.
+
+---
+
 ## 2026-09-24 — Safe wallet execute, history, gates, markets, fee wrapper
 
 - Send and Settings crashed with React #185 because the address book snapshot was a new array every read (`lib/safe/address-book.ts`).

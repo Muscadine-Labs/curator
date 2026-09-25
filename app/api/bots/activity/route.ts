@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { parseBoundedIntParam } from '@/lib/api/query-params';
 import { gql } from 'graphql-request';
 import { getAddress, isAddress, type Address, type Hex } from 'viem';
 import {
@@ -9,7 +10,7 @@ import {
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { labelForActor, type BotActorKind } from '@/lib/format/address-label';
 import {
-  decodeVaultV2Calldata,
+  decodeTransactionVaultCalls,
   type DecodedMarketParams,
   type DecodedVaultCallSummary,
 } from '@/lib/bots/decode-vault-calls';
@@ -19,7 +20,6 @@ import { formatRawTokenAmount } from '@/lib/format/number';
 import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
 import { batchVaultV2ByAddress, batchVaultV2AllocationTransactions } from '@/lib/morpho/batch-vault-graphql';
 import { publicClient } from '@/lib/onchain/client';
-import { getAlchemyBaseRpcUrl } from '@/lib/onchain/rpc-url';
 import { handleApiError } from '@/lib/utils/error-handler';
 import {
   createRateLimitMiddleware,
@@ -30,6 +30,11 @@ import { mergeApiCacheHeaders, API_CACHE_MAX_AGE_MS } from '@/lib/api/response-c
 import { withServerResponseCache } from '@/lib/api/server-response-cache';
 import { logger } from '@/lib/utils/logger';
 import { getSafeByRole } from '@/lib/safe/config';
+import { decodeMultiSend, isKnownMultiSend } from '@/lib/safe/multisend';
+import {
+  fetchExecutedMultisigTransactions,
+  isTransactionServiceConfigured,
+} from '@/lib/safe/transaction-service';
 import { fetchRebaterActivity, type RebaterActivityItem, type RebaterWatcher } from '@/lib/bots/rebater-activity';
 import { unauthorizedUnlessAdmin } from '@/lib/auth/require-admin';
 
@@ -449,59 +454,44 @@ function pickPanel(opts: {
   return null;
 }
 
-function getAlchemyUrl(): string | null {
-  return getAlchemyBaseRpcUrl();
-}
-
-async function fetchActorVaultTxHashes(
-  from: Address,
+/**
+ * Recent executed Safe transactions that call a tracked vault, directly or
+ * inside a MultiSend. Needs the Safe Transaction Service (API key); returns
+ * nothing without it.
+ */
+async function fetchSafeExecutedVaultTxHashes(
+  safe: Address,
   vaultSet: Set<string>,
-  maxCount = 15
+  maxCount = 12
 ): Promise<Array<{ hash: Hex; to: Address; timestamp: number | null }>> {
+  if (!isTransactionServiceConfigured()) return [];
   try {
-    const rpcUrl = getAlchemyUrl();
-    if (!rpcUrl) return [];
-    const res = await fetch(rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'alchemy_getAssetTransfers',
-        params: [
-          {
-            fromAddress: from,
-            category: ['external'],
-            excludeZeroValue: false,
-            withMetadata: true,
-            maxCount: `0x${maxCount.toString(16)}`,
-            order: 'desc',
-          },
-        ],
-      }),
-    });
-    const json = (await res.json()) as {
-      result?: {
-        transfers?: Array<{
-          hash?: string;
-          to?: string;
-          metadata?: { blockTimestamp?: string };
-        }>;
-      };
-    };
+    const history = await fetchExecutedMultisigTransactions(safe);
     const out: Array<{ hash: Hex; to: Address; timestamp: number | null }> = [];
-    for (const t of json.result?.transfers ?? []) {
-      if (!t.hash || !t.to || !isAddress(t.to)) continue;
-      if (!vaultSet.has(t.to.toLowerCase())) continue;
-      const ts = t.metadata?.blockTimestamp
-        ? Math.floor(new Date(t.metadata.blockTimestamp).getTime() / 1000)
+    for (const tx of history) {
+      if (out.length >= maxCount) break;
+      if (!tx.transactionHash || tx.isSuccessful === false || !isAddress(tx.to)) continue;
+      let vault: string | null = vaultSet.has(tx.to.toLowerCase()) ? tx.to : null;
+      if (!vault && tx.operation === 1 && isKnownMultiSend(tx.to) && tx.data) {
+        vault =
+          decodeMultiSend(tx.data as Hex)?.find((inner) =>
+            vaultSet.has(inner.to.toLowerCase())
+          )?.to ?? null;
+      }
+      if (!vault) continue;
+      const ts = tx.executionDate
+        ? Math.floor(new Date(tx.executionDate).getTime() / 1000)
         : null;
-      out.push({ hash: t.hash as Hex, to: getAddress(t.to), timestamp: ts });
+      out.push({
+        hash: tx.transactionHash as Hex,
+        to: getAddress(vault),
+        timestamp: Number.isFinite(ts) ? ts : null,
+      });
     }
     return out;
   } catch (error) {
-    logger.warn('alchemy_getAssetTransfers failed for bot watcher', {
-      from,
+    logger.warn('Safe Transaction Service history failed for bot watcher', {
+      safe,
       error: error instanceof Error ? error : new Error(String(error)),
     });
     return [];
@@ -522,8 +512,8 @@ export async function GET(request: NextRequest) {
 
   try {
     const url = new URL(request.url);
-    const perVault = Math.min(Number(url.searchParams.get('perVault') || '40'), 100);
-    const limit = Math.min(Number(url.searchParams.get('limit') || '25'), 50);
+    const perVault = parseBoundedIntParam(url.searchParams.get('perVault'), 40, { min: 1, max: 100 });
+    const limit = parseBoundedIntParam(url.searchParams.get('limit'), 25, { min: 1, max: 50 });
     const panelParam = url.searchParams.get('panel');
     const panelFilter: 'allocator' | 'sentinel' | 'rebater' | 'all' =
       panelParam === 'allocator' ||
@@ -703,8 +693,8 @@ export async function GET(request: NextRequest) {
           });
         }
 
-        // Supplement with Alchemy transfers so liquidity-only multicalls show up.
-        // Alchemy only for role Safes (not every GraphQL role holder).
+        // Supplement with role-Safe executions (Transaction Service history) so
+        // Safe-executed cap decreases, revokes, and liquidity switches show up.
         const alchemyWatchers: Address[] = [];
         if (panelFilter === 'all' || panelFilter === 'allocator') {
           alchemyWatchers.push(getSafeByRole('allocator').address);
@@ -718,7 +708,10 @@ export async function GET(request: NextRequest) {
 
         await Promise.all(
           alchemyUnique.map(async (addr) => {
-            const transfers = await fetchActorVaultTxHashes(addr, vaultSet, 12);
+            // Safes are contracts: they never start a top-level ("external")
+            // transfer, so Alchemy has nothing for them. Their executions come
+            // from the Transaction Service history instead.
+            const transfers = await fetchSafeExecutedVaultTxHashes(addr, vaultSet, 12);
             for (const t of transfers) {
               const key = t.hash.toLowerCase();
               if (candidatesByHash.has(key)) continue;
@@ -773,10 +766,14 @@ export async function GET(request: NextRequest) {
 
                 if (needsCalldataDecode(c)) {
                   const tx = await publicClient.getTransaction({ hash: c.hash });
-                  if (!c.sender && tx.from) {
-                    c.sender = getAddress(tx.from);
+                  // A role Safe acts through execTransaction: the vault's
+                  // msg.sender is the Safe (tx.to), not the executing EOA.
+                  const unwrapped = decodeTransactionVaultCalls(tx.input, c.vaultAddress);
+                  if (!c.sender) {
+                    if (unwrapped.viaSafe && tx.to) c.sender = getAddress(tx.to);
+                    else if (tx.from) c.sender = getAddress(tx.from);
                   }
-                  decoded = decodeVaultV2Calldata(tx.input);
+                  decoded = unwrapped.summary;
                 }
 
                 const from = c.sender;

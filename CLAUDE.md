@@ -35,6 +35,7 @@ Copy `.env.example` → `.env.local`. See that file for the full list.
 | `CURATOR_TRUSTED_PROXY_HOPS` | **Yes in production** | Proxy count in front of the app; required for per-IP login rate limiting |
 | `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | Recommended in production | Shared login rate-limit store across serverless isolates |
 | `MORPHO_API_URL`, `NEXT_PUBLIC_VAULT_*` | No | Overrides |
+| `SEND_ASSETS_GATE_DEPLOY_BLOCK` | No | First block of a redeployed send-assets gate (roster event scan start); default gate is built in |
 
 ---
 
@@ -217,21 +218,29 @@ Getting those semantics wrong is the #1 source of reverts.
 - **No max-catcher needed** — V2 is delta-based so interest drift doesn't cause
   a balancing revert; the allocator simply chooses deltas.
 - **Display vs booked allocation** — risk overlay (`overlay-v2-onchain-caps.ts`)
-  sets `allocationAssets` / UI `displayAssets` to `max(Morpho position supply,
-  on-chain allocation(id))` so accrued interest shows between rebalances; write
-  planning uses on-chain `bookedAllocationAssets` / `currentAssets` only. Always
+  sets `allocationAssets` / UI `displayAssets` to the adapter's **live position**
+  — Blue adapter `expectedSupplyAssets(marketId)`, fee-wrapper Vault V2 adapter
+  `realAssets()` — so accrued interest shows between rebalances. Only when that
+  read fails does it fall back to `max(Morpho position supply, allocation(id))`.
+  Do **not** go back to the max as the primary source: right after a
+  deallocation Morpho's indexer still reports the old supply, the row keeps
+  showing it, and `booked + (input − display)` then moves far more than the
+  curator typed. Write planning uses on-chain `bookedAllocationAssets` /
+  `currentAssets` only. Always
   emit `bookedAllocationAssets` as a string (including `"0"`). **Rebalance
   inputs** show display amounts (same as Allocated column); resolve via
   `booked + (input − display)` so unchanged rows are no-ops. Min/Max write
   display-space values. Post-wallet rebalance: await risk + governance refetch,
   exit edit mode, reset write hook.
 - **Idle (vault cash)** — V2 holds unallocated assets in the vault contract.
-  **Deployable idle** comes from Morpho GraphQL `idleAssets` / `idleAssetsUsd`
-  (via `overlay-v2-onchain-caps.ts`), **not** from `totalAssets − Σ allocation(id)`.
-  That residual can include **interest accrual** in `totalAssets()` that is not
-  withdrawable cash — treating it as idle caused phantom ~8 USDC buffers and
-  `TransferReverted` on allocate. Planning totals use Σ row currents + GraphQL
-  idle; relative cap checks use on-chain `totalAssets` (`chainTotalRaw`). This is
+  **Deployable idle** is the vault's own `asset().balanceOf(vault)`, read on-chain
+  in `overlay-v2-onchain-caps.ts` (same read the submit-time refresh uses);
+  Morpho GraphQL `idleAssets` is only the fallback when that read fails. It is
+  **never** `totalAssets − Σ allocation(id)`: that residual includes **interest
+  accrual** in `totalAssets()` that is not withdrawable cash — treating it as
+  idle caused phantom ~8 USDC buffers and `TransferReverted` on allocate.
+  Planning totals use Σ row currents + idle; relative cap checks use on-chain
+  `totalAssets` (`chainTotalRaw`). This is
   **not** a strategy adapter contract, but the UI treats idle as a first-class
   rebalance target alongside **Morpho Blue market** (`MorphoMarketV1Adapter`) rows
   and, on fee wrappers, a single **Morpho Vault V2** (`MorphoVaultV2Adapter`) row:
@@ -245,11 +254,18 @@ Getting those semantics wrong is the #1 source of reverts.
     under-allocation remainder onto the largest strategy target — that inflated
     a single market by tens of thousands of units. V2 planning uses `inputSum`
     (sum of entered targets) for the banner; unallocated remainder is implicit
-    **Idle** via deallocations. Auto-dust (`applyPlanningDust`) only runs in
-    **full % rebalance** (every row edited) and only nudges **Idle** for
-    sub-token rounding. The curator can **explicitly** route the remainder to a
-    strategy target via `DustRecipientSelect` (default `auto` = Idle); the
-    explicit recipient still goes through cap validation before submit.
+    **Idle** via deallocations. With `auto`, `applyPlanningDust` writes that
+    remainder onto the **Idle** planning row only (Idle never reaches
+    calldata). At submit, `refreshPlanRowsFromChain` re-anchors Idle with
+    `shiftTargetToLiveCurrent` (live cash ± the planned delta) — keeping the
+    absolute value would carry a stale GraphQL idle into the plan total and trip
+    "exceeds on-chain vault total". The curator can **explicitly** route the
+    remainder to a strategy target via `DustRecipientSelect` (default `auto` =
+    Idle); the explicit recipient still goes through cap validation before submit.
+  - **% input mode**: switching writes each row as a 2-dp percent rounded down.
+    A row whose string still equals `rawToPercentInput(current, total)` resolves
+    to its **booked** amount (`resolveTargetAssetsFromInput`); otherwise every
+    untouched row became a small phantom deallocation.
   - **Delisted targets**: a strategy row with **zero allocation and no active
     cap** (absolute and relative both absent/zero, with governance caps loaded)
     is hidden from the Allocations list — the vault can no longer allocate to
@@ -291,7 +307,12 @@ Allocation sections on wrappers: **Idle → Morpho Vault V2**. Writes use empty
 adapter data. Risk grades live on the underlying vault page, not the wrapper.
 Wrapper **viewing** lives on the underlying vault's **Fee wrapper** tab
 (`/vault/[underlying]/fee-wrapper`): condensed TVL / users / history plus
-Morpho-style overview, fees, roles, gates, max rate, and timelocks. Visiting a
+sub-tabs **Overview** (Morpho-style overview, fees, roles, gates, max rate) /
+**Allocation** (`VaultV2Allocations` with `liquidityAdapterVariant="vault-or-idle"`
+— it renders the single liquidity adapter panel and its own error state; do not
+add a second `VaultV2LiquidityAdapter` beside it) / **Caps / timelocks**
+(`VaultV2Caps` with `preloadedPending` from `useVaultV2Pending`, tab label shows
+the pending count). Visiting a
 fee-wrapper address redirects to that tab. The vaults sidebar lists underlyings
 only; `/vaults` still groups Wrapper rows and links them to the tab.
 
@@ -355,7 +376,11 @@ grades; Sentinel holds emergency actions at the bottom.
    deallocation ([docs](https://docs.morpho.org/learn/concepts/public-allocator/)).
 5. **Timelocks** — `VaultV2Timelocks.tsx` (read-only).
 6. **Allocation** — `VaultV2Allocations.tsx` receives `preloadedData`
-   (governance) **and** `preloadedRisk`. Caps are resolved via
+   (governance) **and** `preloadedRisk`. Its **Liquidity adapter** panel marks
+   the current option from governance `liquidityAdapter` / `liquidityData`,
+   which the governance route overlays with on-chain `liquidityAdapter()` /
+   `liquidityData()` (the indexer lags `setLiquidityAdapterAndData`, so a
+   post-write refetch would otherwise still show the old adapter as current). Caps are resolved via
    `keccak256(idData)` using helpers in `lib/morpho/v2-id-data.ts` (see §3.2).
    **List layout** — sections **Idle → Morpho Vault V2 → Morpho Blue Market**.
    Row types:
@@ -375,6 +400,9 @@ grades; Sentinel holds emergency actions at the bottom.
      (`allowRevoke`). Each item has a stable `rowId` (list index) so per-row tx
      state does not bleed when multiple pending actions share the same `data`
      bytes (e.g. batched cap increases). Only the active row shows loading/error.
+     Status (Executable vs Pending) is re-derived on the client from `validAt`
+     and a ticking clock; a missing `validAt` (0) is never Executable.
+     Accept/revoke previews use the `accept` / `revoke` actions, not `allocate`.
    - **Decrease Caps** — adapter / collateral / market tables; radio pick
      absolute vs relative per row; new value input; **Clear** resets the row form
      only; **Decrease** submits a single-row `decreaseAbsoluteCap` /
@@ -591,9 +619,20 @@ Then `applyGlobalCaps` may lower the composite before grading:
 
 | Condition | Cap |
 | --------- | --- |
-| `oracleScore ≤ 20` (missing/opaque oracle) | composite ≤ 54 (C+ max) |
-| `utilizationScore ≤ 20` (very high util) | composite ≤ 60 (B− max) |
-| `coverageRatioScore < 100` (cannot fully cover shock liquidations) | composite ≤ 68 (B max) |
+| `oracleScore ≤ 20` (missing/opaque oracle) | composite ≤ 54 (grades **F**) |
+| `utilizationScore ≤ 20` (very high util) | composite ≤ 60 (grades **D**) |
+| `coverageRatioScore < 100` (cannot fully cover shock liquidations) | composite ≤ 68 (grades **C−**) |
+
+These ceilings predate the current grade scale — they were once labelled
+"C+ / B− / B max". The numbers are what ships. Retuning them to those labels
+would *raise* grades for risky markets, so treat it as a policy decision, not a
+cleanup.
+
+**Missing borrow data:** a market with `borrowAssetsUsd == null` but
+`utilization > 0` scores 0 on headroom and coverage (`hasUnknownBorrow`), like
+missing state — never "no borrow = safest". Cap-only markets on the V2 risk
+route get supply/borrow/collateral USD from `fetch-markets-by-id.ts` so they are
+scored on real data.
 
 **Bad debt override:** if `market.realizedBadDebt.usd > 1`, force **grade F** and
 **score 0** regardless of components.
@@ -698,8 +737,12 @@ daily token-change (`app/page.tsx`). Toggle treasury vs DefiLlama via
    not income — a self-deposit that created it (e.g. selling underlying shares
    and depositing the wrappers) is not subtracted. Redeems / Rebater outflows
    are not negative revenue.
-5. Response always includes `statements`, `daily`, and `vaults`. Cached 30s via
-   `withServerResponseCache` inside `computeTreasuryStatement()`. Months run from
+5. Response always includes `statements`, `daily`, `vaults`, and `warning`. Cached
+   30s via `withServerResponseCache` inside `computeTreasuryStatement()` —
+   **except** when `warning` is set (treasury self-deposits failed to load or were
+   cut off at the page limit, so revenue may be overstated): that result is served
+   uncached, the statement page shows the warning, and the dashboard marks
+   revenue "may be overstated". Months run from
    the first month with income through the current month, including $0.00 gaps.
 
 **Why the graph can go negative without withdrawals**
@@ -775,12 +818,13 @@ mirrors the wallet chain (no independent network `<select>`). List query uses
 **Market size / liquidity (token + USD):**
 
 Display via `TokenUsdValue` / `formatMarketTokenAmount` — **token primary**, USD
-muted secondary. Sort/rank columns still use Morpho `sizeUsd` / `totalLiquidityUsd`.
+muted secondary. Size sorts by `sizeUsd`; Liquidity sorts by `liquidityAssetsUsd`
+(the USD value of the token amount shown).
 
 | UI | Token (primary) | USD (secondary) |
 | -- | --------------- | --------------- |
 | Market size (browser + risk card) | `supplyAssets` (loan) | `sizeUsd` |
-| Liquidity (browser + risk card) | `liquidityAssets` (loan) | `totalLiquidityUsd` |
+| Liquidity (browser + risk card “Available Liquidity”) | `liquidityAssets` (loan) | `liquidityAssetsUsd` |
 | Market detail — total liquidity | — (USD only) | `totalLiquidityUsd` |
 | Market detail — available liquidity | `liquidityAssets` (loan) | `liquidityAssetsUsd` |
 | Supply / borrow / collateral (detail) | paired `*Assets` | paired `*AssetsUsd` |
@@ -790,6 +834,18 @@ Do **not** label a USD number as a token amount. Token lines use
 
 Vault share % in `MarketRiskDetailCard` still uses `supplyAssetsUsd` internally
 (not `sizeUsd`).
+
+Never pair `liquidityAssets` with `totalLiquidityUsd`: the latter also counts
+Public Allocator reallocatable liquidity, so it is a different measure.
+`totalLiquidityUsd` appears only as its own USD-only “Total liquidity” row on
+the market detail page.
+
+**URL filters** — `CuratorMarketsBrowser` syncs `q`, `loan`, `collateral`,
+`listed`, `muscadine` both ways: a real navigation (sidebar “Markets”, Back)
+resets the filters, and typing writes the URL with `window.history.replaceState`
+(no RSC round trip per keystroke). Market links carry `from=` so the detail
+page's back link returns there; `safeReturnPath` rejects anything that is not a
+same-origin path (`//`, `/\host`, control characters).
 
 **List defaults** — filter **Listed** only; sort **Market size** high → low.
 Muscadine rows (blue highlight) = business vault with allocatable market cap on
@@ -946,7 +1002,17 @@ components.
 ## 8. Error Handling & Observability
 
 - `lib/utils/logger.ts` is the structured logger used by API routes.
-- `lib/utils/error-handler.ts` normalizes errors into `{ error, message }` JSON.
+- `lib/utils/error-handler.ts` normalizes errors into `{ message, code, statusCode }`
+  JSON. `AppError` messages pass through; any other error goes through
+  `publicErrorMessage` (viem `shortMessage`, first line only, URLs replaced,
+  configured secrets redacted) because viem RPC errors embed the request URL —
+  which carries the server Alchemy / CDP key. The full error is logged server-side.
+- Client hooks read failed BFF responses with `apiErrorMessage(res, fallback)`
+  (`lib/data/api-fetch.ts`) — the `{ message | error }` field, not the raw body.
+- Integer query params go through `parseBoundedIntParam` (`lib/api/query-params.ts`)
+  so junk never reaches GraphQL variables or cache keys.
+- `GET /api/vaults/[id]` returns **502** when Morpho GraphQL fails — only a vault
+  that is genuinely not indexed gets the "Unknown V2 Vault" placeholder.
 - `components/ErrorBoundary.tsx` catches render errors.
 - For reallocation failures, surface:
   - Cap validation messages inline next to inputs
@@ -1133,8 +1199,10 @@ components.
 
 ### Markets browser shows wrong size ranking
 
-- Use Morpho `state.sizeUsd` for market size and `state.totalLiquidityUsd` for
-  the liquidity column — not `supplyAssetsUsd` / `liquidityAssetsUsd` alone.
+- Use Morpho `state.sizeUsd` for market size. The liquidity column shows
+  `liquidityAssets` with its own `liquidityAssetsUsd` and sorts by that USD —
+  not `totalLiquidityUsd`, which is a different (Public Allocator–inclusive)
+  measure.
   See §4.7.
 
 ### GraphQL deprecation warnings in server logs
@@ -1313,12 +1381,25 @@ Workspace link: Muscadine Labs on `app.safe.global` (`lib/safe/links.ts`).
    and a connected proposer wallet, auto-share also signs EIP-712 and proposes
    to the Transaction Service; Safe App embed uses `sdk.txs.send` instead.
 2. **Sign** — On `/safe/[role]`, connect a **Safe owner** hot wallet in
-   the topbar. **Sign (EIP-712)** adds owner signatures locally.
+   the topbar. **Sign (EIP-712)** adds owner signatures locally. Sign, Share and
+   auto-share rebuild the Safe tx from its stored fields and check it hashes to
+   the stored `safeTxHash` **before** signing — a service-imported row carries
+   the service's hash next to separate `to`/`data`, and the owner reads a
+   preview decoded from `data`.
 3. **Execute** — Once signatures ≥ threshold, **any connected wallet** may
    **Execute on-chain** (`execTransaction` is permissionless); owners are only
-   required to **sign**. The **Safe address** calls the vault contract. On success,
-   Curator refetches vault risk, governance, pending, reallocations, and overview
-   (`refetch-vault-after-safe-execute.ts`).
+   required to **sign**. The **Safe address** calls the vault contract.
+   `executeSafePendingTransaction` returns `execTransaction` calldata that the
+   wagmi wallet sends with **`value: 0`** — never the inner tx's value, or the
+   executor pays for ETH the Safe sends out. It re-checks the on-chain threshold
+   and the Safe's ETH balance first (protocol-kit's own pre-checks). The row is
+   marked **executed only after the receipt succeeds**; a revert keeps it queued
+   (and its nonce reserved) with the hash linked. Then Curator refetches vault
+   risk, governance, pending, reallocations, overview, and the Safe header/assets
+   (`refetch-vault-after-safe-execute.ts` — matches query keys by address
+   **case-insensitively**; vault pages key on lowercase config addresses).
+   Wallet/chain/threshold errors surface on the row; a ref guard stops a
+   double-click from starting two executions.
 
 Export/import JSON shares proposals between owners/browsers.
 
@@ -1366,7 +1447,16 @@ client serializes calls with ≥210ms spacing.
   (`readSafeOnChainSettings`). Address book is client-only
   (`lib/safe/address-book.ts`).
 - `GET /api/gates/[address]` — live WhitelistSendAssetsGate state for a
-  configured gate. Writes are Safe-only via `/curator/gates`.
+  configured gate. Writes are Safe-only via `/curator/gates`. The gate has no
+  on-chain enumeration, so candidates = configured addresses ∪ every account in
+  its `SetIsWhitelister` / `SetIsWhitelisted(WithSig)` events
+  (`lib/morpho/send-assets-gate-roster.server.ts`); the live `isWhitelisted` /
+  `isWhitelister` mappings then decide the lists. The event scan walks history
+  in 2,000-block chunks (public Base RPC cap) for at most 6s per request, keeps
+  progress in memory, and reports `rosterScan: { status, progress }`; the panel
+  polls while `scanning`, warns on `failed`, and lists accounts whose reads
+  failed instead of dropping them. Start block: built-in for the default gate,
+  `SEND_ASSETS_GATE_DEPLOY_BLOCK` for a redeploy, else `eth_getCode` bisection.
 
 ### 13.3.1 Assets, send and receive
 
@@ -1417,7 +1507,24 @@ guard, address book)
 
 ### 13.5 Do not regress
 
-- Rebuild Safe tx with stored nonce/gas before execute; verify `safeTxHash`.
+- Rebuild Safe tx with stored nonce/gas before **sign and** execute; verify `safeTxHash`.
+- Execute sends `value: 0`; mark executed only on a successful receipt.
+- DelegateCall hazards (`lib/safe/multisend.ts`, `safePendingWarnings`): a
+  DelegateCall to anything but a canonical Base MultiSend / MultiSendCallOnly,
+  or a nested DelegateCall inside a MultiSend, is shown in red and **blocked**
+  from sign/share/execute. `inferSafeTxSource` never labels a DelegateCall as a
+  transfer or vault write. MultiSend batches get a per-call decoded preview.
+- Vault `multicall` / `submit` inner calls the Vault V2 ABI cannot decode are
+  kept in the preview (ERC-20 calls named) and warned on the card — never
+  silently dropped.
+- A MultiSend batch must include the **last** queued nonce for that Safe
+  (`prepareSafeBatchSelection(txs, queue)`): folding N rows into one nonce
+  frees N−1 nonces and would strand any later signed proposal forever.
+- Bundle import merges signatures into a proposal already held locally
+  (union by signer) instead of overwriting it.
+- Send's address-book upsert passes an empty label, which keeps an existing
+  saved label (`upsertAddressBookEntry`).
+- Safe Receive shows Confirmed only for a successful receipt; Failed otherwise.
 - V2 calldata: deallocates before allocates in multicall batches.
 - Cap preview amounts use asset display decimals (`formatCapRawAmount` in
   `allocation-display.ts`), not zero decimal places.
@@ -1578,8 +1685,17 @@ rules — the regression guard for the login bypass), `lib/safe/*.test.ts`
 (transfer calldata, token registry, calldata preview decoding),
 `lib/config/vaults.test.ts`, `lib/morpho/treasury-statement.test.ts`.
 
-Still uncovered and high value: `lib/morpho/cap-decrease-input.ts`,
-`lib/morpho/tx-preview.ts`, `lib/onchain/allocation-dust.ts` (`applyPlanningDust`).
+Also covered: `lib/safe/multisend.test.ts` (DelegateCall hazards, MultiSend
+decode), `lib/safe/pending-store.test.ts` (import signature merge),
+`lib/safe/address-book.test.ts`, `lib/morpho/morpho-app-links.test.ts`
+(return-path open redirect), `lib/morpho/cap-decrease-input.test.ts`,
+`lib/onchain/v2-rebalance-plan.test.ts` (idle re-anchor, % rounding),
+`lib/bots/decode-transaction-vault-calls.test.ts` (Safe `execTransaction`
+unwrap), `lib/utils/csv.test.ts`, `lib/utils/error-handler.test.ts`,
+`lib/api/query-params.test.ts`.
+
+Still uncovered and high value: `lib/morpho/tx-preview.ts`,
+`lib/onchain/allocation-dust.ts` (`applyPlanningDust`).
 
 ---
 
@@ -1600,7 +1716,7 @@ at `/markets`. Old `/markets/create` and `/markets/positions` redirect to `/mark
 
 ---
 
-_Last updated: 2026-09-12. When you change reallocation logic, allocation
+_Last updated: 2026-09-25. When you change reallocation logic, allocation
 list/filters (§5), caps/adapters display, V2 idData/Sentinel (§3.2, §4.2), tx
 preview, client fetch/cache (§4.3), app/API route paths (§2, §4.7, `next.config.ts`
 redirects), Morpho GraphQL field names (§4.4.1), Curator markets browser (§4.7),

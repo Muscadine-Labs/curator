@@ -59,9 +59,7 @@ export default function MuscadineLedgerPage() {
         MUSCADINE_LEDGER_SHEET_NAMES.map(async (name) => {
           try {
             const params = new URLSearchParams({ sheetId: currentSheetId, sheetName: name });
-            const response = await apiFetch(`/api/google-sheets?${params.toString()}`, {
-              credentials: 'omit',
-            });
+            const response = await apiFetch(`/api/google-sheets?${params.toString()}`);
             if (response.ok) {
               results[name] = await response.json();
             }
@@ -83,9 +81,7 @@ export default function MuscadineLedgerPage() {
       if (sheetName && sheetName !== 'All') {
         params.append('sheetName', sheetName);
       }
-      const response = await apiFetch(`/api/google-sheets?${params.toString()}`, {
-        credentials: 'omit',
-      });
+      const response = await apiFetch(`/api/google-sheets?${params.toString()}`);
       if (!response.ok) throw new Error('Failed to fetch Google Sheets data');
       return response.json();
     },

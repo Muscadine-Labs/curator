@@ -66,7 +66,12 @@ function actionBadgeClass(action: TxPreviewChange['action']): string {
       return 'bg-orange-100 text-orange-900 dark:bg-orange-950/50 dark:text-orange-200';
     case 'gate':
     case 'batch':
+    case 'accept':
+    case 'config':
       return 'bg-sky-100 text-sky-900 dark:bg-sky-950/50 dark:text-sky-200';
+    case 'revoke':
+    case 'call':
+      return 'bg-orange-100 text-orange-900 dark:bg-orange-950/50 dark:text-orange-200';
   }
 }
 

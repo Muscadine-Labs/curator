@@ -269,6 +269,20 @@ export function snapUnchangedTargetsToLiveCurrent(
   };
 }
 
+/**
+ * The Idle row's target is "current idle ± the planned moves" (auto-dust sets it
+ * to planning total − strategy inputs). Re-anchor that delta on live vault cash:
+ * keeping the absolute value would carry a stale GraphQL idle into the plan
+ * total and trip "exceeds on-chain vault total" at submit.
+ */
+export function shiftTargetToLiveCurrent(
+  row: RebalancePlanRow,
+  liveCurrent: bigint
+): RebalancePlanRow {
+  const shifted = liveCurrent + (row.assets - row.current);
+  return { ...row, current: liveCurrent, assets: shifted < 0n ? 0n : shifted };
+}
+
 /** Reread adapter/collateral/market `allocation(id)` so cap checks are not stale snapshots. */
 export async function refreshCapIdAllocations(
   client: PublicClient,
@@ -358,7 +372,7 @@ export async function refreshPlanRowsFromChain(
         functionName: 'balanceOf',
         args: [vault],
       });
-      list[idleIdx] = snapUnchangedTargetsToLiveCurrent(list[idleIdx]!, idleCash);
+      list[idleIdx] = shiftTargetToLiveCurrent(list[idleIdx]!, idleCash);
     } catch {
       return { rows: list, error: IDLE_READ_ERROR };
     }

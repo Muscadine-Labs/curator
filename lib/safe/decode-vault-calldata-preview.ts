@@ -11,6 +11,7 @@ import { formatCapRelative } from '@/lib/morpho/v2-cap-format';
 import { resolveAssetDecimals } from '@/lib/format/asset-decimals';
 import { getDefaultSafeTokens, SAFE_AMOUNT_DP } from '@/lib/safe/tokens';
 import type { TxPreview, TxPreviewChange } from '@/lib/morpho/tx-preview';
+import { decodeMultiSend, isKnownMultiSend, safeTransactionHazards } from '@/lib/safe/multisend';
 import type { SafePendingTransaction, SafeTransactionSource } from '@/lib/safe/types';
 
 type DecodedVaultCall = {
@@ -122,23 +123,57 @@ function buildGatePreview(to: Address, data: Hex): TxPreview {
   };
 }
 
+/** Marker for a call the Vault V2 ABI cannot decode; `args[0]` is its raw calldata. */
+const UNDECODED_CALL = '__undecoded';
+
+function decodeOrMark(callData: Hex): DecodedVaultCall {
+  return decodeSingleVaultCall(callData) ?? { functionName: UNDECODED_CALL, args: [callData] };
+}
+
+/**
+ * Every call the vault will execute. Inner calls the Vault V2 ABI cannot
+ * decode are kept as markers rather than dropped — a share `transfer` hidden
+ * in a `multicall` must still show up in the preview an owner signs.
+ */
 function flattenVaultCalldata(data: Hex): DecodedVaultCall[] {
   const top = decodeSingleVaultCall(data);
   if (!top) return [];
 
   if (top.functionName === 'submit') {
-    const inner = decodeSingleVaultCall(top.args[0] as Hex);
-    return inner ? [inner] : [];
+    return [decodeOrMark(top.args[0] as Hex)];
   }
 
   if (top.functionName === 'multicall') {
     const inner = top.args[0] as readonly Hex[];
-    return inner
-      .map((callData) => decodeSingleVaultCall(callData))
-      .filter((call): call is DecodedVaultCall => call != null);
+    return inner.map(decodeOrMark);
   }
 
   return [top];
+}
+
+/** Number of calls inside vault calldata that the Vault V2 ABI cannot decode. */
+export function countUndecodedVaultCalls(data: Hex): number {
+  return flattenVaultCalldata(data).filter((call) => call.functionName === UNDECODED_CALL)
+    .length;
+}
+
+function describeUndecodedCall(callData: Hex): TxPreviewChange {
+  try {
+    const decoded = decodeFunctionData({ abi: erc20Abi, data: callData });
+    const args = decoded.args as readonly unknown[];
+    const parts = args.map((arg) => (typeof arg === 'bigint' ? arg.toString() : String(arg)));
+    return {
+      action: 'call',
+      label: `ERC-20 ${decoded.functionName}`,
+      subtitle: `${parts.join(', ')} (raw units)`,
+    };
+  } catch {
+    return {
+      action: 'call',
+      label: `Undecoded call ${callData.slice(0, 10)}`,
+      subtitle: 'Not a Vault V2 function — review the raw calldata before signing',
+    };
+  }
 }
 
 function formatAmount(raw: bigint, decimals: number, symbol?: string | null): string {
@@ -152,6 +187,8 @@ function changeFromVaultCall(
   symbol?: string | null
 ): TxPreviewChange | null {
   switch (call.functionName) {
+    case UNDECODED_CALL:
+      return describeUndecodedCall(call.args[0] as Hex);
     case 'allocate': {
       const [adapter, , assets] = call.args as [Address, Hex, bigint];
       return {
@@ -204,13 +241,13 @@ function changeFromVaultCall(
     }
     case 'revoke':
       return {
-        action: 'allocate',
+        action: 'revoke',
         label: 'Revoke pending timelock action',
         subtitle: 'Cancels queued config before execution',
       };
     default:
       return {
-        action: 'allocate',
+        action: 'config',
         label: call.functionName,
         subtitle: 'Vault write',
       };
@@ -229,8 +266,13 @@ function previewTitle(calls: DecodedVaultCall[]): string {
 }
 
 function previewFootnote(calls: DecodedVaultCall[]): string | null {
-  if (calls.length <= 1) return null;
-  return `${calls.length} on-chain calls batched via multicall (decoded from calldata).`;
+  const undecoded = calls.filter((call) => call.functionName === UNDECODED_CALL).length;
+  const undecodedNote =
+    undecoded > 0
+      ? ` ${undecoded} call${undecoded === 1 ? '' : 's'} could not be decoded as Vault V2 functions.`
+      : '';
+  if (calls.length <= 1) return undecodedNote.trim() || null;
+  return `${calls.length} on-chain calls batched via multicall (decoded from calldata).${undecodedNote}`;
 }
 
 /** Build a tx preview from raw vault V2 calldata (for service imports and legacy queue rows). */
@@ -252,7 +294,7 @@ export function buildVaultCalldataPreview(input: {
       description: `Target vault ${shortAddress(getAddress(input.vaultAddress))}`,
       changes: [
         {
-          action: 'allocate',
+          action: 'call',
           label: 'Undecoded calldata',
           subtitle: input.data.slice(0, 18),
         },
@@ -362,10 +404,37 @@ export function resolveVaultSymbolFromPending(tx: SafePendingTransaction): strin
   return undefined;
 }
 
+/** One preview covering every inner call of a Safe MultiSend batch. */
+function buildMultiSendPreview(tx: SafePendingTransaction): TxPreview | null {
+  const inner = decodeMultiSend(tx.data);
+  if (!inner) return null;
+  const changes = inner.flatMap((call) =>
+    resolveSafePendingPreview({
+      ...tx,
+      to: call.to,
+      value: call.value.toString(),
+      data: call.data,
+      operation: call.operation,
+      source: { type: 'manual' },
+      preview: null,
+    }).changes
+  );
+  return {
+    title: `MultiSend batch (${inner.length} calls)`,
+    description: 'Decoded from the MultiSend calldata.',
+    changes,
+  };
+}
+
 /** Stored preview when present; otherwise decode vault calldata for display. */
 export function resolveSafePendingPreview(tx: SafePendingTransaction): TxPreview {
   if (tx.preview && tx.preview.changes.length > 0) {
     return tx.preview;
+  }
+
+  if (tx.operation === 1 && isKnownMultiSend(tx.to)) {
+    const batch = buildMultiSendPreview(tx);
+    if (batch) return batch;
   }
 
   const transfer = decodeErc20Transfer(tx.data);
@@ -401,7 +470,7 @@ export function resolveSafePendingPreview(tx: SafePendingTransaction): TxPreview
       description: tx.description,
       changes: [
         {
-          action: 'allocate',
+          action: 'call',
           label: tx.description,
           subtitle: `To ${shortAddress(getAddress(tx.to))}`,
         },
@@ -427,8 +496,16 @@ export function withDecodedPendingPreview(tx: SafePendingTransaction): SafePendi
  * first: a vault-share transfer targets a tracked vault, so vault inference
  * alone would mislabel it.
  */
-export function inferSafeTxSource(to: Address, data: Hex, value = '0'): SafeTransactionSource {
+export function inferSafeTxSource(
+  to: Address,
+  data: Hex,
+  value = '0',
+  operation: number = 0
+): SafeTransactionSource {
   const target = getAddress(to);
+  // A DelegateCall runs the target's code as the Safe; its calldata shape says
+  // nothing about what it does, so never label it as a transfer or vault write.
+  if (operation !== 0) return { type: 'manual' };
 
   const transfer = decodeErc20Transfer(data);
   if (transfer) {
@@ -528,4 +605,26 @@ export function inferVaultSourceFromCalldata(
   }
 
   return { type: 'manual' };
+}
+
+/**
+ * Warnings for the queue card, derived from the calldata itself so a stored or
+ * imported preview cannot hide them. `blocking` proposals cannot be signed or
+ * executed from Curator.
+ */
+export function safePendingWarnings(tx: SafePendingTransaction): {
+  messages: string[];
+  blocking: boolean;
+} {
+  const hazards = safeTransactionHazards(tx);
+  const messages = [...hazards.messages];
+  if (tx.operation === 0 && getVaultByAddress(tx.to) && !decodeErc20Transfer(tx.data)) {
+    const undecoded = countUndecodedVaultCalls(tx.data);
+    if (undecoded > 0) {
+      messages.push(
+        `${undecoded} call${undecoded === 1 ? '' : 's'} in this vault transaction could not be decoded as Vault V2 functions. Review the raw calldata before signing.`
+      );
+    }
+  }
+  return { messages, blocking: hazards.blocking };
 }

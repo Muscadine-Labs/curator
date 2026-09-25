@@ -543,11 +543,22 @@ function DecreaseCapsPanel({
               parsed.value
             );
 
-      pendingCalldataRef.current = vaultWriteToCalldata({
-        address: writeConfig.address,
-        functionName: writeConfig.functionName,
-        args: writeConfig.args,
-      });
+      try {
+        pendingCalldataRef.current = vaultWriteToCalldata({
+          address: writeConfig.address,
+          functionName: writeConfig.functionName,
+          args: writeConfig.args,
+        });
+      } catch (encodeError) {
+        setRowErrors((prev) => ({
+          ...prev,
+          [rowKey]:
+            encodeError instanceof Error
+              ? `Could not encode cap decrease: ${encodeError.message.split('\n')[0]}`
+              : 'Could not encode cap decrease.',
+        }));
+        return;
+      }
 
       setRowErrors((prev) => {
         if (!prev[rowKey]) return prev;

@@ -28,6 +28,10 @@ export function parseCapDecreaseInput(input: {
       return { ok: false, error: 'Invalid token amount.' };
     }
 
+    if (parsed < 0n) {
+      return { ok: false, error: 'Cap cannot be negative.' };
+    }
+
     let current: bigint;
     try {
       current = BigInt(input.currentAbsoluteRaw);
@@ -45,7 +49,8 @@ export function parseCapDecreaseInput(input: {
     return { ok: true, mode: 'absolute', value: parsed };
   }
 
-  const pct = Number(trimmed);
+  // Plain decimal only: Number() would also accept '1e1' or '0x10'.
+  const pct = /^\d+(\.\d+)?$|^\.\d+$/.test(trimmed) ? Number(trimmed) : NaN;
   if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
     return { ok: false, error: 'Relative cap must be a percentage between 0 and 100.' };
   }
