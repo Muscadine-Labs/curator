@@ -239,6 +239,23 @@ Getting those semantics wrong is the #1 source of reverts.
   `booked + (input − display)` so unchanged rows are no-ops. Min/Max write
   display-space values. Post-wallet rebalance: await risk + governance refetch,
   exit edit mode, reset write hook.
+- **Withdrawing accrued interest** — `allocation(id)` only moves when a market
+  is allocated to or deallocated from, but `deallocate` withdraws from the
+  adapter's live position. A booked-space plan therefore capped every
+  withdrawal at the booked amount, so typing **0** (or **Min** on a fully liquid
+  market) left the interest accrued since the last touch supplied while the
+  preview said 0. The risk overlay now also emits `liveAllocationAssets` — the
+  live read (`expectedSupplyAssets` / `realAssets`), set **only** when that read
+  and the booked read both succeeded. When a token-mode input resolves to booked
+  target 0, the plan row carries `displayTarget` (the typed live-space position)
+  and `deallocateAmountForRow` withdraws `live − displayTarget`. Every
+  deallocation amount — multicall, single call, funding, cap simulation, tx
+  preview — goes through `deallocateAmountForRow`; do not recompute it inline.
+  If booked `allocation(id)` changed by submit time the live read is stale, so
+  `snapUnchangedTargetsToLiveCurrent` drops `displayTarget` and the row falls
+  back to a booked withdrawal. Min uses the live position when it is known.
+  % mode stays booked-only (0% leaves the interest). Sentinel **Deallocate to
+  Idle** clamps and Min-fills against `positionRaw` (live, else booked).
 - **Idle (vault cash)** — V2 holds unallocated assets in the vault contract.
   **Deployable idle** is the vault's own `asset().balanceOf(vault)`, read on-chain
   in `overlay-v2-onchain-caps.ts` (same read the submit-time refresh uses);
@@ -422,8 +439,10 @@ grades; Sentinel holds emergency actions at the bottom.
    - **Deallocate to Idle** — table (Idle row display-only) with amount + Min
      per Blue market row; **per-row Deallocate** via `encodeMarketParamsData`.
      **Min** fills withdrawable liquidity (`minTargetFromLiquidity` — same rule
-     as Allocations Min: leaves illiquid remainder). Uses booked on-chain
-     allocation (not display). Token parse via `parseHumanTokenInput`.
+     as Allocations Min: leaves illiquid remainder). Amounts are capped by the
+     row's `positionRaw` — the live adapter position when read on-chain (so a
+     full exit also pulls accrued interest), else booked `allocation(id)`.
+     Token parse via `parseHumanTokenInput`.
 9. **Emergency actions** — bottom of **Sentinel** tab (not Overview). Links to
    Morpho Curator emergency actions:
    `https://curator.morpho.org/vaults/{chainId}/{vaultAddress}/emergency-actions`
@@ -1119,7 +1138,8 @@ components.
 - Deallocate Blue markets: `data = encodeMarketParamsData(market)`.
 - New absolute/relative cap on decrease must be **≤ current** on-chain cap.
 - Relative cap input is human **percent** (0–100); convert to WAD with
-  `BigInt(Math.round(pct * 1e16))`.
+  `parseUnits(pct, 16)` — exact. `Math.round(pct * 1e16)` is a few wei off for
+  ~7% of 2-dp inputs (0.28 → 2800000000000001).
 - Use `parseHumanTokenInput` for deallocate amounts (comma-safe), not raw
   `parseUnits` on un stripped strings.
 - Sentinel writes require a connected wallet with the **Sentinel** role (or

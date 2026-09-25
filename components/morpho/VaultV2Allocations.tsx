@@ -58,7 +58,6 @@ import {
   formatCapDisplayAmount,
   readMarketLiquidity,
   parseHumanTokenInput,
-  clampDeallocateAmount,
 } from '@/lib/format/allocation-display';
 import { formatLiquidityCell } from '@/components/morpho/FormatLiquidityCell';
 import { usePersistedAllocationFilters } from '@/lib/hooks/usePersistedAllocationFilters';
@@ -90,6 +89,7 @@ import {
   buildCapIdStateMap,
   INSUFFICIENT_IDLE_FUNDING_ERROR,
   summarizeRebalanceFunding,
+  deallocateAmountForRow,
   computeDeployableIdle,
   computeIdleTargetFromStrategyPlan,
   finalizeRebalancePlan,
@@ -294,7 +294,7 @@ function resolveTargetAssetsFromInput(
   inputMode: InputMode,
   targets: AllocTarget[],
   totalRaw: bigint
-): { assets: bigint; error: string | null } {
+): { assets: bigint; error: string | null; displayTarget?: bigint } {
   const t = targets[targetIdx];
   const v = rawInput.trim();
   if (!v) {
@@ -319,7 +319,13 @@ function resolveTargetAssetsFromInput(
     if (parsedDisplay < 0n) {
       return { assets: t.currentAssets, error: `Negative amount for ${t.label}` };
     }
-    return { assets: displayInputToBookedTarget(parsedDisplay, t), error: null };
+    const assets = displayInputToBookedTarget(parsedDisplay, t);
+    // A booked target of 0 cannot say how much of the accrued interest to keep;
+    // carry the typed position so the deallocation withdraws down to it.
+    if (assets === 0n && !t.isVaultIdle && t.currentAssets > 0n) {
+      return { assets, error: null, displayTarget: parsedDisplay };
+    }
+    return { assets, error: null };
   } catch {
     return { assets: t.currentAssets, error: `Invalid number for ${t.label}` };
   }
@@ -349,6 +355,8 @@ interface AllocTarget {
   currentAssets: bigint;
   /** Economic position incl. accrued market interest — UI display. */
   displayAssets: bigint;
+  /** Adapter position read on-chain; null when display is an indexer fallback. */
+  liveAssets: bigint | null;
   currentUsd: number;
   decimals: number;
   symbol: string;
@@ -363,7 +371,12 @@ interface AllocTarget {
 }
 
 function mapResultsToPlanRows(
-  results: ReadonlyArray<{ target: AllocTarget; assets: bigint; current: bigint }>
+  results: ReadonlyArray<{
+    target: AllocTarget;
+    assets: bigint;
+    current: bigint;
+    displayTarget?: bigint;
+  }>
 ): RebalancePlanRow[] {
   return results.map((r) => ({
     target: {
@@ -377,10 +390,12 @@ function mapResultsToPlanRows(
       symbol: r.target.symbol,
       decimals: r.target.decimals,
       displayAssets: r.target.displayAssets,
+      liveAssets: r.target.liveAssets,
       collateralAddress: collateralAddressFromMarketData(r.target.data),
     },
     assets: r.assets,
     current: r.current,
+    ...(r.displayTarget != null ? { displayTarget: r.displayTarget } : {}),
   }));
 }
 
@@ -565,6 +580,7 @@ export function VaultV2Allocations({
         }
         totalRaw += displayAssets;
         vaultRefRaw += displayAssets;
+        const liveAssets = parseBigIntOrNull(adapter.liveAllocationAssets);
         const capIdData = encodeAdapterCapIdData(adapter.adapterAddress);
         const idHash = keccak256(capIdData);
         const underlyingLiq = underlying?.liquidityUsd ?? null;
@@ -578,6 +594,7 @@ export function VaultV2Allocations({
           capIdHash: idHash,
           currentAssets: bookedAssets,
           displayAssets,
+          liveAssets,
           currentUsd: adapter.allocationUsd,
           decimals: dec,
           symbol: sym,
@@ -643,6 +660,7 @@ export function VaultV2Allocations({
         totalRaw += displayAssets;
         vaultRefRaw += displayAssets;
 
+        const liveAssets = parseBigIntOrNull(entry.liveAllocationAssets);
         const data = encodeMarketParamsData(m);
         const capIdData = encodeMarketCapIdData(adapter.adapterAddress, m);
         const idHash = keccak256(capIdData);
@@ -657,6 +675,7 @@ export function VaultV2Allocations({
           capIdHash: idHash,
           currentAssets: bookedAssets,
           displayAssets,
+          liveAssets,
           currentUsd: entry.allocationUsd,
           decimals: allocDec,
           symbol: allocSym,
@@ -707,6 +726,7 @@ export function VaultV2Allocations({
       capIdHash: '0x0000000000000000000000000000000000000000000000000000000000000000' as Hex,
       currentAssets: idleRaw,
       displayAssets: idleRaw,
+      liveAssets: null,
       currentUsd: idleUsd,
       decimals: dec,
       symbol: sym,
@@ -1032,7 +1052,13 @@ export function VaultV2Allocations({
         const minBooked = t.isVaultIdle
           ? BigInt(0)
           : minTargetFromLiquidity(t.currentAssets, liquidity);
-        const minDisplay = bookedTargetToDisplayInput(minBooked, t);
+        // With a live position read, Min works in live space so it can withdraw
+        // accrued interest too (fully liquid → 0). Booked space would always
+        // leave that interest behind.
+        const minDisplay =
+          !t.isVaultIdle && t.liveAssets != null && liquidity != null
+            ? minTargetFromLiquidity(t.liveAssets, liquidity)
+            : bookedTargetToDisplayInput(minBooked, t);
 
         if (inputMode === 'percentage') {
           values[targetIdx] = rawToPercentInput(minBooked, planningTotalRaw);
@@ -1182,7 +1208,12 @@ export function VaultV2Allocations({
     const modified = inputValues.filter((v) => v.trim() !== '');
     if (modified.length === 0) return null;
 
-    type Result = { target: AllocTarget; assets: bigint; current: bigint };
+    type Result = {
+      target: AllocTarget;
+      assets: bigint;
+      current: bigint;
+      displayTarget?: bigint;
+    };
     const results: Result[] = [];
     let errorMsg: string | null = null;
 
@@ -1204,6 +1235,7 @@ export function VaultV2Allocations({
         target: t,
         assets: resolved.assets,
         current: t.currentAssets,
+        ...(resolved.displayTarget != null ? { displayTarget: resolved.displayTarget } : {}),
       });
     }
 
@@ -1342,26 +1374,11 @@ export function VaultV2Allocations({
         target: adjustedResults[i]!.target,
         assets: row.assets,
         current: row.current,
+        displayTarget: adjustedResults[i]!.displayTarget,
       }));
     }
 
-    const fundingResult = summarizeRebalanceFunding(
-      adjustedResults.map((r) => ({
-        target: {
-          label: r.target.label,
-          adapterAddress: r.target.adapterAddress,
-          data: r.target.data,
-          capIdHash: r.target.capIdHash,
-          isVaultIdle: r.target.isVaultIdle,
-          absoluteCapRaw: r.target.absoluteCapRaw,
-          relativeCapWad: r.target.relativeCapWad,
-          symbol: r.target.symbol,
-          decimals: r.target.decimals,
-        },
-        assets: r.assets,
-        current: r.current,
-      }))
-    );
+    const fundingResult = summarizeRebalanceFunding(mapResultsToPlanRows(adjustedResults));
     if (fundingResult.shortfall > BigInt(0)) {
       return {
         valid: false as const,
@@ -1538,14 +1555,25 @@ export function VaultV2Allocations({
   const previewFromRows = useCallback(
     (rows: RebalancePlanRow[]) =>
       buildAllocationRebalancePreview(
-        rows.map((r) => ({
-          label: r.target.label,
-          symbol: r.target.symbol ?? vaultSymbol,
-          decimals: r.target.decimals ?? vaultDecimals,
-          isVaultIdle: r.target.isVaultIdle,
-          currentAssets: r.current,
-          assets: r.assets,
-        })),
+        rows.map((r) => {
+          const deallocate = deallocateAmountForRow(r);
+          const bookedDelta = r.current > r.assets ? r.current - r.assets : 0n;
+          // Exiting through accrued interest: show the live position before/after,
+          // since the booked amounts would not add up to what is withdrawn.
+          const throughInterest =
+            deallocate > bookedDelta && r.target.liveAssets != null && r.displayTarget != null;
+          return {
+            label: r.target.label,
+            symbol: r.target.symbol ?? vaultSymbol,
+            decimals: r.target.decimals ?? vaultDecimals,
+            isVaultIdle: r.target.isVaultIdle,
+            currentAssets: r.current,
+            assets: r.assets,
+            deallocateAssets: deallocate > 0n ? deallocate : undefined,
+            beforeAssets: throughInterest ? r.target.liveAssets! : undefined,
+            afterAssets: throughInterest ? r.displayTarget : undefined,
+          };
+        }),
         vaultSymbol
       ),
     [vaultSymbol, vaultDecimals]
@@ -1662,11 +1690,7 @@ export function VaultV2Allocations({
             v2WriteConfigs.allocate(vault, adapter, data, delta)
           );
         } else {
-          const delta = changed.current - changed.assets;
-          const safeDelta =
-            changed.assets === 0n
-              ? changed.current
-              : clampDeallocateAmount(delta, changed.current);
+          const safeDelta = deallocateAmountForRow(changed);
           if (safeDelta <= 0n) return;
           const adapter = changed.target.adapterAddress as Address;
           const data = changed.target.data;

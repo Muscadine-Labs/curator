@@ -135,7 +135,7 @@ function resolveAllocationRaw(
   graphQlAssets: string | null | undefined,
   context: string,
   liveById?: Map<string, bigint>
-): { display: bigint; booked: bigint } {
+): { display: bigint; booked: bigint; live: bigint | null } {
   const onChain = onChainById.get(idKey);
   const graphQl = parseAllocationBigInt(graphQlAssets);
   const live = liveById?.get(idKey);
@@ -145,17 +145,19 @@ function resolveAllocationRaw(
   // max(GraphQL, booked) would keep showing the pre-deallocation amount, and
   // rebalance inputs resolve as booked + (input − display).
   if (live != null) {
-    return { display: live, booked: onChain ?? graphQl ?? live };
+    // `live` is only exposed for full withdrawals when booked is on-chain too;
+    // a GraphQL booked amount would make the interest estimate meaningless.
+    return { display: live, booked: onChain ?? graphQl ?? live, live: onChain != null ? live : null };
   }
 
   if (onChain != null && graphQl != null) {
     // Booked allocation(id) updates on rebalance; Morpho position supply includes interest.
     const display = graphQl > onChain ? graphQl : onChain;
-    return { display, booked: onChain };
+    return { display, booked: onChain, live: null };
   }
 
   if (onChain != null) {
-    return { display: onChain, booked: onChain };
+    return { display: onChain, booked: onChain, live: null };
   }
 
   if (graphQl != null) {
@@ -166,10 +168,10 @@ function resolveAllocationRaw(
         context,
       });
     }
-    return { display: graphQl, booked: graphQl };
+    return { display: graphQl, booked: graphQl, live: null };
   }
 
-  return { display: 0n, booked: 0n };
+  return { display: 0n, booked: 0n, live: null };
 }
 
 function marketAllocationId(adapterAddress: string, market: V2MarketRiskData['market']): string {
@@ -368,7 +370,7 @@ export async function overlayV2OnChainAllocations(
   const adapters = (risk.adapters ?? []).map((adapter): V2AdapterRiskData => {
     if (isMorphoVaultV2Adapter(adapter) && (adapter.markets ?? []).length === 0) {
       const idKey = adapterAllocationId(adapter.adapterAddress);
-      const { display, booked } = resolveAllocationRaw(
+      const { display, booked, live } = resolveAllocationRaw(
         vaultAddress,
         idKey,
         allocationById,
@@ -381,6 +383,7 @@ export async function overlayV2OnChainAllocations(
         ...adapter,
         allocationAssets: display > 0n ? display.toString() : null,
         bookedAllocationAssets: booked.toString(),
+        liveAllocationAssets: live != null ? live.toString() : null,
         allocationUsd: allocationUsdFromRaw(display, totalAssetsRaw, totalAssetsUsd),
         markets: [],
       };
@@ -391,7 +394,7 @@ export async function overlayV2OnChainAllocations(
       const idKey = m.market
         ? marketAllocationId(adapter.adapterAddress, m.market)
         : '';
-      const { display, booked } = m.market
+      const { display, booked, live } = m.market
         ? resolveAllocationRaw(
             vaultAddress,
             idKey,
@@ -400,12 +403,13 @@ export async function overlayV2OnChainAllocations(
             `market ${idKey}`,
             liveById
           )
-        : { display: 0n, booked: 0n };
+        : { display: 0n, booked: 0n, live: null };
       adapterSum += display;
       return {
         ...m,
         allocationAssets: display > 0n ? display.toString() : null,
         bookedAllocationAssets: booked.toString(),
+        liveAllocationAssets: live != null ? live.toString() : null,
         allocationUsd: allocationUsdFromRaw(display, totalAssetsRaw, totalAssetsUsd),
       };
     });

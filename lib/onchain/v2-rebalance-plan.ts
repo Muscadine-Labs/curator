@@ -24,15 +24,54 @@ export type RebalanceTarget = {
   decimals?: number;
   /** Economic position incl. interest — on-chain allocate writes this, not booked. */
   displayAssets?: bigint;
+  /**
+   * Live adapter position read on-chain (Blue `expectedSupplyAssets`, Vault V2
+   * adapter `realAssets`). Null when that read failed and `displayAssets` is an
+   * indexer fallback — only a live read is safe to withdraw in full.
+   */
+  liveAssets?: bigint | null;
   /** Blue market collateral; omitted for idle / vault-adapter rows. */
   collateralAddress?: string | null;
 };
 
 export type RebalancePlanRow = {
   target: RebalanceTarget;
+  /** Booked `allocation(id)` target. */
   assets: bigint;
+  /** Booked `allocation(id)` now. */
   current: bigint;
+  /**
+   * Position the curator wants left in the market, in live (display) space.
+   * Set only when that is below the interest accrued since the market was last
+   * touched, which booked space cannot express (`assets` clamps to 0).
+   */
+  displayTarget?: bigint;
 };
+
+/**
+ * Assets to pass to `deallocate` for a lowered row, or 0 when the row is not
+ * lowered.
+ *
+ * `current` / `assets` are booked `allocation(id)`, which only moves when the
+ * market is allocated to or deallocated from; the adapter withdraws from its
+ * live position, which also holds the interest accrued since then. Capping the
+ * withdrawal at the booked amount left that interest supplied on every "0" or
+ * full-liquidity Min while the preview said 0. When the target sits below the
+ * accrued interest (`displayTarget`), withdraw from the live position instead.
+ */
+export function deallocateAmountForRow(
+  row: Pick<RebalancePlanRow, 'assets' | 'current' | 'displayTarget'> & {
+    target: Pick<RebalanceTarget, 'isVaultIdle' | 'liveAssets'>;
+  }
+): bigint {
+  if (row.target.isVaultIdle || row.assets >= row.current) return 0n;
+  const booked =
+    row.assets === 0n ? row.current : clampDeallocateAmount(row.current - row.assets, row.current);
+  const live = row.target.liveAssets;
+  if (row.assets !== 0n || row.displayTarget == null || live == null) return booked;
+  const fromLive = live > row.displayTarget ? live - row.displayTarget : 0n;
+  return fromLive > booked ? fromLive : booked;
+}
 
 const WAD = BigInt('1000000000000000000');
 
@@ -262,11 +301,16 @@ export function snapUnchangedTargetsToLiveCurrent(
   liveCurrent: bigint
 ): RebalancePlanRow {
   const leaveUnchanged = row.assets === row.current;
-  return {
+  const next: RebalancePlanRow = {
     ...row,
     current: liveCurrent,
     assets: leaveUnchanged ? liveCurrent : row.assets,
   };
+  // Booked moved since load: the market was touched, so the live position read
+  // then is stale. Fall back to a booked-space withdrawal rather than risk
+  // withdrawing more than the adapter holds.
+  if (liveCurrent !== row.current) delete next.displayTarget;
+  return next;
 }
 
 /**
@@ -455,11 +499,7 @@ export function summarizeRebalanceFunding(
     if (r.assets > r.current) {
       netAllocate += r.assets - r.current;
     } else if (r.assets < r.current) {
-      const delta =
-        r.assets === 0n
-          ? r.current
-          : clampDeallocateAmount(r.current - r.assets, r.current);
-      deallocateSum += delta;
+      deallocateSum += deallocateAmountForRow(r);
     }
   }
 
@@ -530,14 +570,15 @@ export function expectedAllocationChange(args: {
   booked: bigint;
   display: bigint;
   targetBooked: bigint;
+  /** `deallocateAmountForRow` for a lowered row. */
+  deallocate?: bigint;
 }): bigint {
   const { booked, display, targetBooked } = args;
   if (targetBooked === booked) return 0n;
   if (targetBooked < booked) {
     const delta =
-      targetBooked === 0n
-        ? booked
-        : clampDeallocateAmount(booked - targetBooked, booked);
+      args.deallocate ??
+      (targetBooked === 0n ? booked : clampDeallocateAmount(booked - targetBooked, booked));
     const afterDisplay = display > delta ? display - delta : 0n;
     return afterDisplay - booked;
   }
@@ -602,6 +643,7 @@ export function validateRebalanceCapIds(
       booked,
       display,
       targetBooked: row.assets,
+      deallocate: deallocateAmountForRow(row),
     });
     if (change === 0n && row.assets === row.current) return null;
 
@@ -685,10 +727,7 @@ export function buildRebalanceMulticallData(rows: ReadonlyArray<RebalancePlanRow
     if (r.target.isVaultIdle || r.assets === r.current) continue;
 
     if (r.assets < r.current) {
-      const delta =
-        r.assets === 0n
-          ? r.current
-          : clampDeallocateAmount(r.current - r.assets, r.current);
+      const delta = deallocateAmountForRow(r);
       if (delta <= 0n) continue;
       deallocCalls.push(
         v2WriteConfigs.encodeDeallocate(
@@ -749,11 +788,7 @@ export async function simulateVaultRebalance(args: {
       });
       return;
     }
-    const delta = changed.current - changed.assets;
-    const safeDelta =
-      changed.assets === 0n
-        ? changed.current
-        : clampDeallocateAmount(delta, changed.current);
+    const safeDelta = deallocateAmountForRow(changed);
     if (safeDelta <= 0n) {
       throw new Error('No on-chain allocation changes to submit.');
     }

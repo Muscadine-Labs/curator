@@ -4,6 +4,14 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-09-25 — Reallocation: withdraw accrued interest, exact relative caps
+
+- Deallocations were capped at booked `allocation(id)`, which does not include interest accrued since the market was last touched, so "0" and fully liquid Min left that interest supplied while the preview said 0. The risk overlay now emits `liveAllocationAssets` (on-chain live read only), plan rows carry `displayTarget` when the booked target clamps to 0, and `deallocateAmountForRow` (`lib/onchain/v2-rebalance-plan.ts`) is the single rule for multicall, single-call, Safe queue, funding, cap simulation and preview. Stale live reads (booked moved by submit) fall back to booked. Sentinel Deallocate to Idle uses the live position too.
+- Sentinel relative cap decreases parse the percent exactly (`parseUnits(pct, 16)`); float math was a few wei off for ~7% of 2-dp inputs.
+- Tests: `v2-rebalance-plan.test.ts` (interest exit), `cap-decrease-input.test.ts` (exact WAD).
+
+---
+
 ## 2026-09-25 — Risk cap scale, cap id verification, review leftovers
 
 - Risk caps now match their labels on the current grade scale: weak oracle ≤ 76 (C+ max), very high utilization ≤ 79 (B− max), partial coverage ≤ 83 (B max). They were 54 / 60 / 68 (F / D / C−). Caps are declared as grades in `RISK_SCORE_CAPS` and derived from `GRADE_FLOORS`, and `getMarketRiskGrade` is now the single grade scale (the vault risk route and on-chain overlay had their own copies). This raises grades for markets hit by a cap, as requested.

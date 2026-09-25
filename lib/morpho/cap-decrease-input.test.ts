@@ -50,4 +50,18 @@ describe('parseCapDecreaseInput', () => {
   it('rejects empty input', () => {
     expect(parseCapDecreaseInput({ ...base, mode: 'absolute', valueStr: '  ' }).ok).toBe(false);
   });
+
+  it('converts percentages to WAD exactly', () => {
+    const current = { ...base, currentRelativeRaw: '2800000000000000' }; // 0.28%
+    expect(parseCapDecreaseInput({ ...current, mode: 'relative', valueStr: '0.28' })).toEqual({
+      ok: true,
+      mode: 'relative',
+      value: 2_800_000_000_000_000n,
+    });
+    expect(parseCapDecreaseInput({ ...base, mode: 'relative', valueStr: '1.12' })).toEqual({
+      ok: true,
+      mode: 'relative',
+      value: 11_200_000_000_000_000n,
+    });
+  });
 });

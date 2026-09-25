@@ -93,10 +93,12 @@ export type V2MarketRiskData = {
   market: BlueMarketData;
   scores: MarketRiskScores | null;
   allocationUsd: number;
-  /** Economic position (max of Morpho supply and on-chain booked allocation). */
+  /** Economic position: live adapter read, else max(Morpho supply, booked allocation). */
   allocationAssets: string | null;
   /** Vault `allocation(id)` at last rebalance — used for write deltas. */
   bookedAllocationAssets?: string | null;
+  /** Adapter position read on-chain (`expectedSupplyAssets`); null when that read failed. */
+  liveAllocationAssets?: string | null;
   oracleTimestampData?: OracleTimestampData | null;
   absoluteCap?: string | null;
   relativeCap?: string | null;
@@ -109,6 +111,8 @@ export type V2AdapterRiskData = {
   allocationUsd: number;
   allocationAssets: string | null;
   bookedAllocationAssets?: string | null;
+  /** Fee-wrapper adapter `realAssets()` read on-chain; null when that read failed. */
+  liveAllocationAssets?: string | null;
   riskScore: number;
   riskGrade: MarketRiskGrade;
   markets: V2MarketRiskData[];
