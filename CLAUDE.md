@@ -214,6 +214,13 @@ Getting those semantics wrong is the #1 source of reverts.
   `decreaseRelativeCap`. Market caps need `cap.adapterAddress` from governance
   GraphQL plus full market params from the risk API (oracle, irm, lltv, token
   addresses). Wrong encoding causes silent cap lookup misses or on-chain reverts.
+  `resolveCapIdData` only encodes market params that hash back to
+  `cap.marketKey` (`marketParamsMatchMarketKey`: Blue id =
+  `keccak256(abi.encode(marketParams))`) and always uses the cap's own
+  adapter; otherwise it returns `null`. Partial params back-filled with zero
+  addresses give the id of a market that does not exist, and
+  `decreaseAbsoluteCap(wrongId, 0)` **succeeds on-chain while changing nothing**
+  — a silent no-op on the emergency path. Do not bypass the check.
   Reference: [Morpho market listing docs](https://docs.morpho.org/curate/tutorials-v2/market-listing/).
 - **No max-catcher needed** — V2 is delta-based so interest drift doesn't cause
   a balancing revert; the allocator simply chooses deltas.
@@ -619,14 +626,16 @@ Then `applyGlobalCaps` may lower the composite before grading:
 
 | Condition | Cap |
 | --------- | --- |
-| `oracleScore ≤ 20` (missing/opaque oracle) | composite ≤ 54 (grades **F**) |
-| `utilizationScore ≤ 20` (very high util) | composite ≤ 60 (grades **D**) |
-| `coverageRatioScore < 100` (cannot fully cover shock liquidations) | composite ≤ 68 (grades **C−**) |
+| `oracleScore ≤ 20` (missing/opaque oracle) | composite ≤ 76 (**C+** max) |
+| `utilizationScore ≤ 20` (very high util) | composite ≤ 79 (**B−** max) |
+| `coverageRatioScore < 100` (cannot fully cover shock liquidations) | composite ≤ 83 (**B** max) |
 
-These ceilings predate the current grade scale — they were once labelled
-"C+ / B− / B max". The numbers are what ships. Retuning them to those labels
-would *raise* grades for risky markets, so treat it as a policy decision, not a
-cleanup.
+The caps are stated as grades (`RISK_SCORE_CAPS` in
+`compute-blue-market-risk.ts`) and derived from the grade floors, so retuning
+a floor moves its cap with it. The numbers used to be hardcoded as 54 / 60 / 68,
+which on this scale graded F / D / C− instead of the labelled C+ / B− / B.
+`getMarketRiskGrade` is the only copy of the scale — market, adapter and vault
+grades all import it. Do not re-inline the thresholds elsewhere.
 
 **Missing borrow data:** a market with `borrowAssetsUsd == null` but
 `utilization > 0` scores 0 on headroom and coverage (`hasUnknownBorrow`), like
@@ -661,7 +670,7 @@ symbol `Unknown`. Return `scores: null`; never feed into weighted averages.
    100 if &lt;1h old; decay to 80 (24h), 60 (1 week), 20 (30d+). No/zero oracle
    address → 20. Valid oracle but no timestamp → 60.
 
-**Letter grades** (`getMarketRiskGrade` / `getGradeFromScore`): A+ ≥93, A ≥90, A− ≥87,
+**Letter grades** (`getMarketRiskGrade`, exported from `compute-blue-market-risk.ts`): A+ ≥93, A ≥90, A− ≥87,
 B+ ≥84, B ≥80, B− ≥77, C+ ≥74, C ≥70, C− ≥65, D ≥60, F &lt;60.
 
 **External links** — `lib/morpho/morpho-app-links.ts`:

@@ -11,35 +11,42 @@ export type SafeAddressBookEntry = {
 /** Stable empty snapshot so useSyncExternalStore does not loop. */
 export const EMPTY_ADDRESS_BOOK: SafeAddressBookEntry[] = [];
 
-let cached: SafeAddressBookEntry[] | null = null;
+// Snapshot plus the raw string it was parsed from. Comparing the raw string on
+// each read keeps the snapshot stable for useSyncExternalStore while still
+// picking up writes from another tab made while nothing was subscribed.
+let cached: { raw: string | null; entries: SafeAddressBookEntry[] } | null = null;
 
-function readEntries(): SafeAddressBookEntry[] {
-  if (cached) return cached;
-  if (typeof window === 'undefined') return EMPTY_ADDRESS_BOOK;
+function parseEntries(raw: string | null): SafeAddressBookEntry[] {
+  if (!raw) return EMPTY_ADDRESS_BOOK;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      cached = EMPTY_ADDRESS_BOOK;
-      return cached;
-    }
     const parsed = JSON.parse(raw) as SafeAddressBookEntry[];
-    if (!Array.isArray(parsed)) {
-      cached = EMPTY_ADDRESS_BOOK;
-      return cached;
-    }
-    const list = parsed.filter((row) => isAddress(row.address));
-    cached = list.length === 0 ? EMPTY_ADDRESS_BOOK : list;
-    return cached;
+    if (!Array.isArray(parsed)) return EMPTY_ADDRESS_BOOK;
+    const list = parsed.filter((row) => isAddress(row?.address));
+    return list.length === 0 ? EMPTY_ADDRESS_BOOK : list;
   } catch {
-    cached = EMPTY_ADDRESS_BOOK;
-    return cached;
+    return EMPTY_ADDRESS_BOOK;
   }
 }
 
+function readEntries(): SafeAddressBookEntry[] {
+  if (typeof window === 'undefined') return EMPTY_ADDRESS_BOOK;
+  let raw: string | null;
+  try {
+    raw = window.localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return cached?.entries ?? EMPTY_ADDRESS_BOOK;
+  }
+  if (cached && cached.raw === raw) return cached.entries;
+  cached = { raw, entries: parseEntries(raw) };
+  return cached.entries;
+}
+
 function writeEntries(entries: SafeAddressBookEntry[]): void {
-  cached = entries.length === 0 ? EMPTY_ADDRESS_BOOK : entries;
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(cached));
+  const next = entries.length === 0 ? EMPTY_ADDRESS_BOOK : entries;
+  const raw = JSON.stringify(next);
+  window.localStorage.setItem(STORAGE_KEY, raw);
+  cached = { raw, entries: next };
   window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 
@@ -76,14 +83,10 @@ export function removeAddressBookEntry(address: string): void {
 
 export function subscribeAddressBook(onChange: () => void): () => void {
   if (typeof window === 'undefined') return () => undefined;
-  const handler = () => {
-    cached = null;
-    onChange();
-  };
-  window.addEventListener(CHANGE_EVENT, handler);
-  window.addEventListener('storage', handler);
+  window.addEventListener(CHANGE_EVENT, onChange);
+  window.addEventListener('storage', onChange);
   return () => {
-    window.removeEventListener(CHANGE_EVENT, handler);
-    window.removeEventListener('storage', handler);
+    window.removeEventListener(CHANGE_EVENT, onChange);
+    window.removeEventListener('storage', onChange);
   };
 }

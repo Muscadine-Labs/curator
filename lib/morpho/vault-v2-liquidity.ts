@@ -204,7 +204,7 @@ export function buildVaultOrIdleLiquidityOptions(
 
   options.sort((a, b) => {
     if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1;
-    if (a.kind === 'idle') return 1;
+    if (a.kind === 'idle' || b.kind === 'idle') return a.kind === 'idle' ? 1 : -1;
     return a.label.localeCompare(b.label);
   });
   return options;

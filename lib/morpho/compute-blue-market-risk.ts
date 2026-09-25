@@ -412,27 +412,56 @@ function computeCoverageRatioScore(market: BlueMarketData): number {
   }
 }
 
+/** Lowest score for each grade, best first. Anything under the last floor is F. */
+const GRADE_FLOORS: ReadonlyArray<readonly [MarketRiskGrade, number]> = [
+  ['A+', 93],
+  ['A', 90],
+  ['A−', 87],
+  ['B+', 84],
+  ['B', 80],
+  ['B−', 77],
+  ['C+', 74],
+  ['C', 70],
+  ['C−', 65],
+  ['D', 60],
+];
+
 /**
- * Map market risk score to letter grade (0-100 scale)
+ * Map market risk score to letter grade (0-100 scale). Single source for the
+ * scale: market, adapter and vault grades all go through here.
  */
-function getMarketRiskGrade(score: number): MarketRiskGrade {
-  if (score >= 93) return 'A+';
-  if (score >= 90) return 'A';
-  if (score >= 87) return 'A−';
-  if (score >= 84) return 'B+';
-  if (score >= 80) return 'B';
-  if (score >= 77) return 'B−';
-  if (score >= 74) return 'C+';
-  if (score >= 70) return 'C';
-  if (score >= 65) return 'C−';
-  if (score >= 60) return 'D';
+export function getMarketRiskGrade(score: number): MarketRiskGrade {
+  for (const [grade, floor] of GRADE_FLOORS) {
+    if (score >= floor) return grade;
+  }
   return 'F';
 }
+
+/** Highest whole score that still grades as `grade`. */
+function ceilingForGrade(grade: MarketRiskGrade): number {
+  const index = GRADE_FLOORS.findIndex(([g]) => g === grade);
+  if (index <= 0) return 100;
+  return GRADE_FLOORS[index - 1][1] - 1;
+}
+
+/**
+ * Best grade a market can reach when one component is failing. Stated as
+ * grades and derived from the scale, so retuning a grade floor moves the cap
+ * with it.
+ */
+export const RISK_SCORE_CAPS = {
+  /** oracleScore ≤ 20 (missing/opaque oracle) ⇒ C+ at best. */
+  weakOracle: ceilingForGrade('C+'),
+  /** utilizationScore ≤ 20 (very high utilization) ⇒ B− at best. */
+  highUtilization: ceilingForGrade('B−'),
+  /** coverageRatioScore < 100 (cannot fully cover shock liquidations) ⇒ B at best. */
+  partialCoverage: ceilingForGrade('B'),
+} as const;
 
 /**
  * Apply global caps based on component scores (0-100 scale)
  */
-function applyGlobalCaps(
+export function applyGlobalCaps(
   oracleScore: number,
   utilizationScore: number,
   coverageRatioScore: number,
@@ -440,24 +469,14 @@ function applyGlobalCaps(
 ): number {
   let cappedScore = baseScore;
 
-  // These ceilings predate the current grade scale (getMarketRiskGrade): the
-  // old labels read "C+ / B− / B max", but on today's scale 54 grades F, 60
-  // grades D and 68 grades C−. The numbers are what ships; retuning them to the
-  // labels would raise grades for risky markets, so that is a policy decision.
-
-  // oracleScore ≤ 20 (missing/opaque oracle) ⇒ score ≤ 54 (grade F)
-  if (oracleScore <= 20 && cappedScore > 54) {
-    cappedScore = 54;
+  if (oracleScore <= 20) {
+    cappedScore = Math.min(cappedScore, RISK_SCORE_CAPS.weakOracle);
   }
-
-  // utilizationScore ≤ 20 (very high utilization) ⇒ score ≤ 60 (grade D)
-  if (utilizationScore <= 20 && cappedScore > 60) {
-    cappedScore = 60;
+  if (utilizationScore <= 20) {
+    cappedScore = Math.min(cappedScore, RISK_SCORE_CAPS.highUtilization);
   }
-
-  // Coverage ratio < 1.0 (cannot fully cover shock liquidations) ⇒ score ≤ 68 (grade C−)
-  if (coverageRatioScore < 100 && cappedScore > 68) {
-    cappedScore = 68;
+  if (coverageRatioScore < 100) {
+    cappedScore = Math.min(cappedScore, RISK_SCORE_CAPS.partialCoverage);
   }
 
   return cappedScore;

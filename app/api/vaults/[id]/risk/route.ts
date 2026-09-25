@@ -28,6 +28,7 @@ import {
 } from '@/lib/morpho/vault-v2-adapter';
 import {
   computeBlueMarketRiskScores,
+  getMarketRiskGrade,
   isMarketIdle,
   type MarketRiskGrade,
   type MarketRiskScores,
@@ -240,20 +241,6 @@ const VAULT_V2_RISK_QUERY = gql`
     }
   }
 `;
-
-function getGradeFromScore(score: number): MarketRiskGrade {
-  if (score >= 93) return 'A+';
-  if (score >= 90) return 'A';
-  if (score >= 87) return 'A−';
-  if (score >= 84) return 'B+';
-  if (score >= 80) return 'B';
-  if (score >= 77) return 'B−';
-  if (score >= 74) return 'C+';
-  if (score >= 70) return 'C';
-  if (score >= 65) return 'C−';
-  if (score >= 60) return 'D';
-  return 'F';
-}
 
 async function buildMarketRisk(
   market: BlueMarketData,
@@ -516,14 +503,14 @@ function computeWeightedRisk(markets: V2MarketRiskData[]): { weightedScore: numb
     const avgScore = scoreCount > 0 ? scoreSum / scoreCount : 0;
     return {
       weightedScore: avgScore,
-      grade: getGradeFromScore(avgScore),
+      grade: getMarketRiskGrade(avgScore),
     };
   }
 
   const weightedScore = weightedSum / totalWeight;
   return {
     weightedScore,
-    grade: getGradeFromScore(weightedScore),
+    grade: getMarketRiskGrade(weightedScore),
   };
 }
 
@@ -628,7 +615,7 @@ export async function GET(
           : null,
       idleAssetsUsd: data.vault.idleAssetsUsd ?? null,
       vaultRiskScore,
-      vaultRiskGrade: getGradeFromScore(vaultRiskScore),
+      vaultRiskGrade: getMarketRiskGrade(vaultRiskScore),
       vaultAsset,
       adapters: adapterRisks,
     };

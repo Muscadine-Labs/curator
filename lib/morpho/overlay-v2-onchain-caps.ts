@@ -13,7 +13,10 @@ import {
   encodeAdapterCapIdData,
   encodeMarketParamsData,
 } from '@/lib/morpho/v2-id-data';
-import type { MarketRiskGrade } from '@/lib/morpho/compute-blue-market-risk';
+import {
+  getMarketRiskGrade,
+  type MarketRiskGrade,
+} from '@/lib/morpho/compute-blue-market-risk';
 import { logger } from '@/lib/utils/logger';
 import { isMorphoVaultV2Adapter } from '@/lib/morpho/vault-v2-adapter';
 
@@ -281,20 +284,6 @@ function collectStrategyAllocationIds(risk: V2VaultRiskResponse): Hex[] {
   return ids;
 }
 
-function getGradeFromScore(score: number): MarketRiskGrade {
-  if (score >= 93) return 'A+';
-  if (score >= 90) return 'A';
-  if (score >= 87) return 'A−';
-  if (score >= 84) return 'B+';
-  if (score >= 80) return 'B';
-  if (score >= 77) return 'B−';
-  if (score >= 74) return 'C+';
-  if (score >= 70) return 'C';
-  if (score >= 65) return 'C−';
-  if (score >= 60) return 'D';
-  return 'F';
-}
-
 /** `asset().balanceOf(vault)` — the vault's idle cash; null when the read fails. */
 async function readVaultIdleCash(vault: Address): Promise<bigint | null> {
   try {
@@ -341,7 +330,7 @@ function recomputeVaultRiskScore(adapters: V2AdapterRiskData[]): {
   return {
     totalAdapterAssetsUsd,
     vaultRiskScore,
-    vaultRiskGrade: getGradeFromScore(vaultRiskScore),
+    vaultRiskGrade: getMarketRiskGrade(vaultRiskScore),
   };
 }
 

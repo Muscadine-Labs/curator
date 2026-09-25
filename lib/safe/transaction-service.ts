@@ -1,7 +1,7 @@
 import { getAddress, type Address, type Hex } from 'viem';
 import type SafeApiKit from '@safe-global/api-kit';
 import { OperationType, type SafeTransactionData } from '@safe-global/types-kit';
-import { BASE_CHAIN_ID } from '@/lib/constants';
+import { BASE_CHAIN_ID, EXTERNAL_API_TIMEOUT_MS } from '@/lib/constants';
 import type { SafePendingTransaction, SafeOwnerSignature } from '@/lib/safe/types';
 import { withSafeTxServiceRateLimit } from '@/lib/safe/transaction-service-rate-limit';
 import {
@@ -165,6 +165,7 @@ export async function fetchExecutedMultisigTransactions(
         Authorization: `Bearer ${apiKey}`,
       },
       cache: 'no-store',
+      signal: AbortSignal.timeout(EXTERNAL_API_TIMEOUT_MS),
     })
   );
   const text = await response.text();

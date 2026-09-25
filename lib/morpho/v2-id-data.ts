@@ -1,6 +1,7 @@
 import {
   decodeAbiParameters,
   encodeAbiParameters,
+  keccak256,
   parseAbiParameters,
   type Address,
   type Hex,
@@ -8,7 +9,6 @@ import {
 import type { CapInfo } from '@/app/api/vaults/[id]/governance/route';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/[id]/risk/route';
 import { isAdapterCap, isCollateralCap, isMarketCap } from '@/lib/morpho/cap-utils';
-import { marketKeyFromGraphQL } from '@/lib/morpho/morpho-app-links';
 
 export type MarketParamsInput = {
   loanAsset?: { address: string } | null;
@@ -57,6 +57,22 @@ export function encodeMarketParamsData(market: MarketParamsInput): Hex {
   return encodeAbiParameters(MARKET_PARAMS_ABI, [loan, col, oracle, irm, lltv]);
 }
 
+/**
+ * True when `market` hashes to `marketKey`. A Blue market id is
+ * `keccak256(abi.encode(marketParams))`, so this proves the params are the
+ * market's own and not partial params back-filled with zero addresses.
+ */
+export function marketParamsMatchMarketKey(
+  market: MarketParamsInput,
+  marketKey: string
+): boolean {
+  try {
+    return keccak256(encodeMarketParamsData(market)).toLowerCase() === marketKey.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 /** Collateral token from MorphoMarketV1Adapter allocate/deallocate `data`. */
 export function collateralAddressFromMarketData(data: Hex): Address | null {
   if (!data || data === '0x' || data === EMPTY_ADAPTER_DATA) return null;
@@ -97,17 +113,14 @@ export function encodeMarketCapIdData(
   );
 }
 
-function findMarketByKey(
+/** Market params from the risk payload that hash to `marketKey`, from any adapter. */
+function findVerifiedMarketParams(
   risk: V2VaultRiskResponse,
   marketKey: string
-): { adapterAddress: string; market: MarketParamsInput } | null {
-  const needle = marketKey.toLowerCase();
+): MarketParamsInput | null {
   for (const adapter of risk.adapters ?? []) {
     for (const m of adapter.markets ?? []) {
-      const key = marketKeyFromGraphQL(m.market);
-      if (key?.toLowerCase() === needle) {
-        return { adapterAddress: adapter.adapterAddress, market: m.market };
-      }
+      if (marketParamsMatchMarketKey(m.market, marketKey)) return m.market;
     }
   }
   return null;
@@ -127,27 +140,19 @@ export function resolveCapIdData(
   }
 
   if (isMarketCap(cap) && cap.marketKey && cap.adapterAddress) {
-    if (cap.marketParams) {
+    // Partial params encode to the id of a market that does not exist. A
+    // decrease-to-0 on that id succeeds on-chain and changes nothing, so only
+    // encode params that hash back to this cap's market.
+    const marketKey = cap.marketKey;
+    if (cap.marketParams && marketParamsMatchMarketKey(cap.marketParams, marketKey)) {
       return encodeMarketCapIdData(cap.adapterAddress, cap.marketParams);
     }
 
-    if (risk) {
-      const match = findMarketByKey(risk, cap.marketKey);
-      if (match) {
-        return encodeMarketCapIdData(match.adapterAddress, match.market);
-      }
-      // Fallback: scan adapter from cap.adapterAddress when findMarketByKey misses
-      for (const adapter of risk.adapters ?? []) {
-        if (adapter.adapterAddress.toLowerCase() !== cap.adapterAddress.toLowerCase()) {
-          continue;
-        }
-        for (const m of adapter.markets ?? []) {
-          const key = marketKeyFromGraphQL(m.market);
-          if (key?.toLowerCase() === cap.marketKey.toLowerCase()) {
-            return encodeMarketCapIdData(adapter.adapterAddress, m.market);
-          }
-        }
-      }
+    // The cap id includes the adapter, so always encode with this cap's own
+    // adapter even when the params come from a position on another adapter.
+    const fromRisk = risk ? findVerifiedMarketParams(risk, marketKey) : null;
+    if (fromRisk) {
+      return encodeMarketCapIdData(cap.adapterAddress, fromRisk);
     }
   }
 

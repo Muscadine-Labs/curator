@@ -4,6 +4,17 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-09-25 — Risk cap scale, cap id verification, review leftovers
+
+- Risk caps now match their labels on the current grade scale: weak oracle ≤ 76 (C+ max), very high utilization ≤ 79 (B− max), partial coverage ≤ 83 (B max). They were 54 / 60 / 68 (F / D / C−). Caps are declared as grades in `RISK_SCORE_CAPS` and derived from `GRADE_FLOORS`, and `getMarketRiskGrade` is now the single grade scale (the vault risk route and on-chain overlay had their own copies). This raises grades for markets hit by a cap, as requested.
+- `resolveCapIdData` only encodes market params that hash to `cap.marketKey` and always uses the cap's adapter. Partial params used to encode a nonexistent market id, so a Sentinel decrease-to-0 could succeed on-chain as a no-op and the cap overlay could show that cap as 0. Public Allocator reads use the same check.
+- Fee-wrapper liquidity options sort Idle last consistently (comparator was asymmetric).
+- Address book snapshot is keyed on the raw localStorage string, so another tab's edits show up even when nothing was subscribed, and an upsert no longer overwrites them.
+- Safe history fetch has a timeout (`EXTERNAL_API_TIMEOUT_MS`).
+- Tests: `compute-blue-market-risk.test.ts`, `v2-id-data.test.ts`.
+
+---
+
 ## 2026-09-25 — Code review fixes (Safe, gates, allocation, risk, BFF)
 
 - Safe execute sent the inner tx `value` as `msg.value`, so the executor paid for ETH the Safe sent out. Now `value: 0` plus threshold and Safe-balance checks, and the row is marked executed only after a successful receipt (`lib/safe/protocol-kit-client.ts`, `useSafeTransactionActions.ts`).
