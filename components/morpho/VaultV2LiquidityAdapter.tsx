@@ -25,6 +25,7 @@ import { buildLiquidityAdapterPreview } from '@/lib/morpho/tx-preview';
 import type { TxPreview } from '@/lib/morpho/tx-preview';
 import {
   buildLiquidityAdapterOptions,
+  buildVaultOrIdleLiquidityOptions,
   resolveLiquidityDisplay,
   type LiquidityAdapterOption,
 } from '@/lib/morpho/vault-v2-liquidity';
@@ -52,6 +53,8 @@ interface VaultV2LiquidityAdapterProps {
   risk: V2VaultRiskResponse;
   assetSymbol?: string | null;
   assetDecimals?: number | null;
+  /** Fee wrappers pick a Morpho vault adapter or idle. Strategy vaults pick a market. */
+  variant?: 'market' | 'vault-or-idle';
 }
 
 function LiquidityMarketLabel({
@@ -88,6 +91,7 @@ export function VaultV2LiquidityAdapter({
   risk,
   assetSymbol,
   assetDecimals,
+  variant = 'market',
 }: VaultV2LiquidityAdapterProps) {
   const [changing, setChanging] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -147,10 +151,12 @@ export function VaultV2LiquidityAdapter({
   const dec = resolveAssetDecimals(assetSymbol, assetDecimals ?? risk.vaultAsset?.decimals);
 
   const display = resolveLiquidityDisplay(governance);
-  const options = useMemo(
-    () => (governance ? buildLiquidityAdapterOptions(risk, governance) : []),
-    [risk, governance]
-  );
+  const options = useMemo(() => {
+    if (!governance) return [];
+    return variant === 'vault-or-idle'
+      ? buildVaultOrIdleLiquidityOptions(risk, governance)
+      : buildLiquidityAdapterOptions(risk, governance);
+  }, [risk, governance, variant]);
 
   const selected = options.find((o) => o.key === selectedKey) ?? null;
   const currentOption = options.find((o) => o.isCurrent) ?? null;
@@ -364,7 +370,9 @@ export function VaultV2LiquidityAdapter({
         {changing ? (
           <div className="space-y-3 border-t border-border p-4">
             <p className="text-xs text-muted-foreground">
-              Select the market that provides withdrawable liquidity.{' '}
+              {variant === 'vault-or-idle'
+                ? 'Choose the Morpho vault this wrapper deposits through, or Idle so exits use only unallocated cash. '
+                : 'Select the market that provides withdrawable liquidity. '}
               <span className="font-medium text-foreground">setLiquidityAdapterAndData</span> is an
               allocator action — it applies immediately (not timelocked).
             </p>

@@ -1,29 +1,46 @@
 import { getAddress, isAddress, type Address } from 'viem';
 
 const STORAGE_KEY = 'curator-safe-address-book-v1';
+const CHANGE_EVENT = 'curator-safe-address-book-change';
 
 export type SafeAddressBookEntry = {
   address: Address;
   label: string;
 };
 
+/** Stable empty snapshot so useSyncExternalStore does not loop. */
+export const EMPTY_ADDRESS_BOOK: SafeAddressBookEntry[] = [];
+
+let cached: SafeAddressBookEntry[] | null = null;
+
 function readEntries(): SafeAddressBookEntry[] {
-  if (typeof window === 'undefined') return [];
+  if (cached) return cached;
+  if (typeof window === 'undefined') return EMPTY_ADDRESS_BOOK;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
+    if (!raw) {
+      cached = EMPTY_ADDRESS_BOOK;
+      return cached;
+    }
     const parsed = JSON.parse(raw) as SafeAddressBookEntry[];
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((row) => isAddress(row.address));
+    if (!Array.isArray(parsed)) {
+      cached = EMPTY_ADDRESS_BOOK;
+      return cached;
+    }
+    const list = parsed.filter((row) => isAddress(row.address));
+    cached = list.length === 0 ? EMPTY_ADDRESS_BOOK : list;
+    return cached;
   } catch {
-    return [];
+    cached = EMPTY_ADDRESS_BOOK;
+    return cached;
   }
 }
 
 function writeEntries(entries: SafeAddressBookEntry[]): void {
+  cached = entries.length === 0 ? EMPTY_ADDRESS_BOOK : entries;
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-  window.dispatchEvent(new Event('curator-safe-address-book-change'));
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(cached));
+  window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 
 export function listAddressBook(): SafeAddressBookEntry[] {
@@ -47,10 +64,14 @@ export function removeAddressBookEntry(address: string): void {
 
 export function subscribeAddressBook(onChange: () => void): () => void {
   if (typeof window === 'undefined') return () => undefined;
-  window.addEventListener('curator-safe-address-book-change', onChange);
-  window.addEventListener('storage', onChange);
+  const handler = () => {
+    cached = null;
+    onChange();
+  };
+  window.addEventListener(CHANGE_EVENT, handler);
+  window.addEventListener('storage', handler);
   return () => {
-    window.removeEventListener('curator-safe-address-book-change', onChange);
-    window.removeEventListener('storage', onChange);
+    window.removeEventListener(CHANGE_EVENT, handler);
+    window.removeEventListener('storage', handler);
   };
 }

@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { MidnightMarketView } from '@/components/morpho/MidnightMarketView';
 import { MarketInteractButton } from '@/components/morpho/MarketInteractButton';
 import { useMidnightMarketDetail } from '@/lib/hooks/useCuratorMarkets';
-import { morphoMidnightMarketHref } from '@/lib/morpho/morpho-app-links';
+import { morphoMidnightMarketHref, safeReturnPath } from '@/lib/morpho/morpho-app-links';
 import { formatMidnightMaturityUtc } from '@/lib/morpho/midnight-markets';
 import { CURATOR_MARKET_NETWORKS, parseCuratorMarketChainId } from '@/lib/constants';
 
@@ -18,6 +18,8 @@ export default function MidnightMarketPage() {
   const searchParams = useSearchParams();
   const marketId = decodeURIComponent(params.id as string);
   const chainId = parseCuratorMarketChainId(searchParams.get('chainId'));
+  const backHref = safeReturnPath(searchParams.get('from')) ?? '/markets';
+  const backLabel = backHref.startsWith('/vault/') ? 'Vault' : 'Morpho Markets';
 
   const { data, isLoading, error } = useMidnightMarketDetail(marketId, chainId);
   const market = data?.market;
@@ -50,8 +52,8 @@ export default function MidnightMarketPage() {
         )
       }
       description={headerDescription}
-      backHref="/markets"
-      backLabel="Morpho Markets"
+      backHref={backHref}
+      backLabel={backLabel}
       actions={
         market ? (
           <MarketInteractButton product="midnight" marketId={marketId} chainId={chainId} />

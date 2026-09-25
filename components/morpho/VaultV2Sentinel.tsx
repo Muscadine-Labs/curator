@@ -1527,7 +1527,9 @@ function buildOverviewAndDeallocate(
       const col = m.market?.collateralAsset?.symbol;
       const loan = m.market?.loanAsset?.symbol;
       const label = formatMarketPairLabel(col, loan);
-      const morphoHref = key ? curatorBlueMarketHref(key, chainId) : null;
+      const morphoHref = key
+        ? curatorBlueMarketHref(key, chainId, `/vault/${wrapperVaultAddress}/sentinel`)
+        : null;
       overviewSegments.push({
         key: key ?? `${adapter.adapterAddress}-${col}-${loan}`,
         label,

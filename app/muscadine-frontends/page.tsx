@@ -30,7 +30,7 @@ export default function MuscadinePagesPage() {
 
         <div>
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            GitHub, Vercel & Google Drive
+            GitHub, Vercel, Cloudflare & Google Drive
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {MUSCADINE_DEVELOPMENT_LINKS.map((item) => (

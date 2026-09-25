@@ -1,10 +1,12 @@
-import type { Hex } from 'viem';
+import { zeroAddress, type Hex } from 'viem';
 import type { VaultV2GovernanceResponse, CapInfo } from '@/app/api/vaults/[id]/governance/route';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/[id]/risk/route';
 import { isMarketCap } from '@/lib/morpho/cap-utils';
 import { encodeMarketParamsData, type MarketParamsInput } from '@/lib/morpho/v2-id-data';
 import { formatMarketPairLabel, formatLltvPill } from '@/components/morpho/AllocationListView';
 import { marketKeyFromGraphQL, morphoMarketHref } from '@/lib/morpho/morpho-app-links';
+import { isMorphoVaultV2Adapter } from '@/lib/morpho/vault-v2-adapter';
+import { EMPTY_ADAPTER_DATA } from '@/lib/morpho/v2-id-data';
 
 export type LiquidityAdapterOption = {
   key: string;
@@ -13,7 +15,7 @@ export type LiquidityAdapterOption = {
   morphoHref: string | null;
   adapterAddress: string;
   liquidityData: Hex;
-  kind: 'market';
+  kind: 'market' | 'vault' | 'idle';
   isCurrent: boolean;
 };
 
@@ -24,6 +26,19 @@ export function resolveLiquidityDisplay(
   lltv: string | null;
   morphoHref: string | null;
 } {
+  const adapter = governance?.liquidityAdapter?.address?.toLowerCase() ?? null;
+  if (!adapter || adapter === zeroAddress) {
+    return { label: 'Idle', lltv: null, morphoHref: null };
+  }
+  const underlying = governance?.liquidityAdapter?.underlying;
+  if (underlying?.address) {
+    return {
+      label: underlying.name || underlying.symbol || 'Morpho vault',
+      lltv: null,
+      morphoHref: null,
+    };
+  }
+
   const data = governance?.liquidityData;
   if (!data) {
     return { label: 'Not configured', lltv: null, morphoHref: null };
@@ -142,6 +157,54 @@ export function buildLiquidityAdapterOptions(
   const options = [...byKey.values()];
   options.sort((a, b) => {
     if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1;
+    return a.label.localeCompare(b.label);
+  });
+  return options;
+}
+
+const IDLE_ADAPTER = zeroAddress;
+
+/**
+ * Fee-wrapper liquidity targets: the Morpho vault adapter (data must be empty)
+ * or idle (`address(0)`), which leaves withdrawals on unallocated cash.
+ */
+export function buildVaultOrIdleLiquidityOptions(
+  risk: V2VaultRiskResponse,
+  governance: VaultV2GovernanceResponse
+): LiquidityAdapterOption[] {
+  const current = governance.liquidityAdapter?.address?.toLowerCase() ?? null;
+  const idleCurrent = !current || current === IDLE_ADAPTER;
+  const options: LiquidityAdapterOption[] = [
+    {
+      key: 'idle',
+      label: 'Idle',
+      lltv: null,
+      morphoHref: null,
+      adapterAddress: IDLE_ADAPTER,
+      liquidityData: EMPTY_ADAPTER_DATA,
+      kind: 'idle',
+      isCurrent: idleCurrent,
+    },
+  ];
+
+  for (const adapter of risk.adapters ?? []) {
+    if (!isMorphoVaultV2Adapter(adapter)) continue;
+    const address = adapter.adapterAddress;
+    options.push({
+      key: `vault-${address.toLowerCase()}`,
+      label: adapter.underlying?.name || adapter.underlying?.symbol || adapter.adapterLabel,
+      lltv: null,
+      morphoHref: null,
+      adapterAddress: address,
+      liquidityData: EMPTY_ADAPTER_DATA,
+      kind: 'vault',
+      isCurrent: current === address.toLowerCase(),
+    });
+  }
+
+  options.sort((a, b) => {
+    if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1;
+    if (a.kind === 'idle') return 1;
     return a.label.localeCompare(b.label);
   });
   return options;

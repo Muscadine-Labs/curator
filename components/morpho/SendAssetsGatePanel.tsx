@@ -35,6 +35,7 @@ import {
   confirmLabelForDestination,
   type VaultWriteDestination,
 } from '@/lib/safe/vault-write-destination';
+import { BASE_CHAIN_ID, getScanUrlForChain } from '@/lib/constants';
 import { stripGroupingSeparators } from '@/lib/format/allocation-display';
 import { isWalletRejection } from '@/lib/utils/wallet-error';
 
@@ -73,6 +74,48 @@ function previewFor(
         ? 'Allocator or Curator Safe (whitelister) can change the deposit allowlist.'
         : 'Only the gate roleSetter (Curator Safe) can appoint or revoke whitelisters.',
   };
+}
+
+function GateRoster({
+  title,
+  description,
+  rows,
+  empty,
+  loading,
+}: {
+  title: string;
+  description: string;
+  rows: SendAssetsGateState['accounts'];
+  empty: string;
+  loading: boolean;
+}) {
+  const scan = getScanUrlForChain(BASE_CHAIN_ID);
+  return (
+    <CuratorPanel title={title} description={description}>
+      {loading ? (
+        <div className="p-4">
+          <Skeleton className="h-24 w-full" />
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="px-4 py-3">
+          <CuratorEmptyText>{empty}</CuratorEmptyText>
+        </div>
+      ) : (
+        <ul className="divide-y divide-border">
+          {rows.map((row) => (
+            <li key={row.address} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
+              <p className="text-sm text-foreground">{row.label}</p>
+              <AddressBadge
+                address={row.address}
+                truncate
+                scanUrl={`${scan}/address/${row.address}`}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+    </CuratorPanel>
+  );
 }
 
 export function SendAssetsGatePanel({
@@ -191,11 +234,20 @@ export function SendAssetsGatePanel({
         ) : (
           <CuratorKvList>
             <CuratorKvRow label="Gate">
-              <AddressBadge address={query.data.address} truncate />
+              <AddressBadge
+                address={query.data.address}
+                truncate
+                scanUrl={`${getScanUrlForChain(BASE_CHAIN_ID)}/address/${query.data.address}`}
+              />
             </CuratorKvRow>
             <CuratorKvRow label="Role setter" description="Appoints whitelisters (Curator Safe)">
               {query.data.roleSetter ? (
-                <AddressBadge address={query.data.roleSetter} truncate label="auto" />
+                <AddressBadge
+                  address={query.data.roleSetter}
+                  truncate
+                  label="auto"
+                  scanUrl={`${getScanUrlForChain(BASE_CHAIN_ID)}/address/${query.data.roleSetter}`}
+                />
               ) : (
                 '—'
               )}
@@ -204,42 +256,21 @@ export function SendAssetsGatePanel({
         )}
       </CuratorPanel>
 
-      <CuratorPanel title="Allowlist" description="Adapters, Treasury, and partner wallets currently configured.">
-        {!query.data ? (
-          <div className="p-4">
-            <Skeleton className="h-32 w-full" />
-          </div>
-        ) : query.data.accounts.length === 0 ? (
-          <div className="px-4 py-3">
-            <CuratorEmptyText>No configured accounts.</CuratorEmptyText>
-          </div>
-        ) : (
-          <ul className="divide-y divide-border">
-            {query.data.accounts.map((row) => (
-              <li key={row.address} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
-                <div className="min-w-0">
-                  <p className="text-sm text-foreground">{row.label}</p>
-                  <AddressBadge address={row.address} truncate />
-                </div>
-                <div className="flex gap-3 text-xs text-muted-foreground">
-                  <span>
-                    Listed:{' '}
-                    <span className="font-medium text-foreground">
-                      {row.isWhitelisted == null ? '—' : row.isWhitelisted ? 'yes' : 'no'}
-                    </span>
-                  </span>
-                  <span>
-                    Whitelister:{' '}
-                    <span className="font-medium text-foreground">
-                      {row.isWhitelister == null ? '—' : row.isWhitelister ? 'yes' : 'no'}
-                    </span>
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </CuratorPanel>
+      <GateRoster
+        title="Whitelisters"
+        description="Accounts isWhitelister() returns true for. They can change the deposit allowlist."
+        rows={(query.data?.accounts ?? []).filter((row) => row.isWhitelister)}
+        empty="No whitelisters on this gate."
+        loading={!query.data}
+      />
+
+      <GateRoster
+        title="Whitelisted"
+        description="Accounts isWhitelisted() returns true for. They can deposit into gated vaults."
+        rows={(query.data?.accounts ?? []).filter((row) => row.isWhitelisted)}
+        empty="No whitelisted accounts on this gate."
+        loading={!query.data}
+      />
 
       <CuratorPanel
         title="Update gate"

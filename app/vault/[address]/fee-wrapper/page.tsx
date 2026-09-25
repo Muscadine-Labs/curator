@@ -11,7 +11,6 @@ export default function VaultFeeWrapperPage() {
       underlyingAddress={vault.address}
       feeWrapperAddress={feeWrapperAddress}
       underlyingName={vaultName}
-      underlyingApy={vault.apy}
     />
   );
 }

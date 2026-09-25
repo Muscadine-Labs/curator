@@ -7,6 +7,7 @@
 import { EXTERNAL_API_TIMEOUT_MS } from '@/lib/constants';
 import { logger } from '@/lib/utils/logger';
 
+/** Current free DefiLlama API (not the retired adapter v1 fetch). Fees: `/summary/fees/{slug}`. TVL: `/protocol/{slug}`. */
 const DEFILLAMA_API_BASE = 'https://api.llama.fi';
 const PROTOCOL_SLUG = 'muscadine';
 

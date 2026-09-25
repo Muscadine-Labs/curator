@@ -4,6 +4,20 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-09-24 — Safe wallet execute, history, gates, markets, fee wrapper
+
+- Send and Settings crashed with React #185 because the address book snapshot was a new array every read (`lib/safe/address-book.ts`).
+- Execute now builds Safe calldata in protocol-kit and sends it with wagmi `sendTransaction`, so the connected wallet prompts (`lib/hooks/useSafeTransactionActions.ts`).
+- History reads Transaction Service v2 directly (`lib/safe/transaction-service.ts`); the api-kit GET helper was returning an empty list.
+- Gate page splits on-chain whitelisters and whitelisted accounts, each with a Basescan link.
+- Market links carry a `from` path back to the vault section or the markets filter query. Liquidity USD uses available liquidity (`liquidityAssetsUsd`), matching the token amount.
+- Muscadine pages: dropped Portfolio and Portfolio API, added Reown under RPC & wallet, moved Cloudflare next to Vercel.
+- Fee wrapper tabs: Overview, Allocation (Morpho vault adapter or idle), Caps / timelocks. APY and fee percents appear once.
+- DefiLlama still uses current `/summary/fees` and `/protocol`. Morpho stays on `api.morpho.org/graphql`. `npm audit` reported no advisories.
+- In-range npm bumps: Next `16.3.6`, viem `2.56.9`, ox `0.14.48`, Reown `1.8.24`, TanStack Query `5.103.2`, lucide `1.48.0`, tailwind-merge `3.7.0`. Left majors (wagmi 3, ox 1, ESLint 10, TypeScript 7, Vitest 5).
+
+---
+
 ## 2026-09-12 — Allocation / Safe / sentinel write-path review
 
 - Unchanged rebalance rows snap to live `allocation(id)` so indexer/interest drift cannot inject phantom alloc/dealloc. Adapter/collateral cap occupancy is reread before cap checks.

@@ -1,6 +1,6 @@
 /**
- * GraphQL Client for Morpho API
- * Uses graphql-request with SDK-generated types for type safety
+ * Morpho Blue GraphQL (`https://api.morpho.org/graphql`).
+ * That host is the current API — not the retired `blue-api.morpho.org` v1 REST.
  */
 import { GraphQLClient, type RequestDocument } from 'graphql-request';
 import { print, type DocumentNode } from 'graphql';

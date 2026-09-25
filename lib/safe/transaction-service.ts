@@ -1,5 +1,3 @@
-'use client';
-
 import { getAddress, type Address, type Hex } from 'viem';
 import type SafeApiKit from '@safe-global/api-kit';
 import { OperationType, type SafeTransactionData } from '@safe-global/types-kit';
@@ -12,6 +10,9 @@ import {
 } from '@/lib/safe/decode-vault-calldata-preview';
 
 export const SAFE_TX_SERVICE_ORIGIN = 'Curator';
+
+/** Safe Transaction Service v2 (api.safe.global). Chain path is Base. */
+const SAFE_TX_SERVICE_BASE = 'https://api.safe.global/tx-service/base/api';
 
 /** Documented Safe API tier limits (manual actions only — no background polling). */
 export const SAFE_TX_SERVICE_RATE_LIMITS = {
@@ -135,19 +136,43 @@ export type ServiceHistoryTx = ServiceMultisigTx & {
   transactionHash?: string | null;
 };
 
-/** Executed Safe txs — on-demand only (free tier 5 req/s / 50K month). */
+const HISTORY_LIMIT = 40;
+
+/**
+ * Executed Safe txs — on-demand only (free tier 5 req/s / 50K month).
+ * Uses the Transaction Service v2 multisig list directly. The api-kit GET
+ * helper attaches a JSON body, which some server fetches turn into an empty list.
+ */
 export async function fetchExecutedMultisigTransactions(
   safeAddress: Address
 ): Promise<ServiceHistoryTx[]> {
-  const apiKit = await loadApiKit();
+  const apiKey = process.env.NEXT_PUBLIC_SAFE_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error('NEXT_PUBLIC_SAFE_API_KEY is not configured.');
+  }
+  const address = getAddress(safeAddress);
+  const url = new URL(
+    `${SAFE_TX_SERVICE_BASE}/v2/safes/${address}/multisig-transactions/`
+  );
+  url.searchParams.set('executed', 'true');
+  url.searchParams.set('ordering', '-nonce');
+  url.searchParams.set('limit', String(HISTORY_LIMIT));
+
   const response = await withSafeTxServiceRateLimit(() =>
-    apiKit.getMultisigTransactions(getAddress(safeAddress), {
-      executed: true,
-      ordering: '-nonce',
-      limit: 40,
+    fetch(url, {
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      cache: 'no-store',
     })
   );
-  return (response.results ?? []) as ServiceHistoryTx[];
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(text.slice(0, 300) || `Transaction Service returned ${response.status}`);
+  }
+  const body = JSON.parse(text) as { results?: ServiceHistoryTx[] };
+  return body.results ?? [];
 }
 
 export function mapServiceConfirmations(

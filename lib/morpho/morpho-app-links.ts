@@ -48,22 +48,42 @@ export function morphoCuratorVaultHref(vaultAddress: string, chainId: number): s
   return `https://curator.morpho.org/vaults/${chainId}/${vaultAddress}`;
 }
 
+function marketHref(
+  path: string,
+  chainId: number,
+  returnTo?: string | null
+): string {
+  const params = new URLSearchParams({ chainId: String(chainId) });
+  if (returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//')) {
+    params.set('from', returnTo);
+  }
+  return `${path}?${params.toString()}`;
+}
+
+/** In-app path to return to, or null when the query is missing or unsafe. */
+export function safeReturnPath(from: string | null | undefined): string | null {
+  if (!from || !from.startsWith('/') || from.startsWith('//')) return null;
+  return from;
+}
+
 /** Curator Morpho Blue market detail page. */
 export function curatorBlueMarketHref(
   marketId: string | null | undefined,
-  chainId: number = BASE_CHAIN_ID
+  chainId: number = BASE_CHAIN_ID,
+  returnTo?: string | null
 ): string | null {
   if (!marketId) return null;
-  return `/market/blue/${encodeURIComponent(marketId)}?chainId=${chainId}`;
+  return marketHref(`/market/blue/${encodeURIComponent(marketId)}`, chainId, returnTo);
 }
 
 /** In-app Midnight market detail (`/midnight/{id}`). */
 export function curatorMidnightMarketHref(
   marketId: string | null | undefined,
-  chainId: number = BASE_CHAIN_ID
+  chainId: number = BASE_CHAIN_ID,
+  returnTo?: string | null
 ): string | null {
   if (!marketId) return null;
-  return `/midnight/${encodeURIComponent(marketId)}?chainId=${chainId}`;
+  return marketHref(`/midnight/${encodeURIComponent(marketId)}`, chainId, returnTo);
 }
 
 /**

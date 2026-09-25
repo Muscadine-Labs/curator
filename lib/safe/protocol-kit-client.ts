@@ -234,7 +234,7 @@ export async function executeSafePendingTransaction(options: {
   transactionData: StoredSafeTransactionData;
   signatures: ReadonlyArray<{ signer: Address; data: Hex }>;
   provider?: EIP1193Provider;
-}): Promise<{ hash: Hex }> {
+}): Promise<{ to: Address; data: Hex; value: bigint }> {
   const protocolKit = await initSafeProtocolKit({
     safeAddress: options.safeAddress,
     signer: options.signer,
@@ -254,12 +254,12 @@ export async function executeSafePendingTransaction(options: {
     safeTransaction.addSignature(new EthSafeSignature(getAddress(sig.signer), sig.data));
   }
 
-  const response = await protocolKit.executeTransaction(safeTransaction);
-  const hash = response.hash as Hex | undefined;
-  if (!hash) {
-    throw new Error('Safe execution did not return a transaction hash.');
-  }
-  return { hash };
+  const data = (await protocolKit.getEncodedTransaction(safeTransaction)) as Hex;
+  return {
+    to: getAddress(options.safeAddress),
+    data,
+    value: BigInt(options.transactionData.value || '0'),
+  };
 }
 
 export { BASE_CHAIN_ID };

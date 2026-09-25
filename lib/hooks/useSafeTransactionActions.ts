@@ -3,7 +3,7 @@
 import { useCallback, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getAddress, type Address, type EIP1193Provider, type Hex } from 'viem';
-import { useAccount, useSwitchChain } from 'wagmi';
+import { useAccount, useSendTransaction, useSwitchChain } from 'wagmi';
 import {
   addSignature,
   removePendingTransaction,
@@ -31,6 +31,7 @@ export function useSafeTransactionActions(threshold: number | undefined) {
   const queryClient = useQueryClient();
   const { address: walletAddress, connector } = useAccount();
   const { switchChainAsync } = useSwitchChain();
+  const { sendTransactionAsync } = useSendTransaction();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -154,7 +155,7 @@ export function useSafeTransactionActions(threshold: number | undefined) {
       setError(null);
 
       try {
-        const { hash } = await executeSafePendingTransaction({
+        const prepared = await executeSafePendingTransaction({
           safeAddress: tx.safeAddress,
           signer,
           expectedSafeTxHash: tx.safeTxHash,
@@ -172,6 +173,13 @@ export function useSafeTransactionActions(threshold: number | undefined) {
           },
           signatures: tx.signatures,
           provider,
+        });
+        const hash = await sendTransactionAsync({
+          account: signer,
+          to: prepared.to,
+          data: prepared.data,
+          value: prepared.value,
+          chainId: BASE_CHAIN_ID,
         });
 
         updatePendingTransaction(tx.id, {
@@ -192,7 +200,7 @@ export function useSafeTransactionActions(threshold: number | undefined) {
         setActiveId(null);
       }
     },
-    [prepareSigner, threshold, queryClient]
+    [prepareSigner, threshold, queryClient, sendTransactionAsync]
   );
 
   const cancelPending = useCallback((id: string) => {

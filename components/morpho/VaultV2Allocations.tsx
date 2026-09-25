@@ -659,7 +659,11 @@ export function VaultV2Allocations({
           kind: 'target',
           targetIdx: tIdx,
           market: label,
-          morphoHref: curatorBlueMarketHref(marketKey, chainId),
+          morphoHref: curatorBlueMarketHref(
+            marketKey,
+            chainId,
+            `/vault/${vaultAddress}/allocation`
+          ),
           isIdle: false,
           isMorphoBlue: true,
           supplyApy: m.state?.supplyApy ?? null,
