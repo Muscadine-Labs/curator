@@ -12,12 +12,11 @@ import { publicClient } from '@/lib/onchain/client';
 import { whitelistSendAssetsGateAbi } from '@/lib/onchain/whitelist-send-assets-gate-abi';
 import {
   configuredSendAssetsGates,
+  depositGateAdapterAllowlist,
   depositGateDeployBlock,
-  depositGateFullWhitelist,
   depositGateGateWhitelisters,
+  resolveAllowlistLabel,
 } from '@/lib/config/deposit-gates';
-import { getSafeByAddress } from '@/lib/safe/config';
-import { getConfiguredVaultDisplayName, getVaultByAddress } from '@/lib/config/vaults';
 import {
   readGateRosterCandidates,
   type GateRosterScanStatus,
@@ -42,15 +41,9 @@ export type SendAssetsGateState = {
   rosterScan: { status: GateRosterScanStatus; progress: number };
 };
 
-/** Config label, else a known Safe / vault, else a neutral fallback. */
-function labelForRosterAccount(address: Address, configured: Map<string, string>): string {
-  const fromConfig = configured.get(address.toLowerCase());
-  if (fromConfig) return fromConfig;
-  const safe = getSafeByAddress(address);
-  if (safe) return safe.label === 'Treasury' ? 'Treasury' : `${safe.label} Safe`;
-  const vault = getVaultByAddress(address);
-  if (vault) return getConfiguredVaultDisplayName(vault);
-  return 'Account';
+/** Known Safe / vault / Basename, else "Whitelisted address". */
+function labelForRosterAccount(address: Address): string {
+  return resolveAllowlistLabel(address);
 }
 
 export async function GET(
@@ -84,18 +77,12 @@ export async function GET(
       throw new AppError('Gate is not in curator config', 404, 'GATE_NOT_FOUND');
     }
 
+    // Role Safes and wrapper adapters are checked immediately. Every other
+    // allowlisted account comes from the gate's own logs, then isWhitelisted().
     const configuredRows = [
       ...depositGateGateWhitelisters(),
-      ...depositGateFullWhitelist(),
+      ...depositGateAdapterAllowlist(),
     ];
-    const configuredLabels = new Map<string, string>();
-    for (const row of configuredRows) {
-      const key = row.address.toLowerCase();
-      if (!configuredLabels.has(key)) configuredLabels.set(key, row.label);
-    }
-
-    // Config seeds the list; the gate's own events add anyone whitelisted
-    // outside this app's config (e.g. a partner added from the Update form).
     const roster = await readGateRosterCandidates(address, depositGateDeployBlock(address));
     const seen = new Set<string>();
     const unique: Array<{ address: Address; label: string }> = [];
@@ -109,24 +96,24 @@ export async function GET(
       seen.add(key);
       unique.push({
         address: checksummed,
-        label: labelForRosterAccount(checksummed, configuredLabels),
+        label: labelForRosterAccount(checksummed),
       });
     }
 
-    const roleSetterRead = await publicClient.multicall({
-      allowFailure: true,
-      contracts: [
-        {
-          address,
-          abi: whitelistSendAssetsGateAbi,
-          functionName: 'roleSetter',
-        },
-      ],
-    });
-    const accountReads =
+    const [roleSetterRead, accountReads] = await Promise.all([
+      publicClient.multicall({
+        allowFailure: true,
+        contracts: [
+          {
+            address,
+            abi: whitelistSendAssetsGateAbi,
+            functionName: 'roleSetter',
+          },
+        ],
+      }),
       unique.length === 0
-        ? []
-        : await publicClient.multicall({
+        ? Promise.resolve([])
+        : publicClient.multicall({
             allowFailure: true,
             contracts: unique.flatMap((row) => [
               {
@@ -142,22 +129,27 @@ export async function GET(
                 args: [row.address] as const,
               },
             ]),
-          });
+          }),
+    ]);
 
     const roleSetterResult = roleSetterRead[0];
     const roleSetter =
-      roleSetterResult?.status === 'success'
-        ? getAddress(roleSetterResult.result)
-        : null;
+      roleSetterResult?.status === 'success' ? getAddress(roleSetterResult.result) : null;
 
     const accountStatus: GateAccountStatus[] = unique.map((row, i) => {
       const listed = accountReads[i * 2];
       const lister = accountReads[i * 2 + 1];
+      const isWhitelisted = listed?.status === 'success' ? Boolean(listed.result) : null;
+      const isWhitelister = lister?.status === 'success' ? Boolean(lister.result) : null;
+      const label =
+        row.label === 'Whitelisted address' && isWhitelisted !== true && isWhitelister === true
+          ? 'Whitelister'
+          : row.label;
       return {
         address: row.address,
-        label: row.label,
-        isWhitelisted: listed?.status === 'success' ? Boolean(listed.result) : null,
-        isWhitelister: lister?.status === 'success' ? Boolean(lister.result) : null,
+        label,
+        isWhitelisted,
+        isWhitelister,
       };
     });
 

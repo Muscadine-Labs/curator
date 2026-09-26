@@ -1,9 +1,9 @@
 /**
  * Morpho Vault V2 send-assets gate rollout (WhitelistSendAssetsGate).
  *
- * **Underlying-only:** gate the four production strategy vaults. Whitelist adapters
- * (wrapper allocate path), Treasury, and partner depositor wallets. Fee-wrapper vaults
- * stay open (`sendAssetsGate = 0x0`).
+ * **Underlying-only:** the four production strategy vaults point at one shared gate.
+ * Who may deposit is whatever that gate returns (`isWhitelisted`), not a list in this
+ * file. Fee-wrapper vaults stay open (`sendAssetsGate = 0x0`).
  *
  * Gate contract address is set after deployment via `SEND_ASSETS_GATE_ADDRESS` (or env).
  * See `docs/brain/deposit-gates.md`. Writes: muscadine-onchain `gate` commands.
@@ -16,7 +16,6 @@ import {
   getVaultByAddress,
   type VaultAddressConfig,
 } from '@/lib/config/vaults';
-import { TREASURY_ADDRESS } from '@/lib/morpho/treasury-statement';
 import { getSafeByAddress, getSafeByRole } from '@/lib/safe/config';
 
 export type AllowlistedAddress = {
@@ -75,42 +74,32 @@ export function depositGateGateWhitelisters(): AllowlistedAddress[] {
 }
 
 /**
- * Partner / rebate depositor wallets — also whitelisted on the underlying gate
- * (can deposit underlying directly as `msg.sender`, in addition to wrapper path).
+ * Display names for addresses the gate may return. This is not the allowlist.
+ * Membership comes from the gate contract.
  */
-export const DEPOSIT_GATE_DEPOSITOR_ALLOWLIST: readonly AllowlistedAddress[] = [
-  {
-    address: getAddress('0x628037c2d25f5e5f6f90415cff6d7e8860f41c08'),
-    label: 'Rebate allowlist',
-  },
-  {
-    address: getAddress(TREASURY_ADDRESS),
-    label: 'Treasury',
-  },
-  {
-    address: getAddress('0xf35b121ba32cbeaa27716abeffb6b65a55f9b333'),
-    label: 'Allowlisted depositor',
-  },
-  {
-    address: getAddress('0x31E70f063cA802DedCd76e74C8F6D730eC43D9f0'),
-    label: 'Rebate allowlist',
-  },
-  {
-    address: getAddress('0x0d5a708b651fee1daa0470431c4262ab3e1d0261'),
-    label: 'Rebate allowlist',
-  },
-];
+const GATE_DISPLAY_NAMES: Readonly<Record<string, string>> = {
+  [getAddress('0x628037c2d25f5e5f6f90415cff6d7e8860f41c08').toLowerCase()]:
+    'nwlutkoski.base.eth',
+  [getAddress('0xf35b121ba32cbeaa27716abeffb6b65a55f9b333').toLowerCase()]:
+    'muscadine.base.eth',
+  [getAddress('0x31E70f063cA802DedCd76e74C8F6D730eC43D9f0').toLowerCase()]:
+    'nickwc.base.eth',
+  [getAddress('0x0d5a708b651fee1daa0470431c4262ab3e1d0261').toLowerCase()]:
+    'ignitis.base.eth',
+};
 
 function labelForAddress(address: string): string {
+  const named = GATE_DISPLAY_NAMES[address.toLowerCase()];
+  if (named) return named;
   const safe = getSafeByAddress(address);
-  if (safe) return safe.label === 'Treasury' ? 'Treasury' : `${safe.label} Safe`;
+  if (safe) return safe.role === 'treasury' ? 'Muscadine Treasury' : `${safe.label} Safe`;
   const vault = getVaultByAddress(address);
   if (vault) return getConfiguredVaultDisplayName(vault);
-  const depositor = DEPOSIT_GATE_DEPOSITOR_ALLOWLIST.find(
+  const adapter = depositGateAdapterAllowlist().find(
     (row) => row.address.toLowerCase() === address.toLowerCase()
   );
-  if (depositor) return depositor.label;
-  return 'MorphoVaultV2Adapter';
+  if (adapter) return adapter.label;
+  return 'Whitelisted address';
 }
 
 /** Production strategy vaults that receive `setSendAssetsGate` (excludes test vaults). */
@@ -142,15 +131,15 @@ export function depositGateAdapterAllowlist(): AllowlistedAddress[] {
   }));
 }
 
-/** Adapters + partner depositors (+ Treasury) on the shared gate. */
+/**
+ * Adapter contracts the wrappers use to deposit. Labels only — whether each
+ * adapter is whitelisted is read from the gate.
+ */
 export function depositGateWhitelistForUnderlying(): AllowlistedAddress[] {
-  return dedupeAllowlist([
-    ...depositGateAdapterAllowlist(),
-    ...DEPOSIT_GATE_DEPOSITOR_ALLOWLIST,
-  ]);
+  return dedupeAllowlist(depositGateAdapterAllowlist());
 }
 
-/** Full gate whitelist (underlying-only rollout). */
+/** @deprecated Use the gate's `isWhitelisted` roster. Adapters only, for labels. */
 export function depositGateFullWhitelist(): AllowlistedAddress[] {
   return depositGateWhitelistForUnderlying();
 }

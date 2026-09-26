@@ -21,9 +21,13 @@ We gate **only the four production underlying strategy vaults**. Fee-wrapper vau
 
 When the wrapper allocates, the **MorphoVaultV2Adapter** calls `deposit` on the underlying vault — **`msg.sender` is the adapter**.
 
-### Gate whitelist (9 addresses)
+### Who is allowlisted
 
-**Adapters (4)**
+The curator gate page does not keep a depositor address list. It reads `SetIsWhitelisted` / `SetIsWhitelister` from the gate, then `isWhitelisted()` / `isWhitelister()` for each account. Wrapper adapters are known from vault config so they can be labeled and checked immediately; a wallet is shown only after the gate itself names it.
+
+Display names, when the gate returns that address: `nwlutkoski.base.eth`, `muscadine.base.eth`, `nickwc.base.eth`, `ignitis.base.eth`, and **Muscadine Treasury**. Any other allowlisted account is labeled **Whitelisted address**.
+
+**Adapters the wrappers deposit through (4)**
 
 | Address | Role |
 | ------- | ---- |
@@ -32,17 +36,7 @@ When the wrapper allocates, the **MorphoVaultV2Adapter** calls `deposit` on the 
 | `0xf691616Dd2cF85c9cA9fa32bdFf00f5cD92BAd81` | WETH Prime wrapper adapter |
 | `0xa3b90423FD6f70B9f4A424dEBfB27ac502ac1464` | cbBTC Prime wrapper adapter |
 
-**Partner depositors + Treasury (5)**
-
-| Address | Role |
-| ------- | ---- |
-| `0x628037c2d25f5e5f6f90415cff6d7e8860f41c08` | Rebate allowlist |
-| `0x057fd8B961Eb664baA647a5C7A6e9728fabA266A` | Treasury |
-| `0xf35b121ba32cbeaa27716abeffb6b65a55f9b333` | Allowlisted depositor |
-| `0x31E70f063cA802DedCd76e74C8F6D730eC43D9f0` | Rebate allowlist |
-| `0x0d5a708b651fee1daa0470431c4262ab3e1d0261` | Rebate allowlist |
-
-Partner wallets whitelisted on underlying can **deposit underlying directly** (bypass wrapper fee layer) as well as deposit wrappers freely.
+A wallet the gate has allowlisted can **deposit underlying directly** (bypass the wrapper fee layer) as well as deposit wrappers freely.
 
 ### Vaults that receive `setSendAssetsGate` (4 addresses)
 
@@ -79,13 +73,13 @@ The **app does not call gate RPC** (`sendAssetsGate`, `canSendAssets`, or gate `
 
 | Source | File |
 | ------ | ---- |
-| Depositor EOAs (5) | `app/src/lib/deposit-gate-config.ts` — sync from `DEPOSIT_GATE_DEPOSITOR_ALLOWLIST` here |
+| Depositor EOAs | The app still has its own copy. Curator no longer keeps that list; it reads the gate. |
 
 Gate UI is **always active** in the app (config allowlist only; no env toggle, no gate RPC).
 
 After **any** allowlist or gate change:
 
-1. Update `lib/config/deposit-gates.ts` (curator) and `app/src/lib/deposit-gate-config.ts` (same depositor addresses).
+1. Curator picks up gate membership from chain. Update `app/src/lib/deposit-gate-config.ts` only if the app's own copy should change.
 2. **`npx tsx src/cli.ts gate verify`** in muscadine-onchain — RPC read-only; must pass before shipping app config.
 3. Redeploy app when depositor list or gate-active flag changes.
 
@@ -101,8 +95,7 @@ npx tsx src/cli.ts gate verify
 Checks:
 
 - Each underlying vault `sendAssetsGate()` equals the configured gate (non-zero).
-- Gate `isWhitelisted(address)` for all 9 config addresses.
-- Sample underlying vault `canSendAssets(depositor)` for each partner/Treasury wallet.
+- Gate `isWhitelisted(address)` for the addresses in muscadine-onchain `src/config/gates.ts`.
 
 Uses `ALCHEMY_API_KEY` when set; otherwise public Base RPC. Exit code **1** on any mismatch.
 
@@ -120,7 +113,7 @@ We only set **`sendAssetsGate`**. Other gates stay at `0x0`.
 
 ### Direct underlying for partners
 
-Whitelisted partner wallets can deposit **underlying shares directly** (no wrapper fee). That is intentional for rebate / ops wallets.
+Any account the gate has whitelisted can deposit **underlying shares directly** (no wrapper fee).
 
 ### Wrapper deposits stay public on-chain
 

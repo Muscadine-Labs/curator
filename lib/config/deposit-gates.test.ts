@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { getAddress } from 'viem';
 import {
-  DEPOSIT_GATE_DEPOSITOR_ALLOWLIST,
   depositGateAdapterAllowlist,
   depositGateFullWhitelist,
   depositGateGateWhitelisters,
   depositGateWhitelistForUnderlying,
   depositGateWrapperAdapterPairs,
+  resolveAllowlistLabel,
 } from '@/lib/config/deposit-gates';
 import { TREASURY_ADDRESS } from '@/lib/morpho/treasury-statement';
 import {
@@ -20,18 +20,22 @@ const GATE = '0x1111111111111111111111111111111111111111';
 const VAULT = '0x89712980Cb434eF5aE4AB29349419eb976B0b496';
 
 describe('deposit-gates config', () => {
-  it('includes the five partner depositor addresses', () => {
-    const expected = [
-      '0x628037c2d25f5e5f6f90415cff6d7e8860f41c08',
-      TREASURY_ADDRESS,
-      '0xf35b121ba32cbeaa27716abeffb6b65a55f9b333',
-      '0x31E70f063cA802DedCd76e74C8F6D730eC43D9f0',
-      '0x0d5a708b651fee1daa0470431c4262ab3e1d0261',
-    ].map((a) => a.toLowerCase());
-    const configured = DEPOSIT_GATE_DEPOSITOR_ALLOWLIST.map((row) =>
+  it('does not treat depositor wallets as a configured allowlist', () => {
+    const configured = depositGateWhitelistForUnderlying().map((row) =>
       row.address.toLowerCase()
     );
-    expect(configured).toEqual(expected);
+    expect(configured).not.toContain('0x628037c2d25f5e5f6f90415cff6d7e8860f41c08');
+    expect(configured).not.toContain(TREASURY_ADDRESS.toLowerCase());
+  });
+
+  it('labels gate accounts from Basenames, the treasury Safe, or a plain fallback', () => {
+    expect(resolveAllowlistLabel('0x628037c2d25f5e5f6f90415cff6d7e8860f41c08')).toBe(
+      'nwlutkoski.base.eth'
+    );
+    expect(resolveAllowlistLabel(TREASURY_ADDRESS)).toBe('Muscadine Treasury');
+    expect(resolveAllowlistLabel('0x1111111111111111111111111111111111111111')).toBe(
+      'Whitelisted address'
+    );
   });
 
   it('lists four production wrapper ↔ adapter pairs (no test vaults)', () => {
@@ -51,17 +55,12 @@ describe('deposit-gates config', () => {
     ]);
   });
 
-  it('whitelists four adapters, treasury, and four partner depositors on the gate', () => {
+  it('uses wrapper adapters only as labels, not a depositor roster', () => {
     const adapters = depositGateAdapterAllowlist();
     const gate = depositGateWhitelistForUnderlying().map((r) => r.address.toLowerCase());
     expect(adapters).toHaveLength(4);
-    for (const adapter of adapters) {
-      expect(gate).toContain(adapter.address.toLowerCase());
-    }
-    for (const row of DEPOSIT_GATE_DEPOSITOR_ALLOWLIST) {
-      expect(gate).toContain(row.address.toLowerCase());
-    }
-    expect(gate).toHaveLength(9);
+    expect(gate).toEqual(adapters.map((adapter) => adapter.address.toLowerCase()));
+    expect(depositGateFullWhitelist()).toHaveLength(4);
   });
 
   it('lists curator and allocator as gate whitelisters', () => {
@@ -72,14 +71,6 @@ describe('deposit-gates config', () => {
     ]);
   });
 
-  it('dedupes treasury in the full whitelist', () => {
-    const full = depositGateFullWhitelist();
-    const treasuryCount = full.filter(
-      (r) => r.address.toLowerCase() === TREASURY_ADDRESS.toLowerCase()
-    ).length;
-    expect(treasuryCount).toBe(1);
-    expect(full).toHaveLength(9);
-  });
 });
 
 describe('vault-v2-gates encoding', () => {
