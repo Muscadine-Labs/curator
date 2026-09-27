@@ -44,8 +44,6 @@ type GateWriteKind = 'whitelist' | 'whitelister';
 const WHITELIST_ROLES: SafeRole[] = ['allocator', 'curator'];
 const WHITELISTER_ROLES: SafeRole[] = ['curator'];
 
-const GATE_SCAN_POLL_MS = 3_000;
-
 function gateQueryKey(address: string) {
   return ['send-assets-gate', address] as const;
 }
@@ -123,16 +121,9 @@ function GateRosters({ state }: { state: SendAssetsGateState }) {
     <>
       {scan.status !== 'complete' || unreadable.length > 0 ? (
         <div className="space-y-1 rounded-xl border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-xs text-amber-700 dark:text-amber-400">
-          {scan.status === 'scanning' ? (
-            <p>
-              Scanning the gate&apos;s event history (
-              {Math.floor(scan.progress * 100)}% done). Accounts added outside
-              this app&apos;s config may be missing until it finishes.
-            </p>
-          ) : null}
           {scan.status === 'failed' ? (
             <p>
-              Could not scan the gate&apos;s event history. The lists below only cover
+              Could not load the gate&apos;s logs. The lists below only cover
               configured accounts, so an address added elsewhere may be missing.
             </p>
           ) : null}
@@ -186,9 +177,6 @@ export function SendAssetsGatePanel({
       return (await res.json()) as SendAssetsGateState;
     },
     ...ON_CHAIN_VAULT_QUERY_OPTIONS,
-    // The server scans gate history a few seconds per request; poll until done.
-    refetchInterval: (q) =>
-      q.state.data?.rosterScan?.status === 'scanning' ? GATE_SCAN_POLL_MS : false,
   });
 
   const [accountInput, setAccountInput] = useState('');

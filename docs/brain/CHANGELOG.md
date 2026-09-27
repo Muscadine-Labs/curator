@@ -4,6 +4,13 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-09-26 — Gate allowlist from the contract, one address lookup
+
+- The curator gate page no longer keeps a depositor address list. Membership is whoever the gate names in `SetIsWhitelisted` / `SetIsWhitelister` logs, then the live `isWhitelisted` / `isWhitelister` reads. Display names are Basenames, **Muscadine Treasury**, or **Whitelisted address**.
+- Those logs come from one Blockscout `getLogs` call for the gate address (creation transaction through later calls), not a block-range walk. `SEND_ASSETS_GATE_DEPLOY_BLOCK` is gone. `lib/morpho/send-assets-gate-roster.server.ts`.
+
+---
+
 ## 2026-09-25 — Docs match installed dependency pins
 
 - `package.json` floors raised to the versions already installed (no upgrades). Majors still held: ESLint 9.39.5, wagmi 2.19.5, TypeScript 6.0.3, ox 0.14.48, Vitest 4.1.11.

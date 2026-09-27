@@ -1,220 +1,157 @@
-import { createPublicClient, getAddress, http, parseAbiItem, type Address } from 'viem';
-import { base } from '@/lib/onchain/base-chain';
-import { publicClient } from '@/lib/onchain/client';
-import { BASE_PUBLIC_RPC, getBaseRpcUrl } from '@/lib/onchain/rpc-url';
+import { decodeEventLog, getAddress, type Address, type Hex } from 'viem';
 import { logger } from '@/lib/utils/logger';
 
 /**
- * Every account a WhitelistSendAssetsGate has ever flagged, recovered from its
- * events. The gate keeps `isWhitelisted` / `isWhitelister` as plain mappings,
- * so there is no on-chain enumeration — without a log scan the curator UI can
- * only check addresses it already knows about, and a partner whitelisted from
- * the gate form would never show up.
+ * Accounts a WhitelistSendAssetsGate has ever flagged.
  *
- * Events only nominate candidates; callers still read the live mappings to
- * decide who is currently whitelisted.
+ * The mappings `isWhitelisted` / `isWhitelister` cannot be listed on-chain.
+ * The app loads vault activity the same way it should be done here: one indexed
+ * query for interactions with a single address (`vaultV2transactions` where
+ * `vaultAddress_in` is the vault), not a walk of every block. This gate is not
+ * a vault, so Morpho does not index it. Blockscout's address log API is that
+ * same lookup — the creation transaction and every later log the contract
+ * emitted — and returns the whole set in one response.
  *
- * The first scan of a gate walks its whole history in 2,000-block chunks, which
- * on the public Base RPC takes tens of seconds. Each request therefore scans
- * for at most `SCAN_BUDGET_MS` and keeps its progress in memory; callers get
- * `complete: false` until the scan catches up to the chain head, then later
- * requests only read the handful of new blocks.
+ * Logs only nominate candidates. Callers still read the live mappings.
  */
 const ROSTER_EVENTS = [
-  parseAbiItem('event SetIsWhitelister(address indexed account, bool newIsWhitelister)'),
-  parseAbiItem(
-    'event SetIsWhitelisted(address indexed whitelister, address indexed account, bool newIsWhitelisted)'
-  ),
-  parseAbiItem(
-    'event SetIsWhitelistedWithSig(address indexed whitelister, address indexed account, bool newIsWhitelisted)'
-  ),
+  {
+    type: 'event',
+    name: 'SetIsWhitelister',
+    inputs: [
+      { name: 'account', type: 'address', indexed: true },
+      { name: 'newIsWhitelister', type: 'bool', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'SetIsWhitelisted',
+    inputs: [
+      { name: 'whitelister', type: 'address', indexed: true },
+      { name: 'account', type: 'address', indexed: true },
+      { name: 'newIsWhitelisted', type: 'bool', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'SetIsWhitelistedWithSig',
+    inputs: [
+      { name: 'whitelister', type: 'address', indexed: true },
+      { name: 'account', type: 'address', indexed: true },
+      { name: 'newIsWhitelisted', type: 'bool', indexed: false },
+    ],
+  },
 ] as const;
 
-/** `mainnet.base.org` rejects `eth_getLogs` spans above 2,000 blocks. */
-const LOG_CHUNK_BLOCKS = 2_000n;
-const SCAN_CONCURRENCY = 6;
-const SCAN_BUDGET_MS = 6_000;
-/** Public RPCs answer bursts with "over rate limit"; back off and retry the chunk. */
-const CHUNK_RETRIES = 4;
-const CHUNK_RETRY_BASE_MS = 400;
+/** Blockscout returns at most this many logs per `getLogs` call. */
+const LOG_PAGE_SIZE = 1_000;
+const MAX_LOG_PAGES = 20;
 
-type LogsClient = Pick<typeof publicClient, 'getLogs'>;
+const BLOCKSCOUT_LOGS = 'https://base.blockscout.com/api';
 
-/**
- * Keyed RPCs can cap `eth_getLogs` far below 2,000 blocks on free tiers, so a
- * chunk that fails on the configured RPC retries on the public Base endpoint.
- */
-const publicLogsClient: LogsClient = createPublicClient({
-  chain: base,
-  transport: http(BASE_PUBLIC_RPC),
-});
-
-type RosterState = {
-  /** First block not yet scanned. */
-  nextBlock: bigint;
-  firstBlock: bigint;
-  accounts: Set<Address>;
+type ExplorerLog = {
+  blockNumber?: string;
+  data?: string;
+  topics?: Array<string | null>;
 };
-
-type RosterProgress = { complete: boolean; progress: number };
-
-const rosterStates = new Map<string, RosterState>();
-const inFlight = new Map<string, Promise<RosterProgress>>();
-const deployBlocks = new Map<string, Promise<bigint>>();
-
-async function findDeployBlock(gate: Address, latest: bigint): Promise<bigint> {
-  let lo = 0n;
-  let hi = latest;
-  while (lo < hi) {
-    const mid = (lo + hi) / 2n;
-    const code = await publicClient.getCode({ address: gate, blockNumber: mid });
-    if (code && code !== '0x') hi = mid;
-    else lo = mid + 1n;
-  }
-  return lo;
-}
-
-function resolveDeployBlock(
-  gate: Address,
-  latest: bigint,
-  knownDeployBlock: bigint | null
-): Promise<bigint> {
-  if (knownDeployBlock != null) return Promise.resolve(knownDeployBlock);
-  const key = gate.toLowerCase();
-  const cached = deployBlocks.get(key);
-  if (cached) return cached;
-  const pending = findDeployBlock(gate, latest);
-  deployBlocks.set(key, pending);
-  pending.catch(() => deployBlocks.delete(key));
-  return pending;
-}
-
-function collectAccounts(
-  logs: ReadonlyArray<{ args: { account?: Address; whitelister?: Address } }>,
-  into: Set<Address>
-) {
-  for (const log of logs) {
-    if (log.args.account) into.add(getAddress(log.args.account));
-    if (log.args.whitelister) into.add(getAddress(log.args.whitelister));
-  }
-}
-
-function getRosterLogs(
-  client: LogsClient,
-  gate: Address,
-  fromBlock: bigint,
-  toBlock: bigint
-) {
-  return client.getLogs({ address: gate, events: ROSTER_EVENTS, fromBlock, toBlock });
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function getChunkLogs(gate: Address, fromBlock: bigint, toBlock: bigint) {
-  const clients: LogsClient[] =
-    getBaseRpcUrl() === BASE_PUBLIC_RPC ? [publicClient] : [publicClient, publicLogsClient];
-  let lastError: unknown;
-  for (const client of clients) {
-    for (let attempt = 0; attempt <= CHUNK_RETRIES; attempt += 1) {
-      try {
-        return await getRosterLogs(client, gate, fromBlock, toBlock);
-      } catch (error) {
-        lastError = error;
-        if (attempt < CHUNK_RETRIES) await sleep(CHUNK_RETRY_BASE_MS * 2 ** attempt);
-      }
-    }
-  }
-  throw lastError;
-}
-
-function progressOf(state: RosterState, latest: bigint): RosterProgress {
-  const complete = state.nextBlock > latest;
-  const total = latest - state.firstBlock + 1n;
-  if (complete || total <= 0n) return { complete, progress: complete ? 1 : 0 };
-  const done = state.nextBlock - state.firstBlock;
-  return { complete, progress: Number((done * 1000n) / total) / 1000 };
-}
-
-async function advanceRoster(
-  gate: Address,
-  knownDeployBlock: bigint | null
-): Promise<RosterProgress> {
-  const key = gate.toLowerCase();
-  const latest = await publicClient.getBlockNumber();
-  let state = rosterStates.get(key);
-  if (!state) {
-    const firstBlock = await resolveDeployBlock(gate, latest, knownDeployBlock);
-    state = { nextBlock: firstBlock, firstBlock, accounts: new Set() };
-    rosterStates.set(key, state);
-  }
-  if (state.nextBlock > latest) return progressOf(state, latest);
-
-  // Providers without a span cap answer the whole backlog in one call.
-  if (latest - state.nextBlock + 1n > LOG_CHUNK_BLOCKS) {
-    try {
-      collectAccounts(
-        await getRosterLogs(publicClient, gate, state.nextBlock, latest),
-        state.accounts
-      );
-      state.nextBlock = latest + 1n;
-      return progressOf(state, latest);
-    } catch {
-      // Span too large for this RPC — scan in chunks below.
-    }
-  }
-
-  const deadline = Date.now() + SCAN_BUDGET_MS;
-  while (state.nextBlock <= latest && Date.now() < deadline) {
-    const batch: Array<[bigint, bigint]> = [];
-    let start = state.nextBlock;
-    while (batch.length < SCAN_CONCURRENCY && start <= latest) {
-      const end = start + LOG_CHUNK_BLOCKS - 1n;
-      batch.push([start, end > latest ? latest : end]);
-      start = end + 1n;
-    }
-    const results = await Promise.all(batch.map(([from, to]) => getChunkLogs(gate, from, to)));
-    for (const logs of results) collectAccounts(logs, state.accounts);
-    // Batches are contiguous and all-or-nothing, so progress never skips a gap.
-    state.nextBlock = batch[batch.length - 1]![1] + 1n;
-  }
-  return progressOf(state, latest);
-}
 
 export type GateRosterScanStatus = 'complete' | 'scanning' | 'failed';
 
 export type GateRosterCandidates = {
   accounts: Address[];
-  /** `scanning` while the first pass is still catching up to the chain head. */
+  /** `complete` after the address index answers. `failed` leaves only configured accounts. */
   status: GateRosterScanStatus;
-  /** Share of the gate's history scanned so far (0–1). */
+  /** 1 after a successful read. */
   progress: number;
 };
 
-export async function readGateRosterCandidates(
-  gate: Address,
-  knownDeployBlock: bigint | null
-): Promise<GateRosterCandidates> {
+const inFlight = new Map<string, Promise<Address[]>>();
+
+function isHexTopic(topic: string | null | undefined): topic is Hex {
+  return typeof topic === 'string' && /^0x[0-9a-fA-F]*$/.test(topic);
+}
+
+/** Addresses named by one roster log. Ignores the constructor and unknown events. */
+export function accountsFromGateLog(log: {
+  data?: string | null;
+  topics?: Array<string | null> | null;
+}): Address[] {
+  const topics = (log.topics ?? []).filter(isHexTopic);
+  if (topics.length === 0) return [];
+  const data = isHexTopic(log.data) ? log.data : '0x';
+  try {
+    const decoded = decodeEventLog({
+      abi: ROSTER_EVENTS,
+      data,
+      topics: topics as [Hex, ...Hex[]],
+    });
+    const args = decoded.args as { account?: Address; whitelister?: Address };
+    const found: Address[] = [];
+    if (args.account) found.push(getAddress(args.account));
+    if (args.whitelister) found.push(getAddress(args.whitelister));
+    return found;
+  } catch {
+    return [];
+  }
+}
+
+async function fetchGateLogPage(gate: Address, fromBlock: bigint): Promise<ExplorerLog[]> {
+  const url = new URL(BLOCKSCOUT_LOGS);
+  url.searchParams.set('module', 'logs');
+  url.searchParams.set('action', 'getLogs');
+  url.searchParams.set('address', gate);
+  url.searchParams.set('fromBlock', fromBlock.toString());
+  url.searchParams.set('toBlock', 'latest');
+  const response = await fetch(url, {
+    headers: { accept: 'application/json', 'user-agent': 'muscadine-curator' },
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    throw new Error(`Blockscout logs HTTP ${response.status}`);
+  }
+  const body = (await response.json()) as { status?: string; message?: string; result?: unknown };
+  if (!Array.isArray(body.result)) {
+    if (body.message === 'No records found') return [];
+    throw new Error(
+      typeof body.result === 'string' ? body.result : body.message || 'Blockscout logs returned no list'
+    );
+  }
+  return body.result as ExplorerLog[];
+}
+
+async function readGateAccounts(gate: Address): Promise<Address[]> {
+  const accounts = new Set<Address>();
+  let fromBlock = 0n;
+  for (let page = 0; page < MAX_LOG_PAGES; page += 1) {
+    const logs = await fetchGateLogPage(gate, fromBlock);
+    for (const log of logs) {
+      for (const account of accountsFromGateLog(log)) accounts.add(account);
+    }
+    if (logs.length < LOG_PAGE_SIZE) break;
+    const lastBlock = logs[logs.length - 1]?.blockNumber;
+    if (!lastBlock) break;
+    const next = BigInt(lastBlock) + 1n;
+    if (next <= fromBlock) break;
+    fromBlock = next;
+  }
+  return [...accounts];
+}
+
+export async function readGateRosterCandidates(gate: Address): Promise<GateRosterCandidates> {
   const key = gate.toLowerCase();
   let pending = inFlight.get(key);
   if (!pending) {
-    pending = advanceRoster(gate, knownDeployBlock).finally(() => inFlight.delete(key));
+    pending = readGateAccounts(gate).finally(() => inFlight.delete(key));
     inFlight.set(key, pending);
   }
-  let status: GateRosterScanStatus;
-  let progress = 0;
   try {
-    const result = await pending;
-    status = result.complete ? 'complete' : 'scanning';
-    progress = result.progress;
+    const accounts = await pending;
+    return { accounts, status: 'complete', progress: 1 };
   } catch (error) {
-    logger.warn('Send-assets gate event scan failed', {
+    logger.warn('Send-assets gate log lookup failed', {
       gate,
       error: error instanceof Error ? error : new Error(String(error)),
     });
-    status = 'failed';
+    return { accounts: [], status: 'failed', progress: 0 };
   }
-  const state = rosterStates.get(key);
-  return { accounts: state ? [...state.accounts] : [], status, progress };
 }

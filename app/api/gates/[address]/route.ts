@@ -13,7 +13,6 @@ import { whitelistSendAssetsGateAbi } from '@/lib/onchain/whitelist-send-assets-
 import {
   configuredSendAssetsGates,
   depositGateAdapterAllowlist,
-  depositGateDeployBlock,
   depositGateGateWhitelisters,
   resolveAllowlistLabel,
 } from '@/lib/config/deposit-gates';
@@ -35,8 +34,8 @@ export type SendAssetsGateState = {
   roleSetter: Address | null;
   accounts: GateAccountStatus[];
   /**
-   * Event-history scan state. Until `complete`, `accounts` covers configured
-   * addresses plus whatever the scan has reached so far.
+   * Address-index lookup. `complete` means every log the gate emitted was read.
+   * `failed` means that lookup did not answer, so only configured accounts are listed.
    */
   rosterScan: { status: GateRosterScanStatus; progress: number };
 };
@@ -78,12 +77,12 @@ export async function GET(
     }
 
     // Role Safes and wrapper adapters are checked immediately. Every other
-    // allowlisted account comes from the gate's own logs, then isWhitelisted().
+    // allowlisted account comes from the gate's logs, then isWhitelisted().
     const configuredRows = [
       ...depositGateGateWhitelisters(),
       ...depositGateAdapterAllowlist(),
     ];
-    const roster = await readGateRosterCandidates(address, depositGateDeployBlock(address));
+    const roster = await readGateRosterCandidates(address);
     const seen = new Set<string>();
     const unique: Array<{ address: Address; label: string }> = [];
     for (const candidate of [

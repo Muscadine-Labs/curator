@@ -23,7 +23,7 @@ When the wrapper allocates, the **MorphoVaultV2Adapter** calls `deposit` on the 
 
 ### Who is allowlisted
 
-The curator gate page does not keep a depositor address list. It reads `SetIsWhitelisted` / `SetIsWhitelister` from the gate, then `isWhitelisted()` / `isWhitelister()` for each account. Wrapper adapters are known from vault config so they can be labeled and checked immediately; a wallet is shown only after the gate itself names it.
+The curator gate page does not keep a depositor address list. It loads every `SetIsWhitelisted` / `SetIsWhitelister` log the gate contract emitted (one address-index lookup, from the creation transaction onward), then `isWhitelisted()` / `isWhitelister()` for each account. Wrapper adapters are known from vault config so they can be labeled and checked immediately; a wallet is shown only after the gate itself names it.
 
 Display names, when the gate returns that address: `nwlutkoski.base.eth`, `muscadine.base.eth`, `nickwc.base.eth`, `ignitis.base.eth`, and **Muscadine Treasury**. Any other allowlisted account is labeled **Whitelisted address**.
 

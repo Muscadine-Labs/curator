@@ -36,7 +36,6 @@ Copy `.env.example` → `.env.local`. See that file for the full list.
 | `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | Recommended in production | Shared login rate-limit store across serverless isolates |
 | `MORPHO_API_URL`, `NEXT_PUBLIC_VAULT_*` | No | Overrides |
 | `SEND_ASSETS_GATE_ADDRESS` (or `GATE_ADDRESS`) | No | Override the built-in send-assets gate |
-| `SEND_ASSETS_GATE_DEPLOY_BLOCK` | No | First block of a redeployed send-assets gate (roster event scan start); default gate is built in |
 | `ALLOCATOR_SAFE_8453` | No | Override the Allocator Safe used as a gate whitelister |
 
 ---
@@ -1488,12 +1487,10 @@ client serializes calls with ≥210ms spacing.
   on-chain enumeration, so candidates = configured addresses ∪ every account in
   its `SetIsWhitelister` / `SetIsWhitelisted(WithSig)` events
   (`lib/morpho/send-assets-gate-roster.server.ts`); the live `isWhitelisted` /
-  `isWhitelister` mappings then decide the lists. The event scan walks history
-  in 2,000-block chunks (public Base RPC cap) for at most 6s per request, keeps
-  progress in memory, and reports `rosterScan: { status, progress }`; the panel
-  polls while `scanning`, warns on `failed`, and lists accounts whose reads
-  failed instead of dropping them. Start block: built-in for the default gate,
-  `SEND_ASSETS_GATE_DEPLOY_BLOCK` for a redeploy, else `eth_getCode` bisection.
+  `isWhitelister` mappings then decide the lists. Candidates come from one
+  address-scoped log lookup (Blockscout `getLogs` for the gate), the same idea
+  as the app's `vaultV2transactions` query — not a block-range walk. The panel
+  warns on `failed` and lists accounts whose reads failed instead of dropping them.
 
 ### 13.3.1 Assets, send and receive
 
