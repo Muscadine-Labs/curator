@@ -2,9 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { getAddress } from 'viem';
 import {
   depositGateAdapterAllowlist,
-  depositGateFullWhitelist,
   depositGateGateWhitelisters,
-  depositGateWhitelistForUnderlying,
   depositGateWrapperAdapterPairs,
   resolveAllowlistLabel,
 } from '@/lib/config/deposit-gates';
@@ -21,9 +19,7 @@ const VAULT = '0x89712980Cb434eF5aE4AB29349419eb976B0b496';
 
 describe('deposit-gates config', () => {
   it('does not treat depositor wallets as a configured allowlist', () => {
-    const configured = depositGateWhitelistForUnderlying().map((row) =>
-      row.address.toLowerCase()
-    );
+    const configured = depositGateAdapterAllowlist().map((row) => row.address.toLowerCase());
     expect(configured).not.toContain('0x628037c2d25f5e5f6f90415cff6d7e8860f41c08');
     expect(configured).not.toContain(TREASURY_ADDRESS.toLowerCase());
   });
@@ -57,10 +53,10 @@ describe('deposit-gates config', () => {
 
   it('uses wrapper adapters only as labels, not a depositor roster', () => {
     const adapters = depositGateAdapterAllowlist();
-    const gate = depositGateWhitelistForUnderlying().map((r) => r.address.toLowerCase());
     expect(adapters).toHaveLength(4);
-    expect(gate).toEqual(adapters.map((adapter) => adapter.address.toLowerCase()));
-    expect(depositGateFullWhitelist()).toHaveLength(4);
+    const addresses = adapters.map((adapter) => adapter.address.toLowerCase());
+    expect(addresses).not.toContain('0x628037c2d25f5e5f6f90415cff6d7e8860f41c08');
+    expect(addresses).not.toContain(TREASURY_ADDRESS.toLowerCase());
   });
 
   it('lists curator and allocator as gate whitelisters', () => {

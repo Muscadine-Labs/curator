@@ -55,14 +55,12 @@ type ExplorerLog = {
   topics?: Array<string | null>;
 };
 
-export type GateRosterScanStatus = 'complete' | 'scanning' | 'failed';
+export type GateRosterStatus = 'complete' | 'failed';
 
 export type GateRosterCandidates = {
   accounts: Address[];
-  /** `complete` after the address index answers. `failed` leaves only configured accounts. */
-  status: GateRosterScanStatus;
-  /** 1 after a successful read. */
-  progress: number;
+  /** `failed` means the address index did not answer, so only configured accounts are listed. */
+  status: GateRosterStatus;
 };
 
 const inFlight = new Map<string, Promise<Address[]>>();
@@ -146,12 +144,12 @@ export async function readGateRosterCandidates(gate: Address): Promise<GateRoste
   }
   try {
     const accounts = await pending;
-    return { accounts, status: 'complete', progress: 1 };
+    return { accounts, status: 'complete' };
   } catch (error) {
     logger.warn('Send-assets gate log lookup failed', {
       gate,
       error: error instanceof Error ? error : new Error(String(error)),
     });
-    return { accounts: [], status: 'failed', progress: 0 };
+    return { accounts: [], status: 'failed' };
   }
 }

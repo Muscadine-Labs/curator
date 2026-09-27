@@ -18,7 +18,7 @@ import {
 } from '@/lib/config/deposit-gates';
 import {
   readGateRosterCandidates,
-  type GateRosterScanStatus,
+  type GateRosterStatus,
 } from '@/lib/morpho/send-assets-gate-roster.server';
 
 export type GateAccountStatus = {
@@ -34,16 +34,11 @@ export type SendAssetsGateState = {
   roleSetter: Address | null;
   accounts: GateAccountStatus[];
   /**
-   * Address-index lookup. `complete` means every log the gate emitted was read.
+   * `complete` means every log the gate emitted was read.
    * `failed` means that lookup did not answer, so only configured accounts are listed.
    */
-  rosterScan: { status: GateRosterScanStatus; progress: number };
+  rosterScan: { status: GateRosterStatus };
 };
-
-/** Known Safe / vault / Basename, else "Whitelisted address". */
-function labelForRosterAccount(address: Address): string {
-  return resolveAllowlistLabel(address);
-}
 
 export async function GET(
   request: NextRequest,
@@ -95,7 +90,7 @@ export async function GET(
       seen.add(key);
       unique.push({
         address: checksummed,
-        label: labelForRosterAccount(checksummed),
+        label: resolveAllowlistLabel(checksummed),
       });
     }
 
@@ -157,7 +152,7 @@ export async function GET(
       label: configured.label,
       roleSetter,
       accounts: accountStatus,
-      rosterScan: { status: roster.status, progress: roster.progress },
+      rosterScan: { status: roster.status },
     };
     return NextResponse.json(response, {
       headers: mergeApiOnChainVaultHeaders(rateLimitResult.headers),

@@ -14,7 +14,6 @@ import {
   getConfiguredVaultDisplayName,
   getVaultAddressesForBusinessViews,
   getVaultByAddress,
-  type VaultAddressConfig,
 } from '@/lib/config/vaults';
 import { getSafeByAddress, getSafeByRole } from '@/lib/safe/config';
 
@@ -31,13 +30,6 @@ export type DepositGateWrapperAdapterPair = {
   underlyingAddress: Address;
   underlyingLabel: string;
 };
-
-/** Set after Morpho WhitelistSendAssetsGate is deployed — not used until then. */
-export const SEND_ASSETS_GATE_ADDRESS: Address | null = process.env.SEND_ASSETS_GATE_ADDRESS
-  ? getAddress(process.env.SEND_ASSETS_GATE_ADDRESS)
-  : process.env.GATE_ADDRESS
-    ? getAddress(process.env.GATE_ADDRESS)
-    : null;
 
 const DEFAULT_GATE_ADDRESS = '0xb7f2598ac79a3c6406dddb81edcc60ea72a134b9';
 
@@ -76,7 +68,8 @@ const GATE_DISPLAY_NAMES: Readonly<Record<string, string>> = {
     'ignitis.base.eth',
 };
 
-function labelForAddress(address: string): string {
+/** Basename, Safe, vault, or wrapper-adapter label. Otherwise "Whitelisted address". */
+export function resolveAllowlistLabel(address: string): string {
   const named = GATE_DISPLAY_NAMES[address.toLowerCase()];
   if (named) return named;
   const safe = getSafeByAddress(address);
@@ -88,11 +81,6 @@ function labelForAddress(address: string): string {
   );
   if (adapter) return adapter.label;
   return 'Whitelisted address';
-}
-
-/** Production strategy vaults that receive `setSendAssetsGate` (excludes test vaults). */
-export function getUnderlyingVaultsForDepositGate(): VaultAddressConfig[] {
-  return getVaultAddressesForBusinessViews().filter((v) => v.kind !== 'feeWrapper');
 }
 
 /** Four production wrapper ↔ adapter ↔ underlying rows (excludes test vaults). */
@@ -119,19 +107,6 @@ export function depositGateAdapterAllowlist(): AllowlistedAddress[] {
   }));
 }
 
-/**
- * Adapter contracts the wrappers use to deposit. Labels only — whether each
- * adapter is whitelisted is read from the gate.
- */
-export function depositGateWhitelistForUnderlying(): AllowlistedAddress[] {
-  return dedupeAllowlist(depositGateAdapterAllowlist());
-}
-
-/** @deprecated Use the gate's `isWhitelisted` roster. Adapters only, for labels. */
-export function depositGateFullWhitelist(): AllowlistedAddress[] {
-  return depositGateWhitelistForUnderlying();
-}
-
 export type ConfiguredSendAssetsGate = {
   address: Address;
   label: string;
@@ -147,22 +122,3 @@ export function configuredSendAssetsGates(): ConfiguredSendAssetsGate[] {
   ];
 }
 
-export function resolveAllowlistLabel(address: string): string {
-  const normalized = address.toLowerCase();
-  for (const row of depositGateFullWhitelist()) {
-    if (row.address.toLowerCase() === normalized) return row.label;
-  }
-  return labelForAddress(address);
-}
-
-function dedupeAllowlist(rows: AllowlistedAddress[]): AllowlistedAddress[] {
-  const out: AllowlistedAddress[] = [];
-  const seen = new Set<string>();
-  for (const row of rows) {
-    const key = row.address.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(row);
-  }
-  return out;
-}

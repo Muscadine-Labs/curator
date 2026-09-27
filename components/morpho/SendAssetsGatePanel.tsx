@@ -116,12 +116,12 @@ function GateRosters({ state }: { state: SendAssetsGateState }) {
   const unreadable = state.accounts.filter(
     (row) => row.isWhitelisted == null || row.isWhitelister == null
   );
-  const scan = state.rosterScan ?? { status: 'failed' as const, progress: 0 };
+  const logsFailed = (state.rosterScan?.status ?? 'failed') === 'failed';
   return (
     <>
-      {scan.status !== 'complete' || unreadable.length > 0 ? (
+      {logsFailed || unreadable.length > 0 ? (
         <div className="space-y-1 rounded-xl border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-xs text-amber-700 dark:text-amber-400">
-          {scan.status === 'failed' ? (
+          {logsFailed ? (
             <p>
               Could not load the gate&apos;s logs. The lists below only cover
               configured accounts, so an address added elsewhere may be missing.

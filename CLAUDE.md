@@ -1489,8 +1489,9 @@ client serializes calls with ≥210ms spacing.
   (`lib/morpho/send-assets-gate-roster.server.ts`); the live `isWhitelisted` /
   `isWhitelister` mappings then decide the lists. Candidates come from one
   address-scoped log lookup (Blockscout `getLogs` for the gate), the same idea
-  as the app's `vaultV2transactions` query — not a block-range walk. The panel
-  warns on `failed` and lists accounts whose reads failed instead of dropping them.
+  as the app's `vaultV2transactions` query — not a block-range walk. Status is
+  `complete` or `failed` (no progress). The panel warns on `failed` and lists
+  accounts whose reads failed instead of dropping them.
 
 ### 13.3.1 Assets, send and receive
 

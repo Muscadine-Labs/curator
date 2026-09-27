@@ -8,6 +8,7 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 - The curator gate page no longer keeps a depositor address list. Membership is whoever the gate names in `SetIsWhitelisted` / `SetIsWhitelister` logs, then the live `isWhitelisted` / `isWhitelister` reads. Display names are Basenames, **Muscadine Treasury**, or **Whitelisted address**.
 - Those logs come from one Blockscout `getLogs` call for the gate address (creation transaction through later calls), not a block-range walk. `SEND_ASSETS_GATE_DEPLOY_BLOCK` is gone. `lib/morpho/send-assets-gate-roster.server.ts`.
+- The unused scan progress, `scanning` status, and the depositor-list aliases (`depositGateFullWhitelist`, `depositGateWhitelistForUnderlying`) are removed. The lookup is `complete` or `failed`.
 
 ---
 
