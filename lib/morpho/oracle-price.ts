@@ -92,11 +92,13 @@ async function readFeedBound(
   feedAddress: Address,
   fn: 'minAnswer' | 'maxAnswer'
 ): Promise<bigint | null> {
+  const probe = { probe: true } as const;
   const direct = await safeContractRead<bigint>(
     feedAddress,
     CHAINLINK_AGGREGATOR_ABI as Abi,
     fn,
-    []
+    [],
+    probe
   );
   if (direct != null) return direct;
 
@@ -104,11 +106,12 @@ async function readFeedBound(
     feedAddress,
     CHAINLINK_AGGREGATOR_ABI as Abi,
     'aggregator',
-    []
+    [],
+    probe
   );
   if (!aggregator || aggregator.toLowerCase() === ZERO) return null;
 
-  return safeContractRead<bigint>(aggregator, CHAINLINK_AGGREGATOR_ABI as Abi, fn, []);
+  return safeContractRead<bigint>(aggregator, CHAINLINK_AGGREGATOR_ABI as Abi, fn, [], probe);
 }
 
 async function readChainlinkFeedSnapshot(
@@ -131,14 +134,22 @@ async function readChainlinkFeedSnapshot(
     atMaxBound: false,
   };
 
-  const decimals = await safeContractRead<number>(address, CHAINLINK_AGGREGATOR_ABI as Abi, 'decimals', []);
+  const probe = { probe: true } as const;
+  const decimals = await safeContractRead<number>(
+    address,
+    CHAINLINK_AGGREGATOR_ABI as Abi,
+    'decimals',
+    [],
+    probe
+  );
   base.decimals = decimals ?? null;
 
   const description = await safeContractRead<string>(
     address,
     CHAINLINK_AGGREGATOR_ABI as Abi,
     'description',
-    []
+    [],
+    probe
   );
   base.description = description?.trim() ? description.trim() : null;
 

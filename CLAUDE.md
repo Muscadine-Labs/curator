@@ -318,8 +318,7 @@ Config: `kind: 'feeWrapper'` + `underlyingAddress` in `lib/config/vaults.ts`.
 `underlyingAddress` uses the **same env default** as the child strategy vault
 (`NEXT_PUBLIC_VAULT_USDC_V2`, etc.) and is the GraphQL fallback when
 `innerVault` is omitted. Display names are Morpho/on-chain names (`USDC Prime`)
-with a ` (wrapper)` suffix on fee wrappers (`withFeeWrapperLabel`). Catalog also
-keeps a **Wrapper** badge. GraphQL fragments must include `... on MorphoVaultV2Adapter` on
+with a ` (wrapper)` suffix on fee wrappers (`withFeeWrapperLabel`). GraphQL fragments must include `... on MorphoVaultV2Adapter` on
 list, governance, and risk queries — omitting them makes the adapter invisible
 (same failure mode as skipping `marketId`). Do **not** treat wrappers as
 Blue-market strategy vaults. Do **not** sum wrapper TVL into protocol stats —
@@ -338,8 +337,10 @@ sub-tabs **Overview** (Morpho-style overview, fees, roles, gates, max rate) /
 add a second `VaultV2LiquidityAdapter` beside it) / **Caps / timelocks**
 (`VaultV2Caps` with `preloadedPending` from `useVaultV2Pending`, tab label shows
 the pending count). Visiting a
-fee-wrapper address redirects to that tab. The vaults sidebar lists underlyings
-only; `/vaults` still groups Wrapper rows and links them to the tab.
+fee-wrapper address redirects to that tab. The vaults sidebar and `/vaults`
+list underlyings only. Claim fees on that tab calls `accrueInterest()` on the
+wrapper. The same button on an underlying vault overview claims that vault's
+own performance and management fees.
 
 Keep **skipping** `MetaMorphoAdapter` (V1 MetaMorpho child). That is not a fee
 wrapper.
@@ -527,9 +528,10 @@ contracts are omitted from the user set.
 
 **Top nav + Sidebar** — Topbar areas: Overview · Vaults · Markets · Curator ·
 Business (`lib/nav/areas.ts`). Sidebar is **area-scoped**. Under **Vaults**: All
-vaults (`/vaults`), then network vault trees (Underlying → Wrapper, then Prime →
-Frontier → Vineyard → Test). The `/vaults` catalog (`VaultsCatalog`) uses
-`groupVaultsByKindAndCategory`. Legacy page/API paths still **redirect** via
+vaults (`/vaults`), then underlying vaults grouped Prime → Frontier → Vineyard →
+Test. Fee wrappers are omitted from the sidebar and the catalog. The `/vaults`
+catalog (`VaultsCatalog`) uses `groupVaultsByKindAndCategory` on those
+underlyings. Legacy page/API paths still **redirect** via
 `next.config.ts` (`/vaults/transact` → `/vaults`). Catalog is `/vaults`; vault
 ops are `/vault/[address]/*`. User deposit/withdraw is muscadine-onchain.
 
@@ -551,6 +553,9 @@ Ethereum appears in `SIDEBAR_NETWORKS` but has no configured vaults — expand
     deployed assets ≈ TVL − idle, which diverges from `liquidityUsd` when idle or
     adapter liquidity constraints differ).
 - **Idle** — V2 only: `idleAssets` / `idleAssetsUsd` (cash in the vault contract).
+- **Fees** — performance and management fee rates and recipients. **Claim fees**
+  quotes `accrueInterestView` and sends `accrueInterest()`, which mints the
+  pending fees as vault shares to those recipients.
 - Analytics object from `lib/morpho/vault-analytics.ts` (`buildVaultAnalytics`).
 
 **History chart** — `VaultOverviewHistoryChart` + `GET /api/vaults/[id]/history`
@@ -685,7 +690,9 @@ symbol `Unknown`. Return `scores: null`; never feed into weighted averages.
    No borrow → 100.
 
 2. **Utilization** — `scoreUtilizationRatio(util, target)` (`lib/morpho/irm-utils.ts`
-   supplies target via on-chain IRM kink, default **90%**).
+   supplies target via on-chain IRM `kink()`, default **90%**). Morpho's Adaptive
+   Curve IRM (`0x46415998…`) has no `kink()`; its target is the 90% constant.
+   A failed kink read is not cached.
    - At or **below** target → **100** (low util is not penalized).
    - Above target → linear decay to **0** at 100% utilization.
 
@@ -820,15 +827,19 @@ the treasury dashboard without restoring the tx-classification pipeline in
 `MORPHO_FIXED_RATE_MARKETS_URL`).
 Midnight is Morpho’s fixed-term (tenor) **order book** — not Blue (no IRM,
 utilization, or variable APY). GraphQL does **not** expose it.
-`GET /api/markets/midnight` lists books; `GET /api/markets/midnight/[id]`
+`GET /api/markets/midnight` lists markets by filled size; `GET /api/markets/midnight/[id]`
 loads market + state + full book + position totals
 (`https://api.morpho.org/v0/midnight/…`).
 External app: [Morpho Markets](https://markets.morpho.org/fixed/base/0x549cd072daf99328554f3a6d2d4d6f4a07f1c59369e891e6391946f9cf75f221)
 `https://markets.morpho.org/fixed/{chain}/{marketId}`
 (`morphoMidnightMarketHref`). In-app: `curatorMidnightMarketHref`.
-Tenor = remaining time to `maturity`. List columns: network, loan, collateral(s),
-LLTV, maturity/tenor, open lend, open borrow, best lend APR from top ask.
-Open lend and open borrow are book offers, not filled deposits or borrows.
+Tenor = remaining time to `maturity`. List columns match Blue: Collateral / Loan,
+LLTV, market size, maturity. Market size is filled loan-token units
+(`total_units` from `GET /v0/midnight/markets`, sorted largest first). The pair
+drops the loan token when another collateral exists, and drops Tenor receipt
+symbols ending in `-collat`. Detail pages still list every accepted collateral
+and how much is posted. Open lend and open borrow stay on the detail page;
+they are book offers, not filled deposits or borrows.
 **Browse filters** — Loan, Collateral, and Search apply to **both** Blue and
 Midnight (`lib/morpho/market-pair-filter.ts`). Pair queries (`cbBTC/USDC`,
 `WETH USDC`) match if every token is a symbol word or prefix (order-independent;

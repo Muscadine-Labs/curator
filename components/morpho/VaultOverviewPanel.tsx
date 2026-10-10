@@ -20,6 +20,7 @@ import {
   CuratorPageHeader,
   CuratorPanel,
 } from '@/components/morpho/CuratorChrome';
+import { ClaimFeesButton } from '@/components/morpho/ClaimFeesButton';
 
 interface VaultOverviewPanelProps {
   vault: VaultDetail;
@@ -69,7 +70,17 @@ export function VaultOverviewPanel({
           </Badge>
         ))}
       </div>
-    ) : undefined;
+    ) : null;
+
+  const claimFees = (
+    <ClaimFeesButton
+      vaultAddress={vault.address}
+      vaultName={vault.name?.trim() || vaultSymbol}
+      chainId={vault.chainId}
+      assetSymbol={vaultAsset}
+      assetDecimals={vault.assetDecimals}
+    />
+  );
 
   return (
     <div className="space-y-6">
@@ -82,7 +93,12 @@ export function VaultOverviewPanel({
             <span>{vaultAsset}</span>
           </span>
         }
-        actions={warningActions}
+        actions={
+          <div className="flex flex-col items-start gap-2 sm:items-end">
+            {claimFees}
+            {warningActions}
+          </div>
+        }
       />
 
       <CuratorPanel title="Metrics">

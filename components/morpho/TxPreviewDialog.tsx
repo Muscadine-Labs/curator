@@ -67,6 +67,7 @@ function actionBadgeClass(action: TxPreviewChange['action']): string {
     case 'gate':
     case 'batch':
     case 'accept':
+    case 'claim':
     case 'config':
       return 'bg-sky-100 text-sky-900 dark:bg-sky-950/50 dark:text-sky-200';
     case 'revoke':

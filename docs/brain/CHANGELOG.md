@@ -4,6 +4,15 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-10-09 — Claim fees, Midnight size, and pre-deploy review
+
+- Claim fees sits on the fee wrapper tab and on each underlying vault overview. The quote is `accrueInterestView` plus `previewRedeem` of the pending performance and management shares. Confirm sends `accrueInterest()` from the connected wallet or queues it in a Safe. `components/morpho/ClaimFeesButton.tsx`.
+- Midnight browse uses filled size (`total_units`) and can be ordered like Blue. Pair labels drop the loan token when another collateral exists, and drop Tenor symbols ending in `-collat`. Detail pages still show every collateral and the posted amount.
+- `/vaults` omits fee-wrapper rows. Each wrapper remains the Fee wrapper tab on its underlying vault.
+- Coinbase’s connector id is `coinbaseWallet`, which is the id AppKit checks before adding a default SDK that posts telemetry. A missing `kink()` is not cached. Oracle `price()` reverts still log. A Chainlink feed revert skips the other feeds; an RPC failure still reads them.
+
+---
+
 ## 2026-10-09 — Review fixes for Public Allocator writes and Midnight totals
 
 - A confirmed Public Allocator wallet write clears its success state, so the next preview can be sent.

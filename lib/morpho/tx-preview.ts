@@ -31,7 +31,8 @@ export type TxPreviewAction =
   | 'accept'
   | 'revoke'
   | 'config'
-  | 'call';
+  | 'call'
+  | 'claim';
 
 export type TxPreviewChange = {
   action: TxPreviewAction;
@@ -341,5 +342,7 @@ export function txPreviewActionLabel(action: TxPreviewAction): string {
       return 'Configure';
     case 'call':
       return 'Call';
+    case 'claim':
+      return 'Claim';
   }
 }

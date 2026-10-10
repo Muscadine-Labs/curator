@@ -7,6 +7,7 @@ import { BASE_CHAIN_ID, MORPHO_REST_ORIGIN, SECONDS_PER_YEAR } from '@/lib/const
 import { fetchAssetUsdPrice, resolveTokenMeta } from '@/lib/morpho/known-tokens';
 import { getOraclePriceSnapshot, type OraclePriceSnapshot } from '@/lib/morpho/oracle-price';
 import { getOracleTimestampData, type OracleTimestampData } from '@/lib/morpho/oracle-utils';
+import { bigintRatio } from '@/lib/format/bigint-ratio';
 import { logger } from '@/lib/utils/logger';
 import { AppError } from '@/lib/utils/error-handler';
 import type { Address } from 'viem';
@@ -18,6 +19,8 @@ export type MidnightCollateral = {
   lltv: string;
   liquidationCursor: string;
   oracle: string;
+  /** Posted collateral, token raw units. Null when the position scan did not finish. */
+  postedAssets?: string | null;
   oracleTimestampData?: OracleTimestampData | null;
   oraclePrice?: OraclePriceSnapshot | null;
 };
@@ -35,13 +38,11 @@ export type MidnightMarketListItem = {
   maturity: number;
   tenorSeconds: number;
   tenorLabel: string;
-  /** Annualized best lend rate from top ask (fraction, e.g. 0.05 = 5%). */
-  bestRate: number | null;
-  /** Loan-token raw amounts summed across displayed book levels. */
-  lendDepthAssets: string;
-  borrowDepthAssets: string;
-  /** Approximate outstanding loan units from the book (asks+bids not loans). */
-  activeLoansAssets: string | null;
+  /** Outstanding loan-token units (`total_units`). Blue's market size. */
+  sizeAssets: string;
+  sizeUsd: number | null;
+  /** Primary collateral LLTV as a 0–1 ratio, for sorting. */
+  lltvRatio: number | null;
 };
 
 type MidnightBookCollateral = {
@@ -72,11 +73,6 @@ type MidnightBook = {
   liquidator_gate?: string;
   asks?: MidnightBookLevel[];
   bids?: MidnightBookLevel[];
-};
-
-type BooksResponse = {
-  cursor?: string | null;
-  data?: MidnightBook[];
 };
 
 function sumAssets(levels: MidnightBookLevel[] | undefined): bigint {
@@ -174,61 +170,123 @@ function isZeroAddress(addr: string | null | undefined): boolean {
   return addr.toLowerCase() === ZERO_ADDRESS;
 }
 
-async function fetchBooksPage(
+function isTenorCollateralShare(symbol: string | undefined): boolean {
+  return Boolean(symbol && symbol.toLowerCase().endsWith('-collat'));
+}
+
+/**
+ * Collaterals borrowers post. Two extras are not the pair:
+ * the loan token itself (a USDC-debt market may accept USDC), and the Tenor
+ * collateral-vault share (`cbBTC-USDC-collat`), which is a receipt for the
+ * real collateral. Keep an extra only when nothing else is listed.
+ */
+export function selectMidnightCollaterals<T extends { token: string; symbol?: string }>(
+  collaterals: readonly T[],
+  loanAddress: string
+): T[] {
+  const loan = loanAddress.toLowerCase();
+  const notLoan = collaterals.filter((c) => c.token.toLowerCase() !== loan);
+  const pool = notLoan.length > 0 ? notLoan : [...collaterals];
+  const withoutShares = pool.filter((c) => !isTenorCollateralShare(c.symbol));
+  return withoutShares.length > 0 ? withoutShares : pool;
+}
+
+function wadToRatio(wad: string | null | undefined): number | null {
+  if (!wad) return null;
+  try {
+    const ratio = Number(BigInt(wad)) / 1e18;
+    return Number.isFinite(ratio) ? ratio : null;
+  } catch {
+    return null;
+  }
+}
+
+type MidnightMarketRow = {
+  chain_id?: number;
+  market_id?: string;
+  loan_token?: string;
+  maturity?: number | string;
+  total_units?: string;
+  collaterals?: MidnightBookCollateral[];
+};
+
+async function fetchMarketsPage(
   chainId: number,
   cursor: string | null
-): Promise<BooksResponse> {
-  const url = new URL(`${MORPHO_REST_ORIGIN}/v0/midnight/books`);
+): Promise<{ cursor?: string | null; data?: MidnightMarketRow[] }> {
+  const url = new URL(`${MORPHO_REST_ORIGIN}/v0/midnight/markets`);
   url.searchParams.set('chain_ids', String(chainId));
-  url.searchParams.set('limit', '20');
+  url.searchParams.set('limit', '100');
+  url.searchParams.set('sort', 'total_units');
+  url.searchParams.set('order', 'desc');
   if (cursor) url.searchParams.set('cursor', cursor);
 
   const res = await fetch(url.toString(), { cache: 'no-store' });
   if (!res.ok) {
-    throw new Error(`Midnight books HTTP ${res.status}`);
+    throw new Error(`Midnight markets HTTP ${res.status}`);
   }
-  return res.json() as Promise<BooksResponse>;
+  return res.json() as Promise<{ cursor?: string | null; data?: MidnightMarketRow[] }>;
+}
+
+function rawToUsd(raw: string, decimals: number, priceUsd: number | null): number | null {
+  if (priceUsd == null) return null;
+  try {
+    const amount = bigintRatio(BigInt(raw), 10n ** BigInt(decimals));
+    if (!Number.isFinite(amount)) return null;
+    return amount * priceUsd;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchMidnightMarkets(
   chainId: number = BASE_CHAIN_ID
 ): Promise<MidnightMarketListItem[]> {
-  const books: MidnightBook[] = [];
+  const rows: MidnightMarketRow[] = [];
   let cursor: string | null = null;
-  for (let i = 0; i < 8; i += 1) {
-    const page = await fetchBooksPage(chainId, cursor);
-    books.push(...(page.data ?? []));
+  for (let i = 0; i < 15; i += 1) {
+    const page = await fetchMarketsPage(chainId, cursor);
+    rows.push(...(page.data ?? []));
     cursor = page.cursor ?? null;
     if (!cursor) break;
   }
 
   const tokenAddrs = new Set<string>();
-  for (const book of books) {
-    if (book.loan_token) tokenAddrs.add(book.loan_token.toLowerCase());
-    for (const c of book.collaterals ?? []) {
+  for (const row of rows) {
+    if (row.loan_token) tokenAddrs.add(row.loan_token.toLowerCase());
+    for (const c of row.collaterals ?? []) {
       if (c.token) tokenAddrs.add(c.token.toLowerCase());
     }
   }
   await Promise.all(
     Array.from(tokenAddrs).map((addr) => resolveTokenMeta(addr, chainId))
   );
+  const loanAddrs = [
+    ...new Set(rows.map((row) => row.loan_token?.toLowerCase()).filter((addr): addr is string => Boolean(addr))),
+  ];
+  const loanPrices = new Map<string, number | null>();
+  await Promise.all(
+    loanAddrs.map(async (addr) => {
+      loanPrices.set(addr, await fetchAssetUsdPrice(addr, chainId));
+    })
+  );
 
   const nowSec = Math.floor(Date.now() / 1000);
   const mapped: MidnightMarketListItem[] = [];
 
-  for (const book of books) {
-    const marketId = book.market_id ?? book.id;
-    const loanAddress = book.loan_token;
+  for (const row of rows) {
+    const marketId = row.market_id;
+    const loanAddress = row.loan_token;
     if (!marketId || !loanAddress) continue;
 
-    const maturity = Number(book.maturity ?? 0);
+    const maturity = Number(row.maturity ?? 0);
     const tenorSeconds = Math.max(0, maturity - nowSec);
     const loanMeta = await resolveTokenMeta(loanAddress, chainId);
-    const collaterals: MidnightCollateral[] = [];
-    for (const c of book.collaterals ?? []) {
+    const allCollaterals: MidnightCollateral[] = [];
+    for (const c of row.collaterals ?? []) {
       if (!c.token) continue;
       const meta = await resolveTokenMeta(c.token, chainId);
-      collaterals.push({
+      allCollaterals.push({
         token: c.token,
         symbol: meta.symbol,
         decimals: meta.decimals,
@@ -237,32 +295,33 @@ export async function fetchMidnightMarkets(
         oracle: c.oracle ?? '',
       });
     }
-
-    const topAsk = book.asks?.[0];
-    const bestRate = midnightPriceToApr(topAsk?.price, tenorSeconds);
+    const collaterals = selectMidnightCollaterals(allCollaterals, loanAddress);
+    const sizeAssets = row.total_units ?? '0';
 
     mapped.push({
       marketId,
-      chainId: book.chain_id ?? chainId,
+      chainId: row.chain_id ?? chainId,
       loanSymbol: loanMeta.symbol,
       loanAddress,
       loanDecimals: loanMeta.decimals,
       collaterals,
-      collateralLabel:
-        collaterals.map((c) => c.symbol).join(', ') || '—',
+      collateralLabel: collaterals.map((c) => c.symbol).join(', ') || '—',
       lltvLabel: collaterals.map((c) => formatLltvWad(c.lltv)).join(' / ') || '—',
+      lltvRatio: wadToRatio(collaterals[0]?.lltv),
       oracleAddress: collaterals[0]?.oracle || null,
       maturity,
       tenorSeconds,
       tenorLabel: formatTenorLabel(tenorSeconds),
-      bestRate,
-      lendDepthAssets: sumAssets(book.asks).toString(),
-      borrowDepthAssets: sumAssets(book.bids).toString(),
-      activeLoansAssets: null,
+      sizeAssets,
+      sizeUsd: rawToUsd(
+        sizeAssets,
+        loanMeta.decimals,
+        loanPrices.get(loanAddress.toLowerCase()) ?? null
+      ),
     });
   }
 
-  mapped.sort((a, b) => a.maturity - b.maturity);
+  mapped.sort((a, b) => (b.sizeUsd ?? 0) - (a.sizeUsd ?? 0));
   logger.debug('Fetched Midnight markets', { chainId, count: mapped.length });
   return mapped;
 }
@@ -343,6 +402,7 @@ type MidnightPositionRow = {
   credit?: string;
   debt?: string;
   type?: string;
+  collaterals?: Array<{ token?: string; amount?: string }>;
 };
 
 type MidnightPositionsPage = {
@@ -362,24 +422,31 @@ function addRaw(total: bigint, raw: string | null | undefined): bigint {
   }
 }
 
-/** Sum lender credit and borrower debt across one positions page. */
+/** Sum lender credit, borrower debt, and posted collateral across one positions page. */
 export function sumMidnightPositionRows(rows: MidnightPositionRow[]): {
   lenderCredit: bigint;
   borrowerDebt: bigint;
   lendCount: number;
   borrowCount: number;
+  collateralByToken: Map<string, bigint>;
 } {
   let lenderCredit = 0n;
   let borrowerDebt = 0n;
   let lendCount = 0;
   let borrowCount = 0;
+  const collateralByToken = new Map<string, bigint>();
   for (const row of rows) {
     if (row.type === 'lend') lendCount += 1;
     else if (row.type === 'borrow') borrowCount += 1;
     lenderCredit = addRaw(lenderCredit, row.credit);
     borrowerDebt = addRaw(borrowerDebt, row.debt);
+    for (const collateral of row.collaterals ?? []) {
+      if (!collateral.token) continue;
+      const key = collateral.token.toLowerCase();
+      collateralByToken.set(key, addRaw(collateralByToken.get(key) ?? 0n, collateral.amount));
+    }
   }
-  return { lenderCredit, borrowerDebt, lendCount, borrowCount };
+  return { lenderCredit, borrowerDebt, lendCount, borrowCount, collateralByToken };
 }
 
 async function fetchMidnightPositionTotals(marketId: string): Promise<{
@@ -387,12 +454,14 @@ async function fetchMidnightPositionTotals(marketId: string): Promise<{
   borrowerDebt: string;
   lendPositionCount: number;
   borrowPositionCount: number;
+  collateralByToken: Map<string, bigint>;
 } | null> {
   let cursor: string | null = null;
   let lenderCredit = 0n;
   let borrowerDebt = 0n;
   let lendPositionCount = 0;
   let borrowPositionCount = 0;
+  const collateralByToken = new Map<string, bigint>();
 
   for (let page = 0; page < POSITIONS_MAX_PAGES; page += 1) {
     const params = new URLSearchParams({ limit: String(POSITIONS_PAGE_LIMIT) });
@@ -409,6 +478,9 @@ async function fetchMidnightPositionTotals(marketId: string): Promise<{
     borrowerDebt += summed.borrowerDebt;
     lendPositionCount += summed.lendCount;
     borrowPositionCount += summed.borrowCount;
+    for (const [token, amount] of summed.collateralByToken) {
+      collateralByToken.set(token, (collateralByToken.get(token) ?? 0n) + amount);
+    }
     cursor = body?.cursor ?? null;
     if (!cursor) {
       return {
@@ -416,6 +488,7 @@ async function fetchMidnightPositionTotals(marketId: string): Promise<{
         borrowerDebt: borrowerDebt.toString(),
         lendPositionCount,
         borrowPositionCount,
+        collateralByToken,
       };
     }
   }
@@ -546,6 +619,13 @@ export async function fetchMidnightMarketDetail(
     loanMeta.decimals,
     loanSpotUsd
   );
+  const posted = positionTotals?.collateralByToken;
+  for (const collateral of collaterals) {
+    collateral.postedAssets = posted
+      ? (posted.get(collateral.token.toLowerCase()) ?? 0n).toString()
+      : null;
+  }
+  const pairCollaterals = selectMidnightCollaterals(collaterals, loanAddress);
   const asks = mapBookLevels(book?.asks, tenorSeconds);
   const bids = mapBookLevels(book?.bids, tenorSeconds);
 
@@ -558,8 +638,8 @@ export async function fetchMidnightMarketDetail(
     loanAddress,
     loanDecimals: loanMeta.decimals,
     collaterals,
-    collateralLabel: collaterals.map((c) => c.symbol).join(', ') || '—',
-    lltvLabel: collaterals.map((c) => formatLltvWad(c.lltv)).join(' / ') || '—',
+    collateralLabel: pairCollaterals.map((c) => c.symbol).join(', ') || '—',
+    lltvLabel: pairCollaterals.map((c) => formatLltvWad(c.lltv)).join(' / ') || '—',
     maturity,
     tenorSeconds,
     tenorLabel: formatTenorLabel(tenorSeconds),

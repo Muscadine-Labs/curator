@@ -1,7 +1,15 @@
 import { Address } from 'viem';
 import { safeContractRead } from '@/lib/onchain/client';
 
-// IRM ABI - most Morpho IRMs have a kink() function that returns target utilization
+/**
+ * Morpho AdaptiveCurveIRM, same CREATE2 address on Base.
+ * It does not expose `kink()`. Target utilization is the library constant
+ * `TARGET_UTILIZATION = 0.9 ether` (90%).
+ */
+const ADAPTIVE_CURVE_IRM = '0x46415998764c29ab2a25cbea6254146d50d22687';
+const ADAPTIVE_CURVE_TARGET_UTILIZATION = 0.9;
+
+// Some IRMs expose kink() as a WAD (1e18 = 100%). AdaptiveCurveIRM does not.
 const IRM_ABI = [
   {
     name: 'kink',
@@ -12,40 +20,33 @@ const IRM_ABI = [
   },
 ] as const;
 
+const kinkCache = new Map<string, number | null>();
+
 /**
- * Get target utilization (kink) from an IRM contract
- * Returns null if the contract doesn't have a kink() function or if address is invalid
- * 
- * @param irmAddress - The address of the IRM contract
- * @returns Target utilization as a ratio (0-1), or null if not available
+ * Get target utilization (kink) from an IRM contract.
+ * Returns null if the contract doesn't have a kink() function or if address is invalid.
  */
 async function getIRMTargetUtilization(irmAddress: Address | null): Promise<number | null> {
   if (!irmAddress || irmAddress.toLowerCase() === '0x0000000000000000000000000000000000000000') {
     return null;
   }
 
-  try {
-    // Try to read kink from IRM contract
-    // kink is typically stored as a uint256 where 1e18 = 100% (1.0)
-    const kinkRaw = await safeContractRead<bigint>(irmAddress, IRM_ABI, 'kink', []);
-    
-    if (kinkRaw === null) {
-      return null;
-    }
+  const key = irmAddress.toLowerCase();
+  if (key === ADAPTIVE_CURVE_IRM) return ADAPTIVE_CURVE_TARGET_UTILIZATION;
 
-    // Convert from wei format (1e18 = 100%) to ratio (0-1)
-    const kinkRatio = Number(kinkRaw) / 1e18;
-    
-    // Validate the ratio is reasonable (between 0 and 1)
-    if (kinkRatio < 0 || kinkRatio > 1) {
-      return null;
-    }
+  const cached = kinkCache.get(key);
+  if (cached !== undefined) return cached;
 
-    return kinkRatio;
-  } catch {
-    // Contract doesn't have kink() function or other error
-    return null;
-  }
+  const kinkRaw = await safeContractRead<bigint>(irmAddress, IRM_ABI, 'kink', [], {
+    probe: true,
+  });
+  // Null is a revert or an RPC miss. Only a real kink ratio is cached, so a
+  // timeout does not stick as the 90% fallback for the rest of the process.
+  if (kinkRaw === null) return null;
+  const kinkRatio = Number(kinkRaw) / 1e18;
+  const result = kinkRatio >= 0 && kinkRatio <= 1 ? kinkRatio : null;
+  if (result !== null) kinkCache.set(key, result);
+  return result;
 }
 
 /**

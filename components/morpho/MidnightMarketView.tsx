@@ -250,15 +250,34 @@ export function MidnightMarketView({ market }: { market: MidnightMarketDetail })
       {market.collaterals.map((c) => {
         const incentive = midnightLiquidationIncentive(c.lltv, c.liquidationCursor);
         const showOraclePanel = Boolean(c.oraclePrice || c.oracleTimestampData);
+        const sameAsLoan = c.token.toLowerCase() === market.loanAddress.toLowerCase();
+        const tenorShare = c.symbol.toLowerCase().endsWith('-collat');
+        const title = sameAsLoan
+          ? `Also accepted · ${c.symbol}`
+          : tenorShare
+            ? `Tenor vault share · ${c.symbol}`
+            : `Collateral ${c.symbol}`;
         return (
         <div key={`${c.token}-${c.oracle}`} className="space-y-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">
-              Collateral {c.symbol}
-            </CardTitle>
+            <CardTitle className="text-base">{title}</CardTitle>
+            {sameAsLoan ? (
+              <p className="text-xs text-muted-foreground">
+                Same token as the debt. Posted amount is what borrowers actually
+                deposited, which is separate from the loan outstanding.
+              </p>
+            ) : tenorShare ? (
+              <p className="text-xs text-muted-foreground">
+                Receipt for collateral held in Midnight&apos;s Tenor vault. Not a
+                second asset, and not USDC posted as collateral.
+              </p>
+            ) : null}
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Metric label="Posted">
+              {formatMarketTokenAmount(c.postedAssets, c.symbol, c.decimals) ?? '—'}
+            </Metric>
             <Metric label="LLTV">{formatLltvWad(c.lltv)}</Metric>
             <Metric label="Liquidation cursor">
               {formatWadPercent(c.liquidationCursor)}

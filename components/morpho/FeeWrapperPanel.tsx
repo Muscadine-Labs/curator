@@ -4,8 +4,8 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Lock } from 'lucide-react';
 import { AddressBadge } from '@/components/AddressBadge';
-import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ClaimFeesButton } from '@/components/morpho/ClaimFeesButton';
 import {
   CuratorErrorText,
   CuratorKvList,
@@ -31,10 +31,7 @@ import { formatPercentage } from '@/lib/format/number';
 import { resolveTokenDisplayProps } from '@/lib/format/asset-decimals';
 import { formatMaxRateApr } from '@/lib/morpho/vault-v2-api';
 import { vaultGateStatuses } from '@/lib/morpho/vault-v2-gate-state';
-import {
-  morphoCuratorVaultHref,
-  morphoVaultHref,
-} from '@/lib/morpho/morpho-app-links';
+import { morphoVaultHref } from '@/lib/morpho/morpho-app-links';
 import { withFeeWrapperLabel } from '@/lib/config/vaults';
 import { cn } from '@/lib/utils';
 
@@ -157,7 +154,6 @@ export function FeeWrapperPanel({
       : null);
   const mgmtFee = wrapper.analytics?.managementFeePercent ?? null;
   const morphoAppUrl = morphoVaultHref(wrapper.address, wrapper.chainId);
-  const morphoCuratorUrl = morphoCuratorVaultHref(wrapper.address, wrapper.chainId);
   const gateRows = vaultGateStatuses(gatesQuery.data, governance?.timelocks ?? []);
   const pendingCount = pendingQuery.data?.pending?.length ?? 0;
 
@@ -175,16 +171,18 @@ export function FeeWrapperPanel({
               rel="noreferrer"
               className="text-foreground underline-offset-2 hover:underline"
             >
-              Open on Morpho ↗
+              Open on Morpho
             </a>
           </span>
         }
         actions={
-          <Button variant="outline" size="sm" asChild>
-            <a href={morphoCuratorUrl} target="_blank" rel="noreferrer">
-              Claim fees ↗
-            </a>
-          </Button>
+          <ClaimFeesButton
+            vaultAddress={wrapper.address}
+            vaultName={wrapperName}
+            chainId={wrapper.chainId}
+            assetSymbol={assetSymbol}
+            assetDecimals={wrapper.assetDecimals}
+          />
         }
       />
 
