@@ -349,14 +349,13 @@ export function PublicAllocatorCaps({
 
   async function confirm() {
     if (pendingChanges.length === 0) return;
-    const coerced = resolvedDestination;
     if (!canConfirm) {
       setSubmitError(walletHint);
       return;
     }
     setSubmitError(null);
 
-    if (coerced.kind === 'safe') {
+    if (resolvedDestination.kind === 'safe') {
       setQueueing(true);
       try {
         const calldata = encodePublicAllocatorUpdate(
@@ -365,7 +364,7 @@ export function PublicAllocatorCaps({
           pendingChanges
         );
         await queueSafeTransaction({
-          safeRole: coerced.role,
+          safeRole: resolvedDestination.role,
           calldata,
           description: `Public Allocator caps — ${assetSymbol ?? vaultAddress}`,
           preview: preview ?? {
@@ -383,7 +382,7 @@ export function PublicAllocatorCaps({
         });
         setPreviewOpen(false);
         setEditing(false);
-        router.push(`/safe/${coerced.role}/transactions`);
+        router.push(`/safe/${resolvedDestination.role}/transactions`);
       } catch (error) {
         if (!isWalletRejection(error)) {
           setSubmitError(error instanceof Error ? error.message : 'Failed to queue Safe transaction.');
