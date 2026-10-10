@@ -414,7 +414,12 @@ export function FeeWrapperPanel({
               wrapper.analytics?.totalAssetsUnderlying ?? wrapper.totalAssetsUnderlying
             }
           />
-          <VaultV2Timelocks vaultAddress={wrapper.address} preloadedData={governance} />
+          <VaultV2Timelocks
+            vaultAddress={wrapper.address}
+            chainId={wrapper.chainId}
+            preloadedData={governance}
+            showPending={false}
+          />
         </TabsContent>
       </Tabs>
     </div>

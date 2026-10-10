@@ -1,5 +1,7 @@
 import { decodeFunctionData, erc20Abi, getAddress, type Address, type Hex } from 'viem';
+import { isVaultV2PublicAllocatorAddress } from '@/lib/constants/bots';
 import { vaultV2Abi } from '@/lib/onchain/abis';
+import { buildPublicAllocatorCalldataPreview } from '@/lib/onchain/public-allocator-calldata';
 import { whitelistSendAssetsGateAbi } from '@/lib/onchain/whitelist-send-assets-gate-abi';
 import {
   configuredSendAssetsGates,
@@ -372,7 +374,8 @@ export function resolveVaultAddressFromPending(tx: SafePendingTransaction): Addr
     tx.source.type === 'allocation' ||
     tx.source.type === 'sentinel' ||
     tx.source.type === 'caps' ||
-    tx.source.type === 'curator'
+    tx.source.type === 'curator' ||
+    tx.source.type === 'public_allocator'
   ) {
     return getAddress(tx.source.vaultAddress);
   }
@@ -393,7 +396,8 @@ export function resolveVaultSymbolFromPending(tx: SafePendingTransaction): strin
     tx.source.type === 'allocation' ||
     tx.source.type === 'sentinel' ||
     tx.source.type === 'caps' ||
-    tx.source.type === 'curator'
+    tx.source.type === 'curator' ||
+    tx.source.type === 'public_allocator'
   ) {
     return tx.source.vaultSymbol;
   }
@@ -461,6 +465,13 @@ export function resolveSafePendingPreview(tx: SafePendingTransaction): TxPreview
 
   if (tx.source.type === 'gate' || isConfiguredGateAddress(getAddress(tx.to))) {
     return buildGatePreview(getAddress(tx.to), tx.data);
+  }
+
+  if (isVaultV2PublicAllocatorAddress(tx.to)) {
+    return buildPublicAllocatorCalldataPreview({
+      data: tx.data,
+      vaultSymbol: resolveVaultSymbolFromPending(tx),
+    });
   }
 
   const vaultAddress = resolveVaultAddressFromPending(tx);

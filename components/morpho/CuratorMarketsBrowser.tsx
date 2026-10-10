@@ -168,9 +168,9 @@ function MidnightMarketsTable({
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">
-        Midnight is Morpho&apos;s fixed-term (tenor) book. GraphQL is Blue-only;
-        this table uses the Morpho REST books API. Maturity is the market tenor
-        date; remaining tenor is time-to-maturity.
+        Midnight is Morpho&apos;s fixed-term (tenor) book. Open lend and open
+        borrow are offers still on the book, not filled deposits or borrows.
+        Filled size is on the market page.
       </p>
       <CuratorTableShell>
         <Table>
@@ -181,8 +181,8 @@ function MidnightMarketsTable({
               <TableHead>Collateral</TableHead>
               <TableHead>LLTV</TableHead>
               <TableHead>Maturity / tenor</TableHead>
-              <TableHead className="text-right">Lend depth</TableHead>
-              <TableHead className="text-right">Borrow depth</TableHead>
+              <TableHead className="text-right">Open lend</TableHead>
+              <TableHead className="text-right">Open borrow</TableHead>
               <TableHead className="text-right">Best rate</TableHead>
             </TableRow>
           </TableHeader>

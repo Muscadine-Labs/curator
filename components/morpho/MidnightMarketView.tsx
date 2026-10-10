@@ -157,9 +157,9 @@ export function MidnightMarketView({ market }: { market: MidnightMarketDetail })
           <div>
             <CardTitle className="text-base">Market details</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
-              Midnight is a fixed-term order book (lend/borrow at a price until
-              maturity). It is not Morpho Blue: there is no IRM, utilization, or
-              variable supply/borrow APY.
+              Midnight is a fixed-term order book. Filled size is outstanding
+              credit in the loan token. Lender credit and borrower debt are
+              summed from positions. Open offers are still on the book.
             </p>
           </div>
           <Badge variant="secondary">Fixed rate</Badge>
@@ -174,21 +174,45 @@ export function MidnightMarketView({ market }: { market: MidnightMarketDetail })
               {market.tenorLabel} remaining
             </p>
           </Metric>
-          <Metric label="Outstanding loans">
+          <Metric label="Filled size">
             {formatMarketTokenAmount(
               market.totalUnits,
               market.loanSymbol,
               market.loanDecimals
             ) ?? '—'}
           </Metric>
-          <Metric label="Lend book depth">
+          <Metric label="Lender credit">
+            {formatMarketTokenAmount(
+              market.lenderCredit,
+              market.loanSymbol,
+              market.loanDecimals
+            ) ?? '—'}
+            {market.lenderCredit != null ? (
+              <p className="text-xs font-normal text-muted-foreground">
+                {market.lendPositionCount} lending
+              </p>
+            ) : null}
+          </Metric>
+          <Metric label="Borrower debt">
+            {formatMarketTokenAmount(
+              market.borrowerDebt,
+              market.loanSymbol,
+              market.loanDecimals
+            ) ?? '—'}
+            {market.borrowerDebt != null ? (
+              <p className="text-xs font-normal text-muted-foreground">
+                {market.borrowPositionCount} borrowing
+              </p>
+            ) : null}
+          </Metric>
+          <Metric label="Open lend offers">
             {formatMarketTokenAmount(
               market.lendDepthAssets,
               market.loanSymbol,
               market.loanDecimals
             ) ?? '—'}
           </Metric>
-          <Metric label="Borrow book depth">
+          <Metric label="Open borrow offers">
             {formatMarketTokenAmount(
               market.borrowDepthAssets,
               market.loanSymbol,

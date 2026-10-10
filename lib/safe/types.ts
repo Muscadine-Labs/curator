@@ -49,6 +49,11 @@ export type SafeTransactionSource =
       gateAddress: Address;
     }
   | {
+      type: 'public_allocator';
+      vaultAddress: Address;
+      vaultSymbol?: string;
+    }
+  | {
       type: 'manual';
     };
 

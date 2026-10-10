@@ -23,8 +23,6 @@ import {
 
 interface VaultOverviewPanelProps {
   vault: VaultDetail;
-  morphoUiUrl: string;
-  vaultName: string;
   vaultSymbol: string;
   vaultAsset: string;
   governance?: VaultV2GovernanceResponse | null;
@@ -40,8 +38,6 @@ function warningBadgeClass(level: string): string {
 
 export function VaultOverviewPanel({
   vault,
-  morphoUiUrl,
-  vaultName,
   vaultSymbol,
   vaultAsset,
   governance,
@@ -78,18 +74,9 @@ export function VaultOverviewPanel({
   return (
     <div className="space-y-6">
       <CuratorPageHeader
-        title={vaultName}
+        title="Overview"
         description={
           <span className="inline-flex flex-wrap items-center gap-1.5">
-            <a
-              href={morphoUiUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-sm text-muted-foreground hover:text-foreground hover:underline"
-            >
-              Open on Morpho ↗
-            </a>
-            <span aria-hidden>·</span>
             <span>{vaultSymbol}</span>
             <span aria-hidden>·</span>
             <span>{vaultAsset}</span>
@@ -153,32 +140,6 @@ export function VaultOverviewPanel({
         </CuratorKvList>
       </CuratorPanel>
 
-      <VaultHolders
-        vaultAddress={vault.address}
-        chainId={vault.chainId}
-        assetDecimals={vault.assetDecimals}
-        assetSymbol={vaultAsset}
-        pageSize={10}
-        collapsible
-        defaultOpen={false}
-      />
-
-      <VaultTransactions
-        vaultAddress={vault.address}
-        chainId={vault.chainId}
-        assetDecimals={vault.assetDecimals}
-        assetSymbol={vaultAsset}
-        pageSize={10}
-        collapsible
-        defaultOpen={false}
-      />
-
-      <VaultOverviewHistoryChart
-        vaultAddress={vault.address}
-        collapsible
-        defaultOpen={false}
-      />
-
       <CuratorPanel title="Fees">
         <CuratorKvList>
           <CuratorKvRow
@@ -235,6 +196,32 @@ export function VaultOverviewPanel({
         preloadedRisk={risk}
         assetSymbol={vaultAsset}
         assetDecimals={vault.assetDecimals}
+      />
+
+      <VaultHolders
+        vaultAddress={vault.address}
+        chainId={vault.chainId}
+        assetDecimals={vault.assetDecimals}
+        assetSymbol={vaultAsset}
+        pageSize={10}
+        collapsible
+        defaultOpen={false}
+      />
+
+      <VaultTransactions
+        vaultAddress={vault.address}
+        chainId={vault.chainId}
+        assetDecimals={vault.assetDecimals}
+        assetSymbol={vaultAsset}
+        pageSize={10}
+        collapsible
+        defaultOpen={false}
+      />
+
+      <VaultOverviewHistoryChart
+        vaultAddress={vault.address}
+        collapsible
+        defaultOpen={false}
       />
     </div>
   );

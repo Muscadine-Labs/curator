@@ -60,12 +60,14 @@ npm run build   # next build
   Blue markets only. Never pass bare addresses or raw MarketParams as cap `idData`.
 - **V2 vault routes** (Morpho-style segments under `/vault/[address]/…`):
   Overview (`/vault/[address]`) → **Fee wrapper** (only when the vault has one) → `/allocation` → `/caps` → `/risk` → `/timelocks` →
-  `/sentinel`. `/analytics` redirects to `/risk`. Overview: metrics (token + USD), collapsible holders → recent txs → history
-  (10 per page with arrows, default closed), fees, roles, adapters.
+  `/sentinel`. `/analytics` redirects to `/risk`. The vault header is the name, chain, and more menu. Pending count is on Timelocks and Sentinel.
+  Overview: metrics, fees, max rate, roles, gates, adapters, then collapsible holders → recent txs → history
+  (10 per page with arrows, default closed).
   Fee wrapper tab: condensed boxes for wrapper TVL/APY/users/fees, overview, roles, gates, max rate, timelocks, plus collapsible holders/txs/history for the wrapper contract.
   Risk: market risk grades. Emergency actions on Sentinel (bottom).
-  Pending actions embed in Caps; Sentinel is the only tab with sentinel writes (decrease caps,
-  deallocate).
+  Pending actions embed in Caps and sit above the Timelocks delay list (accept and revoke). Sentinel is the only tab with sentinel writes (decrease caps,
+  deallocate). Public Allocator caps on the Caps tab are changed by an allocator
+  (connected allocator wallet, or the Allocator Safe) and apply immediately.
 - **Allocation edit amounts** — Rebalance inputs show **display** (Allocated
   column / Morpho supply). Planning maps display → booked via
   `booked + (input − display)` so unchanged rows are no-ops and accrued interest
@@ -139,7 +141,9 @@ npm run build   # next build
   rate), `/market/blue/[id]` (Blue), and
   `/midnight/[id]` (Midnight order book — not Blue KPIs). Loan / Collateral /
   Search apply to both tables (`market-pair-filter.ts`). Midnight REST
-  (`/v0/midnight/markets`, `/state`, `/books`); Morpho app is
+  (`/v0/midnight/markets`, `/state`, `/books`, `/positions`). Browse columns are
+  open offers. The market page adds filled size plus summed lender credit and
+  borrower debt. Morpho app is
   `https://markets.morpho.org/fixed/{chain}/{id}`. Use `sizeUsd` /
   `totalLiquidityUsd` for Blue sort columns; display token primary + USD
   secondary via `TokenUsdValue` (§4.7). Market writes live in muscadine-onchain;
@@ -173,13 +177,3 @@ npm run build   # next build
   bump ESLint 10, wagmi 3, TypeScript 7, ox 1, or Vitest 5 (§11).
 - Keep `docs/brain/` (changelog + MCP), `CLAUDE.md`, `AGENTS.md`, and `TODO.md`
   in sync with behavior changes (closed loop).
-
-<!-- BEGIN:nextjs-agent-rules -->
-
-# This is NOT the Next.js you know
-
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
-
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
-
-<!-- END:nextjs-agent-rules -->

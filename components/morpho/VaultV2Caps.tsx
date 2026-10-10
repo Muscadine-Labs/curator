@@ -27,8 +27,8 @@ import {
   absoluteCapUtilizationPercent,
   relativeCapUtilizationPercent,
 } from '@/lib/morpho/v2-cap-format';
-import { formatForceDeallocatePenaltyWad, formatMaxRateApr } from '@/lib/morpho/vault-v2-api';
-import { publicAllocatorMarketLookupKey } from '@/lib/morpho/v2-public-allocator-key';
+import { PublicAllocatorCaps } from '@/components/morpho/PublicAllocatorCaps';
+import { formatMaxRateApr } from '@/lib/morpho/vault-v2-api';
 import type { CapInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/[id]/governance/route';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/[id]/risk/route';
 import type { VaultV2PendingResponse } from '@/app/api/vaults/[id]/pending/route';
@@ -36,8 +36,6 @@ import { VaultV2Pending } from '@/components/morpho/VaultV2Pending';
 import {
   CuratorEmptyText,
   CuratorErrorText,
-  CuratorKvList,
-  CuratorKvRow,
   CuratorPageHeader,
   CuratorPanel,
   CuratorSectionHeader,
@@ -146,13 +144,15 @@ export function VaultV2Caps({
 
       {view === 'publicAllocator' && publicAllocator ? (
         <PublicAllocatorCaps
+          vaultAddress={vaultAddress}
+          chainId={chainId}
+          allocators={data.allocators}
           state={publicAllocator}
           caps={grouped.market}
           risk={risk}
           adapterLabels={adapterLabels}
           assetSymbol={assetSymbol}
           assetDecimals={assetDecimals}
-          chainId={chainId}
         />
       ) : data.caps.length === 0 ? (
         <div className="space-y-4">
@@ -320,128 +320,4 @@ function CapTableSection({
       </CuratorTableShell>
     </div>
   );
-}
-
-function PublicAllocatorCaps({
-  state,
-  caps,
-  risk,
-  adapterLabels,
-  assetSymbol,
-  assetDecimals,
-  chainId,
-}: {
-  state: NonNullable<VaultV2GovernanceResponse['publicAllocator']>;
-  caps: CapInfo[];
-  risk: V2VaultRiskResponse | null | undefined;
-  adapterLabels: Map<string, string>;
-  assetSymbol?: string | null;
-  assetDecimals?: number | null;
-  chainId: number;
-}) {
-  const paByMarket = new Map<string, (typeof state.markets)[number]>();
-  for (const row of state.markets) {
-    if (row.marketKey && row.adapterAddress) {
-      paByMarket.set(publicAllocatorMarketLookupKey(row.adapterAddress, row.marketKey), row);
-    }
-  }
-
-  const rows = sortCapsByAllocationDesc(caps);
-
-  return (
-    <div className="space-y-6">
-      <CuratorPanel title="Public Allocator caps">
-        <CuratorKvList>
-          <CuratorKvRow label="Allow allocations from idle">
-            <AllowedBadge allowed={state.canPullFromIdle} />
-          </CuratorKvRow>
-          {state.penalty != null ? (
-            <CuratorKvRow label="Penalty">
-              <span className="text-muted-foreground">
-                {formatForceDeallocatePenaltyWad(state.penalty)}
-              </span>
-            </CuratorKvRow>
-          ) : null}
-        </CuratorKvList>
-      </CuratorPanel>
-
-      {rows.length === 0 ? (
-        <CuratorEmptyText>
-          No market caps to show. Public Allocator target ceilings are per Morpho market.
-        </CuratorEmptyText>
-      ) : (
-        <CuratorTableShell>
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead>Market</TableHead>
-                <TableHead>Allocation</TableHead>
-                <TableHead>Vault absolute cap</TableHead>
-                <TableHead>
-                  Public Allocator cap
-                  {assetSymbol ? ` (${assetSymbol})` : ''}
-                </TableHead>
-                <TableHead>Allow deallocation</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((cap, idx) => {
-                const pa =
-                  cap.adapterAddress && cap.marketKey
-                    ? paByMarket.get(
-                        publicAllocatorMarketLookupKey(cap.adapterAddress, cap.marketKey)
-                      )
-                    : undefined;
-                const lltv = capLltvPill(cap, risk);
-                return (
-                  <TableRow key={capRowKey(cap, idx)}>
-                    <TableCell>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium">
-                          <CapLabel
-                            cap={cap}
-                            label={capDisplayLabel(cap, risk, adapterLabels)}
-                            chainId={chainId}
-                          />
-                        </span>
-                        {lltv ? (
-                          <Badge variant="outline" className="text-[10px] font-normal">
-                            {lltv}
-                          </Badge>
-                        ) : null}
-                      </div>
-                    </TableCell>
-                    <TableCell className="tabular-nums">
-                      {formatCapCompactAmount(cap.allocation, assetSymbol, assetDecimals)}
-                    </TableCell>
-                    <TableCell className="tabular-nums">
-                      {formatCapCompactAmount(cap.absoluteCap, assetSymbol, assetDecimals)}
-                    </TableCell>
-                    <TableCell className="tabular-nums">
-                      {formatCapCompactAmount(pa?.absoluteCap, assetSymbol, assetDecimals)}
-                    </TableCell>
-                    <TableCell>
-                      <AllowedBadge allowed={pa?.canPullFromMarket ?? null} />
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </CuratorTableShell>
-      )}
-    </div>
-  );
-}
-
-function AllowedBadge({ allowed }: { allowed: boolean | null }) {
-  if (allowed == null) {
-    return <span className="text-sm text-muted-foreground">—</span>;
-  }
-  if (allowed) {
-    return (
-      <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Allowed</span>
-    );
-  }
-  return <span className="text-sm text-muted-foreground">Not allowed</span>;
 }

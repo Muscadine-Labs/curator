@@ -4,6 +4,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
 import type { VaultV2GovernanceResponse } from '@/app/api/vaults/[id]/governance/route';
+import type { VaultV2PendingResponse } from '@/app/api/vaults/[id]/pending/route';
+import type { V2VaultRiskResponse } from '@/app/api/vaults/[id]/risk/route';
+import { VaultV2Pending } from '@/components/morpho/VaultV2Pending';
 import {
   describeVaultV2Function,
   formatAbdicatedAt,
@@ -29,10 +32,26 @@ import {
 
 interface VaultV2TimelocksProps {
   vaultAddress: string;
+  chainId: number;
   preloadedData?: VaultV2GovernanceResponse | null;
+  preloadedPending?: VaultV2PendingResponse | null;
+  preloadedRisk?: V2VaultRiskResponse | null;
+  assetSymbol?: string | null;
+  assetDecimals?: number | null;
+  /** Fee-wrapper caps already embed pending above this table. */
+  showPending?: boolean;
 }
 
-export function VaultV2Timelocks({ vaultAddress, preloadedData }: VaultV2TimelocksProps) {
+export function VaultV2Timelocks({
+  vaultAddress,
+  chainId,
+  preloadedData,
+  preloadedPending,
+  preloadedRisk,
+  assetSymbol,
+  assetDecimals,
+  showPending = true,
+}: VaultV2TimelocksProps) {
   const { data: fetchedData, isLoading, error } = useVaultV2Governance(vaultAddress);
   const data = preloadedData ?? fetchedData;
 
@@ -79,6 +98,22 @@ export function VaultV2Timelocks({ vaultAddress, preloadedData }: VaultV2Timeloc
         title="Timelocks"
         description="Delays governing changes on this vault. Abdicated functions are permanently disabled and cannot be called again."
       />
+
+      {showPending ? (
+        <VaultV2Pending
+          vaultAddress={vaultAddress}
+          chainId={chainId}
+          preloadedData={preloadedPending}
+          preloadedGovernance={data}
+          preloadedRisk={preloadedRisk}
+          assetSymbol={assetSymbol}
+          assetDecimals={assetDecimals}
+          vaultSymbol={assetSymbol ?? undefined}
+          embedded
+          allowAccept
+          allowRevoke
+        />
+      ) : null}
 
       {timelocks.length === 0 ? (
         <CuratorEmptyText>No timelocks configured.</CuratorEmptyText>

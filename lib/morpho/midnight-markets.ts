@@ -302,8 +302,16 @@ export type MidnightMarketDetail = {
   bids: MidnightBookLevelView[];
   bestLendRate: number | null;
   bestBorrowRate: number | null;
+  /** Open ask size, loan-token raw. Not filled deposits. */
   lendDepthAssets: string;
+  /** Open bid size, loan-token raw. Not filled borrows. */
   borrowDepthAssets: string;
+  /** Sum of position credit, loan-token raw. Null when the scan did not finish. */
+  lenderCredit: string | null;
+  /** Sum of position debt, loan-token raw. Null when the scan did not finish. */
+  borrowerDebt: string | null;
+  lendPositionCount: number;
+  borrowPositionCount: number;
 };
 
 type MidnightMarketConfig = {
@@ -330,6 +338,91 @@ type MidnightMarketState = {
 };
 
 type RestWrap<T> = { data?: T };
+
+type MidnightPositionRow = {
+  credit?: string;
+  debt?: string;
+  type?: string;
+};
+
+type MidnightPositionsPage = {
+  cursor?: string | null;
+  data?: MidnightPositionRow[];
+};
+
+const POSITIONS_PAGE_LIMIT = 100;
+const POSITIONS_MAX_PAGES = 20;
+
+function addRaw(total: bigint, raw: string | null | undefined): bigint {
+  if (!raw) return total;
+  try {
+    return total + BigInt(raw);
+  } catch {
+    return total;
+  }
+}
+
+/** Sum lender credit and borrower debt across one positions page. */
+export function sumMidnightPositionRows(rows: MidnightPositionRow[]): {
+  lenderCredit: bigint;
+  borrowerDebt: bigint;
+  lendCount: number;
+  borrowCount: number;
+} {
+  let lenderCredit = 0n;
+  let borrowerDebt = 0n;
+  let lendCount = 0;
+  let borrowCount = 0;
+  for (const row of rows) {
+    if (row.type === 'lend') lendCount += 1;
+    else if (row.type === 'borrow') borrowCount += 1;
+    lenderCredit = addRaw(lenderCredit, row.credit);
+    borrowerDebt = addRaw(borrowerDebt, row.debt);
+  }
+  return { lenderCredit, borrowerDebt, lendCount, borrowCount };
+}
+
+async function fetchMidnightPositionTotals(marketId: string): Promise<{
+  lenderCredit: string;
+  borrowerDebt: string;
+  lendPositionCount: number;
+  borrowPositionCount: number;
+} | null> {
+  let cursor: string | null = null;
+  let lenderCredit = 0n;
+  let borrowerDebt = 0n;
+  let lendPositionCount = 0;
+  let borrowPositionCount = 0;
+
+  for (let page = 0; page < POSITIONS_MAX_PAGES; page += 1) {
+    const params = new URLSearchParams({ limit: String(POSITIONS_PAGE_LIMIT) });
+    if (cursor) params.set('cursor', cursor);
+    const body = await fetchMidnightRest<MidnightPositionsPage>(
+      `/v0/midnight/markets/${marketId}/positions?${params.toString()}`
+    );
+    if (body == null) {
+      logger.warn('Midnight position page missing', { marketId, page });
+      return null;
+    }
+    const summed = sumMidnightPositionRows(body.data ?? []);
+    lenderCredit += summed.lenderCredit;
+    borrowerDebt += summed.borrowerDebt;
+    lendPositionCount += summed.lendCount;
+    borrowPositionCount += summed.borrowCount;
+    cursor = body?.cursor ?? null;
+    if (!cursor) {
+      return {
+        lenderCredit: lenderCredit.toString(),
+        borrowerDebt: borrowerDebt.toString(),
+        lendPositionCount,
+        borrowPositionCount,
+      };
+    }
+  }
+
+  logger.warn('Midnight position list exceeded page cap', { marketId });
+  return null;
+}
 
 async function fetchMidnightRest<T>(path: string): Promise<T | null> {
   const res = await fetch(`${MORPHO_REST_ORIGIN}${path}`, { cache: 'no-store' });
@@ -418,10 +511,14 @@ export async function fetchMidnightMarketDetail(
     throw new AppError('Invalid Midnight market id', 400, 'INVALID_MARKET_ID');
   }
 
-  const [marketWrap, stateWrap, bookWrap] = await Promise.all([
+  const [marketWrap, stateWrap, bookWrap, positionTotals] = await Promise.all([
     fetchMidnightRest<RestWrap<MidnightMarketConfig>>(`/v0/midnight/markets/${id}`),
     fetchMidnightRest<RestWrap<MidnightMarketState>>(`/v0/midnight/markets/${id}/state`),
     fetchMidnightRest<RestWrap<MidnightBook>>(`/v0/midnight/books/${id}?depth=80`),
+    fetchMidnightPositionTotals(id).catch((error: unknown) => {
+      logger.warn('Midnight position totals failed', { marketId: id, error });
+      return null;
+    }),
   ]);
 
   const config = marketWrap?.data;
@@ -480,6 +577,10 @@ export async function fetchMidnightMarketDetail(
     bestBorrowRate: bids[0]?.rate ?? null,
     lendDepthAssets: sumAssets(book?.asks).toString(),
     borrowDepthAssets: sumAssets(book?.bids).toString(),
+    lenderCredit: positionTotals?.lenderCredit ?? null,
+    borrowerDebt: positionTotals?.borrowerDebt ?? null,
+    lendPositionCount: positionTotals?.lendPositionCount ?? 0,
+    borrowPositionCount: positionTotals?.borrowPositionCount ?? 0,
   };
 
   logger.debug('Fetched Midnight market detail', { marketId: resolvedId, chainId: resolvedChain });

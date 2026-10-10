@@ -4,6 +4,38 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-10-09 — Review fixes for Public Allocator writes and Midnight totals
+
+- A confirmed Public Allocator wallet write clears its success state, so the next preview can be sent.
+- A missing Midnight positions page stays blank. It is not shown as zero credit and zero debt.
+- Verified market params are cached for the caps table, so editing a cap does not rehash every row.
+
+---
+
+## 2026-10-09 — Midnight filled size is separate from the open book
+
+- Market page shows filled size (`state.total_units`), plus lender credit and borrower debt summed from `GET /v0/midnight/markets/{id}/positions`. Browse columns are open offers (asks and bids), labeled open lend and open borrow.
+- A position scan that fails or passes the page cap leaves credit and debt blank. `lib/morpho/midnight-markets.ts`.
+
+---
+
+## 2026-10-09 — Vault pages follow the Morpho curator frame
+
+- Header is the vault name, chain, category, and a more menu (copy address, Morpho, explorer). Tabs are text links. The pending count sits on Timelocks and Sentinel.
+- Overview order is metrics, fees, max rate, roles, gates, adapters, then holders, transactions, and history.
+- Timelocks lists pending actions (accept and revoke) above the delay table. Fee-wrapper caps keep their own pending block and do not repeat it.
+- Left as-is: Fee wrapper and Risk tabs, Safe queue, caps tables, and the deposit/withdraw transaction list.
+
+---
+
+## 2026-10-09 — Allocator can edit Public Allocator caps
+
+- Caps → Public Allocator **Edit** writes `setAbsoluteCap`, `setCanPullFromMarket`, and `setCanPullFromIdle` on the Blue Public Allocator. Several changes go out as one `multicall`. An allocator wallet signs directly; otherwise the Allocator Safe queues the call. Settings apply immediately.
+- Markets whose vault absolute cap is 0 stay in the table and are labeled **No vault cap**. A failed on-chain read is not written back as zero.
+- `lib/morpho/v2-public-allocator-plan.ts`, `lib/onchain/public-allocator-calldata.ts`, `components/morpho/PublicAllocatorCaps.tsx`.
+
+---
+
 ## 2026-09-26 — Gate allowlist from the contract, one address lookup
 
 - The curator gate page no longer keeps a depositor address list. Membership is whoever the gate names in `SetIsWhitelisted` / `SetIsWhitelister` logs, then the live `isWhitelisted` / `isWhitelister` reads. Display names are Basenames, **Muscadine Treasury**, or **Whitelisted address**.

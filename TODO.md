@@ -4,7 +4,8 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 
 ## Today
 
-- add the public allocator caps
-- make the vault pages look more like the curator pages
-- Review bundler 3, morpho is going to deprecate it (on their bundler3 github), look into the new bundles contract on github. See if we need to migrate.
-- on midnight markets, what the best way to see the overall market deposits and borrows?
+## Done
+
+- Midnight market page shows filled size (`total_units`), summed lender credit, and summed borrower debt. Browse columns stay the open book, labeled open lend and open borrow.
+- Vault pages use Morpho's frame: vault name, chain, more menu, text tabs, pending count on Timelocks and Sentinel. Overview leads with vault state. Timelocks show pending actions above the delay list.
+- Public Allocator caps: allocator can edit idle permission, per-market cap, and allow deallocation on the Caps tab.
