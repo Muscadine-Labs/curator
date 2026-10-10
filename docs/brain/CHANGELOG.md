@@ -4,6 +4,17 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-10-10 — PR review fixes for the October Done items
+
+- Dependency pins restored: ESLint 9, `@eslint/js` 9, Vitest 4 (no direct `vite`). Lockfile regenerated.
+- Claim fees and Public Allocator previews now show wallet and Safe submit failures inside the dialog. `useVaultWrite` clears its own error before rethrowing, so both keep the reason locally.
+- Claim fees uses `vaultV2Abi` (`accrueInterest`, `accrueInterestView`, `previewRedeem`) and `v2WriteConfigs.accrueInterest` instead of an inline ABI. Imported Safe rows with that call decode as **Claim fees**. Reopening the dialog after a claim no longer starts in the confirmed state.
+- Public Allocator calldata and the wallet write config share one builder. The confirm handler is awaited so the button stays locked until the wallet opens.
+- IRM `kink()` reverts are cached (the function does not exist); RPC failures are still retried.
+- Removed dead vault-shell context (`morphoUiUrl`) and wrapper-only branches that never run after the wrapper redirect. AGENTS.md catalog text matches `/vaults` (underlyings only); the `next dev` agent-rules block is back so it does not reappear as a diff.
+
+---
+
 ## 2026-10-09 — Claim fees, Midnight size, and pre-deploy review
 
 - Claim fees sits on the fee wrapper tab and on each underlying vault overview. The quote is `accrueInterestView` plus `previewRedeem` of the pending performance and management shares. Confirm sends `accrueInterest()` from the connected wallet or queues it in a Safe. `components/morpho/ClaimFeesButton.tsx`.

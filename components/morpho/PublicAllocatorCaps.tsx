@@ -68,7 +68,8 @@ import {
   type VaultWriteDestination,
 } from '@/lib/safe/vault-write-destination';
 import { getConnectorProvider } from '@/lib/wallet/connector-provider';
-import { isWalletRejection } from '@/lib/utils/wallet-error';
+import { getScanUrlForChain } from '@/lib/constants';
+import { isBroadcastTxHash, isWalletRejection } from '@/lib/utils/wallet-error';
 
 type PublicAllocatorState = NonNullable<VaultV2GovernanceResponse['publicAllocator']>;
 
@@ -165,6 +166,8 @@ export function PublicAllocatorCaps({
   const [capDrafts, setCapDrafts] = useState<Record<string, string>>({});
   const [pullDrafts, setPullDrafts] = useState<Record<string, boolean>>({});
   const [formError, setFormError] = useState<string | null>(null);
+  /** Shown inside the open preview; `useVaultWrite` clears its own error before rethrowing. */
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [preview, setPreview] = useState<TxPreview | null>(null);
   const [pendingChanges, setPendingChanges] = useState<PublicAllocatorChange[]>([]);
@@ -179,6 +182,18 @@ export function PublicAllocatorCaps({
   );
   const walletCanAllocate = walletCanSignAllocation(walletAddress, allocators);
   const walletReady = isConnected && walletCanAllocate;
+  const resolvedDestination = useMemo(
+    () =>
+      coerceVaultWriteDestination(destination, {
+        eligibleSafeRoles: eligibleSafes,
+        preferredSafeRole: ALLOCATION_SAFE_ROLE,
+      }),
+    [destination, eligibleSafes]
+  );
+  const canConfirm = canConfirmVaultWriteDestination(resolvedDestination, {
+    walletReady,
+    eligibleSafeRoles: eligibleSafes,
+  });
   const walletHint = !isConnected
     ? 'Connect an allocator wallet in the top bar, or queue this to the Allocator Safe.'
     : !walletCanAllocate
@@ -189,11 +204,11 @@ export function PublicAllocatorCaps({
     () =>
       safeAppConnected &&
       safeAppSdk &&
-      destination.kind === 'safe' &&
-      safeAppRole === destination.role
+      resolvedDestination.kind === 'safe' &&
+      safeAppRole === resolvedDestination.role
         ? safeAppSdk
         : null,
-    [safeAppConnected, safeAppSdk, safeAppRole, destination]
+    [safeAppConnected, safeAppSdk, safeAppRole, resolvedDestination]
   );
 
   const writeSucceeded = write.isSuccess;
@@ -325,8 +340,8 @@ export function PublicAllocatorCaps({
       }),
     };
 
-    if (write.isSuccess) write.reset();
     setFormError(null);
+    setSubmitError(null);
     setPendingChanges(changes);
     setPreview(txPreview);
     setPreviewOpen(true);
@@ -334,19 +349,12 @@ export function PublicAllocatorCaps({
 
   async function confirm() {
     if (pendingChanges.length === 0) return;
-    const coerced = coerceVaultWriteDestination(destination, {
-      eligibleSafeRoles: eligibleSafes,
-      preferredSafeRole: ALLOCATION_SAFE_ROLE,
-    });
-    if (
-      !canConfirmVaultWriteDestination(coerced, {
-        walletReady,
-        eligibleSafeRoles: eligibleSafes,
-      })
-    ) {
-      setFormError(walletHint);
+    const coerced = resolvedDestination;
+    if (!canConfirm) {
+      setSubmitError(walletHint);
       return;
     }
+    setSubmitError(null);
 
     if (coerced.kind === 'safe') {
       setQueueing(true);
@@ -378,7 +386,7 @@ export function PublicAllocatorCaps({
         router.push(`/safe/${coerced.role}/transactions`);
       } catch (error) {
         if (!isWalletRejection(error)) {
-          setFormError(error instanceof Error ? error.message : 'Failed to queue Safe transaction.');
+          setSubmitError(error instanceof Error ? error.message : 'Failed to queue Safe transaction.');
         }
       } finally {
         setQueueing(false);
@@ -396,7 +404,7 @@ export function PublicAllocatorCaps({
       await write.write(config);
     } catch (error) {
       if (!isWalletRejection(error)) {
-        setFormError(error instanceof Error ? error.message : 'Failed to submit transaction.');
+        setSubmitError(error instanceof Error ? error.message : 'Failed to submit transaction.');
       }
     }
   }
@@ -566,32 +574,29 @@ export function PublicAllocatorCaps({
         onOpenChange={(open) => {
           if (!open && (write.isLoading || queueing)) return;
           setPreviewOpen(open);
-          if (!open && !write.isLoading) {
+          if (!open) {
+            setSubmitError(null);
             setPreview(null);
             setPendingChanges([]);
           }
         }}
-        onConfirm={() => void confirm()}
+        onConfirm={confirm}
         isLoading={write.isLoading || queueing}
-        error={write.error}
+        error={submitError ? new Error(submitError) : write.error}
         isSuccess={write.isSuccess}
         txHash={write.txHash}
+        txExplorerHref={
+          isBroadcastTxHash(write.txHash)
+            ? `${getScanUrlForChain(chainId)}/tx/${write.txHash}`
+            : null
+        }
         destinationOptions={{
-          destination: coerceVaultWriteDestination(destination, {
-            eligibleSafeRoles: eligibleSafes,
-            preferredSafeRole: ALLOCATION_SAFE_ROLE,
-          }),
+          destination: resolvedDestination,
           onDestinationChange: setDestination,
           walletReady,
           walletHint,
           safeRoles: eligibleSafes,
-          confirmEnabled: canConfirmVaultWriteDestination(
-            coerceVaultWriteDestination(destination, {
-              eligibleSafeRoles: eligibleSafes,
-              preferredSafeRole: ALLOCATION_SAFE_ROLE,
-            }),
-            { walletReady, eligibleSafeRoles: eligibleSafes }
-          ),
+          confirmEnabled: canConfirm,
         }}
       />
     </div>

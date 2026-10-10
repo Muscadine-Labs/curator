@@ -32,15 +32,15 @@ npm run build   # next build
   `compute-blue-market-risk.ts`. MetaMorpho adapters are ignored in risk, allocation,
   and sentinel UIs. **Fee wrappers** (`kind: 'feeWrapper'`) use GraphQL
   `MorphoVaultV2Adapter.innerVault` (Morpho GraphQL) and empty allocate `data`
-  (`EMPTY_ADAPTER_DATA`); they are listed on `/vaults` (Underlying then Wrapper,
-  then Prime / Frontier / Test) but **not as peer vault pages**. Strategy vaults
+  (`EMPTY_ADAPTER_DATA`). They are **not** listed on `/vaults` or the sidebar and
+  are **not peer vault pages**. Strategy vaults
   that have a wrapper get a **Fee wrapper** tab (`/vault/[address]/fee-wrapper`)
   with condensed TVL / users / history plus Morpho wrapper facts. Visiting a
   wrapper address redirects there. Sidebar lists underlyings only. Wrappers are
   excluded from protocol TVL (deposits sit in
   the underlying vault). Unique-user counts include wrappers but skip
-  wrapper adapter contracts. Catalog lists
-  wrappers and test vaults using Morpho/on-chain names. `underlyingAddress` is
+  wrapper adapter contracts. Catalog lists underlying and test vaults using
+  Morpho/on-chain names. `underlyingAddress` is
   the GraphQL fallback for the child vault. Send-assets gate (underlying strategy
   vaults only): `lib/config/deposit-gates.ts` (`docs/brain/deposit-gates.md`).
   Gate calldata / propose: muscadine-onchain CLI. In this app, `/curator/gates`
@@ -141,9 +141,9 @@ npm run build   # next build
   rate), `/market/blue/[id]` (Blue), and
   `/midnight/[id]` (Midnight order book — not Blue KPIs). Loan / Collateral /
   Search apply to both tables (`market-pair-filter.ts`). Midnight REST
-  (`/v0/midnight/markets`, `/state`, `/books`, `/positions`). Browse columns are
-  open offers. The market page adds filled size plus summed lender credit and
-  borrower debt. Morpho app is
+  (`/v0/midnight/markets`, `/state`, `/books`, `/positions`). Browse lists filled
+  market size (`total_units`). The market page adds summed lender credit and
+  borrower debt; open lend / borrow offers stay there. Morpho app is
   `https://markets.morpho.org/fixed/{chain}/{id}`. Use `sizeUsd` /
   `totalLiquidityUsd` for Blue sort columns; display token primary + USD
   secondary via `TokenUsdValue` (§4.7). Market writes live in muscadine-onchain;
@@ -177,3 +177,13 @@ npm run build   # next build
   bump ESLint 10, wagmi 3, TypeScript 7, ox 1, or Vitest 5 (§11).
 - Keep `docs/brain/` (changelog + MCP), `CLAUDE.md`, `AGENTS.md`, and `TODO.md`
   in sync with behavior changes (closed loop).
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

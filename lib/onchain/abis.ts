@@ -88,6 +88,24 @@ export const vaultV2Abi = [
   },
   {
     type: "function",
+    name: "accrueInterestView",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "newTotalAssets", type: "uint256" },
+      { name: "performanceFeeShares", type: "uint256" },
+      { name: "managementFeeShares", type: "uint256" },
+    ],
+  },
+  {
+    type: "function",
+    name: "previewRedeem",
+    stateMutability: "view",
+    inputs: [{ name: "shares", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
     name: "performanceFee",
     stateMutability: "view",
     inputs: [],
@@ -374,6 +392,13 @@ export const vaultV2Abi = [
     name: "multicall",
     stateMutability: "nonpayable",
     inputs: [{ name: "data", type: "bytes[]" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "accrueInterest",
+    stateMutability: "nonpayable",
+    inputs: [],
     outputs: [],
   },
   {

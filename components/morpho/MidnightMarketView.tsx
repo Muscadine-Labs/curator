@@ -19,6 +19,7 @@ import {
   formatLltvWad,
   formatMidnightMaturityUtc,
   formatWadPercent,
+  isTenorCollateralShare,
   midnightLiquidationIncentive,
   type MidnightBookLevelView,
   type MidnightMarketDetail,
@@ -251,7 +252,7 @@ export function MidnightMarketView({ market }: { market: MidnightMarketDetail })
         const incentive = midnightLiquidationIncentive(c.lltv, c.liquidationCursor);
         const showOraclePanel = Boolean(c.oraclePrice || c.oracleTimestampData);
         const sameAsLoan = c.token.toLowerCase() === market.loanAddress.toLowerCase();
-        const tenorShare = c.symbol.toLowerCase().endsWith('-collat');
+        const tenorShare = isTenorCollateralShare(c.symbol);
         const title = sameAsLoan
           ? `Also accepted · ${c.symbol}`
           : tenorShare

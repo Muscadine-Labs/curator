@@ -407,7 +407,10 @@ grades; Sentinel holds emergency actions at the bottom.
    `setCanPullFromMarket`, `setCanPullFromIdle`, or one `multicall`), from the
    allocator wallet or the Allocator Safe, and apply immediately. Vault caps
    still bind the move. Penalty stays read-only here.
-5. **Timelocks** — `VaultV2Timelocks.tsx` (read-only).
+5. **Timelocks** — `VaultV2Timelocks.tsx`: pending actions (accept / revoke via
+   `VaultV2Pending`) above the read-only delay list. The fee wrapper's
+   Caps / timelocks sub-tab passes `showPending={false}` because its caps block
+   already shows them.
 6. **Allocation** — `VaultV2Allocations.tsx` receives `preloadedData`
    (governance) **and** `preloadedRisk`. Its **Liquidity adapter** panel marks
    the current option from governance `liquidityAdapter` / `liquidityData`,
@@ -554,8 +557,9 @@ Ethereum appears in `SIDEBAR_NETWORKS` but has no configured vaults — expand
     adapter liquidity constraints differ).
 - **Idle** — V2 only: `idleAssets` / `idleAssetsUsd` (cash in the vault contract).
 - **Fees** — performance and management fee rates and recipients. **Claim fees**
-  quotes `accrueInterestView` and sends `accrueInterest()`, which mints the
-  pending fees as vault shares to those recipients.
+  (`ClaimFeesButton`) quotes `accrueInterestView` + `previewRedeem` and sends
+  `v2WriteConfigs.accrueInterest`, which mints the pending fees as vault shares
+  to those recipients. Safe rows holding that call decode as **Claim fees**.
 - Analytics object from `lib/morpho/vault-analytics.ts` (`buildVaultAnalytics`).
 
 **History chart** — `VaultOverviewHistoryChart` + `GET /api/vaults/[id]/history`
@@ -692,7 +696,7 @@ symbol `Unknown`. Return `scores: null`; never feed into weighted averages.
 2. **Utilization** — `scoreUtilizationRatio(util, target)` (`lib/morpho/irm-utils.ts`
    supplies target via on-chain IRM `kink()`, default **90%**). Morpho's Adaptive
    Curve IRM (`0x46415998…`) has no `kink()`; its target is the 90% constant.
-   A failed kink read is not cached.
+   An RPC failure on the kink read is not cached; a revert (no `kink()`) is.
    - At or **below** target → **100** (low util is not penalized).
    - Above target → linear decay to **0** at 100% utilization.
 

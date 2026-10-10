@@ -170,7 +170,8 @@ function isZeroAddress(addr: string | null | undefined): boolean {
   return addr.toLowerCase() === ZERO_ADDRESS;
 }
 
-function isTenorCollateralShare(symbol: string | undefined): boolean {
+/** Tenor collateral-vault receipt (`cbBTC-USDC-collat`), not a second collateral asset. */
+export function isTenorCollateralShare(symbol: string | undefined): boolean {
   return Boolean(symbol && symbol.toLowerCase().endsWith('-collat'));
 }
 
@@ -481,7 +482,7 @@ async function fetchMidnightPositionTotals(marketId: string): Promise<{
     for (const [token, amount] of summed.collateralByToken) {
       collateralByToken.set(token, (collateralByToken.get(token) ?? 0n) + amount);
     }
-    cursor = body?.cursor ?? null;
+    cursor = body.cursor ?? null;
     if (!cursor) {
       return {
         lenderCredit: lenderCredit.toString(),

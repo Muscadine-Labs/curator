@@ -1,5 +1,5 @@
 import { Address } from 'viem';
-import { safeContractRead } from '@/lib/onchain/client';
+import { readContractOutcome } from '@/lib/onchain/client';
 
 /**
  * Morpho AdaptiveCurveIRM, same CREATE2 address on Base.
@@ -37,15 +37,16 @@ async function getIRMTargetUtilization(irmAddress: Address | null): Promise<numb
   const cached = kinkCache.get(key);
   if (cached !== undefined) return cached;
 
-  const kinkRaw = await safeContractRead<bigint>(irmAddress, IRM_ABI, 'kink', [], {
+  const outcome = await readContractOutcome<bigint>(irmAddress, IRM_ABI, 'kink', [], {
     probe: true,
   });
-  // Null is a revert or an RPC miss. Only a real kink ratio is cached, so a
-  // timeout does not stick as the 90% fallback for the rest of the process.
-  if (kinkRaw === null) return null;
-  const kinkRatio = Number(kinkRaw) / 1e18;
-  const result = kinkRatio >= 0 && kinkRatio <= 1 ? kinkRatio : null;
-  if (result !== null) kinkCache.set(key, result);
+  // An RPC failure is not cached, so a timeout does not stick as the 90%
+  // fallback for the rest of the process. A revert means this IRM has no
+  // kink(), which does not change, so it is cached like a real value.
+  if (outcome.status === 'error') return null;
+  const kinkRatio = outcome.status === 'ok' ? Number(outcome.value) / 1e18 : null;
+  const result = kinkRatio != null && kinkRatio >= 0 && kinkRatio <= 1 ? kinkRatio : null;
+  kinkCache.set(key, result);
   return result;
 }
 

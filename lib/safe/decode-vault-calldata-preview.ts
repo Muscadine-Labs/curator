@@ -241,6 +241,12 @@ function changeFromVaultCall(
         after: formatCapRelative(newCap.toString()),
       };
     }
+    case 'accrueInterest':
+      return {
+        action: 'claim',
+        label: 'Claim fees',
+        subtitle: 'Mints pending fees as shares to the fee recipients',
+      };
     case 'revoke':
       return {
         action: 'revoke',
@@ -261,6 +267,7 @@ function previewTitle(calls: DecodedVaultCall[]): string {
   if (calls.length > 1) return 'Vault batched transaction';
   const name = calls[0]!.functionName;
   if (name === 'allocate' || name === 'deallocate') return 'Vault allocation change';
+  if (name === 'accrueInterest') return 'Claim fees';
   if (name === 'revoke') return 'Revoke pending timelock action';
   if (name === 'setLiquidityAdapterAndData') return 'Liquidity adapter change';
   if (name.startsWith('decrease')) return 'Vault cap decrease';

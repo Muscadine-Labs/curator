@@ -227,3 +227,14 @@ describe('vault multicall with non-vault inner calls', () => {
     expect(inferSafeTxSource(RECIPIENT, transferData(1n), '0', 1)).toEqual({ type: 'manual' });
   });
 });
+
+describe('accrueInterest preview', () => {
+  it('decodes an imported fee claim instead of showing raw calldata', () => {
+    const data = encodeFunctionData({ abi: vaultV2Abi, functionName: 'accrueInterest' });
+    const preview = resolveSafePendingPreview(imported(VAULT_SHARES, data));
+    expect(preview.title).toBe('Claim fees');
+    expect(preview.changes).toEqual([
+      expect.objectContaining({ action: 'claim', label: 'Claim fees' }),
+    ]);
+  });
+});

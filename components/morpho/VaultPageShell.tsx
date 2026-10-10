@@ -22,7 +22,6 @@ import {
   getVaultByAddress,
   getVaultCategory,
   isFeeWrapperVault,
-  withFeeWrapperLabel,
 } from '@/lib/config/vaults';
 import { morphoVaultHref } from '@/lib/morpho/morpho-app-links';
 import { AppShell } from '@/components/layout/AppShell';
@@ -60,7 +59,6 @@ export type VaultPageData = {
   risk: V2VaultRiskResponse | null | undefined;
   governance: VaultV2GovernanceResponse | null | undefined;
   pending: VaultV2PendingResponse | null | undefined;
-  morphoUiUrl: string;
   emergencyActionsUrl: string;
   vaultName: string;
   vaultSymbol: string;
@@ -172,10 +170,8 @@ export function VaultPageShell({ children }: { children: ReactNode }) {
     );
   }
 
-  const category = getVaultCategory(vault.name, vault.address);
-  const vaultBadge = isFeeWrapperVault(vault)
-    ? `${CATEGORY_BADGE[category] ?? 'V2'} Wrapper`
-    : (CATEGORY_BADGE[category] ?? 'V2');
+  // Fee-wrapper addresses redirect above, so `vault` is always an underlying vault here.
+  const vaultBadge = CATEGORY_BADGE[getVaultCategory(vault.name, vault.address)] ?? 'V2';
   const pendingCount = pending?.pending?.length ?? 0;
   const chainName =
     CURATOR_MARKET_NETWORKS.find((network) => network.chainId === vault.chainId)?.name ??
@@ -189,7 +185,7 @@ export function VaultPageShell({ children }: { children: ReactNode }) {
   const emergencyActionsUrl = vault.address
     ? `https://curator.morpho.org/vaults/${vault.chainId}/${vault.address}/emergency-actions`
     : '#';
-  const vaultName = withFeeWrapperLabel(vault.name ?? 'Unknown Vault', vault.address);
+  const vaultName = vault.name ?? 'Unknown Vault';
   const vaultSymbol = vault.symbol ?? 'UNKNOWN';
   const vaultAsset = vault.asset ?? 'UNKNOWN';
 
@@ -199,7 +195,6 @@ export function VaultPageShell({ children }: { children: ReactNode }) {
     risk,
     governance,
     pending,
-    morphoUiUrl,
     emergencyActionsUrl,
     vaultName,
     vaultSymbol,
@@ -292,8 +287,15 @@ function VaultMoreMenu({
     const onPointer = (event: MouseEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
     };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
     document.addEventListener('mousedown', onPointer);
-    return () => document.removeEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
   }, [open]);
 
   return (

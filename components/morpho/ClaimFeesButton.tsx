@@ -3,14 +3,16 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAccount, usePublicClient } from 'wagmi';
-import { encodeFunctionData, getAddress, parseAbi } from 'viem';
+import { encodeFunctionData, getAddress } from 'viem';
 import { Button } from '@/components/ui/button';
 import { TxPreviewDialog } from '@/components/morpho/TxPreviewDialog';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
+import { vaultV2Abi } from '@/lib/onchain/abis';
+import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
 import { formatAllocationTableAmount } from '@/lib/format/allocation-display';
 import { getScanUrlForChain } from '@/lib/constants';
 import type { TxPreview } from '@/lib/morpho/tx-preview';
-import { isBroadcastTxHash } from '@/lib/utils/wallet-error';
+import { isBroadcastTxHash, isWalletRejection } from '@/lib/utils/wallet-error';
 import { getConnectorProvider } from '@/lib/wallet/connector-provider';
 import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import { queueSafeTransaction } from '@/lib/safe/queue-vault-write';
@@ -20,12 +22,6 @@ import {
   VAULT_WRITE_QUEUE_SAFE_ROLES,
   type VaultWriteDestination,
 } from '@/lib/safe/vault-write-destination';
-
-const feeAbi = parseAbi([
-  'function accrueInterestView() view returns (uint256 newTotalAssets, uint256 performanceFeeShares, uint256 managementFeeShares)',
-  'function previewRedeem(uint256 shares) view returns (uint256 assets)',
-  'function accrueInterest()',
-]);
 
 type FeeQuote = {
   assets: bigint;
@@ -85,7 +81,7 @@ export function ClaimFeesButton({
     if (!publicClient) throw new Error('Vault network client is not ready.');
     const [, performanceShares, managementShares] = await publicClient.readContract({
       address: vault,
-      abi: feeAbi,
+      abi: vaultV2Abi,
       functionName: 'accrueInterestView',
     });
     const feeShares = performanceShares + managementShares;
@@ -94,7 +90,7 @@ export function ClaimFeesButton({
         ? 0n
         : await publicClient.readContract({
             address: vault,
-            abi: feeAbi,
+            abi: vaultV2Abi,
             functionName: 'previewRedeem',
             args: [feeShares],
           });
@@ -105,9 +101,13 @@ export function ClaimFeesButton({
     };
   }, [publicClient, vault]);
 
+  const resetWrite = write.reset;
+
   const openPreview = useCallback(async () => {
     setQuoteError(null);
     setSubmitError(null);
+    // A previous claim's confirmed state would otherwise reopen as "Transaction confirmed".
+    resetWrite();
     setQuoting(true);
     try {
       const quote = await readQuote();
@@ -145,7 +145,7 @@ export function ClaimFeesButton({
     } finally {
       setQuoting(false);
     }
-  }, [assetSymbol, decimals, isConnected, readQuote, vaultName]);
+  }, [assetSymbol, decimals, isConnected, readQuote, resetWrite, vaultName]);
 
   const queueInSafe = useCallback(
     async (safeRole: VaultWriteDestination & { kind: 'safe' }) => {
@@ -157,7 +157,7 @@ export function ClaimFeesButton({
           safeRole: safeRole.role,
           calldata: {
             to: vault,
-            data: encodeFunctionData({ abi: feeAbi, functionName: 'accrueInterest' }),
+            data: encodeFunctionData({ abi: vaultV2Abi, functionName: 'accrueInterest' }),
           },
           description: `Claim fees — ${vaultName}`,
           preview,
@@ -187,12 +187,15 @@ export function ClaimFeesButton({
       setSubmitError('Connect your wallet using the button in the top bar.');
       return;
     }
-    await write.write({
-      address: vault,
-      abi: feeAbi,
-      functionName: 'accrueInterest',
-      args: [],
-    });
+    setSubmitError(null);
+    try {
+      await write.write(v2WriteConfigs.accrueInterest(vault));
+    } catch (error) {
+      // useVaultWrite resets its own error before rethrowing, so keep the reason here.
+      if (!isWalletRejection(error)) {
+        setSubmitError(error instanceof Error ? error.message : 'Failed to submit transaction.');
+      }
+    }
   }, [assets, destination, isConnected, queueInSafe, vault, write]);
 
   const txHash = write.txHash;
