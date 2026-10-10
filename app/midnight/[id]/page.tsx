@@ -28,7 +28,7 @@ export default function MidnightMarketPage() {
 
   const morphoHref = morphoMidnightMarketHref(marketId, chainId);
   const pairLabel = market
-    ? `${market.loanSymbol} | ${market.collateralLabel} ${market.lltvLabel}`
+    ? `${market.collateralLabel} / ${market.loanSymbol} ${market.lltvLabel}`
     : 'Midnight market';
   const maturityUtc = market ? formatMidnightMaturityUtc(market.maturity) : null;
   const headerDescription = market

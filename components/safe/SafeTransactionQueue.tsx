@@ -135,7 +135,8 @@ function PendingTransactionCard({
     tx.source.type === 'allocation' ||
     tx.source.type === 'sentinel' ||
     tx.source.type === 'caps' ||
-    tx.source.type === 'curator'
+    tx.source.type === 'curator' ||
+    tx.source.type === 'public_allocator'
       ? tx.source.vaultSymbol
       : undefined;
 

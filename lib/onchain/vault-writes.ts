@@ -46,6 +46,14 @@ export const v2WriteConfigs = {
     args: [idData, newRelativeCap] as const,
   }),
 
+  /** Mints pending performance and management fees as shares to their recipients. */
+  accrueInterest: (vaultAddress: Address) => ({
+    address: vaultAddress,
+    abi: vaultV2Abi,
+    functionName: 'accrueInterest' as const,
+    args: [] as const,
+  }),
+
   addAdapter: (vaultAddress: Address, adapter: Address) => ({
     address: vaultAddress,
     abi: vaultV2Abi,

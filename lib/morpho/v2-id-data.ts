@@ -126,6 +126,21 @@ function findVerifiedMarketParams(
   return null;
 }
 
+/**
+ * Market params that hash to this cap's market. Partial params encode a
+ * nonexistent market, so a write against them succeeds and changes nothing.
+ */
+export function resolveVerifiedMarketParams(
+  cap: CapInfo,
+  risk: V2VaultRiskResponse | null | undefined
+): MarketParamsInput | null {
+  if (!isMarketCap(cap) || !cap.marketKey || !cap.adapterAddress) return null;
+  if (cap.marketParams && marketParamsMatchMarketKey(cap.marketParams, cap.marketKey)) {
+    return cap.marketParams;
+  }
+  return risk ? findVerifiedMarketParams(risk, cap.marketKey) : null;
+}
+
 /** Resolve cap idData bytes for decreaseAbsoluteCap / decreaseRelativeCap. */
 export function resolveCapIdData(
   cap: CapInfo,
@@ -139,21 +154,9 @@ export function resolveCapIdData(
     return encodeCollateralCapIdData(cap.collateralAddress);
   }
 
-  if (isMarketCap(cap) && cap.marketKey && cap.adapterAddress) {
-    // Partial params encode to the id of a market that does not exist. A
-    // decrease-to-0 on that id succeeds on-chain and changes nothing, so only
-    // encode params that hash back to this cap's market.
-    const marketKey = cap.marketKey;
-    if (cap.marketParams && marketParamsMatchMarketKey(cap.marketParams, marketKey)) {
-      return encodeMarketCapIdData(cap.adapterAddress, cap.marketParams);
-    }
-
-    // The cap id includes the adapter, so always encode with this cap's own
-    // adapter even when the params come from a position on another adapter.
-    const fromRisk = risk ? findVerifiedMarketParams(risk, marketKey) : null;
-    if (fromRisk) {
-      return encodeMarketCapIdData(cap.adapterAddress, fromRisk);
-    }
+  if (isMarketCap(cap) && cap.adapterAddress) {
+    const market = resolveVerifiedMarketParams(cap, risk);
+    if (market) return encodeMarketCapIdData(cap.adapterAddress, market);
   }
 
   return null;

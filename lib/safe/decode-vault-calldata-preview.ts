@@ -1,5 +1,7 @@
 import { decodeFunctionData, erc20Abi, getAddress, type Address, type Hex } from 'viem';
+import { isVaultV2PublicAllocatorAddress } from '@/lib/constants/bots';
 import { vaultV2Abi } from '@/lib/onchain/abis';
+import { buildPublicAllocatorCalldataPreview } from '@/lib/onchain/public-allocator-calldata';
 import { whitelistSendAssetsGateAbi } from '@/lib/onchain/whitelist-send-assets-gate-abi';
 import {
   configuredSendAssetsGates,
@@ -239,6 +241,12 @@ function changeFromVaultCall(
         after: formatCapRelative(newCap.toString()),
       };
     }
+    case 'accrueInterest':
+      return {
+        action: 'claim',
+        label: 'Claim fees',
+        subtitle: 'Mints pending fees as shares to the fee recipients',
+      };
     case 'revoke':
       return {
         action: 'revoke',
@@ -259,6 +267,7 @@ function previewTitle(calls: DecodedVaultCall[]): string {
   if (calls.length > 1) return 'Vault batched transaction';
   const name = calls[0]!.functionName;
   if (name === 'allocate' || name === 'deallocate') return 'Vault allocation change';
+  if (name === 'accrueInterest') return 'Claim fees';
   if (name === 'revoke') return 'Revoke pending timelock action';
   if (name === 'setLiquidityAdapterAndData') return 'Liquidity adapter change';
   if (name.startsWith('decrease')) return 'Vault cap decrease';
@@ -372,7 +381,8 @@ export function resolveVaultAddressFromPending(tx: SafePendingTransaction): Addr
     tx.source.type === 'allocation' ||
     tx.source.type === 'sentinel' ||
     tx.source.type === 'caps' ||
-    tx.source.type === 'curator'
+    tx.source.type === 'curator' ||
+    tx.source.type === 'public_allocator'
   ) {
     return getAddress(tx.source.vaultAddress);
   }
@@ -393,7 +403,8 @@ export function resolveVaultSymbolFromPending(tx: SafePendingTransaction): strin
     tx.source.type === 'allocation' ||
     tx.source.type === 'sentinel' ||
     tx.source.type === 'caps' ||
-    tx.source.type === 'curator'
+    tx.source.type === 'curator' ||
+    tx.source.type === 'public_allocator'
   ) {
     return tx.source.vaultSymbol;
   }
@@ -461,6 +472,13 @@ export function resolveSafePendingPreview(tx: SafePendingTransaction): TxPreview
 
   if (tx.source.type === 'gate' || isConfiguredGateAddress(getAddress(tx.to))) {
     return buildGatePreview(getAddress(tx.to), tx.data);
+  }
+
+  if (isVaultV2PublicAllocatorAddress(tx.to)) {
+    return buildPublicAllocatorCalldataPreview({
+      data: tx.data,
+      vaultSymbol: resolveVaultSymbolFromPending(tx),
+    });
   }
 
   const vaultAddress = resolveVaultAddressFromPending(tx);

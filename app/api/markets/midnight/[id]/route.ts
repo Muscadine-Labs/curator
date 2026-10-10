@@ -49,7 +49,7 @@ export async function GET(
     const chainId = parseChainId(searchParams.get('chainId'));
 
     const market = await withServerResponseCache(
-      `midnight-market-v2-${chainId}-${marketId.toLowerCase()}`,
+      `midnight-market-v4-${chainId}-${marketId.toLowerCase()}`,
       API_CACHE_MAX_AGE_MS,
       () => fetchMidnightMarketDetail(marketId, chainId)
     );

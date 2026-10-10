@@ -6,11 +6,14 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
+  useState,
   type ReactNode,
 } from 'react';
+import { MoreHorizontal } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Shield } from 'lucide-react';
-import { getScanUrlForChain, getScanNameForChain } from '@/lib/constants';
+import { useCopyFeedback } from '@/components/CopyFeedbackProvider';
+import { CURATOR_MARKET_NETWORKS, getScanUrlForChain } from '@/lib/constants';
 import { useVaultV2Complete } from '@/lib/hooks/useVaultV2Complete';
 import { vaultV2GovernanceQueryKey } from '@/lib/hooks/useVaultV2Governance';
 import { vaultV2GatesQueryKey } from '@/lib/hooks/useVaultV2Gates';
@@ -19,7 +22,6 @@ import {
   getVaultByAddress,
   getVaultCategory,
   isFeeWrapperVault,
-  withFeeWrapperLabel,
 } from '@/lib/config/vaults';
 import { morphoVaultHref } from '@/lib/morpho/morpho-app-links';
 import { AppShell } from '@/components/layout/AppShell';
@@ -57,7 +59,6 @@ export type VaultPageData = {
   risk: V2VaultRiskResponse | null | undefined;
   governance: VaultV2GovernanceResponse | null | undefined;
   pending: VaultV2PendingResponse | null | undefined;
-  morphoUiUrl: string;
   emergencyActionsUrl: string;
   vaultName: string;
   vaultSymbol: string;
@@ -169,18 +170,22 @@ export function VaultPageShell({ children }: { children: ReactNode }) {
     );
   }
 
-  const category = getVaultCategory(vault.name, vault.address);
-  const vaultBadge = isFeeWrapperVault(vault)
-    ? `${CATEGORY_BADGE[category] ?? 'V2'} Wrapper`
-    : (CATEGORY_BADGE[category] ?? 'V2');
-  const hasPending = (pending?.pending?.length ?? 0) > 0;
+  // Fee-wrapper addresses redirect above, so `vault` is always an underlying vault here.
+  const vaultBadge = CATEGORY_BADGE[getVaultCategory(vault.name, vault.address)] ?? 'V2';
+  const pendingCount = pending?.pending?.length ?? 0;
+  const chainName =
+    CURATOR_MARKET_NETWORKS.find((network) => network.chainId === vault.chainId)?.name ??
+    'Chain';
+  const scanUrl = vault.address
+    ? `${getScanUrlForChain(vault.chainId)}/address/${vault.address}`
+    : '#';
   const morphoUiUrl = vault.address
     ? morphoVaultHref(vault.address, vault.chainId)
     : '#';
   const emergencyActionsUrl = vault.address
     ? `https://curator.morpho.org/vaults/${vault.chainId}/${vault.address}/emergency-actions`
     : '#';
-  const vaultName = withFeeWrapperLabel(vault.name ?? 'Unknown Vault', vault.address);
+  const vaultName = vault.name ?? 'Unknown Vault';
   const vaultSymbol = vault.symbol ?? 'UNKNOWN';
   const vaultAsset = vault.asset ?? 'UNKNOWN';
 
@@ -190,7 +195,6 @@ export function VaultPageShell({ children }: { children: ReactNode }) {
     risk,
     governance,
     pending,
-    morphoUiUrl,
     emergencyActionsUrl,
     vaultName,
     vaultSymbol,
@@ -201,39 +205,28 @@ export function VaultPageShell({ children }: { children: ReactNode }) {
   return (
     <VaultPageContext.Provider value={data}>
       <AppShell
-        title="Vault Details"
+        title={vaultName}
         backHref="/vaults"
         backLabel="Vaults"
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Badge
-              variant="default"
-              className="flex items-center gap-1 bg-blue-600 text-xs sm:text-sm"
-            >
-              <Shield className="h-3 w-3" /> {vaultBadge}
+            <Badge variant="secondary" className="text-xs font-normal">
+              {chainName}
             </Badge>
-            <Button variant="outline" size="sm" asChild className="text-xs sm:text-sm">
-              <a
-                href={
-                  vault.address
-                    ? `${getScanUrlForChain(vault.chainId)}/address/${vault.address}`
-                    : '#'
-                }
-                target="_blank"
-                rel="noreferrer"
-              >
-                <span className="hidden sm:inline">
-                  View on {getScanNameForChain(vault.chainId)}
-                </span>
-                <span className="sm:hidden">{getScanNameForChain(vault.chainId)}</span>
-              </a>
-            </Button>
+            <Badge variant="outline" className="text-xs font-normal">
+              {vaultBadge}
+            </Badge>
+            <VaultMoreMenu
+              address={vault.address}
+              morphoUrl={morphoUiUrl}
+              scanUrl={scanUrl}
+            />
           </div>
         }
       >
-        <div className="space-y-4">
-          <nav className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide sm:overflow-visible">
-            <div className="inline-flex w-auto min-w-full sm:min-w-0 sm:w-full justify-start gap-1 rounded-lg bg-muted p-1">
+        <div className="space-y-6">
+          <nav className="-mx-4 overflow-x-auto border-b border-slate-200 px-4 dark:border-slate-800 sm:mx-0 sm:px-0">
+            <div className="flex w-max min-w-full gap-1">
               {VAULT_NAV_SEGMENTS.filter(
                 (item) => item.segment !== 'fee-wrapper' || feeWrapperAddress
               ).map((item) => {
@@ -242,22 +235,27 @@ export function VaultPageShell({ children }: { children: ReactNode }) {
                     ? `/vault/${address}`
                     : `/vault/${address}/${item.segment}`;
                 const active = activeSegment === item.segment;
-                const label =
-                  item.segment === 'caps' && hasPending
-                    ? `Caps (${pending!.pending.length})`
-                    : item.label;
+                const count =
+                  (item.segment === 'timelocks' || item.segment === 'sentinel') && pendingCount > 0
+                    ? pendingCount
+                    : 0;
                 return (
                   <Link
                     key={item.segment || 'overview'}
                     href={href}
                     className={cn(
-                      'sm:flex-1 flex-shrink-0 min-w-fit inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                      'inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-sm transition-colors',
                       active
-                        ? 'bg-background text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground'
+                        ? 'border-slate-900 font-medium text-slate-900 dark:border-slate-100 dark:text-slate-100'
+                        : 'border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100'
                     )}
                   >
-                    {label}
+                    {item.label}
+                    {count > 0 ? (
+                      <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-400 px-1 text-[11px] font-semibold text-slate-950">
+                        {count}
+                      </span>
+                    ) : null}
                   </Link>
                 );
               })}
@@ -268,5 +266,82 @@ export function VaultPageShell({ children }: { children: ReactNode }) {
         </div>
       </AppShell>
     </VaultPageContext.Provider>
+  );
+}
+
+function VaultMoreMenu({
+  address,
+  morphoUrl,
+  scanUrl,
+}: {
+  address: string;
+  morphoUrl: string;
+  scanUrl: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const { copyToClipboard } = useCopyFeedback();
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <Button
+        type="button"
+        variant="outline"
+        size="icon-sm"
+        aria-label="More actions"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <MoreHorizontal className="h-4 w-4" />
+      </Button>
+      {open ? (
+        <div className="absolute right-0 z-20 mt-1 w-52 rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+          <button
+            type="button"
+            className="block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+            onClick={() => {
+              void copyToClipboard(address);
+              setOpen(false);
+            }}
+          >
+            Copy address
+          </button>
+          <a
+            href={morphoUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="block rounded-md px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+            onClick={() => setOpen(false)}
+          >
+            View on Morpho
+          </a>
+          <a
+            href={scanUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="block rounded-md px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+            onClick={() => setOpen(false)}
+          >
+            View on explorer
+          </a>
+        </div>
+      ) : null}
+    </div>
   );
 }

@@ -1,4 +1,6 @@
 import { cookieStorage, createStorage, fallback, http } from 'wagmi';
+import { baseAccount } from 'wagmi/connectors';
+import { coinbaseWalletForAppKit } from '@/lib/wallet/coinbase-connector';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import type { AppKitNetwork } from '@reown/appkit/networks';
 import {
@@ -106,6 +108,22 @@ export const wagmiAdapter = new WagmiAdapter({
   ssr: true,
   projectId,
   networks,
+  /**
+   * Register Base Account and Coinbase here so AppKit does not add its defaults.
+   * Defaults post telemetry to as.coinbase.com, which tracker blockers reject.
+   * Coinbase's id is rewritten to `coinbaseWallet` in coinbaseWalletForAppKit.
+   */
+  connectors: [
+    baseAccount({
+      appName: metadata.name,
+      appLogoUrl: metadata.icons[0],
+      preference: { telemetry: false },
+    }),
+    coinbaseWalletForAppKit({
+      appName: metadata.name,
+      appLogoUrl: metadata.icons[0],
+    }),
+  ],
   transports: {
     [BASE_CHAIN_ID]: transportFor(BASE_CHAIN_ID),
     [ETHEREUM_CHAIN_ID]: transportFor(ETHEREUM_CHAIN_ID),

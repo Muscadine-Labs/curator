@@ -17,7 +17,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { TokenUsdValue } from '@/components/morpho/TokenUsdValue';
-import { groupVaultsByKindAndCategory, getVaultPageHref, withFeeWrapperLabel } from '@/lib/config/vaults';
+import { groupVaultsByKindAndCategory, getVaultPageHref } from '@/lib/config/vaults';
 import { SIDEBAR_NETWORKS } from '@/lib/constants';
 import {
   useProtocolStats,
@@ -78,17 +78,19 @@ export function VaultsCatalog() {
     });
   }, [vaults, search, assetFilter, networkFilter]);
 
-  const groups = useMemo(
-    () => groupVaultsByKindAndCategory(filtered),
+  const catalogVaults = useMemo(
+    () => filtered.filter((v) => v.kind !== 'feeWrapper'),
     [filtered]
   );
 
+  const groups = useMemo(
+    () => groupVaultsByKindAndCategory(catalogVaults),
+    [catalogVaults]
+  );
+
   const depositsUsd = useMemo(
-    () =>
-      filtered
-        .filter((v) => v.kind !== 'feeWrapper')
-        .reduce((sum, v) => sum + (v.tvl ?? 0), 0),
-    [filtered]
+    () => catalogVaults.reduce((sum, v) => sum + (v.tvl ?? 0), 0),
+    [catalogVaults]
   );
 
   return (
@@ -99,7 +101,7 @@ export function VaultsCatalog() {
           value={depositsUsd}
           format="usd"
           isLoading={isLoading}
-          subtitle="Strategy vaults; wrappers already counted in underlying vault deposits"
+          subtitle="Underlying vaults. Fee wrappers are a tab on each vault."
         />
         <KpiCard
           title="Interest generated"
@@ -177,7 +179,6 @@ export function VaultsCatalog() {
       ) : (
         groups.map((kindGroup) => (
           <section key={kindGroup.kind} className="space-y-4">
-            <h2 className="text-base font-semibold text-foreground">{kindGroup.label}</h2>
             {kindGroup.categories.map((category) => (
               <div key={`${kindGroup.kind}-${category.category}`} className="space-y-2">
                 <h3 className="text-sm font-medium text-muted-foreground">{category.label}</h3>
@@ -263,15 +264,8 @@ function VaultRow({ vault }: { vault: VaultWithData }) {
       </TableCell>
       <TableCell>
         <Link href={href} className="min-w-0" onClick={(e) => e.stopPropagation()}>
-          <span className="flex items-center gap-1.5">
-            <span className="block truncate text-sm font-medium text-foreground">
-              {withFeeWrapperLabel(vault.name ?? 'Unknown Vault', vault.address)}
-            </span>
-            {vault.kind === 'feeWrapper' ? (
-              <Badge variant="outline" className="shrink-0 text-[10px] font-normal">
-                Wrapper
-              </Badge>
-            ) : null}
+          <span className="block truncate text-sm font-medium text-foreground">
+            {vault.name ?? 'Unknown Vault'}
           </span>
           <span className="block font-mono text-[11px] text-muted-foreground">
             {vault.address.slice(0, 6)}…{vault.address.slice(-4)}

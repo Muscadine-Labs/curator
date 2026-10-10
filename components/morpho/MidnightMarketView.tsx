@@ -19,6 +19,7 @@ import {
   formatLltvWad,
   formatMidnightMaturityUtc,
   formatWadPercent,
+  isTenorCollateralShare,
   midnightLiquidationIncentive,
   type MidnightBookLevelView,
   type MidnightMarketDetail,
@@ -157,9 +158,9 @@ export function MidnightMarketView({ market }: { market: MidnightMarketDetail })
           <div>
             <CardTitle className="text-base">Market details</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
-              Midnight is a fixed-term order book (lend/borrow at a price until
-              maturity). It is not Morpho Blue: there is no IRM, utilization, or
-              variable supply/borrow APY.
+              Midnight is a fixed-term order book. Filled size is outstanding
+              credit in the loan token. Lender credit and borrower debt are
+              summed from positions. Open offers are still on the book.
             </p>
           </div>
           <Badge variant="secondary">Fixed rate</Badge>
@@ -174,21 +175,45 @@ export function MidnightMarketView({ market }: { market: MidnightMarketDetail })
               {market.tenorLabel} remaining
             </p>
           </Metric>
-          <Metric label="Outstanding loans">
+          <Metric label="Filled size">
             {formatMarketTokenAmount(
               market.totalUnits,
               market.loanSymbol,
               market.loanDecimals
             ) ?? '—'}
           </Metric>
-          <Metric label="Lend book depth">
+          <Metric label="Lender credit">
+            {formatMarketTokenAmount(
+              market.lenderCredit,
+              market.loanSymbol,
+              market.loanDecimals
+            ) ?? '—'}
+            {market.lenderCredit != null ? (
+              <p className="text-xs font-normal text-muted-foreground">
+                {market.lendPositionCount} lending
+              </p>
+            ) : null}
+          </Metric>
+          <Metric label="Borrower debt">
+            {formatMarketTokenAmount(
+              market.borrowerDebt,
+              market.loanSymbol,
+              market.loanDecimals
+            ) ?? '—'}
+            {market.borrowerDebt != null ? (
+              <p className="text-xs font-normal text-muted-foreground">
+                {market.borrowPositionCount} borrowing
+              </p>
+            ) : null}
+          </Metric>
+          <Metric label="Open lend offers">
             {formatMarketTokenAmount(
               market.lendDepthAssets,
               market.loanSymbol,
               market.loanDecimals
             ) ?? '—'}
           </Metric>
-          <Metric label="Borrow book depth">
+          <Metric label="Open borrow offers">
             {formatMarketTokenAmount(
               market.borrowDepthAssets,
               market.loanSymbol,
@@ -226,15 +251,34 @@ export function MidnightMarketView({ market }: { market: MidnightMarketDetail })
       {market.collaterals.map((c) => {
         const incentive = midnightLiquidationIncentive(c.lltv, c.liquidationCursor);
         const showOraclePanel = Boolean(c.oraclePrice || c.oracleTimestampData);
+        const sameAsLoan = c.token.toLowerCase() === market.loanAddress.toLowerCase();
+        const tenorShare = isTenorCollateralShare(c.symbol);
+        const title = sameAsLoan
+          ? `Also accepted · ${c.symbol}`
+          : tenorShare
+            ? `Tenor vault share · ${c.symbol}`
+            : `Collateral ${c.symbol}`;
         return (
         <div key={`${c.token}-${c.oracle}`} className="space-y-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">
-              Collateral {c.symbol}
-            </CardTitle>
+            <CardTitle className="text-base">{title}</CardTitle>
+            {sameAsLoan ? (
+              <p className="text-xs text-muted-foreground">
+                Same token as the debt. Posted amount is what borrowers actually
+                deposited, which is separate from the loan outstanding.
+              </p>
+            ) : tenorShare ? (
+              <p className="text-xs text-muted-foreground">
+                Receipt for collateral held in Midnight&apos;s Tenor vault. Not a
+                second asset, and not USDC posted as collateral.
+              </p>
+            ) : null}
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Metric label="Posted">
+              {formatMarketTokenAmount(c.postedAssets, c.symbol, c.decimals) ?? '—'}
+            </Metric>
             <Metric label="LLTV">{formatLltvWad(c.lltv)}</Metric>
             <Metric label="Liquidation cursor">
               {formatWadPercent(c.liquidationCursor)}

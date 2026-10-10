@@ -4,6 +4,58 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-10-10 — PR review fixes for the October Done items
+
+- Dependency pins restored: ESLint 9, `@eslint/js` 9, Vitest 4 (no direct `vite`). Lockfile regenerated.
+- Claim fees and Public Allocator previews now show wallet and Safe submit failures inside the dialog. `useVaultWrite` clears its own error before rethrowing, so both keep the reason locally.
+- Claim fees uses `vaultV2Abi` (`accrueInterest`, `accrueInterestView`, `previewRedeem`) and `v2WriteConfigs.accrueInterest` instead of an inline ABI. Imported Safe rows with that call decode as **Claim fees**. Reopening the dialog after a claim no longer starts in the confirmed state.
+- Public Allocator calldata and the wallet write config share one builder. The confirm handler is awaited so the button stays locked until the wallet opens.
+- IRM `kink()` reverts are cached (the function does not exist); RPC failures are still retried.
+- Removed dead vault-shell context (`morphoUiUrl`) and wrapper-only branches that never run after the wrapper redirect. AGENTS.md catalog text matches `/vaults` (underlyings only); the `next dev` agent-rules block is back so it does not reappear as a diff.
+
+---
+
+## 2026-10-09 — Claim fees, Midnight size, and pre-deploy review
+
+- Claim fees sits on the fee wrapper tab and on each underlying vault overview. The quote is `accrueInterestView` plus `previewRedeem` of the pending performance and management shares. Confirm sends `accrueInterest()` from the connected wallet or queues it in a Safe. `components/morpho/ClaimFeesButton.tsx`.
+- Midnight browse uses filled size (`total_units`) and can be ordered like Blue. Pair labels drop the loan token when another collateral exists, and drop Tenor symbols ending in `-collat`. Detail pages still show every collateral and the posted amount.
+- `/vaults` omits fee-wrapper rows. Each wrapper remains the Fee wrapper tab on its underlying vault.
+- Coinbase’s connector id is `coinbaseWallet`, which is the id AppKit checks before adding a default SDK that posts telemetry. A missing `kink()` is not cached. Oracle `price()` reverts still log. A Chainlink feed revert skips the other feeds; an RPC failure still reads them.
+
+---
+
+## 2026-10-09 — Review fixes for Public Allocator writes and Midnight totals
+
+- A confirmed Public Allocator wallet write clears its success state, so the next preview can be sent.
+- A missing Midnight positions page stays blank. It is not shown as zero credit and zero debt.
+- Verified market params are cached for the caps table, so editing a cap does not rehash every row.
+
+---
+
+## 2026-10-09 — Midnight filled size is separate from the open book
+
+- Market page shows filled size (`state.total_units`), plus lender credit and borrower debt summed from `GET /v0/midnight/markets/{id}/positions`. Browse columns are open offers (asks and bids), labeled open lend and open borrow.
+- A position scan that fails or passes the page cap leaves credit and debt blank. `lib/morpho/midnight-markets.ts`.
+
+---
+
+## 2026-10-09 — Vault pages follow the Morpho curator frame
+
+- Header is the vault name, chain, category, and a more menu (copy address, Morpho, explorer). Tabs are text links. The pending count sits on Timelocks and Sentinel.
+- Overview order is metrics, fees, max rate, roles, gates, adapters, then holders, transactions, and history.
+- Timelocks lists pending actions (accept and revoke) above the delay table. Fee-wrapper caps keep their own pending block and do not repeat it.
+- Left as-is: Fee wrapper and Risk tabs, Safe queue, caps tables, and the deposit/withdraw transaction list.
+
+---
+
+## 2026-10-09 — Allocator can edit Public Allocator caps
+
+- Caps → Public Allocator **Edit** writes `setAbsoluteCap`, `setCanPullFromMarket`, and `setCanPullFromIdle` on the Blue Public Allocator. Several changes go out as one `multicall`. An allocator wallet signs directly; otherwise the Allocator Safe queues the call. Settings apply immediately.
+- Markets whose vault absolute cap is 0 stay in the table and are labeled **No vault cap**. A failed on-chain read is not written back as zero.
+- `lib/morpho/v2-public-allocator-plan.ts`, `lib/onchain/public-allocator-calldata.ts`, `components/morpho/PublicAllocatorCaps.tsx`.
+
+---
+
 ## 2026-09-26 — Gate allowlist from the contract, one address lookup
 
 - The curator gate page no longer keeps a depositor address list. Membership is whoever the gate names in `SetIsWhitelisted` / `SetIsWhitelister` logs, then the live `isWhitelisted` / `isWhitelister` reads. Display names are Basenames, **Muscadine Treasury**, or **Whitelisted address**.

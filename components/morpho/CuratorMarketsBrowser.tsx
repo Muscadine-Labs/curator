@@ -66,6 +66,7 @@ function filtersToQuery(filters: BrowserFilters): string {
 }
 
 type SortKey = 'pair' | 'lltv' | 'sizeUsd' | 'liquidity' | 'apy' | 'listed' | 'muscadine';
+type MidnightSortKey = 'pair' | 'lltv' | 'sizeUsd' | 'maturity';
 type SortDir = 'asc' | 'desc';
 
 const SORTABLE_COLUMNS: { key: SortKey; label: string; align?: 'right' }[] = [
@@ -102,7 +103,7 @@ function compareMarkets(a: CuratorMarketListItem, b: CuratorMarketListItem, key:
   }
 }
 
-function SortableHead({
+function SortableHead<K extends string>({
   label,
   sortKey,
   activeKey,
@@ -111,11 +112,11 @@ function SortableHead({
   onSort,
 }: {
   label: string;
-  sortKey: SortKey;
-  activeKey: SortKey;
+  sortKey: K;
+  activeKey: K;
   sortDir: SortDir;
   align?: 'right';
-  onSort: (key: SortKey) => void;
+  onSort: (key: K) => void;
 }) {
   const active = activeKey === sortKey;
   const Icon = active ? (sortDir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
@@ -152,52 +153,92 @@ function MetricCell({ primary, secondary }: { primary: ReactNode; secondary?: Re
   );
 }
 
+const MIDNIGHT_SORT_COLUMNS: { key: MidnightSortKey; label: string; align?: 'right' }[] = [
+  { key: 'pair', label: 'Collateral / Loan' },
+  { key: 'lltv', label: 'LLTV' },
+  { key: 'sizeUsd', label: 'Market size', align: 'right' },
+  { key: 'maturity', label: 'Maturity' },
+];
+
+function compareMidnightMarkets(
+  a: MidnightMarketListItem,
+  b: MidnightMarketListItem,
+  key: MidnightSortKey
+): number {
+  switch (key) {
+    case 'pair':
+      return `${a.collateralLabel}/${a.loanSymbol}`
+        .toLowerCase()
+        .localeCompare(`${b.collateralLabel}/${b.loanSymbol}`.toLowerCase());
+    case 'lltv':
+      return (a.lltvRatio ?? 0) - (b.lltvRatio ?? 0);
+    case 'sizeUsd':
+      return (a.sizeUsd ?? 0) - (b.sizeUsd ?? 0);
+    case 'maturity':
+      return a.maturity - b.maturity;
+    default:
+      return 0;
+  }
+}
+
 function MidnightMarketsTable({
   markets,
   loading,
   networkName,
   filtered,
+  sortKey,
+  sortDir,
+  onSort,
   onOpen,
 }: {
   markets: MidnightMarketListItem[];
   loading: boolean;
   networkName: string;
   filtered: boolean;
+  sortKey: MidnightSortKey;
+  sortDir: SortDir;
+  onSort: (key: MidnightSortKey) => void;
   onOpen: (market: MidnightMarketListItem) => void;
 }) {
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">
-        Midnight is Morpho&apos;s fixed-term (tenor) book. GraphQL is Blue-only;
-        this table uses the Morpho REST books API. Maturity is the market tenor
-        date; remaining tenor is time-to-maturity.
+        Market size is filled loan-token units, the same idea as Blue. Collateral
+        / Loan is what borrowers post against what they borrow. Tap a column
+        header to re-sort. Sorted by{' '}
+        {MIDNIGHT_SORT_COLUMNS.find((c) => c.key === sortKey)?.label.toLowerCase() ??
+          'market size'}{' '}
+        ({sortDir === 'desc' ? 'high → low' : 'low → high'}).
       </p>
       <CuratorTableShell>
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead>Network</TableHead>
-              <TableHead>Loan</TableHead>
-              <TableHead>Collateral</TableHead>
-              <TableHead>LLTV</TableHead>
-              <TableHead>Maturity / tenor</TableHead>
-              <TableHead className="text-right">Lend depth</TableHead>
-              <TableHead className="text-right">Borrow depth</TableHead>
-              <TableHead className="text-right">Best rate</TableHead>
+              {MIDNIGHT_SORT_COLUMNS.map((col) => (
+                <SortableHead
+                  key={col.key}
+                  label={col.label}
+                  sortKey={col.key}
+                  activeKey={sortKey}
+                  sortDir={sortDir}
+                  align={col.align}
+                  onSort={onSort}
+                />
+              ))}
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading &&
               [...Array(6)].map((_, i) => (
                 <TableRow key={i}>
-                  <TableCell colSpan={8}>
+                  <TableCell colSpan={4}>
                     <Skeleton className="h-8 w-full" />
                   </TableCell>
                 </TableRow>
               ))}
             {!loading && markets.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
                   {filtered
                     ? 'No Midnight markets match your filters.'
                     : `No Midnight markets on ${networkName}.`}
@@ -210,6 +251,12 @@ function MidnightMarketsTable({
                   undefined,
                   { month: 'short', day: 'numeric', year: 'numeric' }
                 );
+                const sizeToken =
+                  formatMarketTokenAmount(
+                    market.sizeAssets,
+                    market.loanSymbol,
+                    market.loanDecimals
+                  ) ?? '—';
                 return (
                   <TableRow
                     key={market.marketId}
@@ -224,42 +271,23 @@ function MidnightMarketsTable({
                     }}
                     className="cursor-pointer"
                   >
-                    <TableCell className="text-xs">{networkName}</TableCell>
-                    <TableCell className="font-medium">{market.loanSymbol}</TableCell>
-                    <TableCell className="text-sm">{market.collateralLabel}</TableCell>
+                    <TableCell className="font-medium">
+                      {market.collateralLabel} / {market.loanSymbol}
+                    </TableCell>
                     <TableCell className="text-xs">{market.lltvLabel}</TableCell>
+                    <TableCell>
+                      <MetricCell
+                        primary={sizeToken}
+                        secondary={
+                          market.sizeUsd != null ? formatCompactUSD(market.sizeUsd) : undefined
+                        }
+                      />
+                    </TableCell>
                     <TableCell>
                       <div>
                         <div className="text-sm">{maturity}</div>
                         <div className="text-xs text-muted-foreground">{market.tenorLabel}</div>
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <MetricCell
-                        primary={
-                          formatMarketTokenAmount(
-                            market.lendDepthAssets,
-                            market.loanSymbol,
-                            market.loanDecimals
-                          ) ?? '—'
-                        }
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <MetricCell
-                        primary={
-                          formatMarketTokenAmount(
-                            market.borrowDepthAssets,
-                            market.loanSymbol,
-                            market.loanDecimals
-                          ) ?? '—'
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {market.bestRate != null
-                        ? formatPercentage(market.bestRate * 100)
-                        : '—'}
                     </TableCell>
                   </TableRow>
                 );
@@ -291,6 +319,8 @@ export function CuratorMarketsBrowser({
   const productFilter = product;
   const [sortKey, setSortKey] = useState<SortKey>('sizeUsd');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [midnightSortKey, setMidnightSortKey] = useState<MidnightSortKey>('sizeUsd');
+  const [midnightSortDir, setMidnightSortDir] = useState<SortDir>('desc');
 
   // Two-way URL sync. `lastSyncedQuery` is the query we last read or wrote, so
   // our own writes are not read back as navigation, while a real navigation
@@ -345,6 +375,8 @@ export function CuratorMarketsBrowser({
     setMuscadineFilter('all');
     setSortKey('sizeUsd');
     setSortDir('desc');
+    setMidnightSortKey('sizeUsd');
+    setMidnightSortDir('desc');
     void refetch();
     void refetchMidnight();
   };
@@ -399,6 +431,15 @@ export function CuratorMarketsBrowser({
     return list;
   }, [filtered, sortKey, sortDir]);
 
+  const sortedMidnight = useMemo(() => {
+    const list = [...filteredMidnight];
+    list.sort((a, b) => {
+      const cmp = compareMidnightMarkets(a, b, midnightSortKey);
+      return midnightSortDir === 'asc' ? cmp : -cmp;
+    });
+    return list;
+  }, [filteredMidnight, midnightSortKey, midnightSortDir]);
+
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -406,6 +447,15 @@ export function CuratorMarketsBrowser({
     }
     setSortKey(key);
     setSortDir(key === 'pair' || key === 'listed' ? 'asc' : 'desc');
+  };
+
+  const toggleMidnightSort = (key: MidnightSortKey) => {
+    if (midnightSortKey === key) {
+      setMidnightSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setMidnightSortKey(key);
+    setMidnightSortDir(key === 'pair' ? 'asc' : 'desc');
   };
 
   const returnTo = `${pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
@@ -661,10 +711,13 @@ export function CuratorMarketsBrowser({
             </p>
           ) : null}
           <MidnightMarketsTable
-            markets={filteredMidnight}
+            markets={sortedMidnight}
             loading={midnightBusy}
             networkName={networkName}
             filtered={pairFiltersActive}
+            sortKey={midnightSortKey}
+            sortDir={midnightSortDir}
+            onSort={toggleMidnightSort}
             onOpen={openMidnight}
           />
           {!midnightBusy && (

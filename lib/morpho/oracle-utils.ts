@@ -1,5 +1,5 @@
 import { Address, Abi, parseAbi, zeroAddress } from 'viem';
-import { publicClient, safeContractRead } from '@/lib/onchain/client';
+import { publicClient, readContractOutcome } from '@/lib/onchain/client';
 
 const CHAINLINK_AGGREGATOR_ABI = parseAbi([
   'function latestRoundData() view returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)',
@@ -72,15 +72,28 @@ async function collectFeedCandidates(
   add(hints?.quoteFeedOne);
   add(hints?.quoteFeedTwo);
 
-  const onChainReads = await Promise.all([
-    safeContractRead<Address>(oracleAddress, MORPHO_CHAINLINK_ORACLE_ABI as Abi, 'BASE_FEED_1', []),
-    safeContractRead<Address>(oracleAddress, MORPHO_CHAINLINK_ORACLE_ABI as Abi, 'BASE_FEED_2', []),
-    safeContractRead<Address>(oracleAddress, MORPHO_CHAINLINK_ORACLE_ABI as Abi, 'QUOTE_FEED_1', []),
-    safeContractRead<Address>(oracleAddress, MORPHO_CHAINLINK_ORACLE_ABI as Abi, 'QUOTE_FEED_2', []),
-  ]);
-
-  for (const addr of onChainReads) {
-    add(addr);
+  // MorphoChainlinkOracleV2 exposes all four feed immutables. Another oracle
+  // type reverts on the first one; the rest would too. An RPC failure is not
+  // that revert, so the other feeds are still read.
+  const probe = { probe: true } as const;
+  const readFeed = (functionName: 'BASE_FEED_1' | 'BASE_FEED_2' | 'QUOTE_FEED_1' | 'QUOTE_FEED_2') =>
+    readContractOutcome<Address>(
+      oracleAddress,
+      MORPHO_CHAINLINK_ORACLE_ABI as Abi,
+      functionName,
+      [],
+      probe
+    );
+  const baseFeedOne = await readFeed('BASE_FEED_1');
+  if (baseFeedOne.status !== 'miss') {
+    const rest = await Promise.all([
+      readFeed('BASE_FEED_2'),
+      readFeed('QUOTE_FEED_1'),
+      readFeed('QUOTE_FEED_2'),
+    ]);
+    for (const outcome of [baseFeedOne, ...rest]) {
+      if (outcome.status === 'ok') add(outcome.value);
+    }
   }
 
   return candidates;

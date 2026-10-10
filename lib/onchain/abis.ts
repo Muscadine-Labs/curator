@@ -88,6 +88,24 @@ export const vaultV2Abi = [
   },
   {
     type: "function",
+    name: "accrueInterestView",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "newTotalAssets", type: "uint256" },
+      { name: "performanceFeeShares", type: "uint256" },
+      { name: "managementFeeShares", type: "uint256" },
+    ],
+  },
+  {
+    type: "function",
+    name: "previewRedeem",
+    stateMutability: "view",
+    inputs: [{ name: "shares", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
     name: "performanceFee",
     stateMutability: "view",
     inputs: [],
@@ -378,6 +396,13 @@ export const vaultV2Abi = [
   },
   {
     type: "function",
+    name: "accrueInterest",
+    stateMutability: "nonpayable",
+    inputs: [],
+    outputs: [],
+  },
+  {
+    type: "function",
     name: "setIsAllocator",
     stateMutability: "nonpayable",
     inputs: [
@@ -526,8 +551,61 @@ export const vaultV2Abi = [
   { type: "error", name: "MarketNotCreated", inputs: [] },
 ] as const;
 
-/** Vault V2 Blue Public Allocator — view fragment for curator Caps UI. */
+const publicAllocatorMarketParams = {
+  name: 'marketParams',
+  type: 'tuple',
+  components: [
+    { name: 'loanToken', type: 'address' },
+    { name: 'collateralToken', type: 'address' },
+    { name: 'oracle', type: 'address' },
+    { name: 'irm', type: 'address' },
+    { name: 'lltv', type: 'uint256' },
+  ],
+} as const;
+
+/** Vault V2 Blue Public Allocator. Allocator writes apply immediately. */
 export const vaultV2BluePublicAllocatorAbi = [
+  {
+    type: 'function',
+    name: 'setAbsoluteCap',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'vault', type: 'address' },
+      { name: 'adapter', type: 'address' },
+      publicAllocatorMarketParams,
+      { name: 'newAbsoluteCap', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'setCanPullFromMarket',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'vault', type: 'address' },
+      { name: 'adapter', type: 'address' },
+      publicAllocatorMarketParams,
+      { name: 'newCanPullFromMarket', type: 'bool' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'setCanPullFromIdle',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'vault', type: 'address' },
+      { name: 'newCanPullFromIdle', type: 'bool' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'multicall',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'data', type: 'bytes[]' }],
+    outputs: [],
+  },
   {
     type: 'function',
     name: 'absoluteCap',

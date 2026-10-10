@@ -15,6 +15,7 @@ import { logger } from '@/lib/utils/logger';
 import { mergeApiCacheHeaders, API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
 import { withServerResponseCache } from '@/lib/api/server-response-cache';
 import { unauthorizedUnlessAdmin } from '@/lib/auth/require-admin';
+import { utilizationFractionToPercentagePoints } from '@/lib/morpho/utilization-percent';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -92,11 +93,6 @@ const VAULT_LIST_SELECTION = `
   }
 `;
 
-function utilizationPercent(raw: number | null | undefined): number | null {
-  if (raw == null || !Number.isFinite(raw)) return null;
-  return raw <= 1 ? raw * 100 : raw;
-}
-
 function listLiquidityAdapter(v: VaultListGql): {
   label: string;
   utilizationPercent: number | null;
@@ -109,7 +105,7 @@ function listLiquidityAdapter(v: VaultListGql): {
       col && loan ? `${col} / ${loan}` : col || loan || 'Variable rate market';
     return {
       label,
-      utilizationPercent: utilizationPercent(data.market.state?.utilization),
+      utilizationPercent: utilizationFractionToPercentagePoints(data.market.state?.utilization),
     };
   }
   if (data?.__typename === 'MetaMorphoLiquidityData') {

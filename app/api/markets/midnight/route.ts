@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const chainId = parseChainId(searchParams.get('chainId'));
     const markets = await withServerResponseCache(
-      `midnight-markets-v2-${chainId}`,
+      `midnight-markets-v4-${chainId}`,
       API_CACHE_MAX_AGE_MS,
       () => fetchMidnightMarkets(chainId)
     );

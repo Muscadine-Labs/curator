@@ -32,15 +32,15 @@ npm run build   # next build
   `compute-blue-market-risk.ts`. MetaMorpho adapters are ignored in risk, allocation,
   and sentinel UIs. **Fee wrappers** (`kind: 'feeWrapper'`) use GraphQL
   `MorphoVaultV2Adapter.innerVault` (Morpho GraphQL) and empty allocate `data`
-  (`EMPTY_ADAPTER_DATA`); they are listed on `/vaults` (Underlying then Wrapper,
-  then Prime / Frontier / Test) but **not as peer vault pages**. Strategy vaults
+  (`EMPTY_ADAPTER_DATA`). They are **not** listed on `/vaults` or the sidebar and
+  are **not peer vault pages**. Strategy vaults
   that have a wrapper get a **Fee wrapper** tab (`/vault/[address]/fee-wrapper`)
   with condensed TVL / users / history plus Morpho wrapper facts. Visiting a
   wrapper address redirects there. Sidebar lists underlyings only. Wrappers are
   excluded from protocol TVL (deposits sit in
   the underlying vault). Unique-user counts include wrappers but skip
-  wrapper adapter contracts. Catalog lists
-  wrappers and test vaults using Morpho/on-chain names. `underlyingAddress` is
+  wrapper adapter contracts. Catalog lists underlying and test vaults using
+  Morpho/on-chain names. `underlyingAddress` is
   the GraphQL fallback for the child vault. Send-assets gate (underlying strategy
   vaults only): `lib/config/deposit-gates.ts` (`docs/brain/deposit-gates.md`).
   Gate calldata / propose: muscadine-onchain CLI. In this app, `/curator/gates`
@@ -60,12 +60,14 @@ npm run build   # next build
   Blue markets only. Never pass bare addresses or raw MarketParams as cap `idData`.
 - **V2 vault routes** (Morpho-style segments under `/vault/[address]/…`):
   Overview (`/vault/[address]`) → **Fee wrapper** (only when the vault has one) → `/allocation` → `/caps` → `/risk` → `/timelocks` →
-  `/sentinel`. `/analytics` redirects to `/risk`. Overview: metrics (token + USD), collapsible holders → recent txs → history
-  (10 per page with arrows, default closed), fees, roles, adapters.
+  `/sentinel`. `/analytics` redirects to `/risk`. The vault header is the name, chain, and more menu. Pending count is on Timelocks and Sentinel.
+  Overview: metrics, fees, max rate, roles, gates, adapters, then collapsible holders → recent txs → history
+  (10 per page with arrows, default closed).
   Fee wrapper tab: condensed boxes for wrapper TVL/APY/users/fees, overview, roles, gates, max rate, timelocks, plus collapsible holders/txs/history for the wrapper contract.
   Risk: market risk grades. Emergency actions on Sentinel (bottom).
-  Pending actions embed in Caps; Sentinel is the only tab with sentinel writes (decrease caps,
-  deallocate).
+  Pending actions embed in Caps and sit above the Timelocks delay list (accept and revoke). Sentinel is the only tab with sentinel writes (decrease caps,
+  deallocate). Public Allocator caps on the Caps tab are changed by an allocator
+  (connected allocator wallet, or the Allocator Safe) and apply immediately.
 - **Allocation edit amounts** — Rebalance inputs show **display** (Allocated
   column / Morpho supply). Planning maps display → booked via
   `booked + (input − display)` so unchanged rows are no-ops and accrued interest
@@ -139,7 +141,9 @@ npm run build   # next build
   rate), `/market/blue/[id]` (Blue), and
   `/midnight/[id]` (Midnight order book — not Blue KPIs). Loan / Collateral /
   Search apply to both tables (`market-pair-filter.ts`). Midnight REST
-  (`/v0/midnight/markets`, `/state`, `/books`); Morpho app is
+  (`/v0/midnight/markets`, `/state`, `/books`, `/positions`). Browse lists filled
+  market size (`total_units`). The market page adds summed lender credit and
+  borrower debt; open lend / borrow offers stay there. Morpho app is
   `https://markets.morpho.org/fixed/{chain}/{id}`. Use `sizeUsd` /
   `totalLiquidityUsd` for Blue sort columns; display token primary + USD
   secondary via `TokenUsdValue` (§4.7). Market writes live in muscadine-onchain;
