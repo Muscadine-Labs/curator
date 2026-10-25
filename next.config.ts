@@ -38,6 +38,13 @@ const nextConfig: NextConfig = {
       "next/dist/build/polyfills/polyfill-module": false,
       "pino-pretty": false,
       "@react-native-async-storage/async-storage": false,
+      // CDP's Base Account path dynamically imports optional x402 payment modules.
+      // Curator never calls that path. `false` drops them without a local stub.
+      "@x402/core/client": false,
+      "@x402/evm$": false,
+      "@x402/evm/exact/client": false,
+      "@x402/evm/upto/client": false,
+      "@x402/svm/exact/client": false,
     };
     config.externals = [
       ...(Array.isArray(config.externals)

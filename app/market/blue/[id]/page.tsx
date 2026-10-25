@@ -149,17 +149,7 @@ export default function CuratorBlueMarketPage() {
       backLabel={backLabel}
       actions={
         market ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <MarketInteractButton product="blue" marketId={marketId} chainId={chainId} />
-            {morphoHref ? (
-              <Button variant="outline" size="sm" asChild>
-                <a href={morphoHref} target="_blank" rel="noopener noreferrer">
-                  Morpho app
-                  <ExternalLink className="ml-1 h-4 w-4" />
-                </a>
-              </Button>
-            ) : null}
-          </div>
+          <MarketInteractButton product="blue" marketId={marketId} chainId={chainId} />
         ) : morphoHref ? (
           <Button variant="outline" size="sm" asChild>
             <a href={morphoHref} target="_blank" rel="noopener noreferrer">

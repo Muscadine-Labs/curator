@@ -4,4 +4,6 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 
 ## Today
 - bug on revenue chart and other business revenue with fund movement.
-- Morpho markets have two morpho button linkks. 
+
+## Done
+- Morpho Blue market page no longer shows two identical “Morpho app” buttons. The header keeps `MarketInteractButton`. 
