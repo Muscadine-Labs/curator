@@ -8,7 +8,6 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 - Anonymous visitors can open Overview, Vaults, and Markets. Testing vaults stay hidden until admin sign-in, and that sign-in is what unlocks the wallet, Curator, Business, Sentinel, and vault writes.
 - `lib/auth/public-read.ts` is the allowlist for both `proxy.ts` and `unauthorizedUnlessAdmin`. Public vault lists ignore `sidebar` and `includeAll`.
-- Review fixes: public vault pages hide Gates, Holders and Recent transactions (admin-only routes) instead of showing Unauthorized, and the wrapper gate read waits for sign-in. `useVaultList` keys on the session, so signing in refetches the catalog with testing vaults.
 
 ---
 

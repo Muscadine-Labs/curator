@@ -2,7 +2,6 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
-import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
 import { Lock } from 'lucide-react';
 import { AddressBadge } from '@/components/AddressBadge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -104,9 +103,7 @@ export function FeeWrapperPanel({
   const wrapperQuery = useVault(feeWrapperAddress ?? '');
   const governanceQuery = useVaultV2Governance(feeWrapperAddress);
   const riskQuery = useVaultV2Risk(feeWrapperAddress);
-  const { isAuthenticated } = useCuratorAuth();
-  // Gates, holders and transactions are admin-only reads.
-  const gatesQuery = useVaultV2Gates(feeWrapperAddress, { enabled: isAuthenticated });
+  const gatesQuery = useVaultV2Gates(feeWrapperAddress);
   const pendingQuery = useVaultV2Pending(feeWrapperAddress);
   const [section, setSection] = useState('overview');
 
@@ -327,34 +324,32 @@ export function FeeWrapperPanel({
           )}
         </CuratorPanel>
 
-        {isAuthenticated ? (
-          <CuratorPanel title="Gates">
-            <CuratorKvList>
-              {gateRows.map((gate) => (
-                <CuratorKvRow key={gate.key} label={gate.label} description={gate.description}>
-                  <span className="inline-flex items-center justify-end gap-1.5">
-                    {gate.variant === 'abdicated' ? (
-                      <Lock className="h-3.5 w-3.5 text-muted-foreground" />
-                    ) : null}
-                    <span
-                      className={cn(
-                        gate.variant === 'abdicated' &&
-                          'text-amber-700 dark:text-amber-400',
-                        gate.variant === 'none' && 'text-muted-foreground'
-                      )}
-                    >
-                      {gate.variant === 'set' && gate.address ? (
-                        <AddressBadge address={gate.address} truncate />
-                      ) : (
-                        gate.statusLabel
-                      )}
-                    </span>
+        <CuratorPanel title="Gates">
+          <CuratorKvList>
+            {gateRows.map((gate) => (
+              <CuratorKvRow key={gate.key} label={gate.label} description={gate.description}>
+                <span className="inline-flex items-center justify-end gap-1.5">
+                  {gate.variant === 'abdicated' ? (
+                    <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+                  ) : null}
+                  <span
+                    className={cn(
+                      gate.variant === 'abdicated' &&
+                        'text-amber-700 dark:text-amber-400',
+                      gate.variant === 'none' && 'text-muted-foreground'
+                    )}
+                  >
+                    {gate.variant === 'set' && gate.address ? (
+                      <AddressBadge address={gate.address} truncate />
+                    ) : (
+                      gate.statusLabel
+                    )}
                   </span>
-                </CuratorKvRow>
-              ))}
-            </CuratorKvList>
-          </CuratorPanel>
-        ) : null}
+                </span>
+              </CuratorKvRow>
+            ))}
+          </CuratorKvList>
+        </CuratorPanel>
 
         <CuratorPanel
           title="Max rate"
@@ -366,29 +361,25 @@ export function FeeWrapperPanel({
         </CuratorPanel>
       </div>
 
-      {isAuthenticated ? (
-        <>
-          <VaultHolders
-            vaultAddress={wrapper.address}
-            chainId={wrapper.chainId}
-            assetDecimals={wrapper.assetDecimals}
-            assetSymbol={assetSymbol}
-            pageSize={10}
-            collapsible
-            defaultOpen={false}
-          />
+      <VaultHolders
+        vaultAddress={wrapper.address}
+        chainId={wrapper.chainId}
+        assetDecimals={wrapper.assetDecimals}
+        assetSymbol={assetSymbol}
+        pageSize={10}
+        collapsible
+        defaultOpen={false}
+      />
 
-          <VaultTransactions
-            vaultAddress={wrapper.address}
-            chainId={wrapper.chainId}
-            assetDecimals={wrapper.assetDecimals}
-            assetSymbol={assetSymbol}
-            pageSize={10}
-            collapsible
-            defaultOpen={false}
-          />
-        </>
-      ) : null}
+      <VaultTransactions
+        vaultAddress={wrapper.address}
+        chainId={wrapper.chainId}
+        assetDecimals={wrapper.assetDecimals}
+        assetSymbol={assetSymbol}
+        pageSize={10}
+        collapsible
+        defaultOpen={false}
+      />
 
       <VaultOverviewHistoryChart
         vaultAddress={wrapper.address}

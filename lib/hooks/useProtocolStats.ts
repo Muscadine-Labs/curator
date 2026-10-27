@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/data/api-fetch';
-import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
 import {
   DASHBOARD_QUERY_OPTIONS,
   INDEXED_VAULT_QUERY_OPTIONS,
@@ -204,10 +203,8 @@ export const useVaultList = (filters?: {
   /** When true, only active V2 vaults for sidebar (excludes test). */
   sidebar?: boolean;
 }) => {
-  // `/api/vaults` returns testing vaults only to a signed-in admin, so a sign-in must refetch.
-  const { isAuthenticated } = useCuratorAuth();
   return useQuery<VaultWithData[]>({
-    queryKey: ['vaults', filters, isAuthenticated ? 'admin' : 'public'],
+    queryKey: ['vaults', filters],
     queryFn: async () => {
       const searchParams = new URLSearchParams();
       if (filters?.asset) searchParams.set('asset', filters.asset);

@@ -1081,9 +1081,6 @@ components.
 
 - Overview (`/`), Vaults (`/vaults`, `/vault/…`), and Markets (`/markets`, `/market/…`, `/midnight`)
   are public. Testing vaults (`listCategory: 'test'`) and the Sentinel tab stay behind sign-in.
-  On public vault pages, the Gates, Holders and Recent transactions panels render only when signed in
-  (their routes stay admin-only). `useVaultList` keys on the session, so signing in refetches the
-  catalog with testing vaults.
   Curator (`/curator`, `/safe`, `/morpho`) and Business (`/monthly-statement` and the ledger pages)
   stay behind `AuthGuard` in `app/providers.tsx`. Wallet connect is in the account sheet only after login.
 - Server auth: `POST /api/auth/verify` sets an HttpOnly `curator_session`

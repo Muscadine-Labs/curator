@@ -1,7 +1,6 @@
 'use client';
 
 import { Badge } from '@/components/ui/badge';
-import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
 import { AddressBadge } from '@/components/AddressBadge';
 import { formatPercentage } from '@/lib/format/number';
 import { resolveTokenDisplayProps } from '@/lib/format/asset-decimals';
@@ -45,7 +44,6 @@ export function VaultOverviewPanel({
   governance,
   risk,
 }: VaultOverviewPanelProps) {
-  const { isAuthenticated } = useCuratorAuth();
   const analytics = vault.analytics;
   const warnings = vault.warnings ?? [];
   const { chainDecimals, displayDecimals } = resolveTokenDisplayProps(
@@ -206,10 +204,7 @@ export function VaultOverviewPanel({
 
       <VaultV2Roles vaultAddress={vault.address} preloadedData={governance} />
 
-      {/* Gates, holders and transactions are admin-only reads. */}
-      {isAuthenticated ? (
-        <VaultV2GatesRead vaultAddress={vault.address} timelocks={governance?.timelocks} />
-      ) : null}
+      <VaultV2GatesRead vaultAddress={vault.address} timelocks={governance?.timelocks} />
 
       <VaultV2Adapters
         vaultAddress={vault.address}
@@ -219,29 +214,25 @@ export function VaultOverviewPanel({
         assetDecimals={vault.assetDecimals}
       />
 
-      {isAuthenticated ? (
-        <>
-          <VaultHolders
-            vaultAddress={vault.address}
-            chainId={vault.chainId}
-            assetDecimals={vault.assetDecimals}
-            assetSymbol={vaultAsset}
-            pageSize={10}
-            collapsible
-            defaultOpen={false}
-          />
+      <VaultHolders
+        vaultAddress={vault.address}
+        chainId={vault.chainId}
+        assetDecimals={vault.assetDecimals}
+        assetSymbol={vaultAsset}
+        pageSize={10}
+        collapsible
+        defaultOpen={false}
+      />
 
-          <VaultTransactions
-            vaultAddress={vault.address}
-            chainId={vault.chainId}
-            assetDecimals={vault.assetDecimals}
-            assetSymbol={vaultAsset}
-            pageSize={10}
-            collapsible
-            defaultOpen={false}
-          />
-        </>
-      ) : null}
+      <VaultTransactions
+        vaultAddress={vault.address}
+        chainId={vault.chainId}
+        assetDecimals={vault.assetDecimals}
+        assetSymbol={vaultAsset}
+        pageSize={10}
+        collapsible
+        defaultOpen={false}
+      />
 
       <VaultOverviewHistoryChart
         vaultAddress={vault.address}
