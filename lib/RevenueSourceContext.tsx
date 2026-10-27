@@ -1,7 +1,6 @@
 'use client';
 
 import { createContext, useContext, useState, type ReactNode } from 'react';
-import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
 
 export type RevenueSource = 'defillama' | 'treasury';
 
@@ -11,11 +10,9 @@ const RevenueSourceContext = createContext<{
 } | null>(null);
 
 export function RevenueSourceProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated } = useCuratorAuth();
   const [revenueSource, setRevenueSource] = useState<RevenueSource>('treasury');
-  const shown: RevenueSource = isAuthenticated ? revenueSource : 'defillama';
   return (
-    <RevenueSourceContext.Provider value={{ revenueSource: shown, setRevenueSource }}>
+    <RevenueSourceContext.Provider value={{ revenueSource, setRevenueSource }}>
       {children}
     </RevenueSourceContext.Provider>
   );

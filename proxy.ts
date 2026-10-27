@@ -1,5 +1,4 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { anonymousMayRead } from '@/lib/auth/public-read';
 import {
   readSessionRole,
   tokenFromCookieHeader,
@@ -23,7 +22,7 @@ export async function proxy(request: NextRequest) {
   const role = await readSessionRole(
     tokenFromCookieHeader(request.headers.get('cookie'))
   );
-  if (role === 'admin' || anonymousMayRead(request.method, pathname)) {
+  if (role === 'admin') {
     return NextResponse.next();
   }
 

@@ -7,7 +7,7 @@ export default function VaultsCatalogPage() {
   return (
     <AppShell
       title="Vaults"
-      description="Morpho Vault V2 catalog — allocations, caps, and risk."
+      description="Managed Morpho Vault V2 catalog — open a vault for curator ops (allocation, sentinel, caps, roles)."
     >
       <div className="mx-auto w-full max-w-6xl">
         <VaultsCatalog />

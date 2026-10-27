@@ -16,7 +16,6 @@ import {
 } from '@/components/morpho/CuratorChrome';
 import { useVaultV2Pending } from '@/lib/hooks/useVaultV2Pending';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
-import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
 import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
 import { getScanUrlForChain } from '@/lib/constants';
 import { TransactionButton } from '@/components/TransactionButton';
@@ -103,9 +102,6 @@ export function VaultV2Pending({
   const queryClient = useQueryClient();
   const router = useRouter();
   const { isConnected, address: walletAddress, connector } = useAccount();
-  const { isAuthenticated } = useCuratorAuth();
-  const canAccept = Boolean(allowAccept) && isAuthenticated;
-  const canRevoke = Boolean(allowRevoke) && isAuthenticated;
   const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
     useCuratorSafeApps();
 
@@ -543,7 +539,7 @@ export function VaultV2Pending({
                     <Badge variant={item.status === 'ready' ? 'default' : 'secondary'}>
                       {item.status === 'ready' ? 'Executable' : 'Pending'}
                     </Badge>
-                    {canAccept && item.status === 'ready' && (
+                    {allowAccept && item.status === 'ready' && (
                       <TransactionButton
                         label="Accept"
                         size="sm"
@@ -556,7 +552,7 @@ export function VaultV2Pending({
                         txHash={isActiveAccept ? acceptWrite.txHash : undefined}
                       />
                     )}
-                    {canRevoke && (
+                    {allowRevoke && (
                       <TransactionButton
                         label="Revoke"
                         size="sm"
@@ -603,7 +599,7 @@ export function VaultV2Pending({
         </div>
       )}
 
-      {canAccept ? (
+      {allowAccept ? (
       <TxPreviewDialog
         open={acceptPreviewOpen}
         preview={acceptPreview}
@@ -644,7 +640,7 @@ export function VaultV2Pending({
       />
       ) : null}
 
-      {canRevoke ? (
+      {allowRevoke ? (
       <TxPreviewDialog
         open={revokePreviewOpen}
         preview={revokePreview}
@@ -719,9 +715,9 @@ export function VaultV2Pending({
     <CuratorPanel
       title={`Pending actions (${pending.length})`}
       description={
-        canAccept
+        allowAccept
           ? 'Executable timelock actions (cap increases, liquidity adapter, roles, fees, …). After the waiting period, anyone may accept — any connected wallet or multisig Safe.'
-          : canRevoke
+          : allowRevoke
             ? 'Pending timelock actions. Sentinel or curator may revoke before execution (sentinel wallet/Safe preferred).'
             : 'Pending timelock actions queued on this vault.'
       }

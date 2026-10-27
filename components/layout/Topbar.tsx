@@ -40,13 +40,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
           className="-mx-1 flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto px-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           aria-label="Primary"
         >
-          {CURATOR_TOP_NAV.filter(
-            (item) =>
-              isAuthenticated ||
-              item.id === 'overview' ||
-              item.id === 'vaults' ||
-              item.id === 'markets'
-          ).map((item) => {
+          {CURATOR_TOP_NAV.map((item) => {
             const active = isTopNavActive(item.id, pathname);
             return (
               <Link
@@ -70,14 +64,14 @@ export function Topbar({ onMenuClick }: TopbarProps) {
           size="sm"
           className="min-h-10 shrink-0 touch-manipulation gap-1.5 px-2.5 sm:px-3"
           onClick={() => setSheetOpen(true)}
-          aria-label={isAuthenticated ? 'Account' : 'Sign in'}
+          aria-label="Account"
         >
           <UserRound className="h-4 w-4 shrink-0" />
-          <span>{isAuthenticated ? 'Account' : 'Sign in'}</span>
+          <span>Account</span>
           <span
             className={cn(
               'max-w-[3.75rem] truncate text-[10px] font-normal sm:max-w-[6rem] sm:text-xs',
-              isAuthenticated && !isWalletOnSelectedChain
+              !isWalletOnSelectedChain
                 ? 'text-amber-700 dark:text-amber-400'
                 : isAuthenticated
                   ? 'opacity-80'

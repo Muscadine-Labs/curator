@@ -1079,10 +1079,8 @@ components.
 
 ## 9. Auth & Gating
 
-- Overview (`/`), Vaults (`/vaults`, `/vault/…`), and Markets (`/markets`, `/market/…`, `/midnight`)
-  are public. Testing vaults (`listCategory: 'test'`) and the Sentinel tab stay behind sign-in.
-  Curator (`/curator`, `/safe`, `/morpho`) and Business (`/monthly-statement` and the ledger pages)
-  stay behind `AuthGuard` in `app/providers.tsx`. Wallet connect is in the account sheet only after login.
+- Curator tools routes: `/markets`, `/market/blue/[id]`, `/midnight/[id]`, `/safe`, `/curator`,
+  `/monthly-statement`, etc. Entire app is behind `AuthGuard` in `app/providers.tsx`.
 - Server auth: `POST /api/auth/verify` sets an HttpOnly `curator_session`
   cookie (HMAC). Two limits: `AUTH_LOGIN_MAX_ATTEMPTS` / 15 min per client, and
   `AUTH_LOGIN_GLOBAL_MAX_ATTEMPTS` / 1 min across all clients. Every attempt is
@@ -1114,11 +1112,10 @@ components.
 - HMAC uses `CURATOR_SESSION_SECRET` when set, otherwise
   `CURATOR_ADMIN_PASSWORD` (same in production and development).
   Bump `CURATOR_SESSION_VERSION` to invalidate sessions. `proxy.ts` requires the cookie on `/api/*` except
-  `/api/auth/verify`, `/api/auth/me`, `/api/auth/logout`, and anonymous GET reads for Overview, Vaults,
-  and Markets (`lib/auth/public-read.ts`). Testing-vault reads stay admin-only.
+  `/api/auth/verify`, `/api/auth/me`, `/api/auth/logout`.
   `GET /api/auth/me` is the session check. LocalStorage is not a session.
   Each BFF also calls `unauthorizedUnlessAdmin` (proxy is not an auth
-  boundary). That helper allows the same anonymous GETs.
+  boundary).
 - The **only** username is **`admin`** (case-sensitive, role `'admin'`);
   password from env `CURATOR_ADMIN_PASSWORD` (legacy `CURATOR_OWNER_PASSWORD`
   still accepted as fallback; must be uncommented in `.env.local`; server
@@ -1132,7 +1129,7 @@ components.
   Muscadine Safe (`lib/safe/config.ts`), queue proposals from Allocation /
   Sentinel preview dialogs; owners sign EIP-712 on `/safe/[role]`.
   Direct wallet confirm remains for EOA role holders only (`lib/safe/vault-role-match.ts`).
-- Wallet connect lives in the **account sheet after sign-in** (`ConnectWalletButton` / Reown
+- Wallet connect lives in the **topbar** (`ConnectWalletButton` / Reown
   AppKit). Featured wallets are configured in `lib/wallet/appkit.ts`. Chain
   switching for the **app network** is the top-bar `NetworkSwitcher`; the
   AppKit account modal can still switch the wallet chain.

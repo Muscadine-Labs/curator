@@ -7,7 +7,6 @@ import { encodeFunctionData, getAddress } from 'viem';
 import { Button } from '@/components/ui/button';
 import { TxPreviewDialog } from '@/components/morpho/TxPreviewDialog';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
-import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
 import { vaultV2Abi } from '@/lib/onchain/abis';
 import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
 import { formatAllocationTableAmount } from '@/lib/format/allocation-display';
@@ -54,7 +53,6 @@ export function ClaimFeesButton({
   assetDecimals: number | null | undefined;
 }) {
   const router = useRouter();
-  const { isAuthenticated } = useCuratorAuth();
   const publicClient = usePublicClient({ chainId });
   const write = useVaultWrite({ chainId });
   const { isConnected, address: walletAddress, connector } = useAccount();
@@ -205,8 +203,6 @@ export function ClaimFeesButton({
     txHash && isBroadcastTxHash(txHash)
       ? `${getScanUrlForChain(chainId)}/tx/${txHash}`
       : null;
-
-  if (!isAuthenticated) return null;
 
   return (
     <div className="flex flex-col items-start gap-1 sm:items-end">

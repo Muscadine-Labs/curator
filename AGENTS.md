@@ -20,11 +20,9 @@ npm run build   # next build
 ## Key invariants (do not regress)
 
 - **Auth:** the only login username is `admin` (role `'admin'`); password from
-  `CURATOR_ADMIN_PASSWORD` (legacy `CURATOR_OWNER_PASSWORD` accepted).
-  Overview, Vaults, and Markets are public reads. Testing vaults, Sentinel,
-  Curator, Business, and every write still require the HttpOnly
-  `curator_session` cookie (`proxy.ts` plus a route-level check). Wallet
-  connect is offered only after that login. `apiFetch` sends `credentials: 'same-origin'`.
+  `CURATOR_ADMIN_PASSWORD` (legacy `CURATOR_OWNER_PASSWORD` accepted). BFF
+  routes require the HttpOnly `curator_session` cookie (`proxy.ts` plus
+  a route-level check). `apiFetch` sends `credentials: 'same-origin'`.
   `POST /api/auth/verify` is IP rate-limited (`AUTH_LOGIN_MAX_ATTEMPTS`).
   Sessions are HMAC-signed with `CURATOR_SESSION_SECRET` when set, otherwise
   `CURATOR_ADMIN_PASSWORD`. Bump
@@ -181,3 +179,13 @@ npm run build   # next build
   bump ESLint 10, wagmi 3, TypeScript 7, ox 1, or Vitest 5 (§11).
 - Keep `docs/brain/` (changelog + MCP), `CLAUDE.md`, `AGENTS.md`, and `TODO.md`
   in sync with behavior changes (closed loop).
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

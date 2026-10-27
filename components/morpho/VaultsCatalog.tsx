@@ -18,7 +18,6 @@ import {
 } from '@/components/ui/table';
 import { TokenUsdValue } from '@/components/morpho/TokenUsdValue';
 import { groupVaultsByKindAndCategory, getVaultPageHref } from '@/lib/config/vaults';
-import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
 import { SIDEBAR_NETWORKS } from '@/lib/constants';
 import {
   useProtocolStats,
@@ -47,15 +46,7 @@ function liquiditySharePercent(vault: VaultWithData): number | null {
 }
 
 export function VaultsCatalog() {
-  const { isAuthenticated } = useCuratorAuth();
-  const { data: loadedVaults = [], isLoading } = useVaultList(SIDEBAR_VAULT_LIST_FILTERS);
-  const vaults = useMemo(
-    () =>
-      isAuthenticated
-        ? loadedVaults
-        : loadedVaults.filter((vault) => vault.listCategory !== 'test'),
-    [isAuthenticated, loadedVaults]
-  );
+  const { data: vaults = [], isLoading } = useVaultList(SIDEBAR_VAULT_LIST_FILTERS);
   const { data: stats, isLoading: statsLoading } = useProtocolStats();
   const [search, setSearch] = useState('');
   const [assetFilter, setAssetFilter] = useState<string | 'all'>('all');

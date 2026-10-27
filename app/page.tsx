@@ -8,7 +8,6 @@ import { KpiCard } from '@/components/KpiCard';
 import { useProtocolStats } from '@/lib/hooks/useProtocolStats';
 import { AppShell } from '@/components/layout/AppShell';
 import { useRevenueSource, type RevenueSource } from '@/lib/RevenueSourceContext';
-import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
 import { sumTreasuryRevenueYtd, sumTreasuryRevenueYtdFromDaily } from '@/lib/morpho/treasury-statement';
 import { apiFetch } from '@/lib/data/api-fetch';
 import { STATEMENT_QUERY_OPTIONS } from '@/lib/data/query-config';
@@ -49,13 +48,11 @@ interface MonthlyStatementResponse {
 }
 
 export default function Home() {
-  const { isAuthenticated } = useCuratorAuth();
   const { data: stats, isLoading } = useProtocolStats();
   const { revenueSource, setRevenueSource } = useRevenueSource();
   const [selectedStat, setSelectedStat] = useState<ProtocolStatKey | null>(null);
 
   const toggleStat = (key: ProtocolStatKey) => {
-    if (key === 'users' && !isAuthenticated) return;
     setSelectedStat((prev) => (prev === key ? null : key));
   };
 
@@ -66,7 +63,6 @@ export default function Home() {
       if (!res.ok) throw new Error('Failed to fetch monthly statement');
       return res.json();
     },
-    enabled: isAuthenticated,
     ...STATEMENT_QUERY_OPTIONS,
   });
 
@@ -138,16 +134,14 @@ export default function Home() {
       }
       description="Select a vault from the sidebar to view risk and configuration."
       actions={
-        isAuthenticated ? (
-          <select
-            value={revenueSource}
-            onChange={(e) => setRevenueSource(e.target.value as RevenueSource)}
-            className="h-8 rounded-md border border-input bg-background px-2 py-0 text-xs ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-          >
-            <option value="treasury">Treasury Wallet</option>
-            <option value="defillama">DefiLlama</option>
-          </select>
-        ) : null
+        <select
+          value={revenueSource}
+          onChange={(e) => setRevenueSource(e.target.value as RevenueSource)}
+          className="h-8 rounded-md border border-input bg-background px-2 py-0 text-xs ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+        >
+          <option value="treasury">Treasury Wallet</option>
+          <option value="defillama">DefiLlama</option>
+        </select>
       }
     >
       <div className="space-y-6">
@@ -183,7 +177,7 @@ export default function Home() {
               format="number"
               compact
               className="border-0 bg-muted/40 shadow-none py-2"
-              onClick={isAuthenticated ? () => toggleStat('users') : undefined}
+              onClick={() => toggleStat('users')}
               selected={selectedStat === 'users'}
             />
             <KpiCard

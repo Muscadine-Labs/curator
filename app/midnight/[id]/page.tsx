@@ -8,14 +8,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MidnightMarketView } from '@/components/morpho/MidnightMarketView';
 import { MarketInteractButton } from '@/components/morpho/MarketInteractButton';
-import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
 import { useMidnightMarketDetail } from '@/lib/hooks/useCuratorMarkets';
 import { morphoMidnightMarketHref, safeReturnPath } from '@/lib/morpho/morpho-app-links';
 import { formatMidnightMaturityUtc } from '@/lib/morpho/midnight-markets';
 import { CURATOR_MARKET_NETWORKS, parseCuratorMarketChainId } from '@/lib/constants';
 
 export default function MidnightMarketPage() {
-  const { isAuthenticated } = useCuratorAuth();
   const params = useParams();
   const searchParams = useSearchParams();
   const marketId = decodeURIComponent(params.id as string);
@@ -59,7 +57,7 @@ export default function MidnightMarketPage() {
       actions={
         market ? (
           <MarketInteractButton product="midnight" marketId={marketId} chainId={chainId} />
-        ) : isAuthenticated && morphoHref ? (
+        ) : morphoHref ? (
           <Button variant="outline" size="sm" asChild>
             <a href={morphoHref} target="_blank" rel="noopener noreferrer">
               Morpho Markets

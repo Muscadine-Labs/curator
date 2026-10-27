@@ -23,10 +23,8 @@ import {
   getSidebarNavVaults,
   getVaultPageHref,
   groupVaultsByKindAndCategory,
-  isTestingVaultAddress,
   type SidebarNavVault,
 } from '@/lib/config/vaults';
-import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
 import { Button } from '@/components/ui/button';
 import { SIDEBAR_NETWORKS } from '@/lib/constants';
 import { resolveCuratorNavArea, type CuratorNavArea } from '@/lib/nav/areas';
@@ -80,15 +78,8 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 export function Sidebar({ onClose }: SidebarProps) {
   const pathname = usePathname();
-  const { isAuthenticated } = useCuratorAuth();
   const area = resolveCuratorNavArea(pathname);
-  const vaults = useMemo(
-    () =>
-      getSidebarNavVaults().filter(
-        (vault) => isAuthenticated || !isTestingVaultAddress(vault.address)
-      ),
-    [isAuthenticated]
-  );
+  const vaults = useMemo(() => getSidebarNavVaults(), []);
   const [expandedNetworks, setExpandedNetworks] = useState<Set<number>>(
     () => new Set(SIDEBAR_NETWORKS.map((n) => n.chainId))
   );
