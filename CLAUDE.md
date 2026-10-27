@@ -17,6 +17,7 @@ vault mechanics, contract wiring, or the data flow.
   protocol, changelog, Morpho MCP. Append `docs/brain/CHANGELOG.md` when you
   finish substantive work. Cursor rule: `.cursor/rules/muscadine-brain.mdc`.
 - **Before pushing:** run `npm run lint` and `npm run build` and make sure all pass.
+- **Git, branches and PRs:** AI assistants may commit, create branches, push those branches, and open pull requests without asking first. **Never push to, commit directly on, force-push, or merge into `main`** — every change reaches `main` only through a PR that the user merges. Work on a feature branch (create one if you are on `main`).
 
 ### Environment variables
 

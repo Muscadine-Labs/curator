@@ -4,6 +4,13 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-10-27 — Analytics site retired; git rules
+
+- `analytics.muscadine.xyz` is deprecated. Its link is removed from the Muscadine domains list (`lib/constants/links.ts`). Vault details for depositors now live on the app's vault pages.
+- CLAUDE.md / AGENTS.md: AI assistants may commit, push feature branches and open PRs; never push to or merge into `main`.
+
+---
+
 ## 2026-10-10 — PR review fixes for the October Done items
 
 - Dependency pins restored: ESLint 9, `@eslint/js` 9, Vitest 4 (no direct `vite`). Lockfile regenerated.

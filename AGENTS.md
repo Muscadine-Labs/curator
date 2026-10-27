@@ -15,6 +15,8 @@ npm run lint    # eslint . --max-warnings=0 (ESLint 9 + eslint-config-next — s
 npm run build   # next build
 ```
 
+5. **Git, branches and PRs:** commit, create feature branches, push them and open PRs without asking first. **Never push to, commit directly on, force-push, or merge into `main`** — changes reach `main` only through a PR the user merges.
+
 ## Key invariants (do not regress)
 
 - **Auth:** the only login username is `admin` (role `'admin'`); password from

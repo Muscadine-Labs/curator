@@ -9,7 +9,6 @@ export const MUSCADINE_SAFE_SPACE_URL =
 
 export const MUSCADINE_DOMAINS: readonly ExternalLinkItem[] = [
   { name: 'Muscadine', url: 'https://muscadine.xyz', description: 'Website' },
-  { name: 'Analytics', url: 'https://analytics.muscadine.xyz', description: 'Analytics' },
   { name: 'App', url: 'https://app.muscadine.xyz', description: 'App' },
   { name: 'Curator', url: 'https://curator.muscadine.xyz', description: 'Curator' },
 ];
