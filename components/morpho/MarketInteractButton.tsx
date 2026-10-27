@@ -2,6 +2,7 @@
 
 import { ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
 import { morphoMidnightMarketHref, morphoMarketHref } from '@/lib/morpho/morpho-app-links';
 
 type MarketInteractButtonProps = {
@@ -18,11 +19,12 @@ export function MarketInteractButton({
   chainId,
   className,
 }: MarketInteractButtonProps) {
+  const { isAuthenticated } = useCuratorAuth();
   const href =
     product === 'blue'
       ? morphoMarketHref(marketId, chainId)
       : morphoMidnightMarketHref(marketId, chainId);
-  if (!href) return null;
+  if (!isAuthenticated || !href) return null;
   return (
     <Button size="sm" variant="outline" className={className} asChild>
       <a href={href} target="_blank" rel="noopener noreferrer">

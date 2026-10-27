@@ -15,6 +15,7 @@ import { logger } from '@/lib/utils/logger';
 import { mergeApiCacheHeaders, API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
 import { withServerResponseCache } from '@/lib/api/server-response-cache';
 import { unauthorizedUnlessAdmin } from '@/lib/auth/require-admin';
+import { readSessionRole, tokenFromCookieHeader } from '@/lib/auth/session';
 import { utilizationFractionToPercentagePoints } from '@/lib/morpho/utilization-percent';
 
 export const runtime = 'nodejs';
@@ -145,8 +146,13 @@ export async function GET(request: Request) {
 
   try {
     const url = new URL(request.url);
-    const sidebarOnly = url.searchParams.get('sidebar') === 'true';
-    const includeAll = url.searchParams.get('includeAll') === 'true';
+    const role = await readSessionRole(
+      tokenFromCookieHeader(request.headers.get('cookie'))
+    );
+    const isAdmin = role === 'admin';
+    // Public callers always get the business catalog, which omits testing vaults.
+    const sidebarOnly = isAdmin && url.searchParams.get('sidebar') === 'true';
+    const includeAll = isAdmin && url.searchParams.get('includeAll') === 'true';
     const cacheKey = `vaults-list-${sidebarOnly ? 'sidebar' : includeAll ? 'all' : 'business'}`;
 
     const merged = await withServerResponseCache(cacheKey, API_CACHE_MAX_AGE_MS, async () => {

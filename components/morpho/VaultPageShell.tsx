@@ -24,6 +24,7 @@ import {
   isFeeWrapperVault,
 } from '@/lib/config/vaults';
 import { morphoVaultHref } from '@/lib/morpho/morpho-app-links';
+import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -87,6 +88,7 @@ function vaultSegmentFromPath(pathname: string, address: string): string {
 
 export function VaultPageShell({ children }: { children: ReactNode }) {
   const params = useParams();
+  const { isAuthenticated } = useCuratorAuth();
   const address = params.address as string;
   const pathname = usePathname();
   const router = useRouter();
@@ -227,9 +229,11 @@ export function VaultPageShell({ children }: { children: ReactNode }) {
         <div className="space-y-6">
           <nav className="-mx-4 overflow-x-auto border-b border-slate-200 px-4 dark:border-slate-800 sm:mx-0 sm:px-0">
             <div className="flex w-max min-w-full gap-1">
-              {VAULT_NAV_SEGMENTS.filter(
-                (item) => item.segment !== 'fee-wrapper' || feeWrapperAddress
-              ).map((item) => {
+              {VAULT_NAV_SEGMENTS.filter((item) => {
+                if (item.segment === 'fee-wrapper' && !feeWrapperAddress) return false;
+                if (item.segment === 'sentinel' && !isAuthenticated) return false;
+                return true;
+              }).map((item) => {
                 const href =
                   item.segment === ''
                     ? `/vault/${address}`

@@ -20,14 +20,11 @@ export function SignInSheet({ open, onClose }: SignInSheetProps) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [showSignInForm, setShowSignInForm] = useState(false);
-
   const reset = useCallback(() => {
     setUsername('');
     setPassword('');
     setError(null);
     setLoading(false);
-    setShowSignInForm(false);
   }, []);
 
   useEffect(() => {
@@ -98,37 +95,36 @@ export function SignInSheet({ open, onClose }: SignInSheetProps) {
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <div className="flex flex-col gap-5">
-            <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-3">
-              <div className="min-w-0 space-y-2 sm:flex-1">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                  Network
-                </p>
-                <NetworkSwitcher fullWidth />
-              </div>
-
-              <div className="min-w-0 space-y-2 sm:flex-1">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                  Wallet
-                </p>
-                <ConnectWalletButton fullWidth />
-              </div>
+            <div className="min-w-0 space-y-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                Network
+              </p>
+              <NetworkSwitcher fullWidth />
             </div>
 
             {isAuthenticated ? (
-              <div className="space-y-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                  Session
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-11 min-h-[44px] w-full touch-manipulation rounded-lg border-red-200 text-red-700 hover:border-red-300 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
-                  onClick={handleLogout}
-                >
-                  Log out
-                </Button>
-              </div>
-            ) : showSignInForm ? (
+              <>
+                <div className="min-w-0 space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                    Wallet
+                  </p>
+                  <ConnectWalletButton fullWidth />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                    Session
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-11 min-h-[44px] w-full touch-manipulation rounded-lg border-red-200 text-red-700 hover:border-red-300 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+                    onClick={handleLogout}
+                  >
+                    Log out
+                  </Button>
+                </div>
+              </>
+            ) : (
               <div className="space-y-2">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                   Curator sign in
@@ -165,19 +161,6 @@ export function SignInSheet({ open, onClose }: SignInSheetProps) {
                     {loading ? 'Checking…' : 'Sign in'}
                   </Button>
                 </form>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                  Curator sign in
-                </p>
-                <Button
-                  type="button"
-                  className="h-11 min-h-[44px] w-full touch-manipulation rounded-lg"
-                  onClick={() => setShowSignInForm(true)}
-                >
-                  Sign in
-                </Button>
               </div>
             )}
 

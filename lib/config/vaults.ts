@@ -193,6 +193,11 @@ export const getVaultByAddress = (address: string): VaultAddressConfig | undefin
   return vaultByAddress.get(address.toLowerCase());
 };
 
+/** Testing vaults stay off public Overview, Vaults, and Markets. */
+export function isTestingVaultAddress(address: string): boolean {
+  return getVaultByAddress(address)?.listCategory === 'test';
+}
+
 /** Fee wrapper whose MorphoVaultV2Adapter matches this address. */
 export const getVaultByAdapterAddress = (
   address: string

@@ -1,7 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
+import { isTestingVaultPage, isVaultSentinelPage } from '@/lib/auth/public-read';
+import { resolveCuratorNavArea } from '@/lib/nav/areas';
+import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ThemeSwitcher } from '@/components/ThemeSwitcher';
@@ -10,12 +14,28 @@ type AuthGuardProps = {
   children: React.ReactNode;
 };
 
+function lockCopy(pathname: string): string | null {
+  if (isTestingVaultPage(pathname)) {
+    return 'Testing vaults are available after you sign in.';
+  }
+  if (isVaultSentinelPage(pathname)) {
+    return 'Sentinel is available after you sign in.';
+  }
+  const area = resolveCuratorNavArea(pathname);
+  if (area === 'curator' || area === 'business') {
+    return 'Curator and Business are available after you sign in.';
+  }
+  return null;
+}
+
 export function AuthGuard({ children }: AuthGuardProps) {
+  const pathname = usePathname();
   const { isReady, isAuthenticated, role, login } = useCuratorAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const lockedMessage = lockCopy(pathname);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,7 +48,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
     }
   };
 
-  if (!isReady) {
+  if (lockedMessage && !isReady) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-950">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600 dark:border-slate-600 dark:border-t-blue-400" />
@@ -36,19 +56,10 @@ export function AuthGuard({ children }: AuthGuardProps) {
     );
   }
 
-  // Not authenticated: show sign-in page
-  if (!isAuthenticated) {
+  if (lockedMessage && !isAuthenticated) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 px-4 dark:bg-slate-950">
-        <div className="w-full max-w-sm space-y-6 rounded-xl border border-slate-200 bg-white p-6 shadow-lg dark:border-slate-800 dark:bg-slate-900">
-          <div className="text-center">
-            <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-              Muscadine Curator
-            </h1>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Sign in to access the site
-            </p>
-          </div>
+      <AppShell title="Sign in" description={lockedMessage}>
+        <div className="mx-auto w-full max-w-sm space-y-6 rounded-xl border border-slate-200 bg-white p-6 shadow-lg dark:border-slate-800 dark:bg-slate-900">
           <form onSubmit={handleSubmit} className="space-y-4">
             <Input
               type="text"
@@ -88,12 +99,11 @@ export function AuthGuard({ children }: AuthGuardProps) {
             <ThemeSwitcher />
           </div>
         </div>
-      </div>
+      </AppShell>
     );
   }
 
-  // Authenticated but not admin: access denied
-  if (role !== 'admin') {
+  if (isAuthenticated && role !== 'admin') {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 px-4 dark:bg-slate-950">
         <div className="w-full max-w-sm space-y-6 rounded-xl border border-slate-200 bg-white p-6 shadow-lg dark:border-slate-800 dark:bg-slate-900">

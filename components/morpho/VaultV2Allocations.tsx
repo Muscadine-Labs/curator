@@ -14,6 +14,7 @@ import {
   vaultV2GovernanceQueryKey,
 } from '@/lib/hooks/useVaultV2Governance';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
+import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
 import { TransactionButton } from '@/components/TransactionButton';
 import { TxErrorBanner } from '@/components/TxErrorBanner';
 import { TxPreviewDialog } from '@/components/morpho/TxPreviewDialog';
@@ -463,6 +464,7 @@ export function VaultV2Allocations({
   preloadedRisk,
   liquidityAdapterVariant = 'market',
 }: VaultV2AllocationsProps) {
+  const { isAuthenticated } = useCuratorAuth();
   const queryClient = useQueryClient();
   const {
     data: fetchedRisk,
@@ -2224,7 +2226,7 @@ export function VaultV2Allocations({
                 onReset={() => clearAllocationFilters(vaultAddress)}
                 editing={editing}
               />
-              {!editing ? (
+              {isAuthenticated && !editing ? (
                 <Button
                   variant="outline"
                   size="sm"
@@ -2239,7 +2241,7 @@ export function VaultV2Allocations({
                   )}
                   {refreshingForEdit ? 'Refreshing…' : 'Rebalance'}
                 </Button>
-              ) : (
+              ) : isAuthenticated ? (
                 <div className="flex items-center gap-2">
                   <CuratorSegmented>
                     <CuratorSegmentedButton
@@ -2259,7 +2261,7 @@ export function VaultV2Allocations({
                     Cancel
                   </Button>
                 </div>
-              )}
+              ) : null}
             </div>
           }
         />

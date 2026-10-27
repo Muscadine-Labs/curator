@@ -4,6 +4,13 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-10-27 — Public Overview, Vaults, and Markets
+
+- Anonymous visitors can open Overview, Vaults, and Markets. Testing vaults stay hidden until admin sign-in, and that sign-in is what unlocks the wallet, Curator, Business, Sentinel, and vault writes.
+- `lib/auth/public-read.ts` is the allowlist for both `proxy.ts` and `unauthorizedUnlessAdmin`. Public vault lists ignore `sidebar` and `includeAll`.
+
+---
+
 ## 2026-10-27 — Analytics site retired; git rules
 
 - `analytics.muscadine.xyz` is deprecated. Its link is removed from the Muscadine domains list (`lib/constants/links.ts`). Vault details for depositors now live on the app's vault pages.

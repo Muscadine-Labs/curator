@@ -33,6 +33,7 @@ import {
 } from '@/lib/format/allocation-display';
 import { vaultV2GovernanceQueryKey } from '@/lib/hooks/useVaultV2Governance';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
+import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
 import {
   capDisplayLabel,
   capLltvPill,
@@ -138,6 +139,7 @@ export function PublicAllocatorCaps({
   const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
     useCuratorSafeApps();
   const write = useVaultWrite({ chainId });
+  const { isAuthenticated } = useCuratorAuth();
   const settledWrite = useRef(false);
 
   const rows = useMemo(() => sortCapsByAllocationDesc(caps), [caps]);
@@ -414,7 +416,7 @@ export function PublicAllocatorCaps({
         title="Public Allocator caps"
         description="An allocator sets these. They apply immediately and are not timelocked."
         actions={
-          editing ? (
+          !isAuthenticated ? undefined : editing ? (
             <div className="flex gap-2">
               <Button
                 type="button"

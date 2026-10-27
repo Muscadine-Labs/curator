@@ -11,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { MarketRiskDetailCard } from '@/components/morpho/MarketRiskDetailCard';
 import { MarketOraclePanel } from '@/components/morpho/MarketOraclePanel';
 import { MarketInteractButton } from '@/components/morpho/MarketInteractButton';
+import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
 import { useCuratorMarketDetail } from '@/lib/hooks/useCuratorMarkets';
 import { morphoMarketHref, safeReturnPath } from '@/lib/morpho/morpho-app-links';
 import { asBlueMarketData } from '@/lib/morpho/blue-market-data';
@@ -53,6 +54,7 @@ function MarketUsdValue({
 }
 
 export default function CuratorBlueMarketPage() {
+  const { isAuthenticated } = useCuratorAuth();
   const params = useParams();
   const searchParams = useSearchParams();
   const marketId = decodeURIComponent(params.id as string);
@@ -150,7 +152,7 @@ export default function CuratorBlueMarketPage() {
       actions={
         market ? (
           <MarketInteractButton product="blue" marketId={marketId} chainId={chainId} />
-        ) : morphoHref ? (
+        ) : isAuthenticated && morphoHref ? (
           <Button variant="outline" size="sm" asChild>
             <a href={morphoHref} target="_blank" rel="noopener noreferrer">
               Morpho app

@@ -17,6 +17,7 @@ import {
 import { TxPreviewDialog } from '@/components/morpho/TxPreviewDialog';
 import { TxErrorBanner } from '@/components/TxErrorBanner';
 import { useVaultWrite } from '@/lib/hooks/useVaultWrite';
+import { useCuratorAuth } from '@/lib/auth/CuratorAuthContext';
 import { isBroadcastTxHash } from '@/lib/utils/wallet-error';
 import { v2WriteConfigs } from '@/lib/onchain/vault-writes';
 import { formatAllocationTableAmount } from '@/lib/format/allocation-display';
@@ -105,6 +106,7 @@ export function VaultV2LiquidityAdapter({
   );
 
   const write = useVaultWrite({ chainId });
+  const { isAuthenticated } = useCuratorAuth();
   const queryClient = useQueryClient();
   const router = useRouter();
   const { address: walletAddress, isConnected, connector } = useAccount();
@@ -324,7 +326,7 @@ export function VaultV2LiquidityAdapter({
       <CuratorPanel
         title="Liquidity adapter"
         actions={
-          !changing ? (
+          !isAuthenticated ? undefined : !changing ? (
             <Button
               type="button"
               variant="outline"
@@ -367,7 +369,7 @@ export function VaultV2LiquidityAdapter({
           </CuratorKvRow>
         </CuratorKvList>
 
-        {changing ? (
+        {changing && isAuthenticated ? (
           <div className="space-y-3 border-t border-border p-4">
             <p className="text-xs text-muted-foreground">
               {variant === 'vault-or-idle'
