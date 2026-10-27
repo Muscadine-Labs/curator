@@ -17,7 +17,10 @@ async function fetchVaultV2Gates(vaultAddress: string): Promise<VaultV2GatesResp
   return res.json();
 }
 
-export function useVaultV2Gates(vaultAddress: string | null | undefined) {
+export function useVaultV2Gates(
+  vaultAddress: string | null | undefined,
+  options: { enabled?: boolean } = {}
+) {
   return useQuery({
     queryKey: vaultV2GatesQueryKey(vaultAddress),
     queryFn: () => {
@@ -26,7 +29,7 @@ export function useVaultV2Gates(vaultAddress: string | null | undefined) {
       }
       return fetchVaultV2Gates(vaultAddress);
     },
-    enabled: Boolean(vaultAddress),
+    enabled: Boolean(vaultAddress) && (options.enabled ?? true),
     ...ON_CHAIN_VAULT_QUERY_OPTIONS,
   });
 }
