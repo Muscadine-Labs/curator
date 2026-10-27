@@ -4,6 +4,12 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-10-27 — Curator stays private
+
+- Public Overview / Vaults / Markets was built and then reverted: depositor info lives on app.muscadine.xyz and muscadine.xyz, and risk grades stay internal. The work is kept on branch `public-read` if it is revisited.
+
+---
+
 ## 2026-10-27 — Analytics site retired; git rules
 
 - `analytics.muscadine.xyz` is deprecated. Its link is removed from the Muscadine domains list (`lib/constants/links.ts`). Vault details for depositors now live on the app's vault pages.
