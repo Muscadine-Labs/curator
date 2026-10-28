@@ -55,10 +55,10 @@ npm run dev
 ### 5. Open the app
 
 ```bash
-open http://localhost:3000
+open http://localhost:3001
 ```
 
-Or visit http://localhost:3000 in your browser.
+Or visit http://localhost:3001 in your browser.
 
 ## Environment Variables
 
@@ -69,7 +69,7 @@ Copy `.env.example` → `.env.local`. Summary:
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | **Yes in production** | Demo mode in local dev if unset |
 | `ALCHEMY_API_KEY` or `COINBASE_CDP_API_KEY` | Recommended | Server RPC; demo endpoints if both missing |
 | `NEXT_PUBLIC_ALCHEMY_API_KEY` | Recommended | Client RPC |
-| `NEXT_PUBLIC_APP_URL` | No | Default `http://localhost:3000` |
+| `NEXT_PUBLIC_APP_URL` | No | Default `http://localhost:3001` |
 | `NEXT_PUBLIC_SAFE_API_KEY` | No | Safe Transaction Service sync |
 | `CURATOR_ADMIN_PASSWORD` | **Yes to log in** | Username is `admin` |
 | `CURATOR_SESSION_SECRET` | No | Dedicated session HMAC; login password is the fallback |

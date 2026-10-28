@@ -1287,7 +1287,7 @@ components.
 
 ```bash
 npm install
-npm run dev            # next dev
+npm run dev            # next dev --webpack -p 3001
 npm run lint           # eslint . --max-warnings=0
 npx tsc --noEmit
 npm run build
