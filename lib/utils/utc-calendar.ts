@@ -18,6 +18,14 @@ export function utcDayKeyFromTimestamp(timestampSec: number): string {
 }
 
 /** Parse `YYYY-MM-DD` (or ISO datetime) as a UTC calendar day start (ms). */
+/**
+ * UTC day a Morpho DAY-interval point closes. Morpho stamps each point at 00:00 UTC
+ * with the balance at that moment, so the point at 00:00 on day D+1 is the end of day D.
+ */
+export function utcDayClosedBySnapshot(timestampSec: number): string {
+  return utcDayKeyFromTimestamp(timestampSec - 1);
+}
+
 export function utcDayStartMs(isoDate: string): number {
   const day = isoDate.slice(0, 10);
   const [y, month, d] = day.split('-').map(Number);

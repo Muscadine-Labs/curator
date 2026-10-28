@@ -795,12 +795,19 @@ daily token-change (`app/page.tsx`). Toggle treasury vs DefiLlama via
    dashboard marks revenue "may be overstated". Months run from
    the first month with income through the current month, including $0.00 gaps.
 
-**Why a fund move can still show up**
+**Day alignment (do not regress)**
 
-A capital inflow is removed only when its UTC day matches the GraphQL DAY
-bucket that booked the share increase. A mismatch leaves that day overstated.
-The unmatched inflow is not applied to another day, so it does not create a
-negative day. Unmatched opening deposits are ignored. Outflows are tracked on
+Morpho stamps each DAY point at 00:00 UTC with the balance at that moment, so
+the point at 00:00 on day D+1 is the end of day D. A share increase between two
+points is dated to the day the later point closes (`utcDayClosedBySnapshot`,
+`timestamp: cur.x - 1`), and the per-day price / share snapshots use the same
+key. Deposits and transfers are dated by their own UTC timestamp. Dating income
+by the point's own stamp put every increase one day late, so treasury deposits
+never matched and stayed in revenue (Oct 2026: $349 of $363).
+
+A capital inflow is removed only when its UTC day matches the day that booked
+the share increase. An unmatched inflow is not applied to another day, so it
+does not create a negative day. Unmatched opening deposits are ignored. Outflows are tracked on
 Rebater, not as negative revenue.
 
 **Scope — what is / isn’t included**

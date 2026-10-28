@@ -4,6 +4,12 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-10-28 — Treasury income dated to the day it happened
+
+- Morpho DAY points are 00:00 UTC balances, so the point on day D+1 closes day D. Share increases (and the day price / share snapshots) are now keyed by the day the point closes (`utcDayClosedBySnapshot`). Before, every increase landed one day after the deposit that caused it, the same-day match missed, and treasury deposits stayed in revenue: all-time revenue $795.70 → $237.17, October $362.53 → $13.68. `lib/morpho/compute-treasury-statement.ts`, `lib/utils/utc-calendar.ts`.
+
+---
+
 ## 2026-10-28 — Chart days stay on UTC
 
 - TVL history, vault history, and the DefiLlama inflow fallback group samples by the UTC day. A point just after UTC midnight no longer lands on the previous local day. `app/api/protocol-stats/route.ts`, `lib/morpho/vault-history.ts`, `lib/defillama/service.ts`.

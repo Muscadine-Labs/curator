@@ -36,6 +36,7 @@ import {
 import { resolveAssetDecimals } from '@/lib/format/asset-decimals';
 import { bigintRatio } from '@/lib/format/bigint-ratio';
 import {
+  utcDayClosedBySnapshot,
   utcDayKeyFromTimestamp,
   utcMonthKeyFromTimestamp,
   utcMonthsFrom,
@@ -259,7 +260,8 @@ function incomesFromHistory(
     out.push({
       vaultAddress,
       asset,
-      timestamp: cur.x,
+      // The share change happened during the day this point closes, where deposits are dated.
+      timestamp: cur.x - 1,
       tokens,
       usd,
     });
@@ -412,7 +414,8 @@ async function computeTreasuryStatementUncached(): Promise<TreasuryStatementResu
       decimals
     );
     for (const p of points) {
-      const day = utcDayKeyFromTimestamp(p.x);
+      // End-of-day balance and price, keyed by the day the point closes.
+      const day = utcDayClosedBySnapshot(p.x);
       if (p.tokens > 0 && p.usd != null && p.usd > 0) {
         priceByVaultDay.set(`${vaultAddress}|${day}`, p.usd / p.tokens);
       }
@@ -541,7 +544,7 @@ async function computeTreasuryStatementUncached(): Promise<TreasuryStatementResu
 
 export function computeTreasuryStatement(): Promise<TreasuryStatementResult> {
   return withServerResponseCache(
-    'treasury-statement-daily-shares-v5',
+    'treasury-statement-daily-shares-v6',
     API_CACHE_MAX_AGE_MS,
     computeTreasuryStatementUncached,
     (result) => result.warning == null
