@@ -96,7 +96,7 @@ Copy `.env.example` → `.env.local`. Summary:
 - Wagmi 2 + Reown AppKit (wallet)
 - Viem (blockchain)
 - TanStack Query (data fetching)
-- Vitest 4
+- Vitest 5
 
 ## License
 
