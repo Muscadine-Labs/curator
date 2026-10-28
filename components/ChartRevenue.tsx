@@ -6,7 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { formatCompactUSD } from '@/lib/format/number';
 import { filterDataByRange, type TimeRange } from '@/lib/utils/date-filter';
-import { formatUtcChartTick } from '@/lib/utils/utc-calendar';
+import { formatUtcChartTick, formatUtcTooltipDate } from '@/lib/utils/utc-calendar';
 import { TimeRangeFilter } from '@/components/charts/TimeRangeFilter';
 import { ViewModeFilter, type ChartViewMode } from '@/components/charts/ViewModeFilter';
 import { useRevenueSource } from '@/lib/RevenueSourceContext';
@@ -120,7 +120,9 @@ export function ChartRevenue({
                   return [formatTooltipValue(numValue), label];
                 }}
                 labelFormatter={(label) =>
-                  new Date(typeof label === 'string' || typeof label === 'number' ? label : String(label ?? '')).toLocaleDateString()
+                  formatUtcTooltipDate(
+                    typeof label === 'string' || typeof label === 'number' ? String(label) : String(label ?? '')
+                  )
                 }
               />
               <Line type="monotone" dataKey="value" stroke="#8b5cf6" strokeWidth={2} dot={false} />

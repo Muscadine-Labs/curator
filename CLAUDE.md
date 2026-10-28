@@ -769,36 +769,39 @@ daily token-change (`app/page.tsx`). Toggle treasury vs DefiLlama via
 
 | Field | Meaning |
 | ----- | ------- |
-| `assets` / `total` | Positive **daily share-balance change** for `TREASURY_ADDRESS` (fee mints + inbound share transfers), converted to underlying tokens and valued at that day's implied USD. Self-deposits (GraphQL `Deposit` where sender is treasury) are subtracted only up to same-day booked income. Opening deposits (including redeem-underlying → deposit-wrapper) are not income and are not subtracted. Price appreciation of a constant share amount is excluded. Outflows are not subtracted. |
+| `assets` / `total` | Positive **daily share-balance change** for `TREASURY_ADDRESS`, converted to underlying tokens and valued at that day's implied USD. Fee mints stay. Capital inflows are subtracted only up to same-day booked income: deposits on behalf of the treasury, and inbound share transfers from a non-zero address. A transfer from `address(0)` is a fee mint, not capital. Opening deposits (including redeem-underlying → deposit-wrapper) are not income and are not subtracted. Price appreciation of a constant share amount is excluded. Outflows are not subtracted. |
 
 **How monthly revenue is calculated**
 
 1. One Morpho GraphQL `userByAddress` query: V1 `vaultPositions.historicalState` +
    V2 `vaultV2Positions.history` (`shares` + `assets` + `assetsUsd`, `interval: DAY`).
-   No RPC, ABI, or Alchemy. Self-deposits come from `vaultV2transactions` (GraphQL).
+   No RPC, ABI, or Alchemy. Capital inflows come from `vaultV2transactions` (GraphQL).
 2. For each vault position, sort the DAY series. Income on day *t* =
    `max(shares(t) − shares(t−1), 0)` converted via `assets/shares` that day.
 3. USD = share-weight × `assetsUsd(t)`. Do **not** use
    `assetsUsd(t) − assetsUsd(t−1)` (that is mark-to-market).
-4. Subtract treasury self-deposits on the same UTC day, capped at that day's
-   booked share-increase income. Opening balance on the first history point is
-   not income — a self-deposit that created it (e.g. selling underlying shares
-   and depositing the wrappers) is not subtracted. Redeems / Rebater outflows
-   are not negative revenue.
+4. Subtract capital inflows on the same UTC day, capped at that day's booked
+   share-increase income. Capital is a deposit on behalf of the treasury (any
+   sender) or an inbound share transfer from a non-zero address. Fee-share
+   mints (`Transfer` from `address(0)`) are not subtracted. Opening balance on
+   the first history point is not income — a deposit that created it (e.g.
+   selling underlying shares and depositing the wrappers) is not subtracted.
+   Redeems / Rebater outflows are not negative revenue.
 5. Response always includes `statements`, `daily`, `vaults`, and `warning`. Cached
    30s via `withServerResponseCache` inside `computeTreasuryStatement()` —
-   **except** when `warning` is set (treasury self-deposits failed to load or were
-   cut off at the page limit, so revenue may be overstated): that result is served
-   uncached, the statement page shows the warning, and the dashboard marks
-   revenue "may be overstated". Months run from
+   **except** when `warning` is set (treasury deposits and inbound transfers failed
+   to load or were cut off at the page limit, so revenue may be overstated): that
+   result is served uncached, the statement page shows the warning, and the
+   dashboard marks revenue "may be overstated". Months run from
    the first month with income through the current month, including $0.00 gaps.
 
-**Why the graph can go negative without withdrawals**
+**Why a fund move can still show up**
 
-It should not from mark-to-market or from moving treasury capital into fee
-wrappers. A day can go slightly negative if a self-deposit is subtracted from a
-different GraphQL DAY bucket than the share increase. Unmatched opening
-deposits are ignored. Outflows are tracked on Rebater, not as negative revenue.
+A capital inflow is removed only when its UTC day matches the GraphQL DAY
+bucket that booked the share increase. A mismatch leaves that day overstated.
+The unmatched inflow is not applied to another day, so it does not create a
+negative day. Unmatched opening deposits are ignored. Outflows are tracked on
+Rebater, not as negative revenue.
 
 **Scope — what is / isn’t included**
 

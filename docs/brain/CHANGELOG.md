@@ -4,6 +4,19 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-10-28 — Chart days stay on UTC
+
+- TVL history, vault history, and the DefiLlama inflow fallback group samples by the UTC day. A point just after UTC midnight no longer lands on the previous local day. `app/api/protocol-stats/route.ts`, `lib/morpho/vault-history.ts`, `lib/defillama/service.ts`.
+
+---
+
+## 2026-10-28 — Treasury revenue ignores capital movement
+
+- Overview revenue, YTD, and the monthly statement no longer treat deposits or inbound share transfers as income. Fee mints (`Transfer` from `address(0)`) stay. Same-day match is still capped at booked share-increase income. `lib/morpho/compute-treasury-statement.ts`, `lib/morpho/treasury-transfers.ts`.
+- Chart day labels and the TVL-by-vault series use the UTC calendar day. A date-only string was shifting to the previous local day.
+
+---
+
 ## 2026-10-27 — Curator stays private
 
 - Public Overview / Vaults / Markets was built and then reverted: depositor info lives on app.muscadine.xyz and muscadine.xyz, and risk grades stay internal. The work is kept on branch `public-read` if it is revisited.

@@ -6,6 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { formatCompactUSD } from '@/lib/format/number';
 import { filterDataByRange, type TimeRange } from '@/lib/utils/date-filter';
+import { formatUtcChartTick, formatUtcTooltipDate } from '@/lib/utils/utc-calendar';
 import { TimeRangeFilter } from '@/components/charts/TimeRangeFilter';
 import { ViewModeFilter, type ChartViewMode } from '@/components/charts/ViewModeFilter';
 
@@ -55,10 +56,7 @@ export function ChartFees({
   }
 
   const formatTooltipValue = (value: number) => formatCompactUSD(value);
-  const formatXAxisLabel = (tickItem: string) => {
-    const date = new Date(tickItem);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
+  const formatXAxisLabel = (tickItem: string) => formatUtcChartTick(tickItem);
 
   const showToggle = dailyData && cumulativeData;
 
@@ -93,7 +91,9 @@ export function ChartFees({
                   return [formatTooltipValue(numValue), label];
                 }}
                 labelFormatter={(label) =>
-                  new Date(typeof label === 'string' || typeof label === 'number' ? label : String(label ?? '')).toLocaleDateString()
+                  formatUtcTooltipDate(
+                    typeof label === 'string' || typeof label === 'number' ? String(label) : String(label ?? '')
+                  )
                 }
               />
               <Line type="monotone" dataKey="value" stroke="#10b981" strokeWidth={2} dot={false} />

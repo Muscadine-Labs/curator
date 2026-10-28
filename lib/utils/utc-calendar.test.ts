@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { fromFirstNonZeroPeriod } from '@/lib/utils/utc-calendar';
+import { formatUtcTooltipDate, fromFirstNonZeroPeriod } from '@/lib/utils/utc-calendar';
 
 type Row = { month: string; income: number };
+
+describe('formatUtcTooltipDate', () => {
+  it('labels a date-only string as that UTC day', () => {
+    expect(formatUtcTooltipDate('2026-10-28')).toBe('Oct 28, 2026');
+  });
+});
 
 describe('fromFirstNonZeroPeriod', () => {
   it('drops leading zero periods and keeps trailing zero gaps', () => {

@@ -109,3 +109,15 @@ export function formatUtcChartTick(isoDate: string): string {
     timeZone: 'UTC',
   });
 }
+
+/** Full UTC calendar label for a `YYYY-MM-DD` (or ISO datetime) chart day. */
+export function formatUtcTooltipDate(isoDate: string): string {
+  const ms = utcDayStartMs(isoDate);
+  if (!Number.isFinite(ms)) return isoDate;
+  return new Date(ms).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}

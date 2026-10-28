@@ -21,6 +21,7 @@ import {
 } from '@/components/charts/MetricModeFilter';
 import { UsdTokenModeFilter, type AmountUnit } from '@/components/charts/UsdTokenModeFilter';
 import { filterDataByRange, type TimeRange } from '@/lib/utils/date-filter';
+import { formatUtcChartTick, formatUtcTooltipDate } from '@/lib/utils/utc-calendar';
 import {
   formatCompactNumber,
   formatCompactUSD,
@@ -213,10 +214,7 @@ export function VaultOverviewHistoryChart({
     }
   };
 
-  const formatXAxisLabel = (tickItem: string) => {
-    const date = new Date(tickItem);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
+  const formatXAxisLabel = (tickItem: string) => formatUtcChartTick(tickItem);
 
   const chartFilters = (
     <div className="flex flex-wrap items-center gap-2">
@@ -268,7 +266,7 @@ export function VaultOverviewHistoryChart({
             return (
               <div className="rounded-lg border bg-background p-2 shadow-md">
                 <p className="mb-1 text-xs font-medium">
-                  {new Date(label as string).toLocaleDateString()}
+                  {formatUtcTooltipDate(String(label ?? ''))}
                 </p>
                 <p className="text-xs">{formatTooltipValue(value, raw)}</p>
               </div>

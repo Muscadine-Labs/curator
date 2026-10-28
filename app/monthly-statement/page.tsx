@@ -593,8 +593,8 @@ export default function MonthlyStatementPage() {
           >
             Treasury wallet
           </Link>
-          . Income is daily vault-share increases (performance fees and inbound
-          transfers), valued at that day USD. Self-deposits and price
+          . Income is daily vault-share increases from fee mints, valued at the
+          USD price for that day. Deposits, inbound share transfers, and price
           appreciation are not counted. Outflows are not subtracted.<br />
           <span className="text-sm text-slate-600 dark:text-slate-400">
             Revenue flows periodically when vaults have activity.
