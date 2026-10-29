@@ -8,7 +8,7 @@ export function MuscadineSafeWorkspaceCard() {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border px-4 py-3">
       <p className="text-xs text-muted-foreground">
-        <span className="font-medium text-foreground">Muscadine Labs</span>
+        <span className="font-medium text-foreground">Muscadine</span>
         {' · '}
         Safe workspace for all vault-role multisigs
       </p>

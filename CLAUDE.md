@@ -1441,7 +1441,7 @@ top-nav **Curator**: Curator tools → Bots → Multisig Safe.
 | Sentinel | Cap decreases + deallocations queued here |
 | Treasury | Treasury multisig |
 
-Workspace link: Muscadine Labs on `app.safe.global` (`lib/safe/links.ts`).
+Workspace link: Muscadine on `app.safe.global` (`lib/safe/links.ts`).
 
 ### 13.2 Transaction flow
 

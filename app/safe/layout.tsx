@@ -46,7 +46,7 @@ export default function SafeLayout({ children }: { children: React.ReactNode }) 
   return (
     <AppShell
       title="Multisig Safe"
-      description="Muscadine Labs Safes on Base — view multisigs, sign queued vault transactions, and open the Safe workspace."
+      description="Muscadine Safes on Base — view multisigs, sign queued vault transactions, and open the Safe workspace."
     >
       <div className="space-y-6">
         <SafeAppModeBanner />
