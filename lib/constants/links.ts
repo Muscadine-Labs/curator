@@ -1,11 +1,10 @@
 import type { ExternalLinkItem, MorphoAutomationBot } from '@/lib/constants/types';
 
 /** Safe Developer Dashboard — API keys, Transaction Service, app registration. */
-export const SAFE_DEVELOPER_DASHBOARD_URL = 'https://developer.safe.global/login';
+export const SAFE_DEVELOPER_DASHBOARD_URL = 'https://developer.safe.global';
 
-/** Muscadine Labs Safe{Wallet} space on app.safe.global. */
-export const MUSCADINE_SAFE_SPACE_URL =
-  'https://app.safe.global/spaces?spaceId=2510f9d4-505e-4da8-8e40-2d55d721ae0a';
+/** Safe{Wallet}. */
+export const MUSCADINE_SAFE_SPACE_URL = 'https://app.safe.global';
 
 export const MUSCADINE_DOMAINS: readonly ExternalLinkItem[] = [
   { name: 'Muscadine', url: 'https://muscadine.xyz', description: 'Website' },
@@ -14,19 +13,9 @@ export const MUSCADINE_DOMAINS: readonly ExternalLinkItem[] = [
 ];
 
 export const MUSCADINE_DEVELOPMENT_LINKS: readonly ExternalLinkItem[] = [
-  { name: 'GitHub', url: 'https://github.com/Muscadine-Labs', description: 'Muscadine-Labs' },
-  { name: 'Vercel', url: 'https://vercel.com/muscadine-labs', description: 'muscadine-labs' },
-  {
-    name: 'Google Drive',
-    url: 'https://drive.google.com/drive/u/1/folders/15YowG9xg376DzOftvXj2vQvTeXX9cZJc',
-    description: 'Drive folder',
-    displayText: 'drive.google.com',
-  },
+  { name: 'GitHub', url: 'https://github.com', description: 'github.com' },
+  { name: 'Vercel', url: 'https://vercel.com', description: 'vercel.com' },
   { name: 'Cloudflare', url: 'https://www.cloudflare.com/', description: 'DNS and CDN' },
-];
-
-export const MUSCADINE_BUSINESS_SERVICES: readonly ExternalLinkItem[] = [
-  { name: 'Georgia Secretary of State', url: 'https://ecorp.sos.ga.gov/', description: 'ecorp.sos.ga.gov' },
 ];
 
 export const MUSCADINE_SAFE_LINKS: readonly ExternalLinkItem[] = [
@@ -70,8 +59,6 @@ export const MORPHO_ORACLE_PORTAL_URL = 'https://oracles.morpho.dev/';
 /** Muscadine fork of the Morpho bots monorepo (downstream changes live on `main`). */
 export const MUSCADINE_BOTS_GITHUB_URL =
   'https://github.com/Muscadine-Labs/muscadine-bots';
-/** Upstream implementation the fork tracks. */
-export const MORPHO_BOTS_GITHUB_URL = 'https://github.com/morpho-org/morpho-bots';
 export const MUSCADINE_VAULT_BOT_TELEGRAM_URL = 'https://t.me/MuscadineVaultBot';
 
 export const MORPHO_AUTOMATION_BOTS: readonly MorphoAutomationBot[] = [
@@ -82,13 +69,5 @@ export const MORPHO_AUTOMATION_BOTS: readonly MorphoAutomationBot[] = [
     body: 'Muscadine-Labs/muscadine-bots — allocator, sentinel, and rebater bots with liquidityAwareUtilBand and rankedYieldWithGuards strategies. Live alerts via @MuscadineVaultBot.',
     href: MUSCADINE_BOTS_GITHUB_URL,
     telegramHref: MUSCADINE_VAULT_BOT_TELEGRAM_URL,
-    upstreamRepoHref: MORPHO_BOTS_GITHUB_URL,
-  },
-  {
-    title: 'Morpho Bots (upstream)',
-    description:
-      'Upstream Morpho curator bots monorepo — Blue liquidation, Midnight bots, and shared bot-kit runtime.',
-    body: 'Unified bun workspaces monorepo for Morpho off-chain curator bots: blue-liquidation, midnight-liquidation, kill-switch, and shared packages (@repo/bot-kit, @repo/swaps, @repo/contracts). Upstream source for the Muscadine fork.',
-    href: MORPHO_BOTS_GITHUB_URL,
   },
 ];
