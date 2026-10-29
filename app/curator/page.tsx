@@ -238,17 +238,6 @@ export default function CuratorToolsPage() {
                     </span>
                   </a>
                   <div className="mt-1 flex shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 text-xs">
-                    {bot.upstreamRepoHref ? (
-                      <a
-                        href={bot.upstreamRepoHref}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-muted-foreground hover:underline"
-                        title="Upstream implementation"
-                      >
-                        morpho-bots
-                      </a>
-                    ) : null}
                     {bot.telegramHref ? (
                       <a
                         href={bot.telegramHref}
