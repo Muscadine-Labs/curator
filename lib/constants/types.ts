@@ -14,5 +14,4 @@ export type MorphoAutomationBot = {
   /** Optional Telegram bot for live alerts. */
   telegramHref?: string;
   /** Repo the fork tracks upstream. */
-  upstreamRepoHref?: string;
 };

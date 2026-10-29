@@ -4,7 +4,6 @@ import { AppShell } from '@/components/layout/AppShell';
 import { ExternalLinkCard } from '@/components/overview/ExternalLinkCard';
 import { DevelopmentLinksSection } from '@/components/overview/DevelopmentLinksSection';
 import {
-  MUSCADINE_BUSINESS_SERVICES,
   MUSCADINE_DEVELOPMENT_LINKS,
   MUSCADINE_DOMAINS,
   MUSCADINE_SAFE_LINKS,
@@ -30,7 +29,7 @@ export default function MuscadinePagesPage() {
 
         <div>
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            GitHub, Vercel, Cloudflare & Google Drive
+            GitHub, Vercel & Cloudflare
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {MUSCADINE_DEVELOPMENT_LINKS.map((item) => (
@@ -39,16 +38,6 @@ export default function MuscadinePagesPage() {
           </div>
         </div>
 
-        <div>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Business Services
-          </h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {MUSCADINE_BUSINESS_SERVICES.map((item) => (
-              <ExternalLinkCard key={item.url} {...item} />
-            ))}
-          </div>
-        </div>
 
         <div>
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
