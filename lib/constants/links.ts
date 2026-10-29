@@ -3,7 +3,7 @@ import type { ExternalLinkItem, MorphoAutomationBot } from '@/lib/constants/type
 /** Safe Developer Dashboard — API keys, Transaction Service, app registration. */
 export const SAFE_DEVELOPER_DASHBOARD_URL = 'https://developer.safe.global/login';
 
-/** Muscadine Labs Safe{Wallet} space on app.safe.global. */
+/** Muscadine Safe{Wallet} space on app.safe.global. */
 export const MUSCADINE_SAFE_SPACE_URL =
   'https://app.safe.global/spaces?spaceId=2510f9d4-505e-4da8-8e40-2d55d721ae0a';
 
