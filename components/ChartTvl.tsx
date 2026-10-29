@@ -6,6 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { formatCompactUSD } from '@/lib/format/number';
 import { filterDataByRange, type TimeRange } from '@/lib/utils/date-filter';
+import { formatUtcChartTick, formatUtcTooltipDate } from '@/lib/utils/utc-calendar';
 import { TimeRangeFilter } from '@/components/charts/TimeRangeFilter';
 import { SourceModeFilter, type ChartSourceMode } from '@/components/charts/SourceModeFilter';
 
@@ -60,20 +61,16 @@ export function ChartTvl({
     }
 
     const normalizedVaultData = filteredVaultData.map((vault) => {
-      const dayMap = new Map<string, { date: string; value: number; timestamp: number }>();
+      const dayMap = new Map<string, { date: string; value: number; source: string }>();
 
       vault.data.forEach((point) => {
-        const pointDate = new Date(point.date);
-        const normalizedDate = new Date(pointDate);
-        normalizedDate.setHours(0, 0, 0, 0);
-        const dateKey = normalizedDate.toISOString();
-
+        const dateKey = point.date.slice(0, 10);
         const existing = dayMap.get(dateKey);
-        if (!existing || pointDate.getTime() > existing.timestamp) {
+        if (!existing || point.date >= existing.source) {
           dayMap.set(dateKey, {
             date: dateKey,
             value: point.value,
-            timestamp: pointDate.getTime(),
+            source: point.date,
           });
         }
       });
@@ -96,8 +93,8 @@ export function ChartTvl({
       });
     });
 
-    return Array.from(dateMap.values()).sort(
-      (a, b) => new Date(a.date as string).getTime() - new Date(b.date as string).getTime()
+    return Array.from(dateMap.values()).sort((a, b) =>
+      String(a.date).localeCompare(String(b.date))
     ) as Array<{ date: string; [key: string]: number | string }>;
   }, [viewMode, filteredTotalData, filteredVaultData]);
 
@@ -136,10 +133,7 @@ export function ChartTvl({
   }
 
   const formatTooltipValue = (value: number) => formatCompactUSD(value);
-  const formatXAxisLabel = (tickItem: string) => {
-    const date = new Date(tickItem);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
+  const formatXAxisLabel = (tickItem: string) => formatUtcChartTick(tickItem);
 
   const customTooltipContent = (props: {
     active?: boolean;
@@ -173,7 +167,7 @@ export function ChartTvl({
     return (
       <div className="max-w-[calc(100vw-2rem)] rounded-lg border bg-background p-2 shadow-md sm:max-w-none sm:p-3">
         <p className="mb-2 text-xs font-medium sm:text-sm">
-          {new Date(label as string).toLocaleDateString()}
+          {formatUtcTooltipDate(String(label ?? ''))}
         </p>
         <div className="max-h-[60vh] space-y-1 overflow-y-auto">
           {sortedPayload.map((entry) => (

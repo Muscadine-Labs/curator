@@ -15,6 +15,8 @@ npm run lint    # eslint . --max-warnings=0 (ESLint 9 + eslint-config-next — s
 npm run build   # next build
 ```
 
+5. **Git, branches and PRs:** commit, create feature branches, push them and open PRs without asking first. **Never push to, commit directly on, force-push, or merge into `main`** — changes reach `main` only through a PR the user merges.
+
 ## Key invariants (do not regress)
 
 - **Auth:** the only login username is `admin` (role `'admin'`); password from
@@ -173,8 +175,8 @@ npm run build   # next build
 - **Token display decimals** — `getTokenDisplayDecimals`: WETH/cbBTC → 6, USDC → 3
   (holders, txs, allocation history, markets token lines).
 - **Dependency pins** — ESLint **9.39.x**, wagmi **2.19.x**, TypeScript **6.0.x**
-  (`typescript-eslint` peers `<6.1.0`), ox **0.14.x**, Vitest **4.x**. Do not
-  bump ESLint 10, wagmi 3, TypeScript 7, ox 1, or Vitest 5 (§11).
+  (`typescript-eslint` peers `<6.1.0`), ox **0.14.x**, Vitest **5.0.x**. Do not
+  bump ESLint 10, wagmi 3, TypeScript 7, or ox 1 (§11).
 - Keep `docs/brain/` (changelog + MCP), `CLAUDE.md`, `AGENTS.md`, and `TODO.md`
   in sync with behavior changes (closed loop).
 

@@ -1,4 +1,5 @@
 import { gql } from 'graphql-request';
+import { utcDayKeyFromTimestamp } from '@/lib/utils/utc-calendar';
 
 export type MorphoTimeseriesPoint = { x?: number | null; y?: number | null };
 
@@ -62,9 +63,7 @@ export const VAULT_V2_HISTORY_QUERY = gql`
 `;
 
 function dayKeyFromTimestamp(seconds: number): string {
-  const d = new Date(seconds * 1000);
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
+  return utcDayKeyFromTimestamp(seconds);
 }
 
 /** Normalize Morpho `{x,y}` points to one value per calendar day (latest sample wins). */
@@ -89,7 +88,7 @@ export function mapMorphoTimeseries(
 
   return Array.from(dayMap.values())
     .map(({ date, value }) => ({ date, value }))
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export function mapMorphoTimeseriesRaw(
@@ -112,7 +111,7 @@ export function mapMorphoTimeseriesRaw(
 
   return Array.from(dayMap.values())
     .map(({ date, value }) => ({ date, value }))
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 /** USD per share from `totalAssetsUsd / totalSupply` (V2 has no indexed `sharePriceUsd`). */

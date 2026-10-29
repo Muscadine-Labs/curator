@@ -1,10 +1,11 @@
 /**
  * Treasury vault share transfers (GraphQL).
- * Used by Bots → Rebater for outflows. Monthly income is GraphQL daily token
- * change in `compute-treasury-statement.ts`, not this transfer list.
+ * Used by Bots → Rebater for outflows, and by the monthly statement to remove
+ * capital inflows (deposits and non-mint transfers) from fee revenue.
  */
 import { gql } from 'graphql-request';
-import { getAddress, isAddress } from 'viem';
+import { formatUnits, getAddress, isAddress, zeroAddress } from 'viem';
+import { bigintRatio } from '@/lib/format/bigint-ratio';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
 import {
@@ -180,6 +181,54 @@ function classify(
   }
 
   return null;
+}
+
+/**
+ * Capital that increased the treasury's share balance and is not fee income.
+ * Deposits on behalf of the treasury are capital. Inbound transfers from a
+ * real address are capital. A transfer from address(0) is a share mint (fees).
+ */
+export function isPrincipalCapitalInflow(
+  transfer: Pick<TreasuryVaultTransfer, 'direction' | 'type' | 'counterparty'>
+): boolean {
+  if (transfer.direction !== 'in') return false;
+  if (transfer.type === 'Deposit') return true;
+  if (transfer.type !== 'Transfer') return false;
+  const from = transfer.counterparty?.toLowerCase() ?? '';
+  if (!from || from === zeroAddress) return false;
+  return true;
+}
+
+/**
+ * Underlying tokens for a capital inflow. Uses indexed assets when present,
+ * otherwise the day's assets-per-share so a transfer with only `shares` still
+ * matches booked income.
+ */
+export function capitalInflowTokens(input: {
+  assetsRaw: string | null;
+  assetDecimals: number;
+  sharesRaw: string;
+  dayShares: bigint | null;
+  dayTokens: number;
+}): number {
+  if (input.assetsRaw) {
+    try {
+      const tokens = Number(formatUnits(BigInt(input.assetsRaw), input.assetDecimals));
+      if (Number.isFinite(tokens) && tokens > 0) return tokens;
+    } catch {
+      // Fall through to the share-balance ratio.
+    }
+  }
+  if (input.dayShares == null || input.dayShares <= 0n || !(input.dayTokens > 0)) return 0;
+  let shares: bigint;
+  try {
+    shares = BigInt(input.sharesRaw);
+  } catch {
+    return 0;
+  }
+  if (shares <= 0n) return 0;
+  const tokens = bigintRatio(shares, input.dayShares) * input.dayTokens;
+  return tokens > 0 ? tokens : 0;
 }
 
 function mapItem(treasury: string, item: TxItem): TreasuryVaultTransfer | null {

@@ -34,6 +34,7 @@ import {
   getTvlByTokenSeries,
 } from '@/lib/defillama/service';
 import { unauthorizedUnlessAdmin } from '@/lib/auth/require-admin';
+import { utcDayKeyFromTimestamp, utcTodayStartMs } from '@/lib/utils/utc-calendar';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -71,28 +72,24 @@ function normalizeDailyPoints(
 
   for (const point of raw) {
     if (point.x == null || point.y == null) continue;
-    const pointDate = new Date(point.x * 1000);
-    const normalized = new Date(pointDate);
-    normalized.setHours(0, 0, 0, 0);
-    const dateKey = normalized.toISOString();
+    const timestamp = point.x * 1000;
+    const dateKey = utcDayKeyFromTimestamp(point.x);
     const existing = dayMap.get(dateKey);
-    if (!existing || pointDate.getTime() > existing.timestamp) {
-      dayMap.set(dateKey, { date: dateKey, value: point.y, timestamp: pointDate.getTime() });
+    if (!existing || timestamp > existing.timestamp) {
+      dayMap.set(dateKey, { date: dateKey, value: point.y, timestamp });
     }
   }
 
   return Array.from(dayMap.values())
     .map(({ date, value }) => ({ date, value }))
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 function appendCurrentTvlPoint(
   dataPoints: Array<{ date: string; value: number }>,
   currentTvl: number
 ): Array<{ date: string; value: number }> {
-  const normalizedCurrentDate = new Date();
-  normalizedCurrentDate.setHours(0, 0, 0, 0);
-  const today = normalizedCurrentDate.toISOString();
+  const today = utcDayKeyFromTimestamp(Math.floor(utcTodayStartMs() / 1000));
 
   if (dataPoints.length === 0) {
     return currentTvl > 0 ? [{ date: today, value: currentTvl }] : [];

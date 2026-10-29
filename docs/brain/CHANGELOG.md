@@ -4,6 +4,38 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-10-28 — Treasury income dated to the day it happened
+
+- Morpho DAY points are 00:00 UTC balances, so the point on day D+1 closes day D. Share increases (and the day price / share snapshots) are now keyed by the day the point closes (`utcDayClosedBySnapshot`). Before, every increase landed one day after the deposit that caused it, the same-day match missed, and treasury deposits stayed in revenue: all-time revenue $795.70 → $237.17, October $362.53 → $13.68. `lib/morpho/compute-treasury-statement.ts`, `lib/utils/utc-calendar.ts`.
+
+---
+
+## 2026-10-28 — Chart days stay on UTC
+
+- TVL history, vault history, and the DefiLlama inflow fallback group samples by the UTC day. A point just after UTC midnight no longer lands on the previous local day. `app/api/protocol-stats/route.ts`, `lib/morpho/vault-history.ts`, `lib/defillama/service.ts`.
+
+---
+
+## 2026-10-28 — Treasury revenue ignores capital movement
+
+- Overview revenue, YTD, and the monthly statement no longer treat deposits or inbound share transfers as income. Fee mints (`Transfer` from `address(0)`) stay. Same-day match is still capped at booked share-increase income. `lib/morpho/compute-treasury-statement.ts`, `lib/morpho/treasury-transfers.ts`.
+- Chart day labels and the TVL-by-vault series use the UTC calendar day. A date-only string was shifting to the previous local day.
+
+---
+
+## 2026-10-27 — Curator stays private
+
+- Public Overview / Vaults / Markets was built and then reverted: depositor info lives on app.muscadine.xyz and muscadine.xyz, and risk grades stay internal. The work is kept on branch `public-read` if it is revisited.
+
+---
+
+## 2026-10-27 — Analytics site retired; git rules
+
+- `analytics.muscadine.xyz` is deprecated. Its link is removed from the Muscadine domains list (`lib/constants/links.ts`). Vault details for depositors now live on the app's vault pages.
+- CLAUDE.md / AGENTS.md: AI assistants may commit, push feature branches and open PRs; never push to or merge into `main`.
+
+---
+
 ## 2026-10-10 — PR review fixes for the October Done items
 
 - Dependency pins restored: ESLint 9, `@eslint/js` 9, Vitest 4 (no direct `vite`). Lockfile regenerated.

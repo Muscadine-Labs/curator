@@ -1,10 +1,11 @@
 /**
  * Treasury income from Morpho GraphQL daily share-balance history (no RPC / ABI).
  *
- * Income = positive day-over-day **share** change (fee mints + inbound share
- * transfers), valued at that day's USD per share. Self-deposits (GraphQL Deposit
- * where sender is the treasury) are subtracted only up to income already booked
- * for that vault on the same UTC day. Opening deposits — including
+ * Income = positive day-over-day **share** change, valued at that day's USD per
+ * share. Fee mints stay. Capital inflows are subtracted only up to income
+ * already booked for that vault on the same UTC day: deposits on behalf of the
+ * treasury, and inbound share transfers from a non-zero address. A transfer
+ * from address(0) is a fee mint, not capital. Opening deposits — including
  * redeem-underlying → deposit-wrapper migrations — are not income and are not
  * subtracted. Yield and price moves on a constant share balance are not income.
  * Outflows are not subtracted.
@@ -27,10 +28,15 @@ import {
   creditIncomeBucket,
   takeMatchedIncome,
 } from '@/lib/morpho/treasury-self-deposit';
-import { fetchTreasuryVaultTransfers } from '@/lib/morpho/treasury-transfers';
+import {
+  capitalInflowTokens,
+  fetchTreasuryVaultTransfers,
+  isPrincipalCapitalInflow,
+} from '@/lib/morpho/treasury-transfers';
 import { resolveAssetDecimals } from '@/lib/format/asset-decimals';
 import { bigintRatio } from '@/lib/format/bigint-ratio';
 import {
+  utcDayClosedBySnapshot,
   utcDayKeyFromTimestamp,
   utcMonthKeyFromTimestamp,
   utcMonthsFrom,
@@ -63,8 +69,9 @@ export interface TreasuryStatementResult {
   daily: Array<{ date: string; value: number }>;
   vaults: VaultMonthlyData[];
   /**
-   * Set when treasury self-deposits could not be fully loaded. Those deposits
-   * are then not subtracted, so revenue is overstated; the result is not cached.
+   * Set when treasury capital inflows could not be fully loaded. Deposits and
+   * inbound transfers are then not subtracted, so revenue is overstated; the
+   * result is not cached.
    */
   warning: string | null;
 }
@@ -253,7 +260,8 @@ function incomesFromHistory(
     out.push({
       vaultAddress,
       asset,
-      timestamp: cur.x,
+      // The share change happened during the day this point closes, where deposits are dated.
+      timestamp: cur.x - 1,
       tokens,
       usd,
     });
@@ -383,6 +391,7 @@ async function computeTreasuryStatementUncached(): Promise<TreasuryStatementResu
   const vaultMonthlyMap = new Map<string, VaultMonthlyData>();
   const dailyMap = new Map<string, number>();
   const priceByVaultDay = new Map<string, number>();
+  const positionByVaultDay = new Map<string, { shares: bigint; tokens: number }>();
   const remainingIncome = new Map<string, { tokens: number; usd: number }>();
   let positionCount = 0;
   let inflowCount = 0;
@@ -405,8 +414,16 @@ async function computeTreasuryStatementUncached(): Promise<TreasuryStatementResu
       decimals
     );
     for (const p of points) {
+      // End-of-day balance and price, keyed by the day the point closes.
+      const day = utcDayClosedBySnapshot(p.x);
       if (p.tokens > 0 && p.usd != null && p.usd > 0) {
-        priceByVaultDay.set(`${vaultAddress}|${utcDayKeyFromTimestamp(p.x)}`, p.usd / p.tokens);
+        priceByVaultDay.set(`${vaultAddress}|${day}`, p.usd / p.tokens);
+      }
+      if (p.shares > 0n && p.tokens > 0) {
+        positionByVaultDay.set(`${vaultAddress}|${day}`, {
+          shares: p.shares,
+          tokens: p.tokens,
+        });
       }
     }
 
@@ -425,26 +442,25 @@ async function computeTreasuryStatementUncached(): Promise<TreasuryStatementResu
     }
   }
 
-  let depositCount = 0;
-  let unmatchedSelfDeposits = 0;
-  const selfDeposits = transferFetch.transfers
-    .filter((dep) => dep.isSelfDeposit && dep.asset && includeVault(dep.vaultAddress))
+  let capitalInflowsExcluded = 0;
+  let unmatchedCapitalInflows = 0;
+  const capitalInflows = transferFetch.transfers
+    .filter((row) => isPrincipalCapitalInflow(row) && row.asset && includeVault(row.vaultAddress))
     .sort((a, b) => a.timestamp - b.timestamp);
-  for (const dep of selfDeposits) {
-    const asset = dep.asset;
+  for (const row of capitalInflows) {
+    const asset = row.asset;
     if (!asset) continue;
-    const vaultAddress = dep.vaultAddress.toLowerCase();
-    const decimals = dep.assetDecimals;
-    let tokens = 0;
-    if (dep.assetsRaw) {
-      try {
-        tokens = humanFromRaw(BigInt(dep.assetsRaw), decimals);
-      } catch {
-        tokens = 0;
-      }
-    }
+    const vaultAddress = row.vaultAddress.toLowerCase();
+    const day = utcDayKeyFromTimestamp(row.timestamp);
+    const snap = positionByVaultDay.get(`${vaultAddress}|${day}`);
+    const tokens = capitalInflowTokens({
+      assetsRaw: row.assetsRaw,
+      assetDecimals: row.assetDecimals,
+      sharesRaw: row.sharesRaw,
+      dayShares: snap?.shares ?? null,
+      dayTokens: snap?.tokens ?? 0,
+    });
     if (!(tokens > 0)) continue;
-    const day = utcDayKeyFromTimestamp(dep.timestamp);
     const price =
       priceByVaultDay.get(`${vaultAddress}|${day}`) ?? (asset === 'USDC' ? 1 : null);
     const usd = price != null ? tokens * price : 0;
@@ -453,17 +469,17 @@ async function computeTreasuryStatementUncached(): Promise<TreasuryStatementResu
       usd,
     });
     if (!matched) {
-      unmatchedSelfDeposits += 1;
+      unmatchedCapitalInflows += 1;
       continue;
     }
     subtractIncome(monthlyStatements, vaultMonthlyMap, dailyMap, {
       vaultAddress,
       asset,
-      timestamp: dep.timestamp,
+      timestamp: row.timestamp,
       tokens: matched.tokens,
       usd: matched.usd,
     });
-    depositCount += 1;
+    capitalInflowsExcluded += 1;
   }
 
   const daily: Array<{ date: string; value: number }> = [];
@@ -506,16 +522,16 @@ async function computeTreasuryStatementUncached(): Promise<TreasuryStatementResu
   logger.info('Monthly statement from GraphQL daily share change', {
     positions: positionCount,
     inflowDays: inflowCount,
-    selfDepositsExcluded: depositCount,
-    unmatchedSelfDeposits,
+    capitalInflowsExcluded,
+    unmatchedCapitalInflows,
     transferError: transferFetch.error,
     monthsWithData: statements.length,
   });
 
   const warning = transferFetch.error
-    ? 'Treasury self-deposits could not be loaded, so they are not subtracted — revenue may be overstated. Retry shortly.'
+    ? 'Treasury deposits and inbound transfers could not be loaded, so capital movements are still in revenue — revenue may be overstated. Retry shortly.'
     : transferFetch.truncated
-      ? 'Treasury transfer history was cut off at the page limit, so older self-deposits may not be subtracted — revenue may be overstated.'
+      ? 'Treasury transfer history was cut off at the page limit, so older deposits and inbound transfers may still be in revenue — revenue may be overstated.'
       : null;
 
   return {
@@ -528,7 +544,7 @@ async function computeTreasuryStatementUncached(): Promise<TreasuryStatementResu
 
 export function computeTreasuryStatement(): Promise<TreasuryStatementResult> {
   return withServerResponseCache(
-    'treasury-statement-daily-shares-v4',
+    'treasury-statement-daily-shares-v6',
     API_CACHE_MAX_AGE_MS,
     computeTreasuryStatementUncached,
     (result) => result.warning == null

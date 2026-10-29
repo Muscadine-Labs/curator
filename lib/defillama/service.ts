@@ -6,6 +6,7 @@
 
 import { EXTERNAL_API_TIMEOUT_MS } from '@/lib/constants';
 import { logger } from '@/lib/utils/logger';
+import { utcDayKeyFromTimestamp, utcDayStartMs } from '@/lib/utils/utc-calendar';
 
 /** Current free DefiLlama API (not the retired adapter v1 fetch). Fees: `/summary/fees/{slug}`. TVL: `/protocol/{slug}`. */
 const DEFILLAMA_API_BASE = 'https://api.llama.fi';
@@ -247,6 +248,11 @@ export function getCumulativeRevenueChart(response: DefiLlamaRevenueResponse): C
   });
 }
 
+/** Unix seconds at the start of the UTC day that contains `timestampSec`. */
+function utcDayStartSec(timestampSec: number): number {
+  return Math.floor(utcDayStartMs(utcDayKeyFromTimestamp(timestampSec)) / 1000);
+}
+
 /**
  * Get daily inflows chart data
  * Formula: Inflows = Deposits - Withdrawals (net asset flow, excluding interest and price changes)
@@ -316,11 +322,8 @@ export function getDailyInflowsChart(
   const feesMap = new Map<number, number>();
   if (feesResponse?.totalDataChart) {
     feesResponse.totalDataChart.forEach(([timestamp, dailyFees]) => {
-      // Normalize timestamp to start of day for matching
-      const date = new Date(timestamp * 1000);
-      date.setHours(0, 0, 0, 0);
-      const dayTimestamp = Math.floor(date.getTime() / 1000);
-      feesMap.set(dayTimestamp, (dailyFees || 0));
+      const dayTimestamp = utcDayStartSec(timestamp);
+      feesMap.set(dayTimestamp, dailyFees || 0);
     });
   }
 
@@ -329,11 +332,7 @@ export function getDailyInflowsChart(
   for (let i = 1; i < protocolResponse.tvl.length; i++) {
     const prev = protocolResponse.tvl[i - 1];
     const curr = protocolResponse.tvl[i];
-    
-    // Normalize date to start of day for matching
-    const currDate = new Date(curr.date * 1000);
-    currDate.setHours(0, 0, 0, 0);
-    const currDayTimestamp = Math.floor(currDate.getTime() / 1000);
+    const currDayTimestamp = utcDayStartSec(curr.date);
     
     const tvlChange = curr.totalLiquidityUSD - prev.totalLiquidityUSD;
     const interest = feesMap.get(currDayTimestamp) || 0;

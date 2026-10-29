@@ -37,6 +37,7 @@ import {
 } from '@/lib/format/number';
 import { getTokenDisplayDecimals } from '@/lib/format/asset-decimals';
 import { getScanUrlForChain, BASE_CHAIN_ID } from '@/lib/constants';
+import { formatUtcTooltipDate } from '@/lib/utils/utc-calendar';
 import { DepositorAddress } from '@/components/DepositorAddress';
 
 export type ProtocolStatKey = 'tvl' | 'fees' | 'users' | 'vaults';
@@ -673,7 +674,7 @@ function FeesDetail({ stats }: { stats: ProtocolStats }) {
           {paged.map((d) => (
             <TableRow key={d.date}>
               <TableCell className="text-xs">
-                {new Date(d.date).toLocaleDateString()}
+                {formatUtcTooltipDate(d.date)}
               </TableCell>
               <TableCell className="text-right font-mono text-xs">
                 {formatFullUSD(d.value)}
