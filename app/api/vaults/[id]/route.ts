@@ -25,7 +25,6 @@ type V2VaultGraphQL = {
   warnings?: Array<{ type?: string; level?: string }>;
   metadata?: {
     description?: string | null;
-    forumLink?: string | null;
     image?: string | null;
   } | null;
   asset?: {
@@ -67,7 +66,6 @@ const VAULT_V2_DETAIL_QUERY = gql`
       listed
       metadata {
         description
-        forumLink
         image
       }
       asset { address symbol decimals }

@@ -146,7 +146,6 @@ export interface VaultDetail extends VaultWithData {
   metadata?: {
     description?: string | null;
     image?: string | null;
-    forumLink?: string | null;
     curators?: Array<{ image?: string | null; name?: string | null; url?: string | null }>;
   };
   roles?: {
