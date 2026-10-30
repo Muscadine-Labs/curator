@@ -4,6 +4,12 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-10-30 — Vault pages failed: Morpho removed `forumLink`
+
+- Morpho dropped `VaultV2Metadata.forumLink`. The V2 detail query in `app/api/vaults/[id]/route.ts` still asked for it, so Morpho rejected the whole query, the route returned 502, and every vault page showed "Failed to fetch vault". Removed the field from the query and both types. Every other curator query was validated against the live schema and is fine. Added to CLAUDE.md §4.4.1.
+
+---
+
 ## 2026-10-28 — Treasury income dated to the day it happened
 
 - Morpho DAY points are 00:00 UTC balances, so the point on day D+1 closes day D. Share increases (and the day price / share snapshots) are now keyed by the day the point closes (`utcDayClosedBySnapshot`). Before, every increase landed one day after the deposit that caused it, the same-day match missed, and treasury deposits stayed in revenue: all-time revenue $795.70 → $237.17, October $362.53 → $13.68. `lib/morpho/compute-treasury-statement.ts`, `lib/utils/utc-calendar.ts`.

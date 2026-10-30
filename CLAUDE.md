@@ -608,6 +608,7 @@ V1 detail.
 | `Query.transactions` | `vaultV2transactions` | Vault overview snippet in `app/api/vaults/[id]/route.ts` |
 | `VaultState.avgApy`, `monthlyNetApy`, `weeklyNetApy`, `dailyApy`, `netApyWithoutRewards`, … | Removed — use `apy`, `netApy`, `avgNetApy`, `netApyExcludingRewards` | V1 detail + list |
 | V2 spot `avgApy` on vault | Use `apy`, `avgNetApy`, `maxApy` | V2 detail + list |
+| `VaultV2Metadata.forumLink` | Removed — query `description` and `image` only | V2 detail (`app/api/vaults/[id]/route.ts`); its absence broke every vault page with "Failed to fetch vault" (502) |
 
 **GraphQL client** — `lib/morpho/graphql-client.ts` uses `rawRequest` and logs
 `extensions.warnings` (Morpho deprecation notices) via `lib/utils/logger.ts`.
