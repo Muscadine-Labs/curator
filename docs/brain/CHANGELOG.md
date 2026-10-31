@@ -4,6 +4,16 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-10-31 — Gate logs failed: Blockscout blocks server requests
+
+- `/curator/gates` always said "Could not load the gate's logs". `base.blockscout.com/api` now answers server requests with a Cloudflare bot challenge (HTTP 403 HTML), so the only log source never worked. Basescan via Etherscan V2 needs a paid plan for Base, and free Alchemy caps `eth_getLogs` at 10 blocks.
+- `lib/morpho/send-assets-gate-roster.server.ts` now tries Blockscout PRO API (`BLOCKSCOUT_API_KEY`, free) → Etherscan V2 (`ETHERSCAN_API_KEY`) → keyless Blockscout → one full-range `eth_getLogs` on the server RPC. The response carries `rosterScan.reason` (per-source failure, no URLs or keys) and the panel shows it.
+- Fixed pagination: a full 1,000-log page restarted from `lastBlock + 1`, skipping the rest of that block. It now restarts from `lastBlock`. Hitting the page limit reports `failed` instead of `complete`. Explorer fetches time out after 15s. Successful lookups are cached 30s.
+- Client error readers in Safe settings/history/balances/info, the gate panel, and Curator markets hooks use `apiErrorMessage`.
+- Tests: `send-assets-gate-roster.test.ts` (challenge, keyed source, page boundary), new `allocation-dust.test.ts`.
+
+---
+
 ## 2026-10-30 — Vault pages failed: Morpho removed `forumLink`
 
 - Morpho dropped `VaultV2Metadata.forumLink`. The V2 detail query in `app/api/vaults/[id]/route.ts` still asked for it, so Morpho rejected the whole query, the route returned 502, and every vault page showed "Failed to fetch vault". Removed the field from the query and both types. Every other curator query was validated against the live schema and is fine. Added to CLAUDE.md §4.4.1.

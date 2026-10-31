@@ -35,9 +35,10 @@ export type SendAssetsGateState = {
   accounts: GateAccountStatus[];
   /**
    * `complete` means every log the gate emitted was read.
-   * `failed` means that lookup did not answer, so only configured accounts are listed.
+   * `failed` means no log source answered in full, so accounts set elsewhere may be missing.
+   * `reason` says which sources failed and why.
    */
-  rosterScan: { status: GateRosterStatus };
+  rosterScan: { status: GateRosterStatus; reason?: string };
 };
 
 export async function GET(
@@ -152,7 +153,7 @@ export async function GET(
       label: configured.label,
       roleSetter,
       accounts: accountStatus,
-      rosterScan: { status: roster.status },
+      rosterScan: { status: roster.status, reason: roster.reason },
     };
     return NextResponse.json(response, {
       headers: mergeApiOnChainVaultHeaders(rateLimitResult.headers),

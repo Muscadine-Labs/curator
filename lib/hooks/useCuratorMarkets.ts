@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { apiFetch } from '@/lib/data/api-fetch';
+import { apiFetch, apiErrorMessage } from '@/lib/data/api-fetch';
 import { DASHBOARD_QUERY_OPTIONS, ON_CHAIN_VAULT_QUERY_OPTIONS } from '@/lib/data/query-config';
 import type { CuratorMarketDetail, CuratorMarketListItem } from '@/lib/morpho/curator-markets';
 import type {
@@ -20,8 +20,7 @@ type CuratorMarketDetailResponse = {
 async function fetchCuratorMarkets(chainId: number): Promise<CuratorMarketsResponse> {
   const res = await apiFetch(`/api/markets?chainId=${chainId}`);
   if (!res.ok) {
-    const json = await res.json().catch(() => ({}));
-    throw new Error(json.message || json.error || 'Failed to fetch markets');
+    throw new Error(await apiErrorMessage(res, 'Failed to fetch markets'));
   }
   return res.json();
 }
@@ -34,8 +33,7 @@ async function fetchCuratorMarketDetail(
     `/api/markets/${encodeURIComponent(marketId)}?chainId=${chainId}`
   );
   if (!res.ok) {
-    const json = await res.json().catch(() => ({}));
-    throw new Error(json.message || json.error || 'Failed to fetch market');
+    throw new Error(await apiErrorMessage(res, 'Failed to fetch market'));
   }
   return res.json();
 }
@@ -79,8 +77,7 @@ export function useMidnightMarketDetail(
         `/api/markets/midnight/${encodeURIComponent(marketId)}?chainId=${chainId}`
       );
       if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        throw new Error(json.message || json.error || 'Failed to fetch Midnight market');
+        throw new Error(await apiErrorMessage(res, 'Failed to fetch Midnight market'));
       }
       return res.json();
     },
@@ -103,8 +100,7 @@ export function useMidnightMarkets(
     queryFn: async (): Promise<MidnightMarketsResponse> => {
       const res = await apiFetch(`/api/markets/midnight?chainId=${chainId}`);
       if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        throw new Error(json.message || json.error || 'Failed to fetch Midnight markets');
+        throw new Error(await apiErrorMessage(res, 'Failed to fetch Midnight markets'));
       }
       return res.json();
     },

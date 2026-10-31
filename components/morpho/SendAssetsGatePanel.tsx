@@ -18,7 +18,7 @@ import {
   CuratorPanel,
 } from '@/components/morpho/CuratorChrome';
 import { TxErrorBanner } from '@/components/TxErrorBanner';
-import { apiFetch } from '@/lib/data/api-fetch';
+import { apiFetch, apiErrorMessage } from '@/lib/data/api-fetch';
 import { ON_CHAIN_VAULT_QUERY_OPTIONS } from '@/lib/data/query-config';
 import type { SendAssetsGateState } from '@/app/api/gates/[address]/route';
 import {
@@ -122,10 +122,15 @@ function GateRosters({ state }: { state: SendAssetsGateState }) {
       {logsFailed || unreadable.length > 0 ? (
         <div className="space-y-1 rounded-xl border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-xs text-amber-700 dark:text-amber-400">
           {logsFailed ? (
-            <p>
-              Could not load the gate&apos;s logs. The lists below only cover
-              configured accounts, so an address added elsewhere may be missing.
-            </p>
+            <>
+              <p>
+                Could not load the gate&apos;s logs. The lists below only cover
+                configured accounts, so an address added elsewhere may be missing.
+              </p>
+              {state.rosterScan?.reason ? (
+                <p className="break-words opacity-80">{state.rosterScan.reason}</p>
+              ) : null}
+            </>
           ) : null}
           {unreadable.length > 0 ? (
             <p>
@@ -171,8 +176,7 @@ export function SendAssetsGatePanel({
     queryFn: async () => {
       const res = await apiFetch(`/api/gates/${gateAddress}`);
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
-        throw new Error(body.message || body.error || 'Failed to load gate');
+        throw new Error(await apiErrorMessage(res, 'Failed to load gate'));
       }
       return (await res.json()) as SendAssetsGateState;
     },

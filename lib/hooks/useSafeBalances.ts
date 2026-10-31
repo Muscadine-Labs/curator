@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { Address } from 'viem';
-import { apiFetch } from '@/lib/data/api-fetch';
+import { apiFetch, apiErrorMessage } from '@/lib/data/api-fetch';
 import type { SafeRole } from '@/lib/safe/config';
 import { getCustomTokens, subscribeCustomTokens } from '@/lib/safe/custom-token-store';
 import type { SafeTokenBalance } from '@/lib/safe/read-balances';
@@ -39,8 +39,7 @@ export function useSafeBalances(safeAddress: string | undefined, role: SafeRole)
       const query = extra.length > 0 ? `?tokens=${extra.join(',')}` : '';
       const res = await apiFetch(`/api/safe/${safeAddress}/balances${query}`);
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? `Request failed (${res.status})`);
+        throw new Error(await apiErrorMessage(res, `Request failed (${res.status})`));
       }
       const data = (await res.json()) as BalancesResponse;
       return data.balances.map((b) => ({ ...b, balance: BigInt(b.balance) }));

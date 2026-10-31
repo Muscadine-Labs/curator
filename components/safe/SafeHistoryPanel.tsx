@@ -9,7 +9,7 @@ import {
   CuratorErrorText,
   CuratorPanel,
 } from '@/components/morpho/CuratorChrome';
-import { apiFetch } from '@/lib/data/api-fetch';
+import { apiFetch, apiErrorMessage } from '@/lib/data/api-fetch';
 import { getScanUrlForChain, BASE_CHAIN_ID } from '@/lib/constants';
 import type { SafeAccountConfig } from '@/lib/safe/config';
 import type { ServiceHistoryTx } from '@/lib/safe/transaction-service';
@@ -22,8 +22,7 @@ export function SafeHistoryPanel({ account }: { account: SafeAccountConfig }) {
     queryFn: async () => {
       const res = await apiFetch(`/api/safe/${account.address}/history`);
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? 'Failed to load history');
+        throw new Error(await apiErrorMessage(res, 'Failed to load history'));
       }
       return (await res.json()) as { transactions: ServiceHistoryTx[] };
     },
