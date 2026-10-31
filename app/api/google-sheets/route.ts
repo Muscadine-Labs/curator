@@ -25,6 +25,7 @@ async function fetchPublicGoogleSheet(sheetId: string, sheetName?: string): Prom
       headers: {
         'User-Agent': 'Mozilla/5.0',
       },
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!response.ok) {

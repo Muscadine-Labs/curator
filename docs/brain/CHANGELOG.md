@@ -8,8 +8,9 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 - `/curator/gates` always said "Could not load the gate's logs". `base.blockscout.com/api` now answers server requests with a Cloudflare bot challenge (HTTP 403 HTML), so the only log source never worked. Basescan via Etherscan V2 needs a paid plan for Base, and free Alchemy caps `eth_getLogs` at 10 blocks.
 - `lib/morpho/send-assets-gate-roster.server.ts` now tries Blockscout PRO API (`BLOCKSCOUT_API_KEY`, free) → Etherscan V2 (`ETHERSCAN_API_KEY`) → keyless Blockscout → one full-range `eth_getLogs` on the server RPC. The response carries `rosterScan.reason` (per-source failure, no URLs or keys) and the panel shows it.
-- Fixed pagination: a full 1,000-log page restarted from `lastBlock + 1`, skipping the rest of that block. It now restarts from `lastBlock`. Hitting the page limit reports `failed` instead of `complete`. Explorer fetches time out after 15s. Successful lookups are cached 30s.
+- Fixed pagination: a full 1,000-log page restarted from `lastBlock + 1`, skipping the rest of that block. It now restarts from `lastBlock`. Hitting the page limit reports `failed` instead of `complete`. Explorer fetches time out after 15s. Lookups (including failures) are cached 30s, so a missing key does not repeat the failing calls on every load. `env-validation` warns when no gate log key is set.
 - Client error readers in Safe settings/history/balances/info, the gate panel, and Curator markets hooks use `apiErrorMessage`.
+- Outbound requests that had no deadline now time out: Morpho GraphQL client (30s, under the 40s cache loader timeout), Midnight REST (15s), Google Sheets CSV (15s), Upstash rate-limit store (5s; login already fails closed on error).
 - Tests: `send-assets-gate-roster.test.ts` (challenge, keyed source, page boundary), new `allocation-dust.test.ts`.
 
 ---

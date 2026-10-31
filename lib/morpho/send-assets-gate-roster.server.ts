@@ -258,28 +258,20 @@ async function readGateAccounts(gate: Address): Promise<GateRosterCandidates> {
   const hint = hasKey
     ? ''
     : ' Set BLOCKSCOUT_API_KEY (free at dev.blockscout.com) on the server.';
-  return {
-    accounts: partial ? [...partial] : [],
-    status: 'failed',
-    reason: `${failures.join('; ')}.${hint}`,
-  };
+  const reason = `${failures.join('; ')}.${hint}`;
+  logger.warn('Send-assets gate log lookup failed', { gate, reason });
+  return { accounts: partial ? [...partial] : [], status: 'failed', reason };
 }
 
 export async function readGateRosterCandidates(gate: Address): Promise<GateRosterCandidates> {
   const key = `send-assets-gate-roster:${gate.toLowerCase()}`;
   try {
     // Deduplicates concurrent loads and spares explorer credits for 30s.
-    // Failures are not cached, so a fixed key or a recovered explorer applies at once.
-    const result = await withServerResponseCache(
-      key,
-      API_CACHE_MAX_AGE_MS,
-      () => readGateAccounts(gate),
-      (data) => data.status === 'complete'
+    // Failures are cached too: without a key every load would otherwise repeat
+    // the doomed explorer + RPC calls, and adding a key needs a redeploy anyway.
+    return await withServerResponseCache(key, API_CACHE_MAX_AGE_MS, () =>
+      readGateAccounts(gate)
     );
-    if (result.status === 'failed') {
-      logger.warn('Send-assets gate log lookup failed', { gate, reason: result.reason });
-    }
-    return result;
   } catch (error) {
     logger.warn('Send-assets gate log lookup failed', {
       gate,

@@ -12,6 +12,9 @@ import { logger } from '@/lib/utils/logger';
 import { AppError } from '@/lib/utils/error-handler';
 import type { Address } from 'viem';
 
+/** Morpho REST normally answers in well under a second; a stall must not hang the route. */
+const MIDNIGHT_FETCH_TIMEOUT_MS = 15_000;
+
 export type MidnightCollateral = {
   token: string;
   symbol: string;
@@ -222,7 +225,10 @@ async function fetchMarketsPage(
   url.searchParams.set('order', 'desc');
   if (cursor) url.searchParams.set('cursor', cursor);
 
-  const res = await fetch(url.toString(), { cache: 'no-store' });
+  const res = await fetch(url.toString(), {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(MIDNIGHT_FETCH_TIMEOUT_MS),
+  });
   if (!res.ok) {
     throw new Error(`Midnight markets HTTP ${res.status}`);
   }
@@ -499,7 +505,10 @@ async function fetchMidnightPositionTotals(marketId: string): Promise<{
 }
 
 async function fetchMidnightRest<T>(path: string): Promise<T | null> {
-  const res = await fetch(`${MORPHO_REST_ORIGIN}${path}`, { cache: 'no-store' });
+  const res = await fetch(`${MORPHO_REST_ORIGIN}${path}`, {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(MIDNIGHT_FETCH_TIMEOUT_MS),
+  });
   if (res.status === 404) return null;
   if (!res.ok) {
     throw new Error(`Midnight HTTP ${res.status} (${path})`);
