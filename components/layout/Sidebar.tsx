@@ -5,7 +5,6 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
-  Book,
   FileText,
   LayoutGrid,
   LineChart,
@@ -328,13 +327,6 @@ function AreaSidebar({
         label="Monthly Statement"
         icon={FileText}
         active={isActive('/monthly-statement')}
-        onClick={onLinkClick}
-      />
-      <NavLink
-        href="/muscadine-ledger"
-        label="Muscadine Ledger"
-        icon={Book}
-        active={isActive('/muscadine-ledger')}
         onClick={onLinkClick}
       />
       <NavLink

@@ -11,6 +11,7 @@ Append-only session log. Newest first. Keep entries short; link files.
 - Fixed pagination: a full 1,000-log page restarted from `lastBlock + 1`, skipping the rest of that block. It now restarts from `lastBlock`. Hitting the page limit reports `failed` instead of `complete`. Explorer fetches time out after 15s. Lookups (including failures) are cached 30s, so a missing key does not repeat the failing calls on every load. `env-validation` warns when no gate log key is set.
 - Client error readers in Safe settings/history/balances/info, the gate panel, and Curator markets hooks use `apiErrorMessage`.
 - Outbound requests that had no deadline now time out: Morpho GraphQL client (30s, under the 40s cache loader timeout), Midnight REST (15s), Google Sheets CSV (15s), Upstash rate-limit store (5s; login already fails closed on error).
+- Removed **Muscadine Ledger** (`/muscadine-ledger`), its only backend `GET /api/google-sheets`, `lib/constants/google-ledger.ts`, and the CSV parser that only that route used (`lib/utils/csv.ts` + test). Sidebar link and nav area entry gone; `/muscadine-ledger` and `/overview/muscadine-ledger` redirect to `/monthly-statement`.
 - Tests: `send-assets-gate-roster.test.ts` (challenge, keyed source, page boundary), new `allocation-dust.test.ts`.
 
 ---

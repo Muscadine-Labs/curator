@@ -54,7 +54,6 @@ Muscadine for managing and reporting on Morpho-style vaults on Base (chainId
   sentinel) plus **Curator Morpho Markets** browser/detail
 - Monthly statements (via DefiLlama and Morpho GraphQL)
 - Curator tools (EIP-7702 delegation, Safe, frontend, morpho)
-- Google Sheets integration for reporting
 
 ### Tech stack
 
@@ -89,7 +88,6 @@ app/
     markets/           Morpho Blue markets browser + detail BFF
     protocol-stats/    Aggregate TVL / revenue
     monthly-statement-* Statement generators
-    google-sheets/     Sheets export
     auth/              Session verify
     safe/[address]/    GET /api/safe/[address]/info (owners, threshold, nonce, ETH)
   markets/             Morpho Markets browser (`/markets`)
@@ -98,7 +96,6 @@ app/
   curator/             Curator tools hub (`/curator`)
   curator/bots/        Bot activity watch (`/curator/bots`)
   monthly-statement/   Treasury / DefiLlama statements
-  muscadine-ledger/    Internal ledger
   muscadine-frontends/ Frontend links
   vault/[address]/     Vault detail page (Morpho V2)
 
@@ -868,7 +865,9 @@ Detail KPIs: filled size (`total_units`), lender credit and borrower debt
 LLTV / liquidation cursor / oracle panel (price, freshness, Chainlink feeds on Base),
 asks & bids.
 Curator top-nav area holds Curator tools (`/curator`) + Bots + Multisig Safe. Business area:
-`/monthly-statement`, `/muscadine-ledger`, `/muscadine-frontends`.
+`/monthly-statement`, `/muscadine-frontends`. (Muscadine Ledger and the
+`/api/google-sheets` route were removed; `/muscadine-ledger` redirects to
+`/monthly-statement`.)
 
 **Wallet positions / lend-borrow** — not in this dashboard. Blue market detail
 **Interact** links the Morpho app; Midnight uses **Trade on Morpho**. Writes:
@@ -1771,7 +1770,7 @@ decode), `lib/safe/pending-store.test.ts` (import signature merge),
 (return-path open redirect), `lib/morpho/cap-decrease-input.test.ts`,
 `lib/onchain/v2-rebalance-plan.test.ts` (idle re-anchor, % rounding),
 `lib/bots/decode-transaction-vault-calls.test.ts` (Safe `execTransaction`
-unwrap), `lib/utils/csv.test.ts`, `lib/utils/error-handler.test.ts`,
+unwrap), `lib/utils/error-handler.test.ts`,
 `lib/api/query-params.test.ts`.
 
 `lib/onchain/allocation-dust.test.ts`, `lib/morpho/send-assets-gate-roster.test.ts`
