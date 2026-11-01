@@ -11,7 +11,15 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { MarketRiskDetailCard } from '@/components/morpho/MarketRiskDetailCard';
 import { MarketOraclePanel } from '@/components/morpho/MarketOraclePanel';
 import { MarketInteractButton } from '@/components/morpho/MarketInteractButton';
-import { useCuratorMarketDetail } from '@/lib/hooks/useCuratorMarkets';
+import { useCuratorMarketActivity, useCuratorMarketDetail } from '@/lib/hooks/useCuratorMarkets';
+import {
+  CollateralAtRiskPanel,
+  MarketBorrowersTable,
+  MarketLiquidationsTable,
+  MarketListingVaultsTable,
+  MarketRatesPanel,
+  MarketSuppliersTable,
+} from '@/components/morpho/MarketActivitySections';
 import { morphoMarketHref, safeReturnPath } from '@/lib/morpho/morpho-app-links';
 import { asBlueMarketData } from '@/lib/morpho/blue-market-data';
 import { formatPercentage } from '@/lib/format/number';
@@ -67,6 +75,14 @@ export default function CuratorBlueMarketPage() {
 
   const { data, isLoading, error } = useCuratorMarketDetail(marketId, chainId);
   const market = data?.market;
+  const activityQuery = useCuratorMarketActivity(market ? marketId : null, chainId);
+  const activity = activityQuery.data;
+  const loanToken = market
+    ? { symbol: market.loanSymbol, decimals: market.loanDecimals ?? 18 }
+    : null;
+  const collateralToken = market
+    ? { symbol: market.collateralSymbol, decimals: market.collateralDecimals ?? 18 }
+    : null;
   const networkName =
     CURATOR_MARKET_NETWORKS.find((n) => n.chainId === chainId)?.name ?? `Chain ${chainId}`;
 
@@ -354,6 +370,38 @@ export default function CuratorBlueMarketPage() {
             </CuratorKvList>
           </CuratorPanel>
 
+          {activityQuery.isLoading && <Skeleton className="h-64 w-full rounded-xl" />}
+          {activityQuery.error && (
+            <Card>
+              <CardContent className="pt-6 text-sm text-red-600 dark:text-red-400">
+                {activityQuery.error instanceof Error
+                  ? activityQuery.error.message
+                  : 'Failed to load market activity'}
+              </CardContent>
+            </Card>
+          )}
+          {activity && loanToken && collateralToken && (
+            <>
+              <CollateralAtRiskPanel activity={activity} />
+              <MarketLiquidationsTable
+                activity={activity}
+                loan={loanToken}
+                collateral={collateralToken}
+                chainId={chainId}
+              />
+              <MarketRatesPanel
+                activity={activity}
+                borrowApy={market.borrowApy}
+                supplyApy={market.supplyApy}
+                utilization={market.utilization}
+                supplyUsd={market.supplyAssetsUsd}
+                borrowUsd={market.borrowAssetsUsd}
+                targetUtilization={market.targetUtilization}
+                irmAddress={market.irmAddress}
+                chainId={chainId}
+              />
+            </>
+          )}
 
           {chainId !== BASE_CHAIN_ID ? (
             <Card>
@@ -373,6 +421,24 @@ export default function CuratorBlueMarketPage() {
               chainId={chainId}
               marketTitleLink="morpho"
             />
+          )}
+
+          {activity && loanToken && collateralToken && (
+            <>
+              <MarketListingVaultsTable activity={activity} loan={loanToken} chainId={chainId} />
+              <MarketBorrowersTable
+                activity={activity}
+                loan={loanToken}
+                collateral={collateralToken}
+                chainId={chainId}
+              />
+              <MarketSuppliersTable
+                activity={activity}
+                loan={loanToken}
+                supplyUsd={market.supplyAssetsUsd}
+                chainId={chainId}
+              />
+            </>
           )}
         </div>
       )}

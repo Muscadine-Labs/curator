@@ -12,6 +12,8 @@ import { TokenUsdValue } from '@/components/morpho/TokenUsdValue';
 import { VaultV2Roles } from '@/components/morpho/VaultV2Roles';
 import { VaultV2GatesRead } from '@/components/morpho/VaultV2GatesRead';
 import { VaultV2Adapters } from '@/components/morpho/VaultV2Adapters';
+import { VaultActivityFeed } from '@/components/morpho/VaultActivityFeed';
+import { formatForceDeallocatePenaltyWad } from '@/lib/morpho/vault-v2-api';
 import { VaultHolders } from '@/components/morpho/VaultHolders';
 import { VaultTransactions } from '@/components/morpho/VaultTransactions';
 import {
@@ -190,16 +192,34 @@ export function VaultOverviewPanel({
               '—'
             )}
           </CuratorKvRow>
+          {governance?.publicAllocator ? (
+            <CuratorKvRow
+              label="Public Allocator fee"
+              description="Fee paid to the vault by whoever triggers a Public Allocator reallocation"
+            >
+              {governance.publicAllocator.penalty != null
+                ? formatForceDeallocatePenaltyWad(governance.publicAllocator.penalty)
+                : '—'}
+            </CuratorKvRow>
+          ) : null}
         </CuratorKvList>
       </CuratorPanel>
 
-      <CuratorPanel
-        title="Max rate"
-        description="Caps how fast the vault's assets can grow to avoid yield spikes."
-      >
-        <p className="px-4 py-3 text-lg font-semibold tabular-nums">
-          {formatMaxRateApr(governance?.maxRate)}
-        </p>
+      <CuratorPanel title="Risk parameters">
+        <CuratorKvList>
+          <CuratorKvRow
+            label="Max rate"
+            description="Caps how fast the vault's assets can grow, to avoid yield spikes"
+          >
+            {formatMaxRateApr(governance?.maxRate)}
+          </CuratorKvRow>
+          <CuratorKvRow
+            label="Force deallocation penalty"
+            description="Paid by anyone forcing a withdrawal out of an adapter; per adapter in the table below"
+          >
+            {forceDeallocationPenaltySummary(governance?.adapters)}
+          </CuratorKvRow>
+        </CuratorKvList>
       </CuratorPanel>
 
       <VaultV2Roles vaultAddress={vault.address} preloadedData={governance} />
@@ -210,6 +230,15 @@ export function VaultOverviewPanel({
         vaultAddress={vault.address}
         preloadedData={governance}
         preloadedRisk={risk}
+        assetSymbol={vaultAsset}
+        assetDecimals={vault.assetDecimals}
+      />
+
+      <VaultActivityFeed
+        vaultAddress={vault.address}
+        chainId={vault.chainId}
+        governance={governance}
+        risk={risk}
         assetSymbol={vaultAsset}
         assetDecimals={vault.assetDecimals}
       />
@@ -241,4 +270,19 @@ export function VaultOverviewPanel({
       />
     </div>
   );
+}
+
+/** "0%" when every adapter agrees, else "0% – 2%". */
+function forceDeallocationPenaltySummary(
+  adapters: ReadonlyArray<{ type: string; forceDeallocatePenalty: string | null }> | undefined
+): string {
+  const values = (adapters ?? [])
+    .filter((a) => !a.type.includes('MetaMorpho'))
+    .map((a) => a.forceDeallocatePenalty)
+    .filter((v): v is string => v != null);
+  if (values.length === 0) return '—';
+  const sorted = [...values].sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0));
+  const lo = formatForceDeallocatePenaltyWad(sorted[0]);
+  const hi = formatForceDeallocatePenaltyWad(sorted[sorted.length - 1]);
+  return lo === hi ? lo : `${lo} – ${hi}`;
 }

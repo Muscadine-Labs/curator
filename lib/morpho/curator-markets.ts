@@ -91,6 +91,8 @@ export type CuratorMarketDetail = CuratorMarketListItem & {
   oracleIndexedType: string | null;
   /** Morpho market warnings (e.g. unrecognized_collateral_asset). */
   warnings: MarketWarning[];
+  /** IRM target utilization (fraction); Base only. */
+  targetUtilization: number | null;
 };
 
 export type MarketWarning = { type: string; level: string | null };
@@ -510,6 +512,7 @@ export async function fetchCuratorMarketDetail(
   let scores: MarketRiskScores | null = null;
   let oracleTimestampData: OracleTimestampData | null = null;
   let oraclePrice: OraclePriceSnapshot | null = null;
+  let targetUtilization: number | null = null;
 
   const spotCollateralUsd = item.collateralAsset?.price?.usd ?? null;
   const spotLoanUsd = item.loanAsset?.price?.usd ?? null;
@@ -542,6 +545,7 @@ export async function fetchCuratorMarketDetail(
         : await getOracleTimestampData(oracleAddr, baseFeedHints);
     oracleTimestampData = oracleData;
     oraclePrice = priceSnapshot;
+    targetUtilization = targetUtil;
     scores = await computeBlueMarketRiskScores(market, oracleData, targetUtil);
   }
 
@@ -565,6 +569,7 @@ export async function fetchCuratorMarketDetail(
     createdAt: toUnixSeconds(item.creationTimestamp),
     oracleCreatedAt: toUnixSeconds(item.oracle?.creationEvent?.timestamp),
     oracleIndexedType: item.oracle?.type ?? null,
+    targetUtilization,
     warnings: (item.warnings ?? [])
       .filter((w): w is { type: string; level?: string | null } => Boolean(w?.type))
       .map((w) => ({ type: w.type, level: w.level ?? null })),

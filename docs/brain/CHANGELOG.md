@@ -4,6 +4,15 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-01 — Market activity sections, vault activity feed and adapter table
+
+- **Blue market page** (`MarketActivitySections.tsx`, `GET /api/markets/[marketId]/activity`): collateral at risk (Morpho's full-market `marketCollateralAtRisk`), liquidations, rates (90-day history, averages, rate at target) with IRM breakdown + curve, vaults supplying the market (V2 allocation matched through adapter addresses), borrowers (health, distance to liquidation) and suppliers. One GraphQL round trip, ≤30s cache.
+- **Vault Overview**: Morpho Curator–style adapters table (allocation / %, abs / rel cap, withdrawable liquidity, weighted rate, force-deallocation penalty); Public Allocator fee and a Risk parameters panel; collapsible **Activity** feed (allocations from Morpho, pending submits, executed governance decoded from the role Safes' history — Morpho does not index governance; needs `NEXT_PUBLIC_SAFE_API_KEY`), filterable by type and role.
+- PR review fixes: exact meta-oracle active source, `error` oracle kind, `*.server.ts` naming, shared decoder for freshness, registry failure cache, ticking panel clock.
+- `PaginationBar` moved to `components/ui/pagination-bar.tsx` (holders + new tables).
+
+---
+
 ## 2026-11-01 — Oracle panel decodes every oracle (Morpho-style price construction)
 
 - Morpho GraphQL types only MorphoChainlinkOracle(V2); primary/backup **MetaOracleDeviationTimelock** proxies (e.g. PAXG/USDC, USDe/USDC on Base) come back `type: Unknown`, `data: null`, so the panel showed no feeds and freshness scored the oracle as opaque (20). `lib/morpho/oracle-decode.server.ts` reads the oracle on-chain in one multicall: V2 feeds + ERC-4626 vaults, or the meta oracle's primary/backup sources, `currentOracle`, deviation vs threshold, challenge/healing state. `getOracleTimestampData` follows `currentOracle()` too (PAXG/USDC oracle score 20 → 85, also on vault Risk tabs). Midnight collateral oracles (no GraphQL hints) now show their feeds.

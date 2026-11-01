@@ -8,13 +8,14 @@ import { AddressBadge } from '@/components/AddressBadge';
 import {
   CuratorEmptyText,
   CuratorErrorText,
-  CuratorKvList,
-  CuratorKvRow,
   CuratorPanel,
 } from '@/components/morpho/CuratorChrome';
+import { isAdapterCap } from '@/lib/morpho/cap-utils';
+import { formatCapCompactAmount, formatCapRelative } from '@/lib/morpho/v2-cap-format';
+import { summarizeAdapter } from '@/lib/morpho/vault-adapter-summary';
 import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
 import { useVaultV2Risk } from '@/lib/hooks/useVaultV2Risk';
-import { formatRawTokenAmount, formatUSD } from '@/lib/format/number';
+import { formatPercentage, formatRawTokenAmount, formatUSD } from '@/lib/format/number';
 import {
   getTokenDisplayDecimals,
   resolveAssetDecimals,
@@ -97,78 +98,129 @@ export function VaultV2Adapters({
   }
 
   const idleUsd = data.idleAssetsUsd ?? 0;
+  const th = 'whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-muted-foreground';
+  const td = 'whitespace-nowrap border-t border-border/60 px-3 py-2 align-top';
 
   return (
-    <CuratorPanel title="Adapters">
-      <CuratorKvList>
-        <CuratorKvRow
-          label="Liquidity adapter"
-          description="Adapter used for deposits and withdrawals"
-        >
-          {data.liquidityAdapter?.address ? (
-            <AddressBadge address={data.liquidityAdapter.address} truncate />
-          ) : (
-            <span className="font-normal text-muted-foreground">Not set</span>
-          )}
-        </CuratorKvRow>
+    <CuratorPanel
+      title="Adapters"
+      description="Where vault assets are deployed. Liquidity is what can be withdrawn from each adapter right now."
+    >
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2 text-xs text-muted-foreground">
+        <span>Liquidity adapter (deposits and withdrawals):</span>
+        {data.liquidityAdapter?.address ? (
+          <AddressBadge address={data.liquidityAdapter.address} truncate />
+        ) : (
+          <span>Not set</span>
+        )}
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/40">
+            <tr>
+              <th className={th}>Adapter</th>
+              <th className={th}>Underlying</th>
+              <th className={`${th} text-right`}>Allocation / %</th>
+              <th className={`${th} text-right`}>Absolute / Relative cap</th>
+              <th className={`${th} text-right`}>Liquidity</th>
+              <th className={`${th} text-right`}>Rate</th>
+              <th className={`${th} text-right`}>Force dealloc. penalty</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td className={td}>
+                <span className="font-medium">Idle</span>
+                <p className="text-xs text-muted-foreground">Unallocated vault cash</p>
+              </td>
+              <td className={`${td} text-muted-foreground`}>—</td>
+              <td className={`${td} text-right tabular-nums`}>
+                {formatToken(data.idleAssets, chainDecimals, displayDecimals, assetSymbol)}
+                <p className="text-xs text-muted-foreground">{pctOfTotal(idleUsd, totalUsd)}</p>
+              </td>
+              <td className={`${td} text-right text-muted-foreground`}>No cap</td>
+              <td className={`${td} text-right tabular-nums`}>{formatUSD(idleUsd, 2)}</td>
+              <td className={`${td} text-right text-muted-foreground`}>0%</td>
+              <td className={`${td} text-right text-muted-foreground`}>—</td>
+            </tr>
+            {adapters.map((adapter) => {
+              const key = adapter.address.toLowerCase();
+              const isLiquidity = key === liquidityAdapterAddress;
+              const riskAdapter = risk?.adapters?.find(
+                (a) => a.adapterAddress.toLowerCase() === key
+              );
+              const usd = adapter.assetsUsd ?? 0;
+              const summary = summarizeAdapter({
+                allocationUsd: riskAdapter?.allocationUsd ?? usd,
+                markets: (riskAdapter?.markets ?? []).map((m) => ({
+                  allocationUsd: m.allocationUsd,
+                  liquidityUsd: m.market.state?.liquidityAssetsUsd,
+                  supplyApy: m.market.state?.supplyApy,
+                })),
+                underlying: riskAdapter?.underlying ?? null,
+              });
+              const cap = data.caps.find(
+                (c) => isAdapterCap(c) && c.adapterAddress?.toLowerCase() === key
+              );
+              const absoluteCap = riskAdapter?.absoluteCap ?? cap?.absoluteCap ?? null;
+              const relativeCap = riskAdapter?.relativeCap ?? cap?.relativeCap ?? null;
+              const underlying = isMorphoVaultV2Adapter(adapter)
+                ? adapterLabel(adapter, vaultAddress)
+                : summary.marketsCount > 0
+                  ? `${summary.marketsCount} market${summary.marketsCount === 1 ? '' : 's'}${
+                      summary.activeMarketsCount !== summary.marketsCount
+                        ? ` (${summary.activeMarketsCount} allocated)`
+                        : ''
+                    }`
+                  : '—';
 
-        <CuratorKvRow label="Idle" description="Unallocated vault cash">
-          <span>
-            {formatToken(data.idleAssets, chainDecimals, displayDecimals, assetSymbol)}
-            <span className="ml-1.5 font-normal text-muted-foreground">
-              ({pctOfTotal(idleUsd, totalUsd)})
-            </span>
-          </span>
-        </CuratorKvRow>
-
-        {adapters.map((adapter) => {
-          const isLiquidity = adapter.address.toLowerCase() === liquidityAdapterAddress;
-          const label = adapterLabel(adapter, vaultAddress);
-          const marketsCount =
-            risk?.adapters?.find(
-              (a) => a.adapterAddress.toLowerCase() === adapter.address.toLowerCase()
-            )?.markets?.length ?? 0;
-          const usd = adapter.assetsUsd ?? 0;
-
-          return (
-            <CuratorKvRow
-              key={adapter.address}
-              label={label}
-              description={
-                <div className="flex flex-col gap-1">
-                  <AddressBadge address={adapter.address} truncate />
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {isLiquidity && (
-                      <Badge
-                        variant="outline"
-                        className="gap-1 border-emerald-500/40 text-[10px] font-normal text-emerald-700 dark:text-emerald-400"
-                      >
-                        <Zap className="h-2.5 w-2.5" />
-                        Liquidity
-                      </Badge>
-                    )}
-                    {marketsCount > 0 && (
-                      <span>
-                        {marketsCount} market{marketsCount === 1 ? '' : 's'}
-                      </span>
-                    )}
-                    <span>
-                      Penalty {formatForceDeallocatePenaltyWad(adapter.forceDeallocatePenalty)}
-                    </span>
-                  </div>
-                </div>
-              }
-            >
-              <span>
-                {formatTokenFromAssets(adapter.assets, chainDecimals, displayDecimals, assetSymbol)}
-                <span className="ml-1.5 font-normal text-muted-foreground">
-                  ({pctOfTotal(usd, totalUsd)} · {formatUSD(usd, 2)})
-                </span>
-              </span>
-            </CuratorKvRow>
-          );
-        })}
-      </CuratorKvList>
+              return (
+                <tr key={adapter.address}>
+                  <td className={td}>
+                    <div className="flex flex-col gap-1">
+                      <span className="font-medium">{adapterLabel(adapter, vaultAddress)}</span>
+                      <AddressBadge address={adapter.address} truncate />
+                      {isLiquidity && (
+                        <Badge
+                          variant="outline"
+                          className="w-fit gap-1 border-emerald-500/40 text-[10px] font-normal text-emerald-700 dark:text-emerald-400"
+                        >
+                          <Zap className="h-2.5 w-2.5" />
+                          Liquidity adapter
+                        </Badge>
+                      )}
+                    </div>
+                  </td>
+                  <td className={td}>{underlying}</td>
+                  <td className={`${td} text-right tabular-nums`}>
+                    {formatTokenFromAssets(adapter.assets, chainDecimals, displayDecimals, assetSymbol)}
+                    <p className="text-xs text-muted-foreground">
+                      {pctOfTotal(usd, totalUsd)} · {formatUSD(usd, 2)}
+                    </p>
+                  </td>
+                  <td className={`${td} text-right tabular-nums`}>
+                    {absoluteCap != null
+                      ? formatCapCompactAmount(absoluteCap, assetSymbol, assetDecimals)
+                      : '—'}
+                    <p className="text-xs text-muted-foreground">
+                      {relativeCap != null ? formatCapRelative(relativeCap) : '—'}
+                    </p>
+                  </td>
+                  <td className={`${td} text-right tabular-nums`}>
+                    {summary.liquidityUsd != null ? formatUSD(summary.liquidityUsd, 2) : '—'}
+                  </td>
+                  <td className={`${td} text-right tabular-nums`}>
+                    {summary.rate != null ? formatPercentage(summary.rate * 100) : '—'}
+                  </td>
+                  <td className={`${td} text-right tabular-nums`}>
+                    {formatForceDeallocatePenaltyWad(adapter.forceDeallocatePenalty)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
 
       {adapters.length === 0 ? (
         <div className="px-4 py-3">

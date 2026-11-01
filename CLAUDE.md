@@ -376,8 +376,9 @@ and risk change continuously and hooks refetch on tab switch and post-tx.
 
 **Tab order**: Overview → Fee wrapper (when configured) → Allocation → Caps → Risk → Timelocks → Sentinel.
 The vault header is the vault name, chain, and a more menu (copy address, Morpho, explorer). Tabs are text links under that header. Pending timelock count is on Timelocks and Sentinel.
-Overview holds metrics, fees, max rate, roles, gates, and adapters, then collapsible holders → recent txs → history (10 per page
-with arrows, default closed); the Fee wrapper tab
+Overview holds metrics, fees (incl. Public Allocator fee), risk parameters (max rate, force
+deallocation penalty), roles, gates, and the adapters table, then collapsible activity → holders → recent txs →
+history (10 per page with arrows, default closed); the Fee wrapper tab
 holds condensed wrapper TVL / users / history and Morpho wrapper facts; Risk holds market risk
 grades; Sentinel holds emergency actions at the bottom.
 
@@ -389,9 +390,26 @@ grades; Sentinel holds emergency actions at the bottom.
    - `useVaultV2Pending`
 2. **Roles** — `VaultV2Roles.tsx` (read-only): owner, curator, allocators,
    sentinels.
-3. **Adapters** — `VaultV2Adapters.tsx` lists the idle adapter first, then
-   **Morpho Blue market** strategy adapters from governance (MetaMorpho adapters
-   are hidden). Pass `assetSymbol` / `assetDecimals` from the vault page.
+3. **Adapters** — `VaultV2Adapters.tsx` is a Morpho Curator–style table: idle
+   first, then strategy adapters from governance (MetaMorpho adapters hidden).
+   Columns: adapter, underlying (N markets / child vault), allocation / %,
+   absolute / relative cap, liquidity, rate, force-deallocation penalty.
+   Liquidity = Σ min(market allocation, market `liquidityAssetsUsd`) (child
+   vault: min(allocation, child liquidity)); rate = allocation-weighted supply
+   APY (child vault: `avgNetApy`, else `netApy`) — `summarizeAdapter` in
+   `lib/morpho/vault-adapter-summary.ts`. Pass `assetSymbol` / `assetDecimals`.
+   **Activity** (`VaultActivityFeed`, `GET /api/vaults/[id]/activity`,
+   `lib/morpho/vault-activity(.server).ts`) merges Morpho
+   `vaultV2AllocationTransactions` (signed `change`, `sender`), pending
+   `pendingConfigs` submits, and executed governance calls from the Owner /
+   Curator / Allocator / Sentinel Safes' Transaction Service history (direct
+   vault calls, vault `multicall`, canonical MultiSend batches; allocations
+   skipped there because Morpho indexes them). Morpho does **not** index
+   governance history; without `NEXT_PUBLIC_SAFE_API_KEY` the feed says so and
+   shows allocations + pending only. A partial Safe read is not cached.
+   Filters: type and role (`activityRoles` — an address can hold several).
+   Allocation targets resolve from cap ids (`keccak256(resolveCapIdData)`), most
+   specific id first. Fetches only when the card is opened.
 4. **Caps** — `VaultV2Caps.tsx`. Morpho-style tables grouped **markets →
    collateral → adapters** (Name, Allocation, Absolute cap, Relative cap with
    utilization rings). Embeds `VaultV2Pending` when `pending.length > 0`.
@@ -926,6 +944,24 @@ created, Morpho `warnings`), a **Liquidations** panel (LLTV, liquidation penalty
 `MarketOraclePanel`, and `MarketRiskDetailCard` on Base only (oracle/IRM reads use
 Base RPC today).
 
+**Market activity** — `GET /api/markets/[marketId]/activity`
+(`lib/morpho/market-activity.server.ts`, one GraphQL round trip, ≤30s cache,
+`useCuratorMarketActivity`) feeds `MarketActivitySections.tsx`:
+**Collateral at risk** (Morpho `marketCollateralAtRisk` full-market curve,
+`collateralPriceRatio − 1` = price change; fallback is our curve from the 500
+largest borrowers' `priceVariationToLiquidationPrice`, labelled as such),
+**Liquidations** (last 100 `marketTransactions` of type Liquidation: repaid,
+seized, bad debt), **Rates** (90-day daily borrow / supply APY with rate at
+target, 7/30/90D averages, IRM breakdown: target utilization from
+`targetUtilization` on the detail response, borrow/repay to target =
+`target × supply − borrow`, `currentIrmCurve` chart with target + current
+lines), **Vaults supplying this market** (V1 allocation from
+`state.allocation`; V2 matched through adapter addresses in the top-100
+supplier list, else "Not in top suppliers"; Muscadine vaults link in-app),
+**Borrowers** (top 100 by borrow; health, distance to liquidation, borrow
+share) and **Suppliers** (top 100). Tables paginate 10/page with the shared
+`components/ui/pagination-bar.tsx`. Pure math: `lib/morpho/market-activity-math.ts`.
+
 **Oracle decoding (do not regress)** — Morpho GraphQL only types
 MorphoChainlinkOracle(V2). Primary/backup `MetaOracleDeviationTimelock` proxies
 come back `type: Unknown`, `data: null`. `decodeMorphoOracle`
@@ -1419,6 +1455,9 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
 | Market id helpers                | `lib/morpho/morpho-app-links.ts` (`marketKeyFromGraphQL`, `curatorBlueMarketHref`, `curatorMidnightMarketHref`, `morphoMidnightMarketHref`) |
 | Midnight markets                 | `lib/morpho/midnight-markets.ts`, `app/midnight/[id]/page.tsx`, `GET /api/markets/midnight`, `GET /api/markets/midnight/[id]` |
 | Oracle address from GraphQL      | `lib/morpho/market-oracle-address.ts` (`resolveMarketOracleAddress`) |
+| Market activity (blue detail)    | `lib/morpho/market-activity.server.ts`, `market-activity-math.ts`, `components/morpho/MarketActivitySections.tsx`, `GET /api/markets/[marketId]/activity` |
+| Vault activity feed              | `lib/morpho/vault-activity.ts`, `vault-activity.server.ts`, `components/morpho/VaultActivityFeed.tsx`, `GET /api/vaults/[id]/activity` |
+| Adapter table rollups            | `lib/morpho/vault-adapter-summary.ts` |
 | Oracle decode + feed registry    | `lib/morpho/oracle-decode.server.ts`, `lib/morpho/chainlink-feed-registry.server.ts`, `lib/morpho/oracle-display.ts` |
 | Morpho GraphQL client + warnings | `lib/morpho/graphql-client.ts` |
 | Curator markets BFF + scoring    | `lib/morpho/curator-markets.ts`, `app/api/markets/` |
@@ -1808,7 +1847,11 @@ unwrap), `lib/utils/error-handler.test.ts`,
 `lib/api/query-params.test.ts`.
 
 `lib/onchain/allocation-dust.test.ts`, `lib/morpho/send-assets-gate-roster.test.ts`
-(source fallback, Cloudflare challenge, page-boundary re-read).
+(source fallback, Cloudflare challenge, page-boundary re-read),
+`lib/morpho/oracle-display.test.ts`, `oracle-decode.server.test.ts` (meta oracle
+active source), `market-activity-math.test.ts` (collateral at risk, V2 vault
+allocation via adapters), `vault-activity.test.ts` (Safe/MultiSend governance
+decode, roles, adapter summary).
 
 Still uncovered and high value: `lib/morpho/tx-preview.ts`.
 
