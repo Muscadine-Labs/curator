@@ -29,7 +29,7 @@ Copy `.env.example` → `.env.local`. See that file for the full list.
 | `ALCHEMY_API_KEY` or `COINBASE_CDP_API_KEY` | Recommended | Server Base RPC |
 | `NEXT_PUBLIC_ALCHEMY_API_KEY` | Recommended | Client Base RPC |
 | `NEXT_PUBLIC_APP_URL` | No | App origin (wallet metadata) |
-| `NEXT_PUBLIC_SAFE_API_KEY` | No | Safe Transaction Service |
+| `NEXT_PUBLIC_SAFE_API_KEY` | **Yes for `/curator/gates`** | Safe Transaction Service, including whitelist history |
 | `CURATOR_ADMIN_PASSWORD` | Login | Admin auth and session HMAC (unless `CURATOR_SESSION_SECRET` is set) |
 | `CURATOR_SESSION_SECRET` | No | Optional dedicated HMAC for `curator_session` |
 | `CURATOR_SESSION_VERSION` | No | Bump to invalidate all sessions |
@@ -38,7 +38,7 @@ Copy `.env.example` → `.env.local`. See that file for the full list.
 | `MORPHO_API_URL`, `NEXT_PUBLIC_VAULT_*` | No | Overrides |
 | `SEND_ASSETS_GATE_ADDRESS` (or `GATE_ADDRESS`) | No | Override the built-in send-assets gate |
 | `ALLOCATOR_SAFE_8453` | No | Override the Allocator Safe used as a gate whitelister |
-| `BLOCKSCOUT_API_KEY` | **Yes for `/curator/gates`** | Gate allowlist log lookup (free key at dev.blockscout.com); keyless Blockscout is Cloudflare-blocked |
+| `BLOCKSCOUT_API_KEY` | No | Paid Base fallback for gate logs. Free Blockscout no longer includes Base |
 | `ETHERSCAN_API_KEY` | No | Fallback gate log source (Etherscan V2; Base needs a paid plan) |
 
 ---
@@ -1530,12 +1530,15 @@ client serializes calls with ≥210ms spacing.
   `isWhitelister` mappings then decide the lists. Candidates come from one
   address-scoped log lookup (Etherscan-style `getLogs` for the gate), the same
   idea as the app's `vaultV2transactions` query — not a block-range walk.
-  Sources in order: Blockscout PRO API (`BLOCKSCOUT_API_KEY`, free key) →
-  Etherscan V2 (`ETHERSCAN_API_KEY`, Base is paid-only) → keyless
-  `base.blockscout.com` → one full-range `eth_getLogs` on the server RPC.
+  Sources in order: Safe Transaction Service (`NEXT_PUBLIC_SAFE_API_KEY`,
+  executed Curator and Allocator calls whose `to` is the gate, newest first,
+  stopping at the hashes in `lib/morpho/send-assets-gate-history.ts`) → Blockscout
+  PRO API (`BLOCKSCOUT_API_KEY`; Base is paid as of 2026-10-01) → Etherscan V2
+  (`ETHERSCAN_API_KEY`, Base is paid-only) → keyless `base.blockscout.com` →
+  one full-range `eth_getLogs` on the server RPC.
   **Keyless Blockscout answers server requests with a Cloudflare bot challenge
   (HTTP 403 HTML)** and free Alchemy caps `eth_getLogs` at 10 blocks, so without
-  a key the lookup fails — set `BLOCKSCOUT_API_KEY` in production. A full
+  the Safe key the lookup fails. A full
   1,000-log page restarts from its last block (not +1) so a page that ends
   mid-block does not skip logs. The chain shares one 32s budget (inside the 40s
   cache loader timeout); explorers stop 10s early so the RPC fallback always

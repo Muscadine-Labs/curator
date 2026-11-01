@@ -23,7 +23,18 @@ When the wrapper allocates, the **MorphoVaultV2Adapter** calls `deposit` on the 
 
 ### Who is allowlisted
 
-The curator gate page does not keep a depositor address list. It loads every `SetIsWhitelisted` / `SetIsWhitelister` log the gate contract emitted (one address-index lookup, from the creation transaction onward), then `isWhitelisted()` / `isWhitelister()` for each account. The log lookup needs `BLOCKSCOUT_API_KEY` on the server (free at dev.blockscout.com): keyless Blockscout returns a Cloudflare bot challenge to servers. Wrapper adapters are known from vault config so they can be labeled and checked immediately; a wallet is shown only after the gate itself names it.
+The curator gate page does not keep a depositor address list. With `NEXT_PUBLIC_SAFE_API_KEY` it reads the executed history of the Curator Safe and the Allocator Safe, newest first, and decodes `setIsWhitelisted`, `setIsWhitelister`, and `multicall` when `to` is the gate. It stops at the checkpoint in `lib/morpho/send-assets-gate-history.ts`, then reads `isWhitelisted()` / `isWhitelister()` for each account. A missing hash makes that Safe's history get read in full. Blockscout's free tier no longer includes Base, so that key is only a paid fallback. Wrapper adapters are known from vault config so they can be labeled and checked immediately; a wallet is shown only after a Safe call names it.
+
+## Whitelist history checkpoint
+
+Recorded **2026-10-31T23:34:51Z**. The gate page reads newer Safe transactions until these, then reuses the accounts already stored.
+
+| Safe | Nonce | Transaction |
+| ---- | ----- | ----------- |
+| Curator | 224 | `0x56e720c3e30cb0f90e32e96ba8f34573ca5b219e7f916fb232b485a569f5619c` |
+| Allocator | 148 | `0x6a8af91c8a60aef5e681bf587a6dace3608f4c9fbb3fc45d3c2e5a2ff6fceb8e` |
+
+Advance `lib/morpho/send-assets-gate-history.ts` when those are no longer the newest executed transactions.
 
 Display names, when the gate returns that address: `nwlutkoski.base.eth`, `muscadine.base.eth`, `nickwc.base.eth`, `ignitis.base.eth`, and **Muscadine Treasury**. Any other allowlisted account is labeled **Whitelisted address**.
 

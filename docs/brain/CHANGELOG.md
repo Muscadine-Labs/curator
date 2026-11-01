@@ -4,6 +4,18 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-10-31 — Gate roster stops at a Safe history checkpoint
+
+- `/curator/gates` reads Curator and Allocator history newest-first and stops at the transactions in `lib/morpho/send-assets-gate-history.ts` (2026-10-31). Accounts from that pass stay in the file. A missing hash reads that Safe in full.
+
+---
+
+## 2026-10-31 — Gate roster reads Safe history
+
+- `/curator/gates` lists whitelist candidates from executed Curator and Allocator Safe calls to the gate (`NEXT_PUBLIC_SAFE_API_KEY`). Blockscout's free tier no longer includes Base, so that API is only a paid fallback.
+
+---
+
 ## 2026-10-31 — Morpho MCP is the hosted server
 
 - `docs/brain/MCP.md` now points at Morpho's public MCP (`https://mcp.morpho.org/`), not the community `mcp-morpho-server` package. No account and no API key. Cursor config is `.cursor/mcp.json`; Claude Code config is `.mcp.json`. Prepare tools are not a write path for this app.

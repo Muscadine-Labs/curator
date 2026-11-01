@@ -1,24 +1,33 @@
-import { decodeEventLog, getAddress, type Address, type Hex } from 'viem';
+import { decodeEventLog, decodeFunctionData, getAddress, type Address, type Hex } from 'viem';
 import { publicClient } from '@/lib/onchain/client';
 import { withServerResponseCache } from '@/lib/api/server-response-cache';
 import { API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
+import { depositGateGateWhitelisters } from '@/lib/config/deposit-gates';
+import {
+  GATE_ROSTER_CHECKPOINT,
+  type GateHistoryCheckpoint,
+  type GateHistoryStop,
+} from '@/lib/morpho/send-assets-gate-history';
+import { whitelistSendAssetsGateAbi } from '@/lib/onchain/whitelist-send-assets-gate-abi';
+import { withSafeTxServiceRateLimit } from '@/lib/safe/transaction-service-rate-limit';
 import { logger } from '@/lib/utils/logger';
 
 /**
  * Accounts a WhitelistSendAssetsGate has ever flagged.
  *
  * The mappings `isWhitelisted` / `isWhitelister` cannot be listed on-chain, so
- * candidates come from the gate's own logs: one address-scoped lookup, not a
- * walk of every block. Logs only nominate candidates. Callers still read the
+ * candidates come from calls that named an account. Callers still read the
  * live mappings.
  *
- * Sources, first answer wins:
- *  1. Blockscout PRO API (`BLOCKSCOUT_API_KEY`, free key at dev.blockscout.com).
- *  2. Etherscan V2 (`ETHERSCAN_API_KEY`; Base needs a paid plan).
- *  3. Keyless `base.blockscout.com`. Cloudflare answers most server requests
- *     with a bot challenge (HTTP 403 HTML), which is why this lookup used to
- *     fail on every deploy.
- *  4. The configured Base RPC, one `eth_getLogs` over the whole chain. Works on
+ * Sources, first complete answer wins:
+ *  1. Safe Transaction Service (`NEXT_PUBLIC_SAFE_API_KEY`). Executed history
+ *     of the Curator and Allocator Safes, newest first, stopping at the hashes
+ *     in `send-assets-gate-history.ts`. Decoded when `to` is this gate.
+ *  2. Blockscout PRO API (`BLOCKSCOUT_API_KEY`). Base is a paid chain.
+ *  3. Etherscan V2 (`ETHERSCAN_API_KEY`; Base needs a paid plan).
+ *  4. Keyless `base.blockscout.com`. Cloudflare answers most server requests
+ *     with a bot challenge (HTTP 403 HTML).
+ *  5. The configured Base RPC, one `eth_getLogs` over the whole chain. Works on
  *     paid Alchemy / node plans; free Alchemy caps the span at 10 blocks.
  */
 const ROSTER_EVENTS = [
@@ -64,6 +73,9 @@ const FETCH_TIMEOUT_MS = 15_000;
 export type GateLookupBudget = { totalMs: number; rpcReserveMs: number };
 const DEFAULT_LOOKUP_BUDGET: GateLookupBudget = { totalMs: 32_000, rpcReserveMs: 10_000 };
 const BASE_CHAIN_ID = 8453;
+const SAFE_TX_SERVICE_ORIGIN = 'https://api.safe.global';
+const SAFE_HISTORY_PAGE_LIMIT = 100;
+const MAX_SAFE_HISTORY_PAGES = 20;
 
 type ExplorerLog = {
   blockNumber?: string;
@@ -117,6 +129,155 @@ type ExplorerSource = {
   /** Builds the URL for one page. Holds the API key, so never log or return it. */
   url: (gate: Address, fromBlock: bigint) => URL;
 };
+
+/** Accounts named by one gate call. Multicall is one level deep. Unknown selectors are skipped. */
+export function accountsFromGateCalldata(data: Hex): Address[] {
+  let decoded: { functionName: string; args?: readonly unknown[] };
+  try {
+    decoded = decodeFunctionData({ abi: whitelistSendAssetsGateAbi, data });
+  } catch {
+    return [];
+  }
+  if (decoded.functionName === 'setIsWhitelisted' || decoded.functionName === 'setIsWhitelister') {
+    const account = decoded.args?.[0];
+    return typeof account === 'string' ? [getAddress(account)] : [];
+  }
+  if (decoded.functionName !== 'multicall') return [];
+  const calls = decoded.args?.[0];
+  if (!Array.isArray(calls)) return [];
+  return calls.flatMap((call) =>
+    typeof call === 'string' ? accountsFromGateCalldata(call as Hex) : []
+  );
+}
+
+type SafeHistoryTx = {
+  to?: string | null;
+  data?: string | null;
+  isExecuted?: boolean | null;
+  isSuccessful?: boolean | null;
+  safeTxHash?: string | null;
+  transactionHash?: string | null;
+  executionDate?: string | null;
+};
+
+type SafeHistoryPage = {
+  next?: string | null;
+  results?: SafeHistoryTx[];
+};
+
+function sameHash(left: string | null | undefined, right: string): boolean {
+  return (left ?? '').toLowerCase() === right.toLowerCase();
+}
+
+function reachedHistoryStop(tx: SafeHistoryTx, stop: GateHistoryStop): boolean {
+  return sameHash(tx.safeTxHash, stop.safeTxHash) || sameHash(tx.transactionHash, stop.transactionHash);
+}
+
+function safeHistoryUrl(safe: Address): URL {
+  const url = new URL(
+    `${SAFE_TX_SERVICE_ORIGIN}/tx-service/base/api/v2/safes/${getAddress(safe)}/multisig-transactions/`
+  );
+  url.searchParams.set('executed', 'true');
+  url.searchParams.set('ordering', '-nonce');
+  url.searchParams.set('limit', String(SAFE_HISTORY_PAGE_LIMIT));
+  return url;
+}
+
+/** Only follow the service's own next link. */
+function nextSafeHistoryUrl(next: string | null | undefined): URL | null {
+  if (!next) return null;
+  let url: URL;
+  try {
+    url = new URL(next);
+  } catch {
+    return null;
+  }
+  if (url.origin !== SAFE_TX_SERVICE_ORIGIN) return null;
+  return url;
+}
+
+function historyStopFor(
+  checkpoint: GateHistoryCheckpoint | null,
+  gate: Address,
+  safe: Address
+): GateHistoryStop | null {
+  if (!checkpoint || getAddress(checkpoint.gate) !== getAddress(gate)) return null;
+  return (
+    checkpoint.safes.find((stop) => getAddress(stop.address) === getAddress(safe)) ?? null
+  );
+}
+
+async function scanSafeHistory(
+  gate: Address,
+  deadline: number,
+  checkpoint: GateHistoryCheckpoint | null
+): Promise<LogScan> {
+  const apiKey = process.env.NEXT_PUBLIC_SAFE_API_KEY?.trim();
+  if (!apiKey) throw new LogSourceError('NEXT_PUBLIC_SAFE_API_KEY is not set');
+  const accounts = new Set<Address>();
+  const gateAddress = getAddress(gate).toLowerCase();
+  const checkpointApplies =
+    checkpoint !== null && getAddress(checkpoint.gate) === getAddress(gate);
+  const safes = depositGateGateWhitelisters();
+  let stoppedSafes = 0;
+  for (const safe of safes) {
+    const stop = historyStopFor(checkpoint, gate, safe.address);
+    let foundStop = false;
+    let trustStop = stop !== null;
+    let pageUrl: URL | null = safeHistoryUrl(safe.address);
+    for (let page = 0; page < MAX_SAFE_HISTORY_PAGES && pageUrl; page += 1) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return { accounts, truncated: true };
+      const url: URL = pageUrl;
+      let response: Response;
+      try {
+        response = await withSafeTxServiceRateLimit(() =>
+          fetch(url, {
+            headers: { Accept: 'application/json', Authorization: `Bearer ${apiKey}` },
+            cache: 'no-store',
+            signal: AbortSignal.timeout(Math.min(FETCH_TIMEOUT_MS, remaining)),
+          })
+        );
+      } catch (error) {
+        const timedOut = error instanceof Error && error.name === 'TimeoutError';
+        throw new LogSourceError(timedOut ? 'timed out' : 'network error');
+      }
+      if (!response.ok) throw new LogSourceError(`HTTP ${response.status}`);
+      let body: SafeHistoryPage;
+      try {
+        body = (await response.json()) as SafeHistoryPage;
+      } catch {
+        throw new LogSourceError('not JSON');
+      }
+      for (const tx of body.results ?? []) {
+        if (trustStop && stop && reachedHistoryStop(tx, stop)) {
+          foundStop = true;
+          break;
+        }
+        if (trustStop && stop?.executionDate && tx.executionDate && tx.executionDate < stop.executionDate) {
+          trustStop = false;
+        }
+        if (tx.isExecuted !== true || tx.isSuccessful === false) continue;
+        if ((tx.to ?? '').toLowerCase() !== gateAddress) continue;
+        if (!isHexTopic(tx.data)) continue;
+        for (const account of accountsFromGateCalldata(tx.data)) accounts.add(account);
+      }
+      if (foundStop) break;
+      const next = nextSafeHistoryUrl(body.next);
+      if (!next && body.next) return { accounts, truncated: true };
+      pageUrl = next;
+      if (page === MAX_SAFE_HISTORY_PAGES - 1 && pageUrl) return { accounts, truncated: true };
+    }
+    const stoppedOnHash = foundStop && trustStop;
+    const readEverything = pageUrl === null;
+    if (stoppedOnHash) stoppedSafes += 1;
+    else if (!readEverything) return { accounts, truncated: true };
+  }
+  if (checkpointApplies && checkpoint && stoppedSafes > 0) {
+    for (const account of checkpoint.accounts) accounts.add(account);
+  }
+  return { accounts, truncated: false };
+}
 
 function explorerSources(): ExplorerSource[] {
   const sources: ExplorerSource[] = [];
@@ -269,19 +430,27 @@ async function scanRpc(gate: Address, deadline: number): Promise<LogScan> {
 /** Runs the source chain once. Exported for tests; callers use `readGateRosterCandidates`. */
 export async function scanGateLogs(
   gate: Address,
-  budget: GateLookupBudget = DEFAULT_LOOKUP_BUDGET
+  budget: GateLookupBudget = DEFAULT_LOOKUP_BUDGET,
+  checkpoint: GateHistoryCheckpoint | null = GATE_ROSTER_CHECKPOINT
 ): Promise<GateRosterCandidates> {
   const deadline = Date.now() + budget.totalMs;
   const explorerDeadline = deadline - budget.rpcReserveMs;
   const failures: string[] = [];
   let partial: Set<Address> | null = null;
-  const attempts: Array<{ name: string; run: () => Promise<LogScan> }> = [
+  const attempts: Array<{ name: string; run: () => Promise<LogScan> }> = [];
+  if (process.env.NEXT_PUBLIC_SAFE_API_KEY?.trim()) {
+    attempts.push({
+      name: 'Safe history',
+      run: () => scanSafeHistory(gate, explorerDeadline, checkpoint),
+    });
+  }
+  attempts.push(
     ...explorerSources().map((source) => ({
       name: source.name,
       run: () => scanExplorer(source, gate, explorerDeadline),
     })),
-    { name: 'Base RPC', run: () => scanRpc(gate, deadline) },
-  ];
+    { name: 'Base RPC', run: () => scanRpc(gate, deadline) }
+  );
   for (const attempt of attempts) {
     try {
       const scan = await attempt.run();
@@ -294,11 +463,13 @@ export async function scanGateLogs(
     }
   }
   const hasKey = Boolean(
-    process.env.BLOCKSCOUT_API_KEY?.trim() || process.env.ETHERSCAN_API_KEY?.trim()
+    process.env.NEXT_PUBLIC_SAFE_API_KEY?.trim() ||
+      process.env.BLOCKSCOUT_API_KEY?.trim() ||
+      process.env.ETHERSCAN_API_KEY?.trim()
   );
   const hint = hasKey
     ? ''
-    : ' Set BLOCKSCOUT_API_KEY (free at dev.blockscout.com) on the server.';
+    : ' Set NEXT_PUBLIC_SAFE_API_KEY to read whitelist calls from the Curator and Allocator Safes.';
   const reason = `${failures.join('; ')}.${hint}`;
   logger.warn('Send-assets gate log lookup failed', { gate, reason });
   return { accounts: partial ? [...partial] : [], status: 'failed', reason };

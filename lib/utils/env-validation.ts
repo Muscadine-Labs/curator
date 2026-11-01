@@ -48,9 +48,13 @@ function validateEnvVars(): EnvValidationResult {
   const isProductionRuntime =
     process.env.NODE_ENV === 'production' && process.env.NEXT_PHASE !== 'phase-production-build';
 
-  if (!process.env.BLOCKSCOUT_API_KEY?.trim() && !process.env.ETHERSCAN_API_KEY?.trim()) {
+  if (
+    !process.env.NEXT_PUBLIC_SAFE_API_KEY?.trim() &&
+    !process.env.BLOCKSCOUT_API_KEY?.trim() &&
+    !process.env.ETHERSCAN_API_KEY?.trim()
+  ) {
     warnings.push(
-      'BLOCKSCOUT_API_KEY is not set. /curator/gates cannot list accounts whitelisted outside config (keyless Blockscout is Cloudflare-blocked for servers)'
+      'NEXT_PUBLIC_SAFE_API_KEY is not set. /curator/gates cannot list whitelist calls from the Curator and Allocator Safes'
     );
   }
 

@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { encodeAbiParameters, encodeEventTopics, parseAbiItem } from 'viem';
+import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, parseAbiItem } from 'viem';
+import type { GateHistoryCheckpoint } from '@/lib/morpho/send-assets-gate-history';
 import {
   accountsFromGateLog,
   readGateRosterCandidates,
   scanGateLogs,
 } from '@/lib/morpho/send-assets-gate-roster.server';
+import { whitelistSendAssetsGateAbi } from '@/lib/onchain/whitelist-send-assets-gate-abi';
 import { publicClient } from '@/lib/onchain/client';
 
 vi.mock('@/lib/onchain/client', () => ({
@@ -79,7 +81,7 @@ describe('readGateRosterCandidates', () => {
     const result = await readGateRosterCandidates('0x0000000000000000000000000000000000000001');
     expect(result.status).toBe('failed');
     expect(result.reason).toContain('bot challenge (HTTP 403)');
-    expect(result.reason).toContain('BLOCKSCOUT_API_KEY');
+    expect(result.reason).toContain('NEXT_PUBLIC_SAFE_API_KEY');
     expect(result.reason).not.toContain('secret-key');
   });
 
@@ -104,6 +106,127 @@ describe('readGateRosterCandidates', () => {
     expect(fromBlocks).toEqual(['0', '7']);
     expect(result.accounts.map((a) => a.toLowerCase()).sort()).toEqual(
       [ACCOUNT, WHITELISTER, other].map((a) => a.toLowerCase()).sort()
+    );
+  });
+
+  it('reads whitelist calls from the Curator and Allocator Safe histories', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SAFE_API_KEY', 'safe-key');
+    vi.stubEnv('BLOCKSCOUT_API_KEY', '');
+    vi.stubEnv('ETHERSCAN_API_KEY', '');
+    const gate = '0x0000000000000000000000000000000000000005';
+    const removed = '0x2222222222222222222222222222222222222222' as const;
+    const allow = encodeFunctionData({
+      abi: whitelistSendAssetsGateAbi,
+      functionName: 'setIsWhitelisted',
+      args: [ACCOUNT, true],
+    });
+    const deny = encodeFunctionData({
+      abi: whitelistSendAssetsGateAbi,
+      functionName: 'setIsWhitelisted',
+      args: [removed, false],
+    });
+    const bundled = encodeFunctionData({
+      abi: whitelistSendAssetsGateAbi,
+      functionName: 'multicall',
+      args: [[allow]],
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: URL) => {
+        expect(input.host).toBe('api.safe.global');
+        expect(input.searchParams.get('executed')).toBe('true');
+        const safe = input.pathname.toLowerCase();
+        if (safe.includes('0x2ed45bb3542d06d81d117acd8a561e910a17a618')) {
+          return jsonResponse({
+            next: null,
+            results: [
+              { to: gate, isExecuted: true, isSuccessful: true, data: deny },
+              {
+                to: '0x314fD07319ef645bA7D548915CCd91F4788A1839',
+                isExecuted: true,
+                isSuccessful: true,
+                data: bundled,
+              },
+            ],
+          });
+        }
+        return jsonResponse({
+          next: null,
+          results: [{ to: gate, isExecuted: true, isSuccessful: true, data: bundled }],
+        });
+      })
+    );
+    const result = await scanGateLogs(gate);
+    expect(result.status).toBe('complete');
+    expect(result.accounts.map((address) => address.toLowerCase()).sort()).toEqual(
+      [ACCOUNT, removed].map((address) => address.toLowerCase()).sort()
+    );
+  });
+
+  it('stops at the checkpoint hashes and keeps the accounts already read', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SAFE_API_KEY', 'safe-key');
+    vi.stubEnv('BLOCKSCOUT_API_KEY', '');
+    vi.stubEnv('ETHERSCAN_API_KEY', '');
+    const gate = '0x0000000000000000000000000000000000000006' as const;
+    const known = '0x4444444444444444444444444444444444444444' as const;
+    const fresh = '0x5555555555555555555555555555555555555555' as const;
+    const stopHash = `0x${'ab'.repeat(32)}` as const;
+    const checkpoint: GateHistoryCheckpoint = {
+      gate,
+      recordedAt: '2026-10-31T23:34:51Z',
+      accounts: [known],
+      safes: [
+        {
+          address: '0xb6d1d784e9Bc3570546e231caCB52B4E0f1ED8b1',
+          nonce: 224,
+          executionDate: '2026-10-31T21:40:07Z',
+          safeTxHash: stopHash,
+          transactionHash: stopHash,
+        },
+        {
+          address: WHITELISTER,
+          nonce: 148,
+          executionDate: '2026-10-31T23:34:51Z',
+          safeTxHash: stopHash,
+          transactionHash: stopHash,
+        },
+      ],
+    };
+    const allow = encodeFunctionData({
+      abi: whitelistSendAssetsGateAbi,
+      functionName: 'setIsWhitelisted',
+      args: [fresh, true],
+    });
+    const fetched: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: URL) => {
+        fetched.push(input.pathname);
+        expect(input.pathname).not.toContain('older-page');
+        return jsonResponse({
+          next: 'https://api.safe.global/tx-service/base/api/v2/older-page',
+          results: [
+            {
+              to: gate,
+              isExecuted: true,
+              isSuccessful: true,
+              executionDate: '2026-10-31T23:40:00Z',
+              data: allow,
+            },
+            {
+              safeTxHash: stopHash,
+              transactionHash: stopHash,
+              executionDate: '2026-10-31T23:34:51Z',
+            },
+          ],
+        });
+      })
+    );
+    const result = await scanGateLogs(gate, undefined, checkpoint);
+    expect(fetched).toHaveLength(2);
+    expect(result.status).toBe('complete');
+    expect(result.accounts.map((address) => address.toLowerCase()).sort()).toEqual(
+      [known, fresh].map((address) => address.toLowerCase()).sort()
     );
   });
 
