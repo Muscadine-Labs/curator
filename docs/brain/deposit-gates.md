@@ -36,7 +36,7 @@ Recorded **2026-10-31T23:34:51Z**. The gate page reads newer Safe transactions u
 
 Advance `lib/morpho/send-assets-gate-history.ts` when those are no longer the newest executed transactions.
 
-Display names, when the gate returns that address: `nwlutkoski.base.eth`, `muscadine.base.eth`, `nickwc.base.eth`, `ignitis.base.eth`, and **Muscadine Treasury**. Any other allowlisted account is labeled **Whitelisted address**.
+Display names, when the gate returns that address: `nwlutkoski.base.eth`, `muscadine.base.eth`, `nickwc.base.eth`, `ignitis.base.eth`, and **Muscadine Treasury**. Any other whitelisted account shows its Basename, or the full address when it has none.
 
 **Adapters the wrappers deposit through (4)**
 

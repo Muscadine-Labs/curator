@@ -98,7 +98,7 @@ function GateRoster({
         <ul className="divide-y divide-border">
           {rows.map((row) => (
             <li key={row.address} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
-              <p className="text-sm text-foreground">{row.label}</p>
+              <p className="break-all text-sm text-foreground">{row.label}</p>
               <AddressBadge
                 address={row.address}
                 truncate

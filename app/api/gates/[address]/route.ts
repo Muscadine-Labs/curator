@@ -20,6 +20,7 @@ import {
   readGateRosterCandidates,
   type GateRosterStatus,
 } from '@/lib/morpho/send-assets-gate-roster.server';
+import { resolveBasenames } from '@/lib/onchain/basename';
 
 export type GateAccountStatus = {
   address: Address;
@@ -147,6 +148,14 @@ export async function GET(
         isWhitelister,
       };
     });
+
+    const unnamed = accountStatus.filter(
+      (row) => row.label === 'Whitelisted address' && row.isWhitelisted === true
+    );
+    const basenames = await resolveBasenames(unnamed.map((row) => row.address));
+    for (const row of unnamed) {
+      row.label = basenames.get(row.address.toLowerCase()) || row.address;
+    }
 
     const response: SendAssetsGateState = {
       address,

@@ -4,6 +4,12 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-10-31 — Whitelisted rows show a Basename or the full address
+
+- On `/curator/gates`, an account labeled only "Whitelisted address" now shows its Basename. With no Basename, the row shows the full address.
+
+---
+
 ## 2026-10-31 — Gate roster stops at a Safe history checkpoint
 
 - `/curator/gates` reads Curator and Allocator history newest-first and stops at the transactions in `lib/morpho/send-assets-gate-history.ts` (2026-10-31). Accounts from that pass stay in the file. A missing hash reads that Safe in full.
