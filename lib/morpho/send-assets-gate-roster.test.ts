@@ -1,8 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, parseAbiItem } from 'viem';
+import {
+  concat,
+  encodeAbiParameters,
+  encodeEventTopics,
+  encodeFunctionData,
+  encodePacked,
+  parseAbi,
+  parseAbiItem,
+  size,
+} from 'viem';
 import type { GateHistoryCheckpoint } from '@/lib/morpho/send-assets-gate-history';
 import {
   accountsFromGateLog,
+  accountsFromSafeTx,
   readGateRosterCandidates,
   scanGateLogs,
 } from '@/lib/morpho/send-assets-gate-roster.server';
@@ -276,5 +286,66 @@ describe('readGateRosterCandidates', () => {
     expect(Date.now() - started).toBeLessThan(1_000);
     expect(result.status).toBe('failed');
     expect(result.reason).toContain('Base RPC: timed out');
+  });
+});
+
+describe('accountsFromSafeTx', () => {
+  const gate = '0x0000000000000000000000000000000000000007' as const;
+  const viaBatch = '0x6666666666666666666666666666666666666666' as const;
+  const delegated = '0x7777777777777777777777777777777777777777' as const;
+  const multiSendCallOnly = '0x40A2aCCbd92BCA938b02010E17A5b8929b49130D' as const;
+  const pack = (operation: 0 | 1, to: `0x${string}`, data: `0x${string}`) =>
+    encodePacked(
+      ['uint8', 'address', 'uint256', 'uint256', 'bytes'],
+      [operation, to, 0n, BigInt(size(data)), data]
+    );
+
+  it('reads gate calls bundled in a MultiSend batch', () => {
+    const allow = encodeFunctionData({
+      abi: whitelistSendAssetsGateAbi,
+      functionName: 'setIsWhitelisted',
+      args: [viaBatch, true],
+    });
+    const viaDelegate = encodeFunctionData({
+      abi: whitelistSendAssetsGateAbi,
+      functionName: 'setIsWhitelisted',
+      args: [delegated, true],
+    });
+    const other = encodeFunctionData({
+      abi: whitelistSendAssetsGateAbi,
+      functionName: 'setIsWhitelisted',
+      args: [delegated, true],
+    });
+    const batch = encodeFunctionData({
+      abi: parseAbi(['function multiSend(bytes transactions)']),
+      args: [
+        concat([
+          pack(0, gate, allow),
+          pack(1, gate, viaDelegate),
+          pack(0, '0x314fD07319ef645bA7D548915CCd91F4788A1839', other),
+        ]),
+      ],
+    });
+    expect(accountsFromSafeTx({ to: multiSendCallOnly, data: batch }, gate)).toEqual([viaBatch]);
+  });
+
+  it('ignores a batch sent to a contract that is not a known MultiSend', () => {
+    const batch = encodeFunctionData({
+      abi: parseAbi(['function multiSend(bytes transactions)']),
+      args: [
+        pack(
+          0,
+          gate,
+          encodeFunctionData({
+            abi: whitelistSendAssetsGateAbi,
+            functionName: 'setIsWhitelisted',
+            args: [viaBatch, true],
+          })
+        ),
+      ],
+    });
+    expect(
+      accountsFromSafeTx({ to: '0x8888888888888888888888888888888888888888', data: batch }, gate)
+    ).toEqual([]);
   });
 });

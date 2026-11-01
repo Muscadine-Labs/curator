@@ -4,6 +4,13 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-01 — Gate history reads MultiSend batches; Basenames are forward-checked
+
+- The Safe-history roster source only decoded transactions whose `to` was the gate. A whitelist call batched with **Batch into MultiSend** (or Safe's transaction builder) executes with `to` = MultiSend, so that account was missed while the scan still reported `complete`. `accountsFromSafeTx` now also unpacks canonical MultiSend batches (`lib/safe/multisend.ts`) and reads the plain calls to the gate inside. Tests in `send-assets-gate-roster.test.ts`.
+- `resolveBasenames` showed any reverse record, and anyone can set theirs to a name they do not own. A name is now kept only when it resolves forward to the same address, through the name's own resolver from the Basenames registry (newer names use a different resolver than reverse records). Checked live: every whitelisted account's real Basename still shows. `lib/onchain/basename.ts` + test.
+
+---
+
 ## 2026-10-31 — Whitelisted rows show a Basename or the full address
 
 - On `/curator/gates`, an account labeled only "Whitelisted address" now shows its Basename. With no Basename, the row shows the full address.

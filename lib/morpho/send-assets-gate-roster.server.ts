@@ -9,6 +9,7 @@ import {
   type GateHistoryStop,
 } from '@/lib/morpho/send-assets-gate-history';
 import { whitelistSendAssetsGateAbi } from '@/lib/onchain/whitelist-send-assets-gate-abi';
+import { decodeMultiSend, isKnownMultiSend } from '@/lib/safe/multisend';
 import { withSafeTxServiceRateLimit } from '@/lib/safe/transaction-service-rate-limit';
 import { logger } from '@/lib/utils/logger';
 
@@ -22,7 +23,9 @@ import { logger } from '@/lib/utils/logger';
  * Sources, first complete answer wins:
  *  1. Safe Transaction Service (`NEXT_PUBLIC_SAFE_API_KEY`). Executed history
  *     of the Curator and Allocator Safes, newest first, stopping at the hashes
- *     in `send-assets-gate-history.ts`. Decoded when `to` is this gate.
+ *     in `send-assets-gate-history.ts`. Decoded when `to` is this gate, or a
+ *     canonical MultiSend batch (the queue's Batch button, the Safe UI's
+ *     transaction builder) that calls it.
  *  2. Blockscout PRO API (`BLOCKSCOUT_API_KEY`). Base is a paid chain.
  *  3. Etherscan V2 (`ETHERSCAN_API_KEY`; Base needs a paid plan).
  *  4. Keyless `base.blockscout.com`. Cloudflare answers most server requests
@@ -150,6 +153,28 @@ export function accountsFromGateCalldata(data: Hex): Address[] {
   );
 }
 
+/**
+ * Accounts named by one executed Safe transaction: a direct call to the gate,
+ * or gate calls inside a canonical MultiSend batch.
+ */
+export function accountsFromSafeTx(
+  tx: { to?: string | null; data?: string | null },
+  gate: Address
+): Address[] {
+  const to = (tx.to ?? '').toLowerCase();
+  const data = tx.data;
+  if (!to || typeof data !== 'string' || !/^0x[0-9a-fA-F]*$/.test(data)) return [];
+  const gateAddress = gate.toLowerCase();
+  if (to === gateAddress) return accountsFromGateCalldata(data as Hex);
+  if (!isKnownMultiSend(to)) return [];
+  const inner = decodeMultiSend(data as Hex) ?? [];
+  return inner.flatMap((call) =>
+    call.operation === 0 && call.to.toLowerCase() === gateAddress
+      ? accountsFromGateCalldata(call.data)
+      : []
+  );
+}
+
 type SafeHistoryTx = {
   to?: string | null;
   data?: string | null;
@@ -215,7 +240,6 @@ async function scanSafeHistory(
   const apiKey = process.env.NEXT_PUBLIC_SAFE_API_KEY?.trim();
   if (!apiKey) throw new LogSourceError('NEXT_PUBLIC_SAFE_API_KEY is not set');
   const accounts = new Set<Address>();
-  const gateAddress = getAddress(gate).toLowerCase();
   const checkpointApplies =
     checkpoint !== null && getAddress(checkpoint.gate) === getAddress(gate);
   const safes = depositGateGateWhitelisters();
@@ -258,9 +282,7 @@ async function scanSafeHistory(
           trustStop = false;
         }
         if (tx.isExecuted !== true || tx.isSuccessful === false) continue;
-        if ((tx.to ?? '').toLowerCase() !== gateAddress) continue;
-        if (!isHexTopic(tx.data)) continue;
-        for (const account of accountsFromGateCalldata(tx.data)) accounts.add(account);
+        for (const account of accountsFromSafeTx(tx, gate)) accounts.add(account);
       }
       if (foundStop) break;
       const next = nextSafeHistoryUrl(body.next);
