@@ -3,7 +3,9 @@ import { encodeAbiParameters, encodeEventTopics, parseAbiItem } from 'viem';
 import {
   accountsFromGateLog,
   readGateRosterCandidates,
+  scanGateLogs,
 } from '@/lib/morpho/send-assets-gate-roster.server';
+import { publicClient } from '@/lib/onchain/client';
 
 vi.mock('@/lib/onchain/client', () => ({
   publicClient: {
@@ -103,5 +105,53 @@ describe('readGateRosterCandidates', () => {
     expect(result.accounts.map((a) => a.toLowerCase()).sort()).toEqual(
       [ACCOUNT, WHITELISTER, other].map((a) => a.toLowerCase()).sort()
     );
+  });
+
+  it('keeps time for the RPC fallback when every explorer stalls', async () => {
+    vi.stubEnv('BLOCKSCOUT_API_KEY', 'test-key');
+    vi.stubEnv('ETHERSCAN_API_KEY', 'test-key');
+    // Explorers never answer; they only stop when their abort signal fires.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_input: URL, init?: RequestInit) =>
+          new Promise<Response>((_, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+          })
+      )
+    );
+    const log = whitelistedLog(ACCOUNT, 9);
+    vi.mocked(publicClient.getLogs).mockResolvedValueOnce([
+      { ...log, blockNumber: 9n },
+    ] as unknown as Awaited<ReturnType<typeof publicClient.getLogs>>);
+
+    const started = Date.now();
+    const result = await scanGateLogs('0x0000000000000000000000000000000000000003', {
+      totalMs: 600,
+      rpcReserveMs: 300,
+    });
+    expect(Date.now() - started).toBeLessThan(600);
+    expect(result.status).toBe('complete');
+    expect(result.accounts.map((a) => a.toLowerCase()).sort()).toEqual(
+      [ACCOUNT, WHITELISTER].map((a) => a.toLowerCase()).sort()
+    );
+  });
+
+  it('gives up on a stalled RPC at the overall deadline', async () => {
+    vi.stubEnv('BLOCKSCOUT_API_KEY', '');
+    vi.stubEnv('ETHERSCAN_API_KEY', '');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('<html>Just a moment...</html>', { status: 403 }))
+    );
+    vi.mocked(publicClient.getLogs).mockImplementationOnce(() => new Promise(() => {}));
+    const started = Date.now();
+    const result = await scanGateLogs('0x0000000000000000000000000000000000000004', {
+      totalMs: 300,
+      rpcReserveMs: 100,
+    });
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(result.status).toBe('failed');
+    expect(result.reason).toContain('Base RPC: timed out');
   });
 });

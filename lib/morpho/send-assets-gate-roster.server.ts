@@ -54,6 +54,15 @@ const ROSTER_EVENTS = [
 const LOG_PAGE_SIZE = 1_000;
 const MAX_LOG_PAGES = 20;
 const FETCH_TIMEOUT_MS = 15_000;
+
+/**
+ * Time budget for one roster lookup. The whole fallback chain must finish
+ * inside `withServerResponseCache`'s 40s loader timeout, or the caller gets an
+ * empty failure even when a later source would have answered. Explorers share
+ * `totalMs - rpcReserveMs`; the RPC fallback always keeps its reserve.
+ */
+export type GateLookupBudget = { totalMs: number; rpcReserveMs: number };
+const DEFAULT_LOOKUP_BUDGET: GateLookupBudget = { totalMs: 32_000, rpcReserveMs: 10_000 };
 const BASE_CHAIN_ID = 8453;
 
 type ExplorerLog = {
@@ -154,14 +163,17 @@ function logsUrl(base: string, gate: Address, fromBlock: bigint): URL {
 async function fetchExplorerPage(
   source: ExplorerSource,
   gate: Address,
-  fromBlock: bigint
+  fromBlock: bigint,
+  deadline: number
 ): Promise<ExplorerLog[]> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new LogSourceError('skipped, out of time');
   let response: Response;
   try {
     response = await fetch(source.url(gate, fromBlock), {
       headers: { accept: 'application/json', 'user-agent': 'muscadine-curator' },
       cache: 'no-store',
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      signal: AbortSignal.timeout(Math.min(FETCH_TIMEOUT_MS, remaining)),
     });
   } catch (error) {
     const timedOut = error instanceof Error && error.name === 'TimeoutError';
@@ -192,11 +204,22 @@ async function fetchExplorerPage(
 
 type LogScan = { accounts: Set<Address>; truncated: boolean };
 
-async function scanExplorer(source: ExplorerSource, gate: Address): Promise<LogScan> {
+async function scanExplorer(
+  source: ExplorerSource,
+  gate: Address,
+  deadline: number
+): Promise<LogScan> {
   const accounts = new Set<Address>();
   let fromBlock = 0n;
   for (let page = 0; page < MAX_LOG_PAGES; page += 1) {
-    const logs = await fetchExplorerPage(source, gate, fromBlock);
+    let logs: ExplorerLog[];
+    try {
+      logs = await fetchExplorerPage(source, gate, fromBlock, deadline);
+    } catch (error) {
+      // Out of time after some pages: keep what was read as a partial list.
+      if (page > 0 && Date.now() >= deadline) return { accounts, truncated: true };
+      throw error;
+    }
     for (const log of logs) {
       for (const account of accountsFromGateLog(log)) accounts.add(account);
     }
@@ -212,40 +235,58 @@ async function scanExplorer(source: ExplorerSource, gate: Address): Promise<LogS
   return { accounts, truncated: true };
 }
 
-async function scanRpc(gate: Address): Promise<LogScan> {
+async function scanRpc(gate: Address, deadline: number): Promise<LogScan> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new LogSourceError('skipped, out of time');
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new LogSourceError('timed out')), remaining);
+  });
   try {
-    const logs = await publicClient.getLogs({
-      address: gate,
-      events: ROSTER_EVENTS,
-      fromBlock: 0n,
-      toBlock: 'latest',
-    });
+    const logs = await Promise.race([
+      publicClient.getLogs({
+        address: gate,
+        events: ROSTER_EVENTS,
+        fromBlock: 0n,
+        toBlock: 'latest',
+      }),
+      timedOut,
+    ]);
     const accounts = new Set<Address>();
     for (const log of logs) {
       for (const account of accountsFromGateLog(log)) accounts.add(account);
     }
     return { accounts, truncated: false };
-  } catch {
+  } catch (error) {
+    if (error instanceof LogSourceError) throw error;
     // RPC errors can embed the keyed URL; keep only a fixed summary.
     throw new LogSourceError('eth_getLogs over the full range was rejected (free RPC plans cap the block span)');
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-async function readGateAccounts(gate: Address): Promise<GateRosterCandidates> {
+/** Runs the source chain once. Exported for tests; callers use `readGateRosterCandidates`. */
+export async function scanGateLogs(
+  gate: Address,
+  budget: GateLookupBudget = DEFAULT_LOOKUP_BUDGET
+): Promise<GateRosterCandidates> {
+  const deadline = Date.now() + budget.totalMs;
+  const explorerDeadline = deadline - budget.rpcReserveMs;
   const failures: string[] = [];
   let partial: Set<Address> | null = null;
   const attempts: Array<{ name: string; run: () => Promise<LogScan> }> = [
     ...explorerSources().map((source) => ({
       name: source.name,
-      run: () => scanExplorer(source, gate),
+      run: () => scanExplorer(source, gate, explorerDeadline),
     })),
-    { name: 'Base RPC', run: () => scanRpc(gate) },
+    { name: 'Base RPC', run: () => scanRpc(gate, deadline) },
   ];
   for (const attempt of attempts) {
     try {
       const scan = await attempt.run();
       if (!scan.truncated) return { accounts: [...scan.accounts], status: 'complete' };
-      failures.push(`${attempt.name}: stopped after ${MAX_LOG_PAGES * LOG_PAGE_SIZE} logs`);
+      failures.push(`${attempt.name}: incomplete (page limit or out of time)`);
       if (!partial || scan.accounts.size > partial.size) partial = scan.accounts;
     } catch (error) {
       const message = error instanceof LogSourceError ? error.message : 'unexpected error';
@@ -269,9 +310,7 @@ export async function readGateRosterCandidates(gate: Address): Promise<GateRoste
     // Deduplicates concurrent loads and spares explorer credits for 30s.
     // Failures are cached too: without a key every load would otherwise repeat
     // the doomed explorer + RPC calls, and adding a key needs a redeploy anyway.
-    return await withServerResponseCache(key, API_CACHE_MAX_AGE_MS, () =>
-      readGateAccounts(gate)
-    );
+    return await withServerResponseCache(key, API_CACHE_MAX_AGE_MS, () => scanGateLogs(gate));
   } catch (error) {
     logger.warn('Send-assets gate log lookup failed', {
       gate,

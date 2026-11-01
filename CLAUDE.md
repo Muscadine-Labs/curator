@@ -1537,8 +1537,10 @@ client serializes calls with ≥210ms spacing.
   (HTTP 403 HTML)** and free Alchemy caps `eth_getLogs` at 10 blocks, so without
   a key the lookup fails — set `BLOCKSCOUT_API_KEY` in production. A full
   1,000-log page restarts from its last block (not +1) so a page that ends
-  mid-block does not skip logs. Results (failures too) are cached 30s, and a
-  failure logs once per lookup. Status is
+  mid-block does not skip logs. The chain shares one 32s budget (inside the 40s
+  cache loader timeout); explorers stop 10s early so the RPC fallback always
+  gets its turn, and a stalled RPC is cut at the deadline. Results (failures
+  too) are cached 30s, and a failure logs once per lookup. Status is
   `complete` or `failed`; `rosterScan.reason` names each failed source and the
   panel shows it. The panel also lists accounts whose reads failed instead of
   dropping them.
