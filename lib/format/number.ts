@@ -74,6 +74,30 @@ export const formatCompactNumber = (value: number | bigint | null): string => {
   }).format(numValue);
 };
 
+/**
+ * Compact token / plain amount with up to `maxFractionDigits` (12.35, 1.24K,
+ * 3.5M). Unlike `formatCompactNumber`, values under 1,000 are rounded too.
+ */
+export function formatCompactAmount(
+  value: number | null | undefined,
+  maxFractionDigits: number = 2
+): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  return new Intl.NumberFormat('en-US', {
+    notation: 'compact',
+    maximumFractionDigits: maxFractionDigits,
+  }).format(value);
+}
+
+/** A ratio-style price (e.g. a Midnight take price ≈ 0.99) at fixed precision. */
+export function formatPrice(value: number | null | undefined, digits: number = 4): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
+
 function formatDate(date: Date | string | number | null): string {
   if (!date) return 'N/A';
 

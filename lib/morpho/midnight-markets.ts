@@ -3,6 +3,7 @@
  * GraphQL (`api.morpho.org/graphql`) is Blue-only — Midnight is not in that schema.
  * Docs: https://docs.morpho.org/developers/api/morpho-midnight/
  */
+import { API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
 import { BASE_CHAIN_ID, MORPHO_REST_ORIGIN, SECONDS_PER_YEAR } from '@/lib/constants';
 import { fetchAssetUsdPrice, resolveTokenMeta } from '@/lib/morpho/known-tokens';
 import { getOraclePriceSnapshot, type OraclePriceSnapshot } from '@/lib/morpho/oracle-price';
@@ -14,7 +15,7 @@ import {
 import { bigintRatio } from '@/lib/format/bigint-ratio';
 import { logger } from '@/lib/utils/logger';
 import { AppError } from '@/lib/utils/error-handler';
-import type { Address } from 'viem';
+import { formatUnits, type Address } from 'viem';
 
 /** Morpho REST normally answers in well under a second; a stall must not hang the route. */
 const MIDNIGHT_FETCH_TIMEOUT_MS = 15_000;
@@ -565,10 +566,13 @@ async function fetchMidnightPositionTotals(marketId: string): Promise<{
   return null;
 }
 
-async function fetchMidnightRest<T>(path: string): Promise<T | null> {
+async function fetchMidnightRest<T>(
+  path: string,
+  timeoutMs: number = MIDNIGHT_FETCH_TIMEOUT_MS
+): Promise<T | null> {
   const res = await fetch(`${MORPHO_REST_ORIGIN}${path}`, {
     cache: 'no-store',
-    signal: AbortSignal.timeout(MIDNIGHT_FETCH_TIMEOUT_MS),
+    signal: AbortSignal.timeout(Math.max(1, timeoutMs)),
   });
   if (res.status === 404) return null;
   if (!res.ok) {
@@ -691,18 +695,27 @@ function rawBigint(value: string | null | undefined): bigint {
 }
 
 /**
- * How this fill changes outstanding units.
- * A new loan is the lend leg's `total_units_delta` (the borrow leg repeats it).
- * Closing a borrow and liquidations pay units back. Checked against Morpho's
- * daily outstanding change for 30 Oct and 31 Oct 2026.
+ * How this event changes outstanding units.
+ *
+ * A book fill emits two legs carrying the same `total_units_delta`: the side
+ * buying units (`lend`, or `exit_borrow_secondary` when a borrower buys back
+ * debt) and the side selling them (`borrow` / `exit_lend_secondary`). Counting
+ * the buying leg's `total_units_delta` counts each fill once: a new loan is
+ * positive, a debt handover (`borrow` + `exit_borrow_secondary`) is 0, and two
+ * exits matched together are negative. Subtracting `units` on every
+ * `exit_borrow_secondary` inflated outstanding by billions on handovers.
+ *
+ * A direct repayment (`exit_borrow_primary`) and liquidations pay units back.
+ * A `roll` to Blue always comes with an `exit_borrow_primary` for the same
+ * units in the same tx, so it is not counted again.
  */
-function historyUnitChange(event: MidnightHistoryEvent): bigint {
+export function historyUnitChange(event: MidnightHistoryEvent): bigint {
   const data = event.data;
   switch (event.event_type) {
     case 'lend':
+    case 'exit_borrow_secondary':
       return rawBigint(data?.total_units_delta);
     case 'exit_borrow_primary':
-    case 'exit_borrow_secondary':
       return -rawBigint(data?.units);
     case 'partial_liquidation':
     case 'full_liquidation':
@@ -719,7 +732,8 @@ function vwapPriceWad(assets: bigint, units: bigint): string | null {
 
 function unitsToUsd(units: bigint, decimals: number, loanUsd: number | null): number | null {
   if (loanUsd == null || !Number.isFinite(loanUsd)) return null;
-  const human = Number(units) / 10 ** decimals;
+  // formatUnits keeps the token amount exact; only the USD product is a float.
+  const human = Number(formatUnits(units, decimals));
   return Number.isFinite(human) ? human * loanUsd : null;
 }
 
@@ -799,20 +813,34 @@ type MidnightTransactionsPage = {
   data?: MidnightHistoryEvent[];
 };
 
+/**
+ * Total time history paging may take. The detail route runs inside the 40s
+ * server-cache loader timeout, so history must give up early and degrade to a
+ * partial (or last good) series instead of failing the whole market page.
+ */
+const HISTORY_BUDGET_MS = 20_000;
+
 async function pageMidnightTransactions(
   marketId: string,
-  sinceSec: number
+  sinceSec: number,
+  deadline: number = Date.now() + HISTORY_BUDGET_MS
 ): Promise<{ events: MidnightHistoryEvent[]; complete: boolean }> {
   const events: MidnightHistoryEvent[] = [];
   let cursor: string | null = null;
   for (let page = 0; page < HISTORY_MAX_PAGES; page += 1) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      logger.warn('Midnight history hit its time budget', { marketId, pages: page });
+      return { events, complete: false };
+    }
     const params = new URLSearchParams({
       limit: String(HISTORY_PAGE_LIMIT),
       created_at_gte: String(sinceSec),
     });
     if (cursor) params.set('cursor', cursor);
     const body = await fetchMidnightRest<MidnightTransactionsPage>(
-      `/v0/midnight/markets/${marketId}/transactions?${params.toString()}`
+      `/v0/midnight/markets/${marketId}/transactions?${params.toString()}`,
+      Math.min(MIDNIGHT_FETCH_TIMEOUT_MS, remaining)
     );
     const batch = body?.data ?? [];
     events.push(...batch);
@@ -893,8 +921,10 @@ export async function fetchMidnightMarketDetail(
   const pairCollaterals = selectMidnightCollaterals(collaterals, loanAddress);
   const asks = mapBookLevels(book?.asks, tenorSeconds);
   const bids = mapBookLevels(book?.bids, tenorSeconds);
+  // Freshness is decided once, before the fetches: if the snapshot expires
+  // while they run, no history was fetched and the snapshot is still the best data.
   let history: HistorySnapshot;
-  if (cachedHistory && cachedHistory.expiresAt > Date.now()) {
+  if (historyReady && cachedHistory) {
     history = cachedHistory;
   } else if (pagedHistory) {
     history = {
@@ -910,8 +940,15 @@ export async function fetchMidnightMarketDetail(
       }),
     };
     historySnapshots.set(id.toLowerCase(), history);
+  } else if (cachedHistory?.available) {
+    // Paging failed: serve the last good series and retry after the cache window.
+    history = { ...cachedHistory, expiresAt: Date.now() + API_CACHE_MAX_AGE_MS };
+    historySnapshots.set(id.toLowerCase(), history);
   } else {
-    history = { expiresAt: 0, available: false, points: [] };
+    // No good series yet. Hold the failure for the cache window so every
+    // request in it does not restart the full multi-page scan.
+    history = { expiresAt: Date.now() + API_CACHE_MAX_AGE_MS, available: false, points: [] };
+    historySnapshots.set(id.toLowerCase(), history);
   }
 
   const detail: MidnightMarketDetail = {

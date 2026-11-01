@@ -15,7 +15,12 @@ import {
 } from 'recharts';
 import { Button } from '@/components/ui/button';
 import { CuratorPanel } from '@/components/morpho/CuratorChrome';
-import { formatCompactUSD, formatPercentage } from '@/lib/format/number';
+import {
+  formatCompactAmount,
+  formatCompactUSD,
+  formatPercentage,
+  formatPrice,
+} from '@/lib/format/number';
 import type { MidnightMarketDetail } from '@/lib/morpho/midnight-markets';
 
 const SERIES = '#2563eb';
@@ -32,13 +37,6 @@ function dateLabel(unix: number): string {
 
 function dayLabel(unix: number): string {
   return new Date(unix * 1000).toISOString().slice(0, 10);
-}
-
-function compactToken(amount: number): string {
-  return new Intl.NumberFormat('en-US', {
-    notation: 'compact',
-    maximumFractionDigits: 2,
-  }).format(amount);
 }
 
 function chartNumber(value: unknown): number | null {
@@ -102,7 +100,7 @@ export function MidnightHistoryCharts({ market }: { market: MidnightMarketDetail
         : formatPercentage(latestApr)
       : latestPrice == null
         ? '—'
-        : latestPrice.toFixed(4);
+        : formatPrice(latestPrice);
   const loanHeadline =
     loanMode === 'usd'
       ? latestLoansUsd == null
@@ -110,7 +108,7 @@ export function MidnightHistoryCharts({ market }: { market: MidnightMarketDetail
         : formatCompactUSD(latestLoansUsd)
       : latestLoans == null
         ? '—'
-        : `${compactToken(latestLoans)} ${market.loanSymbol}`;
+        : `${formatCompactAmount(latestLoans)} ${market.loanSymbol}`;
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -160,7 +158,7 @@ export function MidnightHistoryCharts({ market }: { market: MidnightMarketDetail
                 <YAxis
                   domain={rateMode === 'price' ? priceDomain : [0, 'auto']}
                   tickFormatter={(value) =>
-                    rateMode === 'apr' ? `${Number(value).toFixed(2)}%` : Number(value).toFixed(4)
+                    rateMode === 'apr' ? formatPercentage(Number(value)) : formatPrice(Number(value))
                   }
                   tick={{ fontSize: 10 }}
                   width={rateMode === 'price' ? 64 : 52}
@@ -172,7 +170,7 @@ export function MidnightHistoryCharts({ market }: { market: MidnightMarketDetail
                   formatter={(value) => {
                     const parsed = chartNumber(value);
                     if (parsed == null) return '—';
-                    return rateMode === 'apr' ? formatPercentage(parsed) : parsed.toFixed(4);
+                    return rateMode === 'apr' ? formatPercentage(parsed) : formatPrice(parsed);
                   }}
                 />
                 <Line
@@ -231,7 +229,7 @@ export function MidnightHistoryCharts({ market }: { market: MidnightMarketDetail
                 />
                 <YAxis
                   tickFormatter={(value) =>
-                    loanMode === 'usd' ? formatCompactUSD(Number(value)) : compactToken(Number(value))
+                    loanMode === 'usd' ? formatCompactUSD(Number(value)) : formatCompactAmount(Number(value))
                   }
                   tick={{ fontSize: 10 }}
                   width={64}
@@ -245,7 +243,7 @@ export function MidnightHistoryCharts({ market }: { market: MidnightMarketDetail
                     if (parsed == null) return '—';
                     return loanMode === 'usd'
                       ? formatCompactUSD(parsed)
-                      : `${compactToken(parsed)} ${market.loanSymbol}`;
+                      : `${formatCompactAmount(parsed)} ${market.loanSymbol}`;
                   }}
                 />
                 <Area

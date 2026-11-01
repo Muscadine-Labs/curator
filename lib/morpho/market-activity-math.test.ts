@@ -72,7 +72,6 @@ describe('mapMarketActivity', () => {
               address: '0xv1',
               name: 'V1 Vault',
               state: {
-                curator: '0xcur',
                 allocation: [
                   { market: { marketId: '0xother' }, supplyAssets: 1, supplyAssetsUsd: 1 },
                   { market: { marketId: '0xABC' }, supplyAssets: '500', supplyAssetsUsd: 5 },
@@ -84,13 +83,11 @@ describe('mapMarketActivity', () => {
             {
               address: '0xv2',
               name: 'V2 Vault',
-              curators: { items: [{ name: 'Muscadine' }] },
               adapters: { items: [{ address: '0xAdapter' }] },
             },
             {
               address: '0xv2b',
               name: 'Small V2',
-              curators: { items: [] },
               adapters: { items: [{ address: '0xnotsupplier' }] },
             },
           ],
@@ -112,15 +109,11 @@ describe('mapMarketActivity', () => {
       },
       MARKET
     );
-    expect(out.vaults.map((v) => [v.name, v.allocation, v.curator])).toEqual([
-      ['V2 Vault', '700', 'Muscadine'],
-      ['V1 Vault', '500', '0xcur'],
-      ['Small V2', null, null],
-    ]);
+    // Largest first; 'Small V2' lists the market but supplies nothing, so it is
+    // not a supplier row.
     expect(out.suppliers.map((s) => [s.address, s.vaultName, s.vaultAddress, s.supplyAssets])).toEqual([
       ['0xadapter', 'V2 Vault', '0xv2', '700'],
       ['0xv1', 'V1 Vault', '0xv1', '500'],
-      ['0xnotsupplier', 'Small V2', '0xv2b', null],
     ]);
     expect(out.borrowerCount).toBe(2);
     expect(out.collateralAtRiskBorrowUsd).toBe(150);
@@ -135,7 +128,6 @@ describe('mapMarketActivity', () => {
             {
               address: '0xv2',
               name: 'V2 Vault',
-              curators: { items: [] },
               adapters: { items: [{ address: '0xsmall' }, { address: '0xbig' }] },
             },
           ],
@@ -154,7 +146,7 @@ describe('mapMarketActivity', () => {
       ['0xbig', 'V2 Vault', '500'],
       ['0xother', null, '50'],
     ]);
-    expect(out.vaults[0].allocationUsd).toBe(5);
+    expect(out.suppliers[0].supplyAssetsUsd).toBe(5);
   });
 
   it('names a configured vault that Morpho omitted from supplyingVaultV2s', () => {

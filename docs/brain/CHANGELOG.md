@@ -4,6 +4,17 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-01 — PR #80 review fixes
+
+- Midnight outstanding history: count `total_units_delta` on `lend` / `exit_borrow_secondary` (one leg per fill). Debt handovers no longer inflate past outstanding by billions; `roll` stays uncounted (its `exit_borrow_primary` already subtracts). Tests use the live shapes.
+- Midnight history paging has a 20s budget and degrades to partial / last good series; snapshot freshness is decided once; failures are held 30s instead of restarting the scan every request.
+- Market suppliers: listing vaults with no supply are not supplier rows; merged list re-sorted; unused `vaults` output and curator fields removed; configured-vault adapters fetched in parallel.
+- "Wallet not on Base" hint reads `useAccount().chainId` (useChainId stays 8453 with Base-only config).
+- Midnight charts use shared `formatCompactAmount` / `formatPrice`; units → USD via `formatUnits`.
+- CLAUDE.md: Base-only sidebar note replaces the stale Ethereum line.
+
+---
+
 ## 2026-11-01 — Price chart scale
 
 - The Midnight price chart scales to the take prices. A price near 1 is no longer drawn on a 0–1 axis.

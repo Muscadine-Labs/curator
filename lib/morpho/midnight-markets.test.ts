@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildMidnightHistory,
+  historyUnitChange,
   isMidnightMarketActive,
   mapMidnightHistoryBuckets,
   selectMidnightCollaterals,
@@ -221,5 +222,44 @@ describe('buildMidnightHistory', () => {
     expect(points.some((point) => point.timestamp === day)).toBe(false);
     expect(points[0]?.timestamp).toBe(next);
     expect(points[0]?.outstandingAssets).toBe('10');
+  });
+});
+
+describe('historyUnitChange', () => {
+  // Shapes from market 0x549cd072… transactions (Nov 2026).
+  it('a debt handover (borrow + exit_borrow_secondary, delta 0) changes nothing', () => {
+    expect(
+      historyUnitChange({
+        event_type: 'exit_borrow_secondary',
+        data: { units: '12326079515', total_units_delta: '0' },
+      })
+    ).toBe(0n);
+    expect(
+      historyUnitChange({ event_type: 'borrow', data: { units: '12326079515', total_units_delta: '0' } })
+    ).toBe(0n);
+  });
+
+  it('two exits matched together reduce outstanding by the fill delta once', () => {
+    const legs = [
+      { event_type: 'exit_lend_secondary', data: { units: '50008', total_units_delta: '-50008' } },
+      { event_type: 'exit_borrow_secondary', data: { units: '50008', total_units_delta: '-50008' } },
+    ];
+    expect(legs.reduce((sum, e) => sum + historyUnitChange(e), 0n)).toBe(-50008n);
+  });
+
+  it('a new loan counts the lend leg once', () => {
+    const legs = [
+      { event_type: 'borrow', data: { units: '5050830', total_units_delta: '5050830' } },
+      { event_type: 'lend', data: { units: '5050830', total_units_delta: '5050830' } },
+    ];
+    expect(legs.reduce((sum, e) => sum + historyUnitChange(e), 0n)).toBe(5050830n);
+  });
+
+  it('a roll is not counted on top of its exit_borrow_primary', () => {
+    const legs = [
+      { event_type: 'exit_borrow_primary', data: { units: '5050830' } },
+      { event_type: 'roll', data: {} },
+    ];
+    expect(legs.reduce((sum, e) => sum + historyUnitChange(e), 0n)).toBe(-5050830n);
   });
 });

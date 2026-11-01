@@ -569,8 +569,10 @@ underlyings. Legacy page/API paths still **redirect** via
 `next.config.ts` (`/vaults/transact` → `/vaults`). Catalog is `/vaults`; vault
 ops are `/vault/[address]/*`. User deposit/withdraw is muscadine-onchain.
 
-Ethereum appears in `SIDEBAR_NETWORKS` but has no configured vaults — expand
-**Base**, not Ethereum, to see vault links.
+The app is Base-only: `CURATOR_MARKET_NETWORKS` / `SIDEBAR_NETWORKS` and the
+wagmi config hold Base alone. The "Wallet not on Base" hint reads the wallet's
+real chain from `useAccount().chainId` — `useChainId()` only reports configured
+chains, so with Base-only config it stays 8453 and the hint would never show.
 
 ### 4.4 Vault overview, liquidity, and history (Morpho GraphQL)
 
@@ -881,9 +883,21 @@ loads market + state + full book + position totals
 are built from `GET /v0/midnight/markets/{id}/transactions` (180 days). A day's
 APR is the volume-weighted lend price over the time left until maturity.
 Outstanding at each UTC midnight is the live total units minus later changes.
+**Unit changes (do not regress, `historyUnitChange`):** count `total_units_delta`
+on the unit-buying leg of each fill — `lend` and `exit_borrow_secondary` — so a
+fill counts once: a new loan is positive, a debt handover
+(`borrow` + `exit_borrow_secondary`, delta 0) is 0, two exits matched together
+are negative. Subtract `units` on `exit_borrow_primary` (repayment) and
+`repaid_units` on liquidations. A `roll` to Blue always comes with an
+`exit_borrow_primary` for the same units, so it is not counted. Subtracting
+`units` on every `exit_borrow_secondary` inflated past outstanding by billions.
 The markets app history route is behind a bot challenge, so the server does not
-call it. A failed history read is not cached and the charts say history is
-unavailable.
+call it. History paging has a 20s budget (`HISTORY_BUDGET_MS`, inside the 40s
+cache loader) and stops with a partial series instead of failing the market
+page. Freshness of the 5-minute history snapshot is decided once, before the
+fetches. A failed read serves the last good series; with none, the failure is
+held for 30s so requests do not restart the full scan, and the charts say
+history is unavailable.
 External app: [Morpho Markets](https://markets.morpho.org/fixed/base/0x549cd072daf99328554f3a6d2d4d6f4a07f1c59369e891e6391946f9cf75f221)
 `https://markets.morpho.org/fixed/{chain}/{marketId}`
 (`morphoMidnightMarketHref`). In-app: `curatorMidnightMarketHref`.
@@ -992,7 +1006,11 @@ every adapter is summed, and the explorer address is the largest adapter
 (`vaultName` / `vaultAddress` still name the vault). Muscadine vaults link
 in-app. V1 allocation comes from `state.allocation`. The supplier heading count
 is at least the number of rows shown. **Borrowers** (top 100 by
-borrow; health, distance to liquidation, borrow share). Tables paginate 10/page
+borrow; health, distance to liquidation, borrow share). A vault that lists the
+market with no supply is not a supplier row (a cap is not a position); the
+merged supplier list is re-sorted largest first. The configured-vault adapter
+lookup runs in parallel with the main activity query. The response no longer
+carries a separate `vaults` list (nothing read it). Tables paginate 10/page
 with the shared `components/ui/pagination-bar.tsx`. Pure math:
 `lib/morpho/market-activity-math.ts`.
 

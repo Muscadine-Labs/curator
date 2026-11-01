@@ -76,7 +76,6 @@ const MARKET_ACTIVITY_QUERY = gql`
         address
         name
         state {
-          curator
           allocation {
             market {
               marketId
@@ -89,11 +88,6 @@ const MARKET_ACTIVITY_QUERY = gql`
       supplyingVaultV2s {
         address
         name
-        curators {
-          items {
-            name
-          }
-        }
         adapters {
           items {
             address
@@ -252,7 +246,6 @@ type GraphActivity = {
       address: string;
       name: string;
       state?: {
-        curator?: string | null;
         allocation?: Array<{
           market?: { marketId?: string | null } | null;
           supplyAssets?: Num;
@@ -263,7 +256,6 @@ type GraphActivity = {
     supplyingVaultV2s?: Array<{
       address: string;
       name: string;
-      curators?: { items?: Array<{ name?: string | null }> | null } | null;
       adapters?: { items?: Array<{ address: string }> | null } | null;
     }> | null;
   } | null;
@@ -350,17 +342,6 @@ export type MarketLiquidationRow = {
   badDebtAssets: string | null;
 };
 
-export type MarketListingVault = {
-  address: string;
-  name: string;
-  version: 'v1' | 'v2';
-  /** V2 curator names, or the V1 curator address. */
-  curator: string | null;
-  /** Loan-token raw units in this market; null when it could not be resolved. */
-  allocation: string | null;
-  allocationUsd: number | null;
-};
-
 export type MarketSeriesPoint = { x: number; y: number };
 
 export type MarketActivity = {
@@ -369,7 +350,6 @@ export type MarketActivity = {
   suppliers: MarketSupplierRow[];
   supplierCount: number | null;
   liquidations: MarketLiquidationRow[];
-  vaults: MarketListingVault[];
   collateralAtRisk: CollateralAtRiskPoint[];
   /**
    * `morpho` = Morpho's full-market curve; `topBorrowers` = our fallback from
@@ -418,10 +398,11 @@ type VaultDraft = {
   address: string;
   name: string;
   version: 'v1' | 'v2';
-  curator: string | null;
   allocation: string | null;
   allocationUsd: number | null;
   supplierAddresses: string[];
+  /** Largest adapter holding this V2 vault's supply (its supplier row address). */
+  rowAddress?: string | null;
 };
 
 function hasPositiveSupply(assets: string | null, usd: number | null): boolean {
@@ -499,27 +480,20 @@ export function mapMarketActivity(data: GraphActivity, marketId: string): Market
       address: v.address,
       name: v.name,
       version: 'v1' as const,
-      curator: v.state?.curator ?? null,
       allocation: rawAmountString(alloc?.supplyAssets),
       allocationUsd: alloc?.supplyAssetsUsd ?? null,
       supplierAddresses: [v.address],
     };
   });
 
-  const v2: VaultDraft[] = (market?.supplyingVaultV2s ?? []).map((v) => {
-    const names = (v.curators?.items ?? [])
-      .map((c) => c.name)
-      .filter((n): n is string => Boolean(n));
-    return {
-      address: v.address,
-      name: v.name,
-      version: 'v2' as const,
-      curator: names.length > 0 ? names.join(', ') : null,
-      allocation: null,
-      allocationUsd: null,
-      supplierAddresses: (v.adapters?.items ?? []).map((a) => a.address),
-    };
-  });
+  const v2: VaultDraft[] = (market?.supplyingVaultV2s ?? []).map((v) => ({
+    address: v.address,
+    name: v.name,
+    version: 'v2' as const,
+    allocation: null,
+    allocationUsd: null,
+    supplierAddresses: (v.adapters?.items ?? []).map((a) => a.address),
+  }));
 
   // supplyingVaultV2s is capped at 20 vaults, so a Muscadine vault can be
   // allocated and still missing from that list and from the top supplier page.
@@ -550,7 +524,6 @@ export function mapMarketActivity(data: GraphActivity, marketId: string): Market
         address: vault.address,
         name: vault.name ?? 'Vault',
         version: 'v2',
-        curator: null,
         allocation: null,
         allocationUsd: null,
         supplierAddresses: [],
@@ -566,10 +539,13 @@ export function mapMarketActivity(data: GraphActivity, marketId: string): Market
     }
   }
 
+  // One sum per V2 vault: its supply across adapters and the largest adapter,
+  // which is the explorer address its supplier row links to.
   for (const vault of v2) {
     const summed = sumAdapterSupply(vault.supplierAddresses, supplyByAddress);
     vault.allocation = summed.assets;
     vault.allocationUsd = summed.usd;
+    vault.rowAddress = summed.address;
   }
 
   const vaultBySupplier = new Map<string, VaultDraft>();
@@ -579,6 +555,14 @@ export function mapMarketActivity(data: GraphActivity, marketId: string): Market
     }
   }
 
+  const vaultRow = (vault: VaultDraft, fallbackAddress: string): MarketSupplierRow => ({
+    address: vault.rowAddress ?? fallbackAddress,
+    supplyAssets: vault.allocation,
+    supplyAssetsUsd: vault.allocationUsd,
+    vaultAddress: vault.address,
+    vaultName: vault.name,
+  });
+
   const emittedVaults = new Set<string>();
   const suppliers: MarketSupplierRow[] = [];
   for (const position of supplierPositions) {
@@ -587,14 +571,7 @@ export function mapMarketActivity(data: GraphActivity, marketId: string): Market
       const key = vault.address.toLowerCase();
       if (emittedVaults.has(key)) continue;
       emittedVaults.add(key);
-      const summed = sumAdapterSupply(vault.supplierAddresses, supplyByAddress);
-      suppliers.push({
-        address: summed.address ?? position.address,
-        supplyAssets: summed.assets,
-        supplyAssetsUsd: summed.usd,
-        vaultAddress: vault.address,
-        vaultName: vault.name,
-      });
+      suppliers.push(vaultRow(vault, position.address));
       continue;
     }
     if (vault) emittedVaults.add(vault.address.toLowerCase());
@@ -605,37 +582,17 @@ export function mapMarketActivity(data: GraphActivity, marketId: string): Market
     });
   }
 
-  const vaults: MarketListingVault[] = [...v1, ...v2]
-    .map((vault) => ({
-      address: vault.address,
-      name: vault.name,
-      version: vault.version,
-      curator: vault.curator,
-      allocation: vault.allocation,
-      allocationUsd: vault.allocationUsd,
-    }))
-    .sort((a, b) => (b.allocationUsd ?? -1) - (a.allocationUsd ?? -1));
-
-  const draftByAddress = new Map(
-    [...v1, ...v2].map((vault) => [vault.address.toLowerCase(), vault])
-  );
-  for (const listing of vaults) {
-    if (emittedVaults.has(listing.address.toLowerCase())) continue;
-    const vault = draftByAddress.get(listing.address.toLowerCase());
-    if (!vault) continue;
-    const summed =
-      vault.version === 'v2' ? sumAdapterSupply(vault.supplierAddresses, supplyByAddress) : null;
-    suppliers.push({
-      address:
-        summed?.address ??
-        (vault.version === 'v2' ? vault.supplierAddresses[0] : vault.address) ??
-        vault.address,
-      supplyAssets: summed?.assets ?? vault.allocation,
-      supplyAssetsUsd: summed?.usd ?? vault.allocationUsd,
-      vaultAddress: vault.address,
-      vaultName: vault.name,
-    });
+  // Vaults outside the top supplier page. A vault that lists the market but
+  // holds nothing in it is not a supplier — it has a cap, not a position.
+  for (const vault of [...v1, ...v2]) {
+    if (emittedVaults.has(vault.address.toLowerCase())) continue;
+    if (!hasPositiveSupply(vault.allocation, vault.allocationUsd)) continue;
+    emittedVaults.add(vault.address.toLowerCase());
+    suppliers.push(vaultRow(vault, vault.supplierAddresses[0] ?? vault.address));
   }
+
+  // Appended and summed rows land out of order; the table is "largest first".
+  suppliers.sort((a, b) => (b.supplyAssetsUsd ?? -1) - (a.supplyAssetsUsd ?? -1));
 
   const liquidations: MarketLiquidationRow[] = (data.liquidations?.items ?? []).map((l) => ({
     txHash: l.txHash,
@@ -653,7 +610,6 @@ export function mapMarketActivity(data: GraphActivity, marketId: string): Market
     suppliers,
     supplierCount: data.suppliers?.pageInfo?.countTotal ?? null,
     liquidations,
-    vaults,
     ...collateralAtRiskFields(data, allBorrowers),
     collateralAtRiskBorrowUsd: allBorrowers.reduce((s, b) => s + (b.borrowAssetsUsd ?? 0), 0),
     marketBorrowUsd: market?.state?.borrowAssetsUsd ?? null,
@@ -669,11 +625,36 @@ export function mapMarketActivity(data: GraphActivity, marketId: string): Market
   };
 }
 
+/**
+ * Configured Muscadine vaults' adapters. Independent of the main activity
+ * query, so it runs alongside it rather than after it. A failure only loses
+ * the "vault outside Morpho's lists" rows.
+ */
+async function fetchConfiguredVaultAdapters(
+  marketId: string,
+  chainId: number,
+  vaultAddresses: string[]
+): Promise<GraphActivity['configuredVaults']> {
+  if (vaultAddresses.length === 0) return null;
+  try {
+    const vaults = await morphoGraphQLClient.request<{
+      configuredVaults?: GraphActivity['configuredVaults'];
+    }>(CONFIGURED_VAULT_ADAPTERS_QUERY, { chainId, vaultAddresses });
+    return vaults.configuredVaults ?? null;
+  } catch (error) {
+    logger.warn('Failed to load configured vault adapters for this market', {
+      marketId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
 async function attachVaultSuppliers(
   data: GraphActivity,
   marketId: string,
   chainId: number,
-  vaultAddresses: string[]
+  configuredVaults: GraphActivity['configuredVaults']
 ): Promise<void> {
   const known = new Set(
     (data.suppliers?.items ?? [])
@@ -688,20 +669,7 @@ async function attachVaultSuppliers(
       listingAdapters.push(adapter.address);
     }
   }
-
-  if (vaultAddresses.length > 0) {
-    try {
-      const vaults = await morphoGraphQLClient.request<{
-        configuredVaults?: GraphActivity['configuredVaults'];
-      }>(CONFIGURED_VAULT_ADAPTERS_QUERY, { chainId, vaultAddresses });
-      data.configuredVaults = vaults.configuredVaults;
-    } catch (error) {
-      logger.warn('Failed to load configured vault adapters for this market', {
-        marketId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
+  data.configuredVaults = configuredVaults;
 
   const existing = new Map(
     (data.suppliers?.items ?? [])
@@ -782,16 +750,19 @@ export async function fetchMarketActivity(
       const vaultAddresses = getVaultAddressesForProtocolStats()
         .filter((vault) => vault.chainId === chainId)
         .map((vault) => vault.address);
-      const data = await morphoGraphQLClient.request<GraphActivity>(MARKET_ACTIVITY_QUERY, {
-        marketId,
-        chainId,
-        rows: TABLE_ROWS,
-        since,
-        irmPoints: IRM_POINTS,
-        riskPoints: COLLATERAL_AT_RISK_POINTS,
-      });
+      const [data, configuredVaults] = await Promise.all([
+        morphoGraphQLClient.request<GraphActivity>(MARKET_ACTIVITY_QUERY, {
+          marketId,
+          chainId,
+          rows: TABLE_ROWS,
+          since,
+          irmPoints: IRM_POINTS,
+          riskPoints: COLLATERAL_AT_RISK_POINTS,
+        }),
+        fetchConfiguredVaultAdapters(marketId, chainId, vaultAddresses),
+      ]);
       if (!data.market) return null;
-      await attachVaultSuppliers(data, marketId, chainId, vaultAddresses);
+      await attachVaultSuppliers(data, marketId, chainId, configuredVaults);
       return mapMarketActivity(data, marketId);
     }
   );
