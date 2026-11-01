@@ -79,7 +79,9 @@ export type DecodedOracle =
       primary: DecodedChainlinkSource | null;
       backup: DecodedChainlinkSource | null;
     }
-  | { kind: 'unknown' };
+  | { kind: 'unknown' }
+  /** The RPC read failed and GraphQL had no feed hints — the type is not known. */
+  | { kind: 'error' };
 
 function addressOrNull(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -220,6 +222,7 @@ export async function decodeMorphoOracle(
   if (!oracleAddress || oracleAddress.toLowerCase() === ZERO) return { kind: 'unknown' };
   const address = oracleAddress as Address;
 
+  let rpcFailed = false;
   try {
     const direct = await readChainlinkSource(address);
     if (direct) return { kind: 'chainlinkV2', source: direct };
@@ -233,6 +236,7 @@ export async function decodeMorphoOracle(
       return { kind: 'metaOracle', meta, primary, backup };
     }
   } catch (error) {
+    rpcFailed = true;
     logger.warn('Oracle decode failed', {
       oracleAddress,
       error: error instanceof Error ? error.message : String(error),
@@ -242,7 +246,7 @@ export async function decodeMorphoOracle(
   if (hasAnyFeed(hints)) {
     return { kind: 'chainlinkV2', source: sourceFromHints(oracleAddress, hints!) };
   }
-  return { kind: 'unknown' };
+  return rpcFailed ? { kind: 'error' } : { kind: 'unknown' };
 }
 
 /**
@@ -252,9 +256,30 @@ export async function decodeMorphoOracle(
 export function activeChainlinkSource(decoded: DecodedOracle): DecodedChainlinkSource | null {
   if (decoded.kind === 'chainlinkV2') return decoded.source;
   if (decoded.kind !== 'metaOracle') return null;
-  const current = decoded.meta.currentOracle?.toLowerCase();
-  if (current && decoded.backup && decoded.backup.address.toLowerCase() === current) {
-    return decoded.backup;
-  }
-  return decoded.primary;
+  return metaActiveSource(decoded.meta, decoded.primary, decoded.backup);
+}
+
+/**
+ * Which decoded source matches `currentOracle()`. Returns null when the
+ * current oracle's source failed to decode — never substitute the other one,
+ * or a switch to backup would read as "primary active".
+ */
+function metaActiveSource<T extends { address: string }>(
+  meta: MetaOracleState,
+  primary: T | null,
+  backup: T | null
+): T | null {
+  const current = meta.currentOracle?.toLowerCase();
+  if (!current) return primary;
+  if (primary && primary.address.toLowerCase() === current) return primary;
+  if (backup && backup.address.toLowerCase() === current) return backup;
+  return null;
+}
+
+/** True when the meta oracle is pricing from its backup source. */
+export function isMetaOnBackup(meta: MetaOracleState): boolean {
+  return (
+    meta.currentOracle != null &&
+    meta.currentOracle.toLowerCase() === meta.backupOracle.toLowerCase()
+  );
 }

@@ -14,6 +14,7 @@ import { getIRMTargetUtilizationWithFallback } from '@/lib/morpho/irm-utils';
 import {
   getOracleFeedHintsFromMarket,
   getOracleTimestampData,
+  oracleTimestampFromFeeds,
   type OracleTimestampData,
 } from '@/lib/morpho/oracle-utils';
 import { getOraclePriceSnapshot, type OraclePriceSnapshot } from '@/lib/morpho/oracle-price';
@@ -520,8 +521,7 @@ export async function fetchCuratorMarketDetail(
   if (chainId === BASE_CHAIN_ID && !isMarketIdle(market)) {
     const baseFeedHints = getOracleFeedHintsFromMarket(item);
     const oracleAddr = market.oracleAddress ? (market.oracleAddress as Address) : null;
-    const [oracleData, targetUtil, priceSnapshot] = await Promise.all([
-      getOracleTimestampData(oracleAddr, baseFeedHints),
+    const [targetUtil, priceSnapshot] = await Promise.all([
       getIRMTargetUtilizationWithFallback(
         market.irmAddress ? (market.irmAddress as Address) : null
       ),
@@ -535,6 +535,11 @@ export async function fetchCuratorMarketDetail(
         chainId,
       }),
     ]);
+    // The snapshot already read the active source's feeds; reuse them.
+    const oracleData =
+      priceSnapshot && priceSnapshot.kind !== 'error'
+        ? oracleTimestampFromFeeds(priceSnapshot.feeds)
+        : await getOracleTimestampData(oracleAddr, baseFeedHints);
     oracleTimestampData = oracleData;
     oraclePrice = priceSnapshot;
     scores = await computeBlueMarketRiskScores(market, oracleData, targetUtil);

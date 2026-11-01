@@ -9,7 +9,7 @@ import {
   wadToPct,
 } from '@/lib/morpho/oracle-display';
 import type { ChainlinkFeedSnapshot } from '@/lib/morpho/oracle-price';
-import { parseChainlinkDirectory } from '@/lib/morpho/chainlink-feed-registry';
+import { parseChainlinkDirectory } from '@/lib/morpho/chainlink-feed-registry.server';
 
 function feed(partial: Partial<ChainlinkFeedSnapshot>): ChainlinkFeedSnapshot {
   return {

@@ -4,6 +4,30 @@ import type {
   OracleSourceSnapshot,
 } from '@/lib/morpho/oracle-price';
 
+export type ChainlinkFeedRegistryEntry = {
+  /** Directory name, e.g. "PAXG / USD". */
+  name: string;
+  /** Max seconds between updates. */
+  heartbeatSeconds: number | null;
+  /** Deviation trigger in percent (0.5 = 0.5%). */
+  deviationPct: number | null;
+  /** e.g. "Crypto", "Commodities", "Fiat", "Exchange rate". */
+  feedType: string | null;
+  /** e.g. "Price", "ExchangeRate". */
+  productType: string | null;
+  /** data.chain.link path slug. */
+  path: string | null;
+};
+
+/** data.chain.link page for a feed (Base). */
+export function chainlinkFeedPageUrl(
+  entry: ChainlinkFeedRegistryEntry,
+  chainId: number
+): string | null {
+  if (!entry.path || chainId !== 8453) return null;
+  return `https://data.chain.link/feeds/base/base/${entry.path}`;
+}
+
 /** Morpho Blue liquidation incentive: LIF = min(1.15, 1 / (0.3·LLTV + 0.7)). */
 const LIF_CURSOR = 0.3;
 const LIF_MAX = 1.15;
@@ -11,9 +35,12 @@ const LIF_MAX = 1.15;
 /** LLTV as a fraction (0–1). Accepts WAD strings (`"770000000000000000"`) or fractions. */
 export function lltvToFraction(lltv: string | number | null | undefined): number | null {
   if (lltv == null || lltv === '') return null;
+  // Same convention as formatLtv: wei (> 1e6), fraction (≤ 1), else percent.
   const n = typeof lltv === 'string' ? Number(lltv) : lltv;
   if (!Number.isFinite(n) || n <= 0) return null;
-  return n > 1 ? n / 1e18 : n;
+  if (n > 1_000_000) return n / 1e18;
+  if (n <= 1) return n;
+  return n / 100;
 }
 
 export function liquidationIncentiveFactor(lltv: string | number | null | undefined): number | null {
@@ -123,6 +150,8 @@ export function oracleKindLabel(kind: OracleKind): string {
       return 'Morpho Chainlink oracle';
     case 'metaOracle':
       return 'Primary / backup oracle';
+    case 'error':
+      return 'Oracle read failed';
     default:
       return 'Unrecognized oracle';
   }

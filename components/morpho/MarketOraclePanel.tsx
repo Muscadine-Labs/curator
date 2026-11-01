@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { AlertTriangle, ExternalLink } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -13,8 +13,8 @@ import type {
   OracleSourceSnapshot,
 } from '@/lib/morpho/oracle-price';
 import type { OracleTimestampData } from '@/lib/morpho/oracle-utils';
-import { chainlinkFeedPageUrl } from '@/lib/morpho/chainlink-feed-registry';
 import {
+  chainlinkFeedPageUrl,
   feedFreshness,
   feedName,
   feedProvider,
@@ -287,13 +287,14 @@ function MetaOracleSection({
     <div className="space-y-1 rounded-xl border border-border px-3 py-2">
       <p className="text-xs font-medium text-muted-foreground">Primary / backup state</p>
       <Attr label="Pricing from">
-        {active?.role === 'backup' ? (
+        {oraclePrice.onBackup ? (
           <span className="text-amber-600 dark:text-amber-400">Backup</span>
-        ) : active?.role === 'primary' ? (
+        ) : meta.currentOracle ? (
           'Primary'
         ) : (
           '—'
         )}
+        {!active && meta.currentOracle ? ' (source could not be decoded)' : ''}
       </Attr>
       <Attr label="Primary vs backup deviation">
         <span
@@ -341,7 +342,12 @@ export function MarketOraclePanel({
   /** Collateral USD that this oracle prices. */
   valueSecuredUsd?: number | null;
 }) {
-  const [now] = useState(() => Math.floor(Date.now() / 1000));
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  // Keep ages, Late flags and timelock countdowns moving while the page is open.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   if (!oraclePrice && !oracleTimestampData) return null;
 
@@ -365,7 +371,6 @@ export function MarketOraclePanel({
   const allFeeds = sources.flatMap((s) => s.feeds);
   const lateFeeds = allFeeds.filter((f) => feedFreshness(f, now) === 'late');
   const unverifiedFeeds = allFeeds.filter((f) => !f.registry);
-  const onBackup = sources.some((s) => s.active && s.role === 'backup');
   const kind = oraclePrice?.kind ?? 'unknown';
 
   const alerts: string[] = [];
@@ -374,7 +379,7 @@ export function MarketOraclePanel({
       'A feed is pinned to its min/max bound — the oracle cannot report below the floor or above the ceiling.'
     );
   }
-  if (deviation != null && Math.abs(deviation) >= 5) {
+  if (oraclePrice?.materialMismatch && deviation != null) {
     alerts.push(
       `Oracle price is ${Math.abs(deviation).toFixed(1)}% ${deviation > 0 ? 'above' : 'below'} the Morpho reference price.`
     );
@@ -394,8 +399,11 @@ export function MarketOraclePanel({
       `${s.role === 'single' ? 'This oracle' : `The ${s.role} source`}${s.active && s.role !== 'single' ? ' (active)' : ''} is hardcoded — it has no feeds and does not track the market price.`
     );
   }
-  if (onBackup) alerts.push('This oracle is currently pricing from its backup source.');
+  if (oraclePrice?.onBackup) alerts.push('This oracle is currently pricing from its backup source.');
   if (oraclePrice?.meta?.isChallenged) alerts.push('The primary source is under an open challenge.');
+  if (kind === 'error') {
+    alerts.push('Could not read the oracle contract (RPC error). Feeds will show after a refresh.');
+  }
   if (kind === 'unknown' && oraclePrice) {
     alerts.push(
       'Oracle type not recognized — only the final price() is shown. Review the contract in the Oracle Decoder.'
@@ -407,7 +415,7 @@ export function MarketOraclePanel({
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
         <CardTitle className="text-base">Oracle</CardTitle>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={kind === 'unknown' ? 'destructive' : 'secondary'}>
+          <Badge variant={kind === 'unknown' ? 'destructive' : kind === 'error' ? 'outline' : 'secondary'}>
             {oracleKindLabel(kind)}
           </Badge>
           <a
@@ -463,7 +471,7 @@ export function MarketOraclePanel({
               {deviation != null ? (
                 <span
                   className={cn(
-                    Math.abs(deviation) >= 5
+                    oraclePrice?.materialMismatch
                       ? 'text-red-600 dark:text-red-400'
                       : Math.abs(deviation) >= 1
                         ? 'text-amber-600 dark:text-amber-400'

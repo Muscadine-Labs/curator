@@ -4,14 +4,15 @@ import type { OracleFeedHints } from '@/lib/morpho/oracle-utils';
 import {
   activeChainlinkSource,
   decodeMorphoOracle,
+  isMetaOnBackup,
   type DecodedChainlinkSource,
   type MetaOracleState,
   type OracleVaultRef,
-} from '@/lib/morpho/oracle-decode';
+} from '@/lib/morpho/oracle-decode.server';
 import {
   getChainlinkFeedRegistry,
   type ChainlinkFeedRegistryEntry,
-} from '@/lib/morpho/chainlink-feed-registry';
+} from '@/lib/morpho/chainlink-feed-registry.server';
 
 const MORPHO_ORACLE_ABI = parseAbi(['function price() view returns (uint256)']);
 
@@ -62,7 +63,7 @@ export type OracleSourceSnapshot = {
   quoteVault: OracleVaultRef | null;
 };
 
-export type OracleKind = 'chainlinkV2' | 'metaOracle' | 'unknown';
+export type OracleKind = 'chainlinkV2' | 'metaOracle' | 'unknown' | 'error';
 
 export type OraclePriceSnapshot = {
   oracleAddress: string;
@@ -78,6 +79,10 @@ export type OraclePriceSnapshot = {
   mismatchRatio: number | null;
   /** Material divergence or a feed pinned to min/max. */
   priceWarning: boolean;
+  /** Oracle vs spot gap beyond `mismatchThreshold` (default 5%). */
+  materialMismatch: boolean;
+  /** Meta oracle is pricing from its backup source. */
+  onBackup: boolean;
   /** Feeds of the active source. */
   feeds: ChainlinkFeedSnapshot[];
   kind: OracleKind;
@@ -365,6 +370,8 @@ export async function getOraclePriceSnapshot(input: {
     spotLoanUsd: input.spotLoanUsd ?? null,
     mismatchRatio,
     priceWarning: hasBoundCappedFeed || materialMismatch,
+    materialMismatch,
+    onBackup: decoded.kind === 'metaOracle' && isMetaOnBackup(decoded.meta),
     feeds,
     kind: decoded.kind,
     sources,

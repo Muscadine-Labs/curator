@@ -1,19 +1,10 @@
-import { Address, Abi, parseAbi, zeroAddress } from 'viem';
-import { publicClient, readContractOutcome } from '@/lib/onchain/client';
+import { Address, parseAbi, zeroAddress } from 'viem';
+import { publicClient } from '@/lib/onchain/client';
+import { activeChainlinkSource, decodeMorphoOracle } from '@/lib/morpho/oracle-decode.server';
 
 const CHAINLINK_AGGREGATOR_ABI = parseAbi([
   'function latestRoundData() view returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)',
 ]);
-
-const MORPHO_CHAINLINK_ORACLE_ABI = parseAbi([
-  'function BASE_FEED_1() view returns (address)',
-  'function BASE_FEED_2() view returns (address)',
-  'function QUOTE_FEED_1() view returns (address)',
-  'function QUOTE_FEED_2() view returns (address)',
-]);
-
-/** Primary/backup MetaOracleDeviationTimelock — prices via `currentOracle()`. */
-const META_ORACLE_ABI = parseAbi(['function currentOracle() view returns (address)']);
 
 const ZERO = zeroAddress.toLowerCase();
 
@@ -57,64 +48,54 @@ function isValidFeedAddress(address: string | null | undefined): address is Addr
 
 async function collectFeedCandidates(
   oracleAddress: Address,
-  hints?: OracleFeedHints,
-  depth = 0
+  hints?: OracleFeedHints
 ): Promise<Address[]> {
+  // Same decoder as the oracle panel: V2 feeds, or a meta oracle's
+  // `currentOracle()` source. GraphQL hints are its RPC-failure fallback.
+  const decoded = await decodeMorphoOracle(oracleAddress, hints);
+  const active = activeChainlinkSource(decoded);
+  const feeds = active?.feeds ?? (decoded.kind === 'error' ? hints : undefined);
+  if (!feeds) return [];
+
   const seen = new Set<string>();
-  const candidates: Address[] = [];
-
-  const add = (addr: string | null | undefined) => {
-    if (!isValidFeedAddress(addr)) return;
+  const out: Address[] = [];
+  for (const addr of [feeds.baseFeedOne, feeds.baseFeedTwo, feeds.quoteFeedOne, feeds.quoteFeedTwo]) {
+    if (!isValidFeedAddress(addr)) continue;
     const key = addr.toLowerCase();
-    if (seen.has(key)) return;
+    if (seen.has(key)) continue;
     seen.add(key);
-    candidates.push(addr);
-  };
+    out.push(addr);
+  }
+  return out;
+}
 
-  add(hints?.baseFeedOne);
-  add(hints?.baseFeedTwo);
-  add(hints?.quoteFeedOne);
-  add(hints?.quoteFeedTwo);
-
-  // MorphoChainlinkOracleV2 exposes all four feed immutables. Another oracle
-  // type reverts on the first one; the rest would too. An RPC failure is not
-  // that revert, so the other feeds are still read.
-  const probe = { probe: true } as const;
-  const readFeed = (functionName: 'BASE_FEED_1' | 'BASE_FEED_2' | 'QUOTE_FEED_1' | 'QUOTE_FEED_2') =>
-    readContractOutcome<Address>(
-      oracleAddress,
-      MORPHO_CHAINLINK_ORACLE_ABI as Abi,
-      functionName,
-      [],
-      probe
-    );
-  const baseFeedOne = await readFeed('BASE_FEED_1');
-  if (baseFeedOne.status !== 'miss') {
-    const rest = await Promise.all([
-      readFeed('BASE_FEED_2'),
-      readFeed('QUOTE_FEED_1'),
-      readFeed('QUOTE_FEED_2'),
-    ]);
-    for (const outcome of [baseFeedOne, ...rest]) {
-      if (outcome.status === 'ok') add(outcome.value);
-    }
-  } else if (depth === 0 && candidates.length === 0) {
-    // Not a Chainlink V2 oracle. A meta oracle (primary/backup) prices through
-    // `currentOracle()`, which is itself a Chainlink V2 oracle — score its feeds
-    // instead of treating the market as having an opaque oracle.
-    const current = await readContractOutcome<Address>(
-      oracleAddress,
-      META_ORACLE_ABI as Abi,
-      'currentOracle',
-      [],
-      probe
-    );
-    if (current.status === 'ok' && isValidFeedAddress(current.value)) {
-      for (const feed of await collectFeedCandidates(current.value, undefined, 1)) add(feed);
+/**
+ * Freshness from feeds already read (e.g. an oracle price snapshot), so the
+ * market detail route does not re-read every `latestRoundData`.
+ */
+export function oracleTimestampFromFeeds(
+  feeds: ReadonlyArray<{ address: string; updatedAt: number | null }>,
+  nowSeconds: number = Math.floor(Date.now() / 1000)
+): OracleTimestampData {
+  let stalest: { address: string; updatedAt: number } | null = null;
+  for (const f of feeds) {
+    if (f.updatedAt == null) continue;
+    if (!stalest || f.updatedAt < stalest.updatedAt) {
+      stalest = { address: f.address, updatedAt: f.updatedAt };
     }
   }
-
-  return candidates;
+  if (!stalest) {
+    return {
+      chainlinkAddress: (feeds[0]?.address as Address | undefined) ?? null,
+      updatedAt: null,
+      ageSeconds: null,
+    };
+  }
+  return {
+    chainlinkAddress: stalest.address as Address,
+    updatedAt: stalest.updatedAt,
+    ageSeconds: nowSeconds - stalest.updatedAt,
+  };
 }
 
 async function getChainlinkTimestamp(chainlinkAddress: Address): Promise<number | null> {

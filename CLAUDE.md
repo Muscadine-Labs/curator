@@ -929,15 +929,21 @@ Base RPC today).
 **Oracle decoding (do not regress)** — Morpho GraphQL only types
 MorphoChainlinkOracle(V2). Primary/backup `MetaOracleDeviationTimelock` proxies
 come back `type: Unknown`, `data: null`. `decodeMorphoOracle`
-(`lib/morpho/oracle-decode.ts`) reads the oracle on-chain in one multicall:
+(`lib/morpho/oracle-decode.server.ts`) reads the oracle on-chain in one multicall:
 V2 feeds + `BASE_VAULT`/`QUOTE_VAULT`, else the meta oracle's `primaryOracle` /
 `backupOracle` (each decoded as V2), `currentOracle`, `getDeviation` vs
 `deviationThreshold`, challenge / healing state. GraphQL feed hints are only
 the RPC-failure fallback. `getOraclePriceSnapshot` returns `kind`, `sources[]`
 (role `single`|`primary`|`backup`, `active`) and `meta`; `feeds` = the active
-source's feeds. `getOracleTimestampData` follows `currentOracle()` so a meta
-oracle is not scored as opaque. Feed heartbeat / deviation / name come from
-Chainlink's feed directory (`chainlink-feed-registry.ts`, ≤30s cache); a feed
+source's feeds. `activeChainlinkSource` matches `currentOracle()` exactly and
+returns null when that source failed to decode — never substitute the other
+source; `onBackup` comes from the meta state alone. An RPC failure with no
+GraphQL hints is kind `error`, not `unknown`. `getOracleTimestampData` uses the
+same decoder (so a meta oracle is not scored as opaque); the market detail
+routes derive freshness from the snapshot's feeds (`oracleTimestampFromFeeds`)
+instead of re-reading them. The Chainlink directory failure is cached for the
+30s window too. Feed heartbeat / deviation / name come from
+Chainlink's feed directory (`chainlink-feed-registry.server.ts`, ≤30s cache); a feed
 not in it is **Unverified**. Feed answers are in the feed's own unit (ETH, BTC,
 USD) — never format them all as USD. A feed is **Late** past heartbeat + 10%.
 Panel helpers live in `lib/morpho/oracle-display.ts`. Midnight collateral
@@ -1413,7 +1419,7 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
 | Market id helpers                | `lib/morpho/morpho-app-links.ts` (`marketKeyFromGraphQL`, `curatorBlueMarketHref`, `curatorMidnightMarketHref`, `morphoMidnightMarketHref`) |
 | Midnight markets                 | `lib/morpho/midnight-markets.ts`, `app/midnight/[id]/page.tsx`, `GET /api/markets/midnight`, `GET /api/markets/midnight/[id]` |
 | Oracle address from GraphQL      | `lib/morpho/market-oracle-address.ts` (`resolveMarketOracleAddress`) |
-| Oracle decode + feed registry    | `lib/morpho/oracle-decode.ts`, `lib/morpho/chainlink-feed-registry.ts`, `lib/morpho/oracle-display.ts` |
+| Oracle decode + feed registry    | `lib/morpho/oracle-decode.server.ts`, `lib/morpho/chainlink-feed-registry.server.ts`, `lib/morpho/oracle-display.ts` |
 | Morpho GraphQL client + warnings | `lib/morpho/graphql-client.ts` |
 | Curator markets BFF + scoring    | `lib/morpho/curator-markets.ts`, `app/api/markets/` |
 | Markets browser UI               | `components/morpho/CuratorMarketsBrowser.tsx`, `lib/morpho/market-pair-filter.ts`, `app/markets/page.tsx` |

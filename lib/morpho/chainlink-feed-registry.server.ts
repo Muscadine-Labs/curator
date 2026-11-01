@@ -1,5 +1,8 @@
 import { API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
 import { logger } from '@/lib/utils/logger';
+import type { ChainlinkFeedRegistryEntry } from '@/lib/morpho/oracle-display';
+
+export type { ChainlinkFeedRegistryEntry };
 
 /**
  * Chainlink's public feed directory (the data behind data.chain.link). It is
@@ -11,21 +14,6 @@ const CHAINLINK_DIRECTORY_URLS: Record<number, string> = {
 };
 
 const FETCH_TIMEOUT_MS = 6_000;
-
-export type ChainlinkFeedRegistryEntry = {
-  /** Directory name, e.g. "PAXG / USD". */
-  name: string;
-  /** Max seconds between updates. */
-  heartbeatSeconds: number | null;
-  /** Deviation trigger in percent (0.5 = 0.5%). */
-  deviationPct: number | null;
-  /** e.g. "Crypto", "Commodities", "Fiat", "Exchange rate". */
-  feedType: string | null;
-  /** e.g. "Price", "ExchangeRate". */
-  productType: string | null;
-  /** data.chain.link path slug. */
-  path: string | null;
-};
 
 type DirectoryRow = {
   name?: unknown;
@@ -64,12 +52,6 @@ export function parseChainlinkDirectory(json: unknown): Map<string, ChainlinkFee
   return out;
 }
 
-/** data.chain.link page for a feed (Base). */
-export function chainlinkFeedPageUrl(entry: ChainlinkFeedRegistryEntry, chainId: number): string | null {
-  if (!entry.path || chainId !== 8453) return null;
-  return `https://data.chain.link/feeds/base/base/${entry.path}`;
-}
-
 type CacheEntry = { fetchedAt: number; map: Map<string, ChainlinkFeedRegistryEntry> };
 const cache = new Map<number, CacheEntry>();
 const inflight = new Map<number, Promise<Map<string, ChainlinkFeedRegistryEntry>>>();
@@ -102,8 +84,12 @@ export async function getChainlinkFeedRegistry(
         chainId,
         error: error instanceof Error ? error.message : String(error),
       });
-      // Serve the last good copy rather than dropping heartbeat data.
-      return hit?.map ?? new Map<string, ChainlinkFeedRegistryEntry>();
+      // Serve the last good copy rather than dropping heartbeat data, and hold
+      // it (or an empty map) for the cache window so an outage does not make
+      // every request wait on the fetch timeout again.
+      const map = hit?.map ?? new Map<string, ChainlinkFeedRegistryEntry>();
+      cache.set(chainId, { fetchedAt: Date.now(), map });
+      return map;
     } finally {
       inflight.delete(chainId);
     }
