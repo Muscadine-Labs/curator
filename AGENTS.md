@@ -123,7 +123,7 @@ npm run build   # next build
 - **App routes** — `/` (Overview), `/vaults`, `/vault/[address]/*`,
   `/markets`, `/market/blue/[id]`, `/midnight/[id]`, `/safe`, `/safe/[role]/{assets,transactions,history,settings}`,
   `/curator` (Curator tools hub), `/curator/gates` (send-assets gate), `/curator/bots` (bot watch + repos),
-  `/monthly-statement`, `/muscadine-ledger`, `/muscadine-frontends`.
+  `/monthly-statement`, `/muscadine-frontends`.
   Deposit/lend/create-market writes live in muscadine-onchain. Vault pages live
   at `/vault/[address]/*`; catalog at `/vaults`. Markets browse at `/markets`.
 - **BFF routes (no `/curator` or `/v2` in API paths)** — `GET /api/markets`,

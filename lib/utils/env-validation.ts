@@ -48,6 +48,12 @@ function validateEnvVars(): EnvValidationResult {
   const isProductionRuntime =
     process.env.NODE_ENV === 'production' && process.env.NEXT_PHASE !== 'phase-production-build';
 
+  if (!process.env.BLOCKSCOUT_API_KEY?.trim() && !process.env.ETHERSCAN_API_KEY?.trim()) {
+    warnings.push(
+      'BLOCKSCOUT_API_KEY is not set. /curator/gates cannot list accounts whitelisted outside config (keyless Blockscout is Cloudflare-blocked for servers)'
+    );
+  }
+
   if (isProductionRuntime && !process.env.CURATOR_ADMIN_PASSWORD?.trim() && !process.env.CURATOR_OWNER_PASSWORD?.trim()) {
     errors.push('CURATOR_ADMIN_PASSWORD is required in production');
   }

@@ -31,6 +31,8 @@ function requestDocumentToString(document: RequestDocument): string {
   return typeof document === 'string' ? document : print(document as DocumentNode);
 }
 
+const MORPHO_GRAPHQL_TIMEOUT_MS = 30_000;
+
 /**
  * Type-safe GraphQL client wrapper
  */
@@ -38,7 +40,15 @@ class MorphoGraphQLClient {
   private client: GraphQLClient;
 
   constructor(endpoint: string = MORPHO_GRAPHQL_ENDPOINT) {
-    this.client = new GraphQLClient(endpoint);
+    this.client = new GraphQLClient(endpoint, {
+      // Without a deadline a stalled Morpho request hangs the route until the
+      // platform kills it. Keep this under the 40s server-cache loader timeout.
+      fetch: (input, init) =>
+        fetch(input, {
+          ...init,
+          signal: init?.signal ?? AbortSignal.timeout(MORPHO_GRAPHQL_TIMEOUT_MS),
+        }),
+    });
   }
 
   async request<T = unknown>(

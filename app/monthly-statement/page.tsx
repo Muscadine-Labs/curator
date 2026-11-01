@@ -79,7 +79,7 @@ const VAULT_NAMES: Record<string, string> = {
 };
 
 export default function MonthlyStatementPage() {
-  const [activeTab, setActiveTab] = useState<TabMode>('treasury');
+  const [activeTab, setActiveTab] = useState<TabMode>('defillama');
   const [yearFilter, setYearFilter] = useState<YearFilter>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('total');
   const [currencyMode, setCurrencyMode] = useState<CurrencyMode>('usd');
@@ -104,6 +104,7 @@ export default function MonthlyStatementPage() {
       if (!response.ok) throw new Error('Failed to fetch monthly statement');
       return response.json();
     },
+    enabled: activeTab === 'treasury',
     ...STATEMENT_QUERY_OPTIONS,
   });
 
@@ -625,8 +626,8 @@ export default function MonthlyStatementPage() {
             <CardHeader>
               <div className="flex flex-col gap-4 mb-4 sm:flex-row sm:items-center sm:justify-between">
                 <TabsList className="w-fit shrink-0">
-                  <TabsTrigger value="treasury">By Treasury Wallet</TabsTrigger>
                   <TabsTrigger value="defillama">DefiLlama</TabsTrigger>
+                  <TabsTrigger value="treasury">By Treasury Wallet</TabsTrigger>
                 </TabsList>
                 <CardAction className="min-w-0 w-full sm:w-auto">
                   <div className="flex flex-wrap items-center gap-2">

@@ -5,6 +5,9 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 ## Today
 
 ## Done
+- DefiLlama is the default revenue source (statement tab, dashboard KPIs, Revenue chart); Treasury Wallet is second.
+- Removed Muscadine Ledger and the Google Sheets API route.
+- Gate allowlist log lookup works again with `BLOCKSCOUT_API_KEY` (keyless Blockscout is Cloudflare-blocked); the panel shows why a lookup failed.
 - TVL, vault history, and DefiLlama inflow days use the UTC calendar day.
 - Treasury revenue no longer counts deposits or inbound share transfers. Fee mints stay. Overview chart, YTD, and the monthly statement use that series. Chart days stay on the UTC date.
 - Morpho Blue market page no longer shows two identical “Morpho app” buttons. The header keeps `MarketInteractButton`. 

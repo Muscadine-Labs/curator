@@ -13,7 +13,7 @@ import {
   CuratorKvRow,
   CuratorPanel,
 } from '@/components/morpho/CuratorChrome';
-import { apiFetch } from '@/lib/data/api-fetch';
+import { apiFetch, apiErrorMessage } from '@/lib/data/api-fetch';
 import type { SafeAccountConfig } from '@/lib/safe/config';
 import type { SafeOnChainSettings } from '@/lib/safe/onchain-reads';
 import {
@@ -32,8 +32,7 @@ export function SafeSettingsPanel({ account }: { account: SafeAccountConfig }) {
     queryFn: async () => {
       const res = await apiFetch(`/api/safe/${account.address}/settings`);
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? 'Failed to load settings');
+        throw new Error(await apiErrorMessage(res, 'Failed to load settings'));
       }
       return (await res.json()) as SafeOnChainSettings;
     },

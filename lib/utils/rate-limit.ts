@@ -90,6 +90,8 @@ async function upstashCommand(command: (string | number)[]): Promise<unknown> {
     },
     body: JSON.stringify(command),
     cache: 'no-store',
+    // A stalled Redis must not hang login; callers fail closed on any error.
+    signal: AbortSignal.timeout(5_000),
   });
   if (!res.ok) {
     throw new Error(`Upstash ${res.status}`);

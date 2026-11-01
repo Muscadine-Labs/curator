@@ -38,6 +38,8 @@ Copy `.env.example` → `.env.local`. See that file for the full list.
 | `MORPHO_API_URL`, `NEXT_PUBLIC_VAULT_*` | No | Overrides |
 | `SEND_ASSETS_GATE_ADDRESS` (or `GATE_ADDRESS`) | No | Override the built-in send-assets gate |
 | `ALLOCATOR_SAFE_8453` | No | Override the Allocator Safe used as a gate whitelister |
+| `BLOCKSCOUT_API_KEY` | **Yes for `/curator/gates`** | Gate allowlist log lookup (free key at dev.blockscout.com); keyless Blockscout is Cloudflare-blocked |
+| `ETHERSCAN_API_KEY` | No | Fallback gate log source (Etherscan V2; Base needs a paid plan) |
 
 ---
 
@@ -52,7 +54,6 @@ Muscadine for managing and reporting on Morpho-style vaults on Base (chainId
   sentinel) plus **Curator Morpho Markets** browser/detail
 - Monthly statements (via DefiLlama and Morpho GraphQL)
 - Curator tools (EIP-7702 delegation, Safe, frontend, morpho)
-- Google Sheets integration for reporting
 
 ### Tech stack
 
@@ -87,7 +88,6 @@ app/
     markets/           Morpho Blue markets browser + detail BFF
     protocol-stats/    Aggregate TVL / revenue
     monthly-statement-* Statement generators
-    google-sheets/     Sheets export
     auth/              Session verify
     safe/[address]/    GET /api/safe/[address]/info (owners, threshold, nonce, ETH)
   markets/             Morpho Markets browser (`/markets`)
@@ -96,7 +96,6 @@ app/
   curator/             Curator tools hub (`/curator`)
   curator/bots/        Bot activity watch (`/curator/bots`)
   monthly-statement/   Treasury / DefiLlama statements
-  muscadine-ledger/    Internal ledger
   muscadine-frontends/ Frontend links
   vault/[address]/     Vault detail page (Morpho V2)
 
@@ -757,12 +756,14 @@ tab switch, post-tx, and Rebalance (`lib/data/query-config.ts`).
 
 ### 4.6 Monthly income statement (treasury wallet)
 
-**UI** — `app/monthly-statement/page.tsx` (tabs: **By Treasury Wallet** /
-**DefiLlama**). Treasury view modes: **Total** (default), By Token, By Vault.
-Dashboard overview shows **Total Revenue** and **YTD Revenue** KPIs from treasury
-daily token-change (`app/page.tsx`). Toggle treasury vs DefiLlama via
-`lib/RevenueSourceContext.tsx` (default: treasury). Home Revenue chart
-(`ChartRevenue`) uses the same treasury daily series when source = treasury.
+**UI** — `app/monthly-statement/page.tsx` (tabs: **DefiLlama** (default) /
+**By Treasury Wallet**). Treasury view modes: **Total** (default), By Token, By Vault.
+Dashboard overview shows **Total Revenue** and **YTD Revenue** KPIs and the
+Revenue chart (`ChartRevenue`) from the selected source (`app/page.tsx`). Toggle
+DefiLlama vs treasury via `lib/RevenueSourceContext.tsx` (default: **DefiLlama**;
+Treasury Wallet is the second option). Each source's query is `enabled` only
+while it is selected (statement tab or dashboard source), so the treasury
+GraphQL statement is not fetched on a default page load.
 
 **Treasury API** — `GET /api/monthly-statement-morphoql` thin wrapper around
 `computeTreasuryStatement()` in `lib/morpho/compute-treasury-statement.ts`
@@ -866,7 +867,9 @@ Detail KPIs: filled size (`total_units`), lender credit and borrower debt
 LLTV / liquidation cursor / oracle panel (price, freshness, Chainlink feeds on Base),
 asks & bids.
 Curator top-nav area holds Curator tools (`/curator`) + Bots + Multisig Safe. Business area:
-`/monthly-statement`, `/muscadine-ledger`, `/muscadine-frontends`.
+`/monthly-statement`, `/muscadine-frontends`. (Muscadine Ledger and the
+`/api/google-sheets` route were removed; `/muscadine-ledger` redirects to
+`/monthly-statement`.)
 
 **Wallet positions / lend-borrow** — not in this dashboard. Blue market detail
 **Interact** links the Morpho app; Midnight uses **Trade on Morpho**. Writes:
@@ -1525,10 +1528,22 @@ client serializes calls with ≥210ms spacing.
   its `SetIsWhitelister` / `SetIsWhitelisted(WithSig)` events
   (`lib/morpho/send-assets-gate-roster.server.ts`); the live `isWhitelisted` /
   `isWhitelister` mappings then decide the lists. Candidates come from one
-  address-scoped log lookup (Blockscout `getLogs` for the gate), the same idea
-  as the app's `vaultV2transactions` query — not a block-range walk. Status is
-  `complete` or `failed` (no progress). The panel warns on `failed` and lists
-  accounts whose reads failed instead of dropping them.
+  address-scoped log lookup (Etherscan-style `getLogs` for the gate), the same
+  idea as the app's `vaultV2transactions` query — not a block-range walk.
+  Sources in order: Blockscout PRO API (`BLOCKSCOUT_API_KEY`, free key) →
+  Etherscan V2 (`ETHERSCAN_API_KEY`, Base is paid-only) → keyless
+  `base.blockscout.com` → one full-range `eth_getLogs` on the server RPC.
+  **Keyless Blockscout answers server requests with a Cloudflare bot challenge
+  (HTTP 403 HTML)** and free Alchemy caps `eth_getLogs` at 10 blocks, so without
+  a key the lookup fails — set `BLOCKSCOUT_API_KEY` in production. A full
+  1,000-log page restarts from its last block (not +1) so a page that ends
+  mid-block does not skip logs. The chain shares one 32s budget (inside the 40s
+  cache loader timeout); explorers stop 10s early so the RPC fallback always
+  gets its turn, and a stalled RPC is cut at the deadline. Results (failures
+  too) are cached 30s, and a failure logs once per lookup. Status is
+  `complete` or `failed`; `rosterScan.reason` names each failed source and the
+  panel shows it. The panel also lists accounts whose reads failed instead of
+  dropping them.
 
 ### 13.3.1 Assets, send and receive
 
@@ -1759,11 +1774,13 @@ decode), `lib/safe/pending-store.test.ts` (import signature merge),
 (return-path open redirect), `lib/morpho/cap-decrease-input.test.ts`,
 `lib/onchain/v2-rebalance-plan.test.ts` (idle re-anchor, % rounding),
 `lib/bots/decode-transaction-vault-calls.test.ts` (Safe `execTransaction`
-unwrap), `lib/utils/csv.test.ts`, `lib/utils/error-handler.test.ts`,
+unwrap), `lib/utils/error-handler.test.ts`,
 `lib/api/query-params.test.ts`.
 
-Still uncovered and high value: `lib/morpho/tx-preview.ts`,
-`lib/onchain/allocation-dust.ts` (`applyPlanningDust`).
+`lib/onchain/allocation-dust.test.ts`, `lib/morpho/send-assets-gate-roster.test.ts`
+(source fallback, Cloudflare challenge, page-boundary re-read).
+
+Still uncovered and high value: `lib/morpho/tx-preview.ts`.
 
 ---
 
@@ -1784,7 +1801,7 @@ at `/markets`. Old `/markets/create` and `/markets/positions` redirect to `/mark
 
 ---
 
-_Last updated: 2026-09-25. When you change reallocation logic, allocation
+_Last updated: 2026-10-31. When you change reallocation logic, allocation
 list/filters (§5), caps/adapters display, V2 idData/Sentinel (§3.2, §4.2), tx
 preview, client fetch/cache (§4.3), app/API route paths (§2, §4.7, `next.config.ts`
 redirects), Morpho GraphQL field names (§4.4.1), Curator markets browser (§4.7),

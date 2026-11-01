@@ -4,6 +4,19 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-10-31 — Gate logs failed: Blockscout blocks server requests
+
+- `/curator/gates` always said "Could not load the gate's logs". `base.blockscout.com/api` now answers server requests with a Cloudflare bot challenge (HTTP 403 HTML), so the only log source never worked. Basescan via Etherscan V2 needs a paid plan for Base, and free Alchemy caps `eth_getLogs` at 10 blocks.
+- `lib/morpho/send-assets-gate-roster.server.ts` now tries Blockscout PRO API (`BLOCKSCOUT_API_KEY`, free) → Etherscan V2 (`ETHERSCAN_API_KEY`) → keyless Blockscout → one full-range `eth_getLogs` on the server RPC. The response carries `rosterScan.reason` (per-source failure, no URLs or keys) and the panel shows it.
+- Fixed pagination: a full 1,000-log page restarted from `lastBlock + 1`, skipping the rest of that block. It now restarts from `lastBlock`. Hitting the page limit reports `failed` instead of `complete`. Explorer fetches time out after 15s. Lookups (including failures) are cached 30s, so a missing key does not repeat the failing calls on every load. The whole source chain shares a 32s budget with 10s reserved for the RPC fallback (Codex review: three stalled explorers used to run past the 40s cache loader timeout, so the RPC never ran). `env-validation` warns when no gate log key is set.
+- Client error readers in Safe settings/history/balances/info, the gate panel, and Curator markets hooks use `apiErrorMessage`.
+- Outbound requests that had no deadline now time out: Morpho GraphQL client (30s, under the 40s cache loader timeout), Midnight REST (15s), Google Sheets CSV (15s), Upstash rate-limit store (5s; login already fails closed on error).
+- Removed **Muscadine Ledger** (`/muscadine-ledger`), its only backend `GET /api/google-sheets`, `lib/constants/google-ledger.ts`, and the CSV parser that only that route used (`lib/utils/csv.ts` + test). Sidebar link and nav area entry gone; `/muscadine-ledger` and `/overview/muscadine-ledger` redirect to `/monthly-statement`.
+- **DefiLlama is now the default revenue source**: Monthly Income Statement opens on the DefiLlama tab (Treasury Wallet second), and the dashboard Revenue KPIs / chart / `Revenue · DefiLlama` box default to DefiLlama (`RevenueSourceContext`). The treasury statement query only runs while Treasury Wallet is selected.
+- Tests: `send-assets-gate-roster.test.ts` (challenge, keyed source, page boundary), new `allocation-dust.test.ts`.
+
+---
+
 ## 2026-10-30 — Vault pages failed: Morpho removed `forumLink`
 
 - Morpho dropped `VaultV2Metadata.forumLink`. The V2 detail query in `app/api/vaults/[id]/route.ts` still asked for it, so Morpho rejected the whole query, the route returned 502, and every vault page showed "Failed to fetch vault". Removed the field from the query and both types. Every other curator query was validated against the live schema and is fine. Added to CLAUDE.md §4.4.1.

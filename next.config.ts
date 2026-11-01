@@ -167,7 +167,9 @@ const nextConfig: NextConfig = {
       { source: '/morpho', destination: '/curator', permanent: true },
       { source: '/morpho/bots', destination: '/curator/bots', permanent: true },
       { source: '/overview/monthly-statement', destination: '/monthly-statement', permanent: true },
-      { source: '/overview/muscadine-ledger', destination: '/muscadine-ledger', permanent: true },
+      // Muscadine Ledger was removed; old bookmarks land on the business area.
+      { source: '/overview/muscadine-ledger', destination: '/monthly-statement', permanent: true },
+      { source: '/muscadine-ledger', destination: '/monthly-statement', permanent: true },
       { source: '/overview/muscadine-frontends', destination: '/muscadine-frontends', permanent: true },
       { source: '/vault/v2/:address', destination: '/vault/:address', permanent: true },
       { source: '/vault/:address/allocations', destination: '/vault/:address/allocation', permanent: true },

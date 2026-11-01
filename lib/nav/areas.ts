@@ -57,7 +57,6 @@ export function resolveCuratorNavArea(pathname: string): CuratorNavArea {
 
   if (
     path.startsWith('/monthly-statement') ||
-    path.startsWith('/muscadine-ledger') ||
     path.startsWith('/muscadine-frontends')
   ) {
     return 'business';
