@@ -281,3 +281,30 @@ describe('buildMidnightHistory USD', () => {
     expect(points.find((p) => p.timestamp === next)?.outstandingUsd).toBeCloseTo(2);
   });
 });
+
+describe('buildMidnightHistory without a live total', () => {
+  it('leaves outstanding unknown (null), not zero, and keeps APR', () => {
+    const day = 1_793_404_800;
+    const points = buildMidnightHistory(
+      [
+        {
+          event_type: 'lend',
+          created_at: day + 10,
+          data: { assets: '99', units: '100', total_units_delta: '100' },
+        },
+      ],
+      {
+        maturitySec: day + 30 * 86_400,
+        totalUnits: null,
+        nowSec: day + 100,
+        loanDecimals: 6,
+        loanUsd: 1,
+        complete: true,
+      }
+    );
+    const today = points.find((p) => p.timestamp === day);
+    expect(today?.outstandingAssets).toBeNull();
+    expect(today?.outstandingUsd).toBeNull();
+    expect(today?.apr).not.toBeNull();
+  });
+});

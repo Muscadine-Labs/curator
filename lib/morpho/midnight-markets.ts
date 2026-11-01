@@ -770,6 +770,9 @@ export function buildMidnightHistory(
     complete: boolean;
   }
 ): MidnightHistoryPoint[] {
+  // Outstanding is anchored on the live total. Without it the series is
+  // unknown (null), not zero — APR still comes from the fills.
+  const totalKnown = args.totalUnits != null && /^-?\d+$/.test(args.totalUnits);
   const totalUnits = rawBigint(args.totalUnits);
   const today = utcDay(args.nowSec);
   const windowStart = today - (HISTORY_DAYS - 1) * DAY_SECONDS;
@@ -813,13 +816,11 @@ export function buildMidnightHistory(
     const priceWad = vwapPriceWad(assetsByDay.get(day) ?? 0n, unitsByDay.get(day) ?? 0n);
     points.push({
       timestamp: day,
-      outstandingAssets: outstanding.toString(),
+      outstandingAssets: totalKnown ? outstanding.toString() : null,
       // Each day's balance at that day's price, so the USD series is historical.
-      outstandingUsd: unitsToUsd(
-        outstanding,
-        args.loanDecimals,
-        args.loanUsdByDay?.get(day) ?? args.loanUsd
-      ),
+      outstandingUsd: totalKnown
+        ? unitsToUsd(outstanding, args.loanDecimals, args.loanUsdByDay?.get(day) ?? args.loanUsd)
+        : null,
       takePrice: takePriceNumber(priceWad),
       apr: midnightPriceToApr(priceWad, args.maturitySec - day),
     });
@@ -946,7 +947,11 @@ export async function fetchMidnightMarketDetail(
   // Freshness is decided once, before the fetches.
   const snap = historySnapshots.get(key);
   const fresh = snap != null && snap.fetchedAt + API_CACHE_MAX_AGE_MS > Date.now();
-  const incremental = !fresh && snap?.available === true && snap.windowStart <= sinceSec;
+  // Incremental refresh only extends a snapshot that already covers the whole
+  // window. An incomplete first scan (budget / page cap) is retried in full,
+  // or its older days would never be filled in.
+  const incremental =
+    !fresh && snap?.available === true && snap.complete && snap.windowStart <= sinceSec;
   const historyTask: Promise<{ events: MidnightHistoryEvent[]; complete: boolean } | null> = fresh
     ? Promise.resolve(null)
     : pageMidnightTransactions(id, incremental ? snap!.newestSec : sinceSec).catch(

@@ -903,6 +903,9 @@ last good series; with none, the failure is held for 30s so requests do not
 restart the full scan, and the charts say history is unavailable. USD uses each
 day's `historicalPriceUsd` (5s cap; spot fills gaps). Points are UTC-day opening
 balances (Morpho's DAY convention), so the headline uses live `totalUnits`.
+Without a live `total_units` the outstanding series is null (unknown), never
+zero; APR still charts. Incremental refresh only extends a **complete**
+snapshot — an incomplete first scan is retried in full so older days fill in.
 Chart dates format in UTC.
 External app: [Morpho Markets](https://markets.morpho.org/fixed/base/0x549cd072daf99328554f3a6d2d4d6f4a07f1c59369e891e6391946f9cf75f221)
 `https://markets.morpho.org/fixed/{chain}/{marketId}`
