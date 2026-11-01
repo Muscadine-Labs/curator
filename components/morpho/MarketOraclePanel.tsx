@@ -434,7 +434,6 @@ export function MarketOraclePanel({
             <Attr label="Oracle contract">
               {oracleAddress ? <ExplorerAddressLink address={oracleAddress} chainId={chainId} /> : '—'}
             </Attr>
-            <Attr label="Type">{oracleKindLabel(kind)}</Attr>
             <Attr label="Created">
               {oracleCreatedAt
                 ? new Date(oracleCreatedAt * 1000).toISOString().slice(0, 10)

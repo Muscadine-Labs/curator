@@ -16,7 +16,6 @@ import {
   CollateralAtRiskPanel,
   MarketBorrowersTable,
   MarketLiquidationsTable,
-  MarketListingVaultsTable,
   MarketRatesPanel,
   MarketSuppliersTable,
 } from '@/components/morpho/MarketActivitySections';
@@ -24,7 +23,6 @@ import { morphoMarketHref, safeReturnPath } from '@/lib/morpho/morpho-app-links'
 import { asBlueMarketData } from '@/lib/morpho/blue-market-data';
 import { formatPercentage } from '@/lib/format/number';
 import {
-  formatOraclePriceLine,
   liquidationPenaltyPct,
   marketWarningLabel,
 } from '@/lib/morpho/oracle-display';
@@ -200,15 +198,7 @@ export default function CuratorBlueMarketPage() {
         <div className="space-y-4">
           <CuratorPanel title="Market overview">
             <CuratorKvList>
-              <CuratorKvRow label="Network">{networkName}</CuratorKvRow>
               <CuratorKvRow label="LLTV">{formatLltvPill(market.lltv) ?? '—'}</CuratorKvRow>
-              <CuratorKvRow label="Oracle price">
-                {formatOraclePriceLine(
-                  market.oraclePrice?.loanPerCollateral,
-                  market.collateralSymbol,
-                  market.loanSymbol
-                ) ?? '—'}
-              </CuratorKvRow>
               <CuratorKvRow label="Created">
                 {market.createdAt
                   ? new Date(market.createdAt * 1000).toISOString().slice(0, 10)
@@ -258,14 +248,6 @@ export default function CuratorBlueMarketPage() {
                   decimals={market.loanDecimals ?? 18}
                 />
               </CuratorKvRow>
-              <CuratorKvRow label="Supply">
-                <MarketUsdValue
-                  underlying={market.supplyAssets}
-                  usd={market.supplyAssetsUsd}
-                  assetSymbol={market.loanSymbol}
-                  decimals={market.loanDecimals ?? 18}
-                />
-              </CuratorKvRow>
               <CuratorKvRow label="Borrow">
                 <MarketUsdValue
                   underlying={market.borrowAssets}
@@ -281,17 +263,6 @@ export default function CuratorBlueMarketPage() {
                   assetSymbol={market.collateralSymbol}
                   decimals={market.collateralDecimals ?? 18}
                 />
-              </CuratorKvRow>
-              <CuratorKvRow label="Utilization">
-                {market.utilization != null
-                  ? formatPercentage(market.utilization * 100)
-                  : '—'}
-              </CuratorKvRow>
-              <CuratorKvRow label="Supply APY">
-                {market.supplyApy != null ? formatPercentage(market.supplyApy * 100) : '—'}
-              </CuratorKvRow>
-              <CuratorKvRow label="Borrow APY">
-                {market.borrowApy != null ? formatPercentage(market.borrowApy * 100) : '—'}
               </CuratorKvRow>
               <CuratorKvRow label="6H net supply APY">
                 {market.avgNetSupplyApy != null
@@ -343,9 +314,6 @@ export default function CuratorBlueMarketPage() {
 
           <CuratorPanel title="Liquidations">
             <CuratorKvList>
-              <CuratorKvRow label="Liquidation LTV (LLTV)">
-                {formatLltvPill(market.lltv) ?? '—'}
-              </CuratorKvRow>
               <CuratorKvRow label="Liquidation penalty">
                 {liquidationPenaltyPct(market.lltv) != null
                   ? formatPercentage(liquidationPenaltyPct(market.lltv)!)
@@ -420,12 +388,12 @@ export default function CuratorBlueMarketPage() {
               oracleTimestampData={market.oracleTimestampData}
               chainId={chainId}
               marketTitleLink="morpho"
+              scoresOnly
             />
           )}
 
           {activity && loanToken && collateralToken && (
             <>
-              <MarketListingVaultsTable activity={activity} loan={loanToken} chainId={chainId} />
               <MarketBorrowersTable
                 activity={activity}
                 loan={loanToken}

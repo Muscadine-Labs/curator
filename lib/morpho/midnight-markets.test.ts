@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { selectMidnightCollaterals, sumMidnightPositionRows } from './midnight-markets';
+import {
+  buildMidnightHistory,
+  isMidnightMarketActive,
+  mapMidnightHistoryBuckets,
+  selectMidnightCollaterals,
+  sumMidnightPositionRows,
+} from './midnight-markets';
+
+describe('isMidnightMarketActive', () => {
+  const now = 1_700_000_000;
+
+  it('is active only while maturity is still ahead', () => {
+    expect(isMidnightMarketActive(now + 1, now)).toBe(true);
+    expect(isMidnightMarketActive(now, now)).toBe(false);
+    expect(isMidnightMarketActive(now - 1, now)).toBe(false);
+    expect(isMidnightMarketActive(0, now)).toBe(false);
+  });
+});
 
 describe('sumMidnightPositionRows', () => {
   it('sums lender credit and borrower debt in loan-token units', () => {
@@ -84,5 +101,125 @@ describe('selectMidnightCollaterals', () => {
         loan
       ).map((c) => c.symbol)
     ).toEqual(['cbBTC']);
+  });
+});
+
+describe('mapMidnightHistoryBuckets', () => {
+  const day = 1_700_000_000;
+  const maturity = day + 25 * 86_400;
+  const priceWad = `${995n * 10n ** 15n}`;
+
+  it('prices each day against the time left until maturity', () => {
+    const [point] = mapMidnightHistoryBuckets(
+      [
+        {
+          timestamp: day,
+          outstandingLoans: '1000000',
+          outstandingLoansUsd: 1,
+          takePriceWad: priceWad,
+        },
+      ],
+      maturity
+    );
+    expect(point.outstandingAssets).toBe('1000000');
+    expect(point.takePrice).toBeCloseTo(0.995);
+    expect(point.apr).toBeCloseTo((1 / 0.995 - 1) * (365 / 25), 6);
+  });
+
+  it('drops a take once the bucket is at or past maturity and skips a bad timestamp', () => {
+    const points = mapMidnightHistoryBuckets(
+      [
+        { timestamp: maturity, outstandingLoans: '1', takePriceWad: priceWad },
+        { timestamp: null, outstandingLoans: '2', takePriceWad: priceWad },
+        {
+          timestamp: day + 86_400,
+          outstandingLoans: '3',
+          outstandingLoansUsd: 3,
+          takePriceWad: priceWad,
+        },
+      ],
+      maturity
+    );
+    expect(points.map((point) => point.timestamp)).toEqual([day + 86_400, maturity]);
+    expect(points[0].apr).not.toBeNull();
+    expect(points[0].takePrice).toBeCloseTo(0.995);
+    expect(points[1].apr).toBeNull();
+    expect(points[1].takePrice).toBeCloseTo(0.995);
+  });
+});
+
+describe('buildMidnightHistory', () => {
+  const day = 1_793_404_800;
+  const next = day + 86_400;
+
+  it('matches a closed Morpho day: lend volume, one delta, and borrow exits', () => {
+    const points = buildMidnightHistory(
+      [
+        {
+          id: 'lend',
+          event_type: 'lend',
+          created_at: day + 100,
+          data: {
+            assets: '30825874984',
+            units: '31082864715',
+            total_units_delta: '27754609690',
+          },
+        },
+        {
+          id: 'borrow-same-fill',
+          event_type: 'borrow',
+          created_at: day + 100,
+          data: {
+            assets: '30825874984',
+            units: '31082864715',
+            total_units_delta: '27754609690',
+          },
+        },
+        {
+          id: 'exit',
+          event_type: 'exit_borrow_primary',
+          created_at: day + 200,
+          data: { units: '3328189733' },
+        },
+      ],
+      {
+        maturitySec: 1_798_210_800,
+        totalUnits: '1885831712829',
+        nowSec: next + 10,
+        loanDecimals: 6,
+        loanUsd: 1,
+        complete: true,
+      }
+    );
+    const closed = points.find((point) => point.timestamp === day);
+    const following = points.find((point) => point.timestamp === next);
+    expect(closed?.outstandingAssets).toBe('1861405292872');
+    expect(following?.outstandingAssets).toBe('1885831712829');
+    expect(closed?.takePrice).toBeCloseTo(30825874984 / 31082864715, 12);
+    expect(following?.takePrice).toBeNull();
+    expect(closed?.apr).not.toBeNull();
+  });
+
+  it('leaves off a partial first day when paging did not reach the window start', () => {
+    const points = buildMidnightHistory(
+      [
+        {
+          event_type: 'lend',
+          created_at: day + 10,
+          data: { assets: '2', units: '2', total_units_delta: '2' },
+        },
+      ],
+      {
+        maturitySec: day + 10 * 86_400,
+        totalUnits: '10',
+        nowSec: next + 5,
+        loanDecimals: 6,
+        loanUsd: null,
+        complete: false,
+      }
+    );
+    expect(points.some((point) => point.timestamp === day)).toBe(false);
+    expect(points[0]?.timestamp).toBe(next);
+    expect(points[0]?.outstandingAssets).toBe('10');
   });
 });

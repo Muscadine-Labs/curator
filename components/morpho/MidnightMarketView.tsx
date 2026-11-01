@@ -17,9 +17,9 @@ import {
 import { formatPercentage } from '@/lib/format/number';
 import { formatMarketTokenAmount } from '@/components/morpho/TokenUsdValue';
 import { MarketOraclePanel } from '@/components/morpho/MarketOraclePanel';
+import { MidnightHistoryCharts } from '@/components/morpho/MidnightHistoryCharts';
 import {
   formatLltvWad,
-  formatMidnightMaturityUtc,
   formatWadPercent,
   isTenorCollateralShare,
   midnightLiquidationIncentive,
@@ -163,7 +163,6 @@ function postedCollateralUsd(c: {
 
 export function MidnightMarketView({ market }: { market: MidnightMarketDetail }) {
   const scanName = getScanNameForChain(market.chainId);
-  const maturityUtc = formatMidnightMaturityUtc(market.maturity);
 
   return (
     <div className="space-y-4">
@@ -180,15 +179,6 @@ export function MidnightMarketView({ market }: { market: MidnightMarketDetail })
           <Badge variant="secondary">Fixed rate</Badge>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Metric label="Loan">{market.loanSymbol}</Metric>
-          <Metric label="Collateral">{market.collateralLabel}</Metric>
-          <Metric label="LLTV">{market.lltvLabel}</Metric>
-          <Metric label="Maturity (UTC)">
-            <div>{maturityUtc}</div>
-            <p className="text-xs font-normal text-muted-foreground">
-              {market.tenorLabel} remaining
-            </p>
-          </Metric>
           <Metric label="Filled size">
             {formatMarketTokenAmount(
               market.totalUnits,
@@ -337,6 +327,8 @@ export function MidnightMarketView({ market }: { market: MidnightMarketDetail })
         </div>
         );
       })}
+
+      <MidnightHistoryCharts market={market} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <BookSide

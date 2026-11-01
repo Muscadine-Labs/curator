@@ -114,7 +114,7 @@ export function VaultsCatalog() {
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="flex flex-wrap items-end gap-3">
-          {networks.length > 0 ? (
+          {networks.length > 1 ? (
             <div className="space-y-1">
               <label htmlFor="vault-network-filter" className="text-xs font-medium text-muted-foreground">
                 Network

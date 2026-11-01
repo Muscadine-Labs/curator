@@ -14,14 +14,16 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PaginationBar } from '@/components/ui/pagination-bar';
 import { CuratorPanel } from '@/components/morpho/CuratorChrome';
 import { formatMarketTokenAmount } from '@/components/morpho/TokenUsdValue';
 import { formatCompactUSD, formatPercentage } from '@/lib/format/number';
 import { ExplorerAddressLink, ExplorerTxLink } from '@/components/morpho/ExplorerAddressLink';
-import { getVaultByAddress } from '@/lib/config/vaults';
+import {
+  getConfiguredVaultDisplayName,
+  getVaultByAddress,
+} from '@/lib/config/vaults';
 import {
   borrowToTargetUsd,
   healthTone,
@@ -290,6 +292,7 @@ export function MarketRatesPanel({
                 dataKey="u"
                 type="number"
                 domain={[0, 100]}
+                ticks={[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]}
                 tickFormatter={(v) => `${v}%`}
                 tick={{ fontSize: 10 }}
                 axisLine={false}
@@ -333,6 +336,16 @@ function fmtPct(v: number | null): string {
   return v != null ? formatPercentage(v) : '—';
 }
 
+/** Axis labels every 10%, plus the deepest drop, so 1% samples stay readable. */
+function collateralAxisTicks(changes: number[]): number[] {
+  if (changes.length === 0) return [0];
+  const min = Math.min(...changes);
+  const ticks: number[] = [];
+  for (let t = 0; t >= min; t -= 10) ticks.push(t);
+  if (ticks[ticks.length - 1] !== min) ticks.push(min);
+  return ticks;
+}
+
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-3 border-b border-border/60 py-1 last:border-b-0">
@@ -351,7 +364,7 @@ export function CollateralAtRiskPanel({ activity }: { activity: MarketActivity }
     positions: p.positions,
   }));
   const coverage = shareOf(activity.collateralAtRiskBorrowUsd, activity.marketBorrowUsd);
-  // Morpho's points are 5% apart; the KPI tiles read the nearest point.
+  // Points are 1% apart; the KPI tiles read the nearest point.
   const at = (pct: number) =>
     data.reduce<(typeof data)[number] | undefined>(
       (best, d) => (!best || Math.abs(d.change - pct) < Math.abs(best.change - pct) ? d : best),
@@ -389,13 +402,16 @@ export function CollateralAtRiskPanel({ activity }: { activity: MarketActivity }
           })}
         </div>
         {!hasAny ? (
-          <Empty>No borrower becomes liquidatable within a 90% price drop.</Empty>
+          <Empty>No borrower becomes liquidatable within a 99% price drop.</Empty>
         ) : (
           <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={[...data].reverse()} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis
                 dataKey="change"
+                type="number"
+                domain={['dataMin', 0]}
+                ticks={collateralAxisTicks(data.map((d) => d.change))}
                 tickFormatter={(v) => `${v}%`}
                 tick={{ fontSize: 10 }}
                 axisLine={false}
@@ -520,16 +536,16 @@ export function MarketSuppliersTable({
   chainId: number;
 }) {
   const pager = usePage(activity.suppliers);
-  const vaultByAdapterOrAddress = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const v of activity.vaults) m.set(v.address.toLowerCase(), v.name);
-    return m;
-  }, [activity.vaults]);
+
+  const supplierTotal =
+    activity.supplierCount == null
+      ? activity.suppliers.length
+      : Math.max(activity.supplierCount, activity.suppliers.length);
 
   return (
     <CuratorPanel
-      title={`Suppliers${activity.supplierCount != null ? ` (${activity.supplierCount.toLocaleString()})` : ''}`}
-      description="Largest supply positions. V2 vaults supply through their adapter address."
+      title={`Suppliers (${supplierTotal.toLocaleString()})`}
+      description="Largest supply positions. Vaults allocated to this market are named here, including ones outside this page."
     >
       <div className="p-4">
         {activity.suppliers.length === 0 ? (
@@ -545,13 +561,27 @@ export function MarketSuppliersTable({
             >
               {pager.rows.map((s) => {
                 const share = shareOf(s.supplyAssetsUsd, supplyUsd);
-                const vaultName = vaultByAdapterOrAddress.get(s.address.toLowerCase());
+                const configured = s.vaultAddress ? getVaultByAddress(s.vaultAddress) : undefined;
+                const vaultName = configured
+                  ? getConfiguredVaultDisplayName(configured)
+                  : s.vaultName;
                 return (
                   <tr key={s.address}>
                     <td className={td}>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-col">
+                        {vaultName ? (
+                          configured ? (
+                            <Link
+                              href={`/vault/${s.vaultAddress}`}
+                              className="font-medium hover:underline"
+                            >
+                              {vaultName}
+                            </Link>
+                          ) : (
+                            <span className="font-medium">{vaultName}</span>
+                          )
+                        ) : null}
                         <ExplorerAddressLink address={s.address} chainId={chainId} />
-                        {vaultName && <span className="text-xs text-muted-foreground">{vaultName}</span>}
                       </div>
                     </td>
                     <td className={cn(td, 'text-right')}>
@@ -593,7 +623,7 @@ export function MarketLiquidationsTable({
 }) {
   const pager = usePage(activity.liquidations);
   return (
-    <CuratorPanel title="Liquidations" description="Most recent first (up to 100).">
+    <CuratorPanel title="Recent liquidations" description="Most recent first (up to 100).">
       <div className="p-4">
         {activity.liquidations.length === 0 ? (
           <Empty>No liquidation has been executed.</Empty>
@@ -643,93 +673,6 @@ export function MarketLiquidationsTable({
               page={pager.page}
               totalPages={pager.totalPages}
               total={activity.liquidations.length}
-              pageSize={PAGE_SIZE}
-              onPage={pager.setPage}
-            />
-          </>
-        )}
-      </div>
-    </CuratorPanel>
-  );
-}
-
-/* ------------------------------------------------------------------ Vaults */
-
-export function MarketListingVaultsTable({
-  activity,
-  loan,
-  chainId,
-}: {
-  activity: MarketActivity;
-  loan: TokenMeta;
-  chainId: number;
-}) {
-  const pager = usePage(activity.vaults);
-  return (
-    <CuratorPanel
-      title={`Vaults supplying this market (${activity.vaults.length})`}
-      description="Muscadine vaults link to their vault page."
-    >
-      <div className="p-4">
-        {activity.vaults.length === 0 ? (
-          <Empty>No vault supplies this market.</Empty>
-        ) : (
-          <>
-            <Table
-              head={[
-                { label: 'Vault' },
-                { label: 'Version' },
-                { label: 'Curator' },
-                { label: 'Allocation', right: true },
-              ]}
-            >
-              {pager.rows.map((v) => {
-                const ours = getVaultByAddress(v.address);
-                return (
-                  <tr key={v.address} className={cn(ours && 'bg-blue-50/60 dark:bg-blue-950/20')}>
-                    <td className={td}>
-                      <div className="flex flex-col">
-                        {ours ? (
-                          <Link href={`/vault/${v.address}`} className="font-medium hover:underline">
-                            {v.name}
-                          </Link>
-                        ) : (
-                          <span className="font-medium">{v.name}</span>
-                        )}
-                        <ExplorerAddressLink address={v.address} chainId={chainId} />
-                      </div>
-                    </td>
-                    <td className={td}>
-                      <Badge variant="secondary" className="text-[10px] uppercase">
-                        {v.version}
-                      </Badge>
-                    </td>
-                    <td className={cn(td, 'text-xs')}>
-                      {v.curator ? (
-                        /^0x[0-9a-fA-F]{40}$/.test(v.curator) ? (
-                          <ExplorerAddressLink address={v.curator} chainId={chainId} />
-                        ) : (
-                          v.curator
-                        )
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td className={cn(td, 'text-right')}>
-                      {v.allocation != null ? (
-                        <Amount raw={v.allocation} usd={v.allocationUsd} token={loan} />
-                      ) : (
-                        <span className="text-xs text-muted-foreground">Not in top suppliers</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </Table>
-            <PaginationBar
-              page={pager.page}
-              totalPages={pager.totalPages}
-              total={activity.vaults.length}
               pageSize={PAGE_SIZE}
               onPage={pager.setPage}
             />

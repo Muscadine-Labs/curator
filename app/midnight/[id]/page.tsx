@@ -32,7 +32,7 @@ export default function MidnightMarketPage() {
     : 'Midnight market';
   const maturityUtc = market ? formatMidnightMaturityUtc(market.maturity) : null;
   const headerDescription = market
-    ? `Morpho Midnight · ${networkName} · ${maturityUtc}`
+    ? `Morpho Midnight · ${networkName} · ${maturityUtc} · ${market.tenorLabel}`
     : `Morpho Midnight · ${networkName}`;
 
   return (

@@ -15,19 +15,27 @@ import {
 } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCuratorMarkets, useMidnightMarkets } from '@/lib/hooks/useCuratorMarkets';
-import type { CuratorMarketListItem } from '@/lib/morpho/curator-markets';
-import type { MidnightMarketListItem } from '@/lib/morpho/midnight-markets';
+import { isMidnightMarketActive } from '@/lib/morpho/midnight-markets';
 import { formatCompactUSD, formatPercentage } from '@/lib/format/number';
 import { formatMarketTokenAmount } from '@/components/morpho/TokenUsdValue';
 import { formatLltvPill } from '@/components/morpho/AllocationListView';
 import { curatorBlueMarketHref, curatorMidnightMarketHref } from '@/lib/morpho/morpho-app-links';
 import { marketMatchesPairFilters } from '@/lib/morpho/market-pair-filter';
+import {
+  blueBrowseRow,
+  compareBrowseRows,
+  midnightBrowseRow,
+  type BrowseSortDir,
+  type BrowseSortKey,
+  type MarketsBrowseRow,
+} from '@/lib/morpho/markets-browse-rows';
 import { useCuratorNetwork } from '@/lib/network/CuratorNetworkContext';
 import { cn } from '@/lib/utils';
 import { CuratorTableShell } from '@/components/morpho/CuratorChrome';
 
 type ListedFilter = 'all' | 'listed' | 'unlisted';
 type MuscadineFilter = 'all' | 'muscadine';
+type MidnightStatusFilter = 'active' | 'matured' | 'all';
 export type MarketsProductFilter = 'all' | 'blue' | 'midnight';
 
 const PRODUCT_HREF: Record<MarketsProductFilter, string> = {
@@ -41,7 +49,13 @@ type BrowserFilters = {
   collateral: string;
   listed: ListedFilter;
   muscadine: MuscadineFilter;
+  midnightStatus: MidnightStatusFilter;
 };
+
+function midnightStatusFromQuery(value: string | null): MidnightStatusFilter {
+  if (value === 'matured' || value === 'all' || value === 'active') return value;
+  return 'active';
+}
 
 function filtersFromQuery(query: string): BrowserFilters {
   const params = new URLSearchParams(query);
@@ -52,6 +66,7 @@ function filtersFromQuery(query: string): BrowserFilters {
     collateral: params.get('collateral') ?? '',
     listed: listed === 'all' || listed === 'unlisted' || listed === 'listed' ? listed : 'listed',
     muscadine: params.get('muscadine') === 'muscadine' ? 'muscadine' : 'all',
+    midnightStatus: midnightStatusFromQuery(params.get('maturity')),
   };
 }
 
@@ -62,45 +77,31 @@ function filtersToQuery(filters: BrowserFilters): string {
   if (filters.collateral.trim()) params.set('collateral', filters.collateral.trim());
   if (filters.listed !== 'listed') params.set('listed', filters.listed);
   if (filters.muscadine !== 'all') params.set('muscadine', filters.muscadine);
+  if (filters.midnightStatus !== 'active') params.set('maturity', filters.midnightStatus);
   return params.toString();
 }
 
-type SortKey = 'pair' | 'lltv' | 'sizeUsd' | 'liquidity' | 'apy' | 'listed' | 'muscadine';
-type MidnightSortKey = 'pair' | 'lltv' | 'sizeUsd' | 'maturity';
-type SortDir = 'asc' | 'desc';
+type SortDir = BrowseSortDir;
 
-const SORTABLE_COLUMNS: { key: SortKey; label: string; align?: 'right' }[] = [
-  { key: 'pair', label: 'Collateral / Loan' },
-  { key: 'lltv', label: 'LLTV' },
-  { key: 'sizeUsd', label: 'Market size', align: 'right' },
-  { key: 'liquidity', label: 'Liquidity', align: 'right' },
-  { key: 'apy', label: '6H net APY', align: 'right' },
-  { key: 'listed', label: 'Listed' },
-  { key: 'muscadine', label: 'Muscadine' },
+const BROWSE_COLUMNS: {
+  key: BrowseSortKey;
+  label: string;
+  align?: 'right';
+  products: Array<'blue' | 'midnight'>;
+}[] = [
+  { key: 'pair', label: 'Collateral / Loan', products: ['blue', 'midnight'] },
+  { key: 'lltv', label: 'LLTV', products: ['blue', 'midnight'] },
+  { key: 'sizeUsd', label: 'Market size', align: 'right', products: ['blue', 'midnight'] },
+  { key: 'liquidity', label: 'Liquidity', align: 'right', products: ['blue'] },
+  { key: 'apy', label: '6H net APY', align: 'right', products: ['blue'] },
+  { key: 'maturity', label: 'Maturity', products: ['midnight'] },
+  { key: 'listed', label: 'Listed', products: ['blue'] },
+  { key: 'muscadine', label: 'Muscadine', products: ['blue'] },
 ];
 
-function compareMarkets(a: CuratorMarketListItem, b: CuratorMarketListItem, key: SortKey): number {
-  switch (key) {
-    case 'pair': {
-      const left = `${a.collateralSymbol}/${a.loanSymbol}`.toLowerCase();
-      const right = `${b.collateralSymbol}/${b.loanSymbol}`.toLowerCase();
-      return left.localeCompare(right);
-    }
-    case 'lltv':
-      return Number(a.lltv ?? 0) - Number(b.lltv ?? 0);
-    case 'sizeUsd':
-      return (a.sizeUsd ?? 0) - (b.sizeUsd ?? 0);
-    case 'liquidity':
-      return (a.liquidityAssetsUsd ?? 0) - (b.liquidityAssetsUsd ?? 0);
-    case 'apy':
-      return (a.avgNetSupplyApy ?? 0) - (b.avgNetSupplyApy ?? 0);
-    case 'listed':
-      return Number(a.listed) - Number(b.listed);
-    case 'muscadine':
-      return a.muscadineVaults.length - b.muscadineVaults.length;
-    default:
-      return 0;
-  }
+function columnsFor(product: MarketsProductFilter) {
+  if (product === 'all') return BROWSE_COLUMNS;
+  return BROWSE_COLUMNS.filter((column) => column.products.includes(product));
 }
 
 function SortableHead<K extends string>({
@@ -114,7 +115,7 @@ function SortableHead<K extends string>({
   label: string;
   sortKey: K;
   activeKey: K;
-  sortDir: SortDir;
+  sortDir: BrowseSortDir;
   align?: 'right';
   onSort: (key: K) => void;
 }) {
@@ -153,150 +154,148 @@ function MetricCell({ primary, secondary }: { primary: ReactNode; secondary?: Re
   );
 }
 
-const MIDNIGHT_SORT_COLUMNS: { key: MidnightSortKey; label: string; align?: 'right' }[] = [
-  { key: 'pair', label: 'Collateral / Loan' },
-  { key: 'lltv', label: 'LLTV' },
-  { key: 'sizeUsd', label: 'Market size', align: 'right' },
-  { key: 'maturity', label: 'Maturity' },
-];
-
-function compareMidnightMarkets(
-  a: MidnightMarketListItem,
-  b: MidnightMarketListItem,
-  key: MidnightSortKey
-): number {
-  switch (key) {
-    case 'pair':
-      return `${a.collateralLabel}/${a.loanSymbol}`
-        .toLowerCase()
-        .localeCompare(`${b.collateralLabel}/${b.loanSymbol}`.toLowerCase());
-    case 'lltv':
-      return (a.lltvRatio ?? 0) - (b.lltvRatio ?? 0);
-    case 'sizeUsd':
-      return (a.sizeUsd ?? 0) - (b.sizeUsd ?? 0);
-    case 'maturity':
-      return a.maturity - b.maturity;
-    default:
-      return 0;
-  }
+function BlankCell() {
+  return <span className="text-muted-foreground">—</span>;
 }
 
-function MidnightMarketsTable({
-  markets,
-  loading,
-  networkName,
-  filtered,
-  sortKey,
-  sortDir,
-  onSort,
-  onOpen,
+function maturityLabel(maturitySec: number): string {
+  return new Date(maturitySec * 1000).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function BrowseCell({
+  column,
+  row,
+  showProduct,
 }: {
-  markets: MidnightMarketListItem[];
-  loading: boolean;
-  networkName: string;
-  filtered: boolean;
-  sortKey: MidnightSortKey;
-  sortDir: SortDir;
-  onSort: (key: MidnightSortKey) => void;
-  onOpen: (market: MidnightMarketListItem) => void;
+  column: BrowseSortKey;
+  row: MarketsBrowseRow;
+  showProduct: boolean;
 }) {
-  return (
-    <div className="space-y-2">
-      <p className="text-xs text-muted-foreground">
-        Market size is filled loan-token units, the same idea as Blue. Collateral
-        / Loan is what borrowers post against what they borrow. Tap a column
-        header to re-sort. Sorted by{' '}
-        {MIDNIGHT_SORT_COLUMNS.find((c) => c.key === sortKey)?.label.toLowerCase() ??
-          'market size'}{' '}
-        ({sortDir === 'desc' ? 'high → low' : 'low → high'}).
-      </p>
-      <CuratorTableShell>
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              {MIDNIGHT_SORT_COLUMNS.map((col) => (
-                <SortableHead
-                  key={col.key}
-                  label={col.label}
-                  sortKey={col.key}
-                  activeKey={sortKey}
-                  sortDir={sortDir}
-                  align={col.align}
-                  onSort={onSort}
-                />
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading &&
-              [...Array(6)].map((_, i) => (
-                <TableRow key={i}>
-                  <TableCell colSpan={4}>
-                    <Skeleton className="h-8 w-full" />
-                  </TableCell>
-                </TableRow>
-              ))}
-            {!loading && markets.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
-                  {filtered
-                    ? 'No Midnight markets match your filters.'
-                    : `No Midnight markets on ${networkName}.`}
-                </TableCell>
-              </TableRow>
-            )}
-            {!loading &&
-              markets.map((market) => {
-                const maturity = new Date(market.maturity * 1000).toLocaleDateString(
-                  undefined,
-                  { month: 'short', day: 'numeric', year: 'numeric' }
-                );
-                const sizeToken =
-                  formatMarketTokenAmount(
-                    market.sizeAssets,
-                    market.loanSymbol,
-                    market.loanDecimals
-                  ) ?? '—';
-                return (
-                  <TableRow
-                    key={market.marketId}
-                    tabIndex={0}
-                    role="link"
-                    onClick={() => onOpen(market)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        onOpen(market);
-                      }
-                    }}
-                    className="cursor-pointer"
-                  >
-                    <TableCell className="font-medium">
-                      {market.collateralLabel} / {market.loanSymbol}
-                    </TableCell>
-                    <TableCell className="text-xs">{market.lltvLabel}</TableCell>
-                    <TableCell>
-                      <MetricCell
-                        primary={sizeToken}
-                        secondary={
-                          market.sizeUsd != null ? formatCompactUSD(market.sizeUsd) : undefined
-                        }
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <div className="text-sm">{maturity}</div>
-                        <div className="text-xs text-muted-foreground">{market.tenorLabel}</div>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-          </TableBody>
-        </Table>
-      </CuratorTableShell>
-    </div>
-  );
+  const blue = row.blue;
+  const midnight = row.midnight;
+
+  switch (column) {
+    case 'pair':
+      return (
+        <TableCell className="font-medium">
+          <div className="flex items-center gap-2">
+            <span>
+              {blue
+                ? `${blue.collateralSymbol} / ${blue.loanSymbol}`
+                : `${midnight?.collateralLabel} / ${midnight?.loanSymbol}`}
+            </span>
+            {showProduct ? (
+              <Badge
+                className={
+                  row.product === 'blue'
+                    ? 'border-transparent bg-blue-600 text-white hover:bg-blue-600'
+                    : 'border-transparent bg-black text-white hover:bg-black'
+                }
+              >
+                {row.product === 'blue' ? 'Blue' : 'Midnight'}
+              </Badge>
+            ) : null}
+          </div>
+        </TableCell>
+      );
+    case 'lltv':
+      return (
+        <TableCell className={midnight ? 'text-xs' : undefined}>
+          {blue ? (formatLltvPill(blue.lltv) ?? '—') : (midnight?.lltvLabel ?? '—')}
+        </TableCell>
+      );
+    case 'sizeUsd': {
+      const sizeToken = blue
+        ? (formatMarketTokenAmount(blue.supplyAssets, blue.loanSymbol, blue.loanDecimals) ?? '—')
+        : midnight
+          ? (formatMarketTokenAmount(
+              midnight.sizeAssets,
+              midnight.loanSymbol,
+              midnight.loanDecimals
+            ) ?? '—')
+          : '—';
+      return (
+        <TableCell>
+          <MetricCell
+            primary={sizeToken}
+            secondary={row.sizeUsd != null ? formatCompactUSD(row.sizeUsd) : undefined}
+          />
+        </TableCell>
+      );
+    }
+    case 'liquidity': {
+      if (!blue) {
+        return (
+          <TableCell>
+            <div className="text-right">
+              <BlankCell />
+            </div>
+          </TableCell>
+        );
+      }
+      const liqToken =
+        formatMarketTokenAmount(blue.liquidityAssets, blue.loanSymbol, blue.loanDecimals) ?? '—';
+      return (
+        <TableCell>
+          <MetricCell
+            primary={liqToken}
+            secondary={
+              blue.liquidityAssetsUsd != null ? formatCompactUSD(blue.liquidityAssetsUsd) : undefined
+            }
+          />
+        </TableCell>
+      );
+    }
+    case 'apy':
+      return (
+        <TableCell className="text-right">
+          {row.apy != null ? formatPercentage(row.apy * 100) : <BlankCell />}
+        </TableCell>
+      );
+    case 'maturity':
+      return (
+        <TableCell>
+          {midnight && row.maturity != null ? (
+            <div>
+              <div className="text-sm">{maturityLabel(row.maturity)}</div>
+              <div className="text-xs text-muted-foreground">{midnight.tenorLabel}</div>
+            </div>
+          ) : (
+            <BlankCell />
+          )}
+        </TableCell>
+      );
+    case 'listed':
+      return (
+        <TableCell>
+          {blue ? (
+            <Badge variant={blue.listed ? 'default' : 'secondary'}>
+              {blue.listed ? 'Listed' : 'No'}
+            </Badge>
+          ) : (
+            <BlankCell />
+          )}
+        </TableCell>
+      );
+    case 'muscadine':
+      return (
+        <TableCell>
+          {blue && blue.muscadineVaults.length > 0 ? (
+            <span className="text-xs text-blue-700 dark:text-blue-300">
+              {blue.muscadineVaults.map((vault) => vault.symbol).join(', ')}
+            </span>
+          ) : (
+            <BlankCell />
+          )}
+        </TableCell>
+      );
+    default:
+      return <TableCell />;
+  }
 }
 
 export function CuratorMarketsBrowser({
@@ -316,11 +315,12 @@ export function CuratorMarketsBrowser({
   const [muscadineFilter, setMuscadineFilter] = useState<MuscadineFilter>(
     initialFilters.muscadine
   );
+  const [midnightStatus, setMidnightStatus] = useState<MidnightStatusFilter>(
+    initialFilters.midnightStatus
+  );
   const productFilter = product;
-  const [sortKey, setSortKey] = useState<SortKey>('sizeUsd');
+  const [sortKey, setSortKey] = useState<BrowseSortKey>('sizeUsd');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
-  const [midnightSortKey, setMidnightSortKey] = useState<MidnightSortKey>('sizeUsd');
-  const [midnightSortDir, setMidnightSortDir] = useState<SortDir>('desc');
 
   // Two-way URL sync. `lastSyncedQuery` is the query we last read or wrote, so
   // our own writes are not read back as navigation, while a real navigation
@@ -337,6 +337,7 @@ export function CuratorMarketsBrowser({
     setCollateralFilter(next.collateral);
     setListedFilter(next.listed);
     setMuscadineFilter(next.muscadine);
+    setMidnightStatus(next.midnightStatus);
   }, [urlQuery]);
 
   useEffect(() => {
@@ -346,12 +347,21 @@ export function CuratorMarketsBrowser({
       collateral: collateralFilter,
       listed: listedFilter,
       muscadine: muscadineFilter,
+      midnightStatus,
     });
     if (next === lastSyncedQuery.current) return;
     lastSyncedQuery.current = next;
-    // Native replaceState syncs useSearchParams without an RSC round trip per keystroke.
+    // replaceState does not update useSearchParams, so market links read filter state.
     window.history.replaceState(null, '', next ? `${pathname}?${next}` : pathname);
-  }, [search, loanFilter, collateralFilter, listedFilter, muscadineFilter, pathname]);
+  }, [
+    search,
+    loanFilter,
+    collateralFilter,
+    listedFilter,
+    muscadineFilter,
+    midnightStatus,
+    pathname,
+  ]);
 
   const { data, isLoading, error, refetch } = useCuratorMarkets(chainId, {
     enabled: ready && productFilter !== 'midnight',
@@ -373,10 +383,9 @@ export function CuratorMarketsBrowser({
     setCollateralFilter('');
     setListedFilter('listed');
     setMuscadineFilter('all');
+    setMidnightStatus('active');
     setSortKey('sizeUsd');
     setSortDir('desc');
-    setMidnightSortKey('sizeUsd');
-    setMidnightSortDir('desc');
     void refetch();
     void refetchMidnight();
   };
@@ -385,10 +394,6 @@ export function CuratorMarketsBrowser({
     () => ({ search, loanFilter, collateralFilter }),
     [search, loanFilter, collateralFilter]
   );
-  const pairFiltersActive =
-    search.trim().length > 0 ||
-    loanFilter.trim().length > 0 ||
-    collateralFilter.trim().length > 0;
 
   const filtered = useMemo(() => {
     const markets = data?.markets ?? [];
@@ -410,37 +415,37 @@ export function CuratorMarketsBrowser({
 
   const filteredMidnight = useMemo(() => {
     const markets = midnightData?.markets ?? [];
-    return markets.filter((m) =>
-      marketMatchesPairFilters(
+    const nowSec = Math.floor(Date.now() / 1000);
+    return markets.filter((m) => {
+      const active = isMidnightMarketActive(m.maturity, nowSec);
+      if (midnightStatus === 'active' && !active) return false;
+      if (midnightStatus === 'matured' && active) return false;
+      return marketMatchesPairFilters(
         {
           loanSymbol: m.loanSymbol,
           collateralSymbols: m.collaterals.map((c) => c.symbol),
           marketId: m.marketId,
         },
         pairFilters
-      )
-    );
-  }, [midnightData?.markets, pairFilters]);
+      );
+    });
+  }, [midnightData?.markets, pairFilters, midnightStatus]);
+
+  const showBlue = productFilter === 'all' || productFilter === 'blue';
+  const showMidnight = productFilter === 'all' || productFilter === 'midnight';
+  const columns = columnsFor(productFilter);
+  const tableLoading =
+    (showBlue && loading && !error) || (showMidnight && midnightBusy && !midnightError);
 
   const sorted = useMemo(() => {
-    const list = [...filtered];
-    list.sort((a, b) => {
-      const cmp = compareMarkets(a, b, sortKey);
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
-    return list;
-  }, [filtered, sortKey, sortDir]);
+    const rows: MarketsBrowseRow[] = [];
+    if (showBlue) rows.push(...filtered.map(blueBrowseRow));
+    if (showMidnight) rows.push(...filteredMidnight.map(midnightBrowseRow));
+    rows.sort((a, b) => compareBrowseRows(a, b, sortKey, sortDir));
+    return rows;
+  }, [filtered, filteredMidnight, showBlue, showMidnight, sortKey, sortDir]);
 
-  const sortedMidnight = useMemo(() => {
-    const list = [...filteredMidnight];
-    list.sort((a, b) => {
-      const cmp = compareMidnightMarkets(a, b, midnightSortKey);
-      return midnightSortDir === 'asc' ? cmp : -cmp;
-    });
-    return list;
-  }, [filteredMidnight, midnightSortKey, midnightSortDir]);
-
-  const toggleSort = (key: SortKey) => {
+  const toggleSort = (key: BrowseSortKey) => {
     if (sortKey === key) {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
       return;
@@ -449,29 +454,25 @@ export function CuratorMarketsBrowser({
     setSortDir(key === 'pair' || key === 'listed' ? 'asc' : 'desc');
   };
 
-  const toggleMidnightSort = (key: MidnightSortKey) => {
-    if (midnightSortKey === key) {
-      setMidnightSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-      return;
-    }
-    setMidnightSortKey(key);
-    setMidnightSortDir(key === 'pair' ? 'asc' : 'desc');
+  const filters: BrowserFilters = {
+    search,
+    loan: loanFilter,
+    collateral: collateralFilter,
+    listed: listedFilter,
+    muscadine: muscadineFilter,
+    midnightStatus,
   };
+  const filterQuery = filtersToQuery(filters);
+  const returnTo = filterQuery ? `${pathname}?${filterQuery}` : pathname;
 
-  const returnTo = `${pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
-
-  const openMarket = (market: CuratorMarketListItem) => {
-    const href = curatorBlueMarketHref(market.marketId, market.chainId, returnTo);
+  const openRow = (row: MarketsBrowseRow) => {
+    const href = row.blue
+      ? curatorBlueMarketHref(row.blue.marketId, row.blue.chainId, returnTo)
+      : row.midnight
+        ? curatorMidnightMarketHref(row.midnight.marketId, row.midnight.chainId, returnTo)
+        : null;
     if (href) router.push(href);
   };
-
-  const openMidnight = (market: MidnightMarketListItem) => {
-    const href = curatorMidnightMarketHref(market.marketId, market.chainId, returnTo);
-    if (href) router.push(href);
-  };
-
-  const showBlue = productFilter === 'all' || productFilter === 'blue';
-  const showMidnight = productFilter === 'all' || productFilter === 'midnight';
 
   return (
     <div className="space-y-4">
@@ -482,7 +483,8 @@ export function CuratorMarketsBrowser({
             value={productFilter}
             onChange={(e) => {
               const next = e.target.value as MarketsProductFilter;
-              router.push(PRODUCT_HREF[next]);
+              const href = PRODUCT_HREF[next];
+              router.push(filterQuery ? `${href}?${filterQuery}` : href);
             }}
             className="h-9 rounded-md border border-border bg-background px-3 text-sm"
           >
@@ -509,30 +511,49 @@ export function CuratorMarketsBrowser({
           />
         </div>
 
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">Listed</label>
-          <select
-            value={listedFilter}
-            onChange={(e) => setListedFilter(e.target.value as ListedFilter)}
-            className="h-9 rounded-md border border-border bg-background px-3 text-sm"
-          >
-            <option value="all">All</option>
-            <option value="listed">Listed</option>
-            <option value="unlisted">Not listed</option>
-          </select>
-        </div>
+        {showMidnight && (
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Midnight</label>
+            <select
+              value={midnightStatus}
+              onChange={(e) => setMidnightStatus(e.target.value as MidnightStatusFilter)}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm"
+            >
+              <option value="active">Active</option>
+              <option value="matured">Matured</option>
+              <option value="all">All</option>
+            </select>
+          </div>
+        )}
 
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">Muscadine</label>
-          <select
-            value={muscadineFilter}
-            onChange={(e) => setMuscadineFilter(e.target.value as MuscadineFilter)}
-            className="h-9 rounded-md border border-border bg-background px-3 text-sm"
-          >
-            <option value="all">All markets</option>
-            <option value="muscadine">Enabled caps only</option>
-          </select>
-        </div>
+        {showBlue && (
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Listed</label>
+            <select
+              value={listedFilter}
+              onChange={(e) => setListedFilter(e.target.value as ListedFilter)}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm"
+            >
+              <option value="all">All</option>
+              <option value="listed">Listed</option>
+              <option value="unlisted">Not listed</option>
+            </select>
+          </div>
+        )}
+
+        {showBlue && (
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Muscadine</label>
+            <select
+              value={muscadineFilter}
+              onChange={(e) => setMuscadineFilter(e.target.value as MuscadineFilter)}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm"
+            >
+              <option value="all">All markets</option>
+              <option value="muscadine">Enabled caps only</option>
+            </select>
+          </div>
+        )}
 
         <div className="min-w-[200px] flex-[2] space-y-1">
           <label className="text-xs font-medium text-muted-foreground">Search</label>
@@ -548,186 +569,125 @@ export function CuratorMarketsBrowser({
         </div>
       </div>
 
-      {showBlue && (
-        <p className="text-xs text-muted-foreground">
-          Network follows the Account → Network toggle ({networkName}). Sorted by{' '}
-          {SORTABLE_COLUMNS.find((c) => c.key === sortKey)?.label.toLowerCase() ?? 'market size'}{' '}
-          ({sortDir === 'desc' ? 'high → low' : 'low → high'}). Tap a column header to re-sort.
-          Rows highlighted in blue have a Muscadine vault market cap enabled.
-        </p>
-      )}
+      <p className="text-xs text-muted-foreground">
+        Sorted by{' '}
+        {BROWSE_COLUMNS.find((column) => column.key === sortKey)?.label.toLowerCase() ??
+          'market size'}{' '}
+        ({sortDir === 'desc' ? 'high → low' : 'low → high'}). Tap a column header to re-sort.
+        {productFilter === 'all'
+          ? ' Blue and Midnight share one table. A blank cell means that column does not apply. Listed and Muscadine filter Blue rows only.'
+          : ''}{' '}
+        {showBlue ? ' Rows highlighted in blue have a Muscadine vault market cap enabled.' : ''}
+      </p>
 
-      {showBlue && error && (
+      {showBlue && error ? (
         <p className="text-sm text-red-600 dark:text-red-400">
           {error instanceof Error ? error.message : 'Failed to load markets'}
         </p>
-      )}
+      ) : null}
+      {showMidnight && midnightError ? (
+        <p className="text-sm text-red-600 dark:text-red-400">
+          {midnightError instanceof Error
+            ? midnightError.message
+            : 'Failed to load Midnight markets'}
+        </p>
+      ) : null}
 
-      {showBlue && (
-        <CuratorTableShell className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                {SORTABLE_COLUMNS.map((col) => (
-                  <SortableHead
-                    key={col.key}
-                    label={col.label}
-                    sortKey={col.key}
-                    activeKey={sortKey}
-                    sortDir={sortDir}
-                    align={col.align}
-                    onSort={toggleSort}
-                  />
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading &&
-                [...Array(8)].map((_, i) => (
-                  <TableRow key={i}>
-                    <TableCell colSpan={7}>
-                      <Skeleton className="h-8 w-full" />
-                    </TableCell>
-                  </TableRow>
-                ))}
-
-              {!loading && sorted.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
-                    No markets match your filters.
+      <CuratorTableShell className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              {columns.map((col) => (
+                <SortableHead
+                  key={col.key}
+                  label={col.label}
+                  sortKey={col.key}
+                  activeKey={sortKey}
+                  sortDir={sortDir}
+                  align={col.align}
+                  onSort={toggleSort}
+                />
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {tableLoading &&
+              [...Array(8)].map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell colSpan={columns.length}>
+                    <Skeleton className="h-8 w-full" />
                   </TableCell>
                 </TableRow>
-              )}
+              ))}
 
-              {!loading &&
-                sorted.map((market) => {
-                  const muscadine = market.muscadineVaults.length > 0;
-                  const sizeToken =
-                    formatMarketTokenAmount(
-                      market.supplyAssets,
-                      market.loanSymbol,
-                      market.loanDecimals
-                    ) ?? '—';
-                  const liqToken =
-                    formatMarketTokenAmount(
-                      market.liquidityAssets,
-                      market.loanSymbol,
-                      market.loanDecimals
-                    ) ?? '—';
-                  return (
-                    <TableRow
-                      key={market.marketId}
-                      tabIndex={0}
-                      role="link"
-                      onClick={() => openMarket(market)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          openMarket(market);
-                        }
-                      }}
-                      className={cn(
-                        'cursor-pointer',
-                        muscadine &&
-                          'bg-blue-50/80 hover:bg-blue-100/80 dark:bg-blue-950/30 dark:hover:bg-blue-950/50'
-                      )}
-                    >
-                      <TableCell className="font-medium">
-                        {market.collateralSymbol} / {market.loanSymbol}
-                      </TableCell>
-                      <TableCell>{formatLltvPill(market.lltv) ?? '—'}</TableCell>
-                      <TableCell>
-                        <MetricCell
-                          primary={sizeToken}
-                          secondary={
-                            market.sizeUsd != null
-                              ? formatCompactUSD(market.sizeUsd)
-                              : undefined
-                          }
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <MetricCell
-                          primary={liqToken}
-                          secondary={
-                            market.liquidityAssetsUsd != null
-                              ? formatCompactUSD(market.liquidityAssetsUsd)
-                              : undefined
-                          }
-                        />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {market.avgNetSupplyApy != null
-                          ? formatPercentage(market.avgNetSupplyApy * 100)
-                          : '—'}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={market.listed ? 'default' : 'secondary'}>
-                          {market.listed ? 'Listed' : 'No'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {muscadine ? (
-                          <span className="text-xs text-blue-700 dark:text-blue-300">
-                            {market.muscadineVaults.map((v) => v.symbol).join(', ')}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-            </TableBody>
-          </Table>
-        </CuratorTableShell>
-      )}
+            {!tableLoading && sorted.length === 0 && (
+              <TableRow>
+                <TableCell
+                  colSpan={columns.length}
+                  className="py-8 text-center text-sm text-muted-foreground"
+                >
+                  No markets match your filters.
+                </TableCell>
+              </TableRow>
+            )}
 
-      {showBlue && !loading && (
+            {!tableLoading &&
+              sorted.map((row) => {
+                const muscadine = (row.blue?.muscadineVaults.length ?? 0) > 0;
+                return (
+                  <TableRow
+                    key={row.id}
+                    tabIndex={0}
+                    role="link"
+                    onClick={() => openRow(row)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        openRow(row);
+                      }
+                    }}
+                    className={cn(
+                      'cursor-pointer',
+                      row.product === 'midnight' &&
+                        'bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-900 dark:hover:bg-neutral-800',
+                      muscadine &&
+                        'bg-blue-100 hover:bg-blue-200 dark:bg-blue-950/50 dark:hover:bg-blue-950/70'
+                    )}
+                  >
+                    {columns.map((column) => (
+                      <BrowseCell
+                        key={column.key}
+                        column={column.key}
+                        row={row}
+                        showProduct={productFilter === 'all'}
+                      />
+                    ))}
+                  </TableRow>
+                );
+              })}
+          </TableBody>
+        </Table>
+      </CuratorTableShell>
+
+      {!tableLoading && (
         <p className="text-xs text-muted-foreground">
-          Showing {sorted.length} of {data?.markets.length ?? 0} Blue markets on {networkName}.
-          Tap a row for risk details or{' '}
-          <button
-            type="button"
-            className="underline underline-offset-2"
-            onClick={resetFilters}
-          >
+          Showing {sorted.length} markets on {networkName}
+          {showBlue ? ` · ${sorted.filter((row) => row.product === 'blue').length} Blue` : ''}
+          {showMidnight
+            ? ` · ${sorted.filter((row) => row.product === 'midnight').length} Midnight${
+                midnightStatus === 'active'
+                  ? ' active'
+                  : midnightStatus === 'matured'
+                    ? ' matured'
+                    : ''
+              }`
+            : ''}
+          . Tap a row to open it or{' '}
+          <button type="button" className="underline underline-offset-2" onClick={resetFilters}>
             reset filters
           </button>
           .
         </p>
-      )}
-
-      {showMidnight && (
-        <div className="space-y-2">
-          {productFilter === 'all' ? (
-            <h3 className="text-sm font-semibold">Midnight</h3>
-          ) : null}
-          {midnightError ? (
-            <p className="text-sm text-red-600 dark:text-red-400">
-              {midnightError instanceof Error
-                ? midnightError.message
-                : 'Failed to load Midnight markets'}
-            </p>
-          ) : null}
-          <MidnightMarketsTable
-            markets={sortedMidnight}
-            loading={midnightBusy}
-            networkName={networkName}
-            filtered={pairFiltersActive}
-            sortKey={midnightSortKey}
-            sortDir={midnightSortDir}
-            onSort={toggleMidnightSort}
-            onOpen={openMidnight}
-          />
-          {!midnightBusy && (
-            <p className="text-xs text-muted-foreground">
-              Showing {filteredMidnight.length} of {midnightData?.markets.length ?? 0}{' '}
-              Midnight markets on {networkName}
-              {pairFiltersActive ? ' (same Loan / Collateral / Search as Blue)' : ''}.
-            </p>
-          )}
-        </div>
       )}
     </div>
   );

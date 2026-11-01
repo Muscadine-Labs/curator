@@ -95,6 +95,51 @@ function sumAssets(levels: MidnightBookLevel[] | undefined): bigint {
   return total;
 }
 
+/** Daily Midnight analytics point. APR uses that day's time to maturity, same as Morpho. */
+export type MidnightHistoryPoint = {
+  timestamp: number;
+  /** Outstanding loans, loan-token raw units. */
+  outstandingAssets: string | null;
+  outstandingUsd: number | null;
+  /** Loan tokens paid per unit that day. */
+  takePrice: number | null;
+  /** APR as a fraction (0.056 = 5.6%). Null on days with no take. */
+  apr: number | null;
+};
+
+export function mapMidnightHistoryBuckets(
+  buckets: ReadonlyArray<MidnightHistoryBucket>,
+  maturitySec: number
+): MidnightHistoryPoint[] {
+  const points: MidnightHistoryPoint[] = [];
+  for (const bucket of buckets) {
+    if (bucket.timestamp == null || !Number.isFinite(bucket.timestamp)) continue;
+    const price = takePriceNumber(bucket.takePriceWad);
+    points.push({
+      timestamp: bucket.timestamp,
+      outstandingAssets: bucket.outstandingLoans ?? null,
+      outstandingUsd:
+        bucket.outstandingLoansUsd == null || !Number.isFinite(bucket.outstandingLoansUsd)
+          ? null
+          : bucket.outstandingLoansUsd,
+      takePrice: price,
+      apr: midnightPriceToApr(bucket.takePriceWad, maturitySec - bucket.timestamp),
+    });
+  }
+  points.sort((a, b) => a.timestamp - b.timestamp);
+  return points;
+}
+
+function takePriceNumber(priceWad: string | null | undefined): number | null {
+  if (!priceWad) return null;
+  try {
+    const price = Number(BigInt(priceWad)) / 1e18;
+    return Number.isFinite(price) && price > 0 ? price : null;
+  } catch {
+    return null;
+  }
+}
+
 /** WAD price → annualized rate. Midnight: (1/price − 1) × year / TTM. */
 function midnightPriceToApr(
   priceWad: string | null | undefined,
@@ -158,6 +203,14 @@ export function midnightLiquidationIncentive(
   } catch {
     return null;
   }
+}
+
+/** Still open when maturity is strictly in the future. A missing maturity is not active. */
+export function isMidnightMarketActive(
+  maturitySec: number,
+  nowSec = Math.floor(Date.now() / 1000)
+): boolean {
+  return maturitySec > nowSec;
 }
 
 export function formatMidnightMaturityUtc(maturitySec: number): string {
@@ -382,6 +435,10 @@ export type MidnightMarketDetail = {
   borrowerDebt: string | null;
   lendPositionCount: number;
   borrowPositionCount: number;
+  /** Daily APR and outstanding loans, newest last. Empty when history is unavailable. */
+  history: MidnightHistoryPoint[];
+  /** False when the history read failed. An empty series with this true means no takes yet. */
+  historyAvailable: boolean;
 };
 
 type MidnightMarketConfig = {
@@ -590,6 +647,190 @@ async function mapCollaterals(
   );
 }
 
+type MidnightHistoryBucket = {
+  timestamp?: number | null;
+  outstandingLoans?: string | null;
+  outstandingLoansUsd?: number | null;
+  takePriceWad?: string | null;
+};
+
+const HISTORY_DAYS = 180;
+const HISTORY_PAGE_LIMIT = 1000;
+const HISTORY_MAX_PAGES = 30;
+/** Daily series. Rebuilt from transactions, so a few minutes of lag is enough. */
+const HISTORY_CACHE_MS = 5 * 60 * 1000;
+const DAY_SECONDS = 86_400;
+
+export type MidnightHistoryEvent = {
+  id?: string;
+  event_type?: string;
+  created_at?: number;
+  data?: {
+    assets?: string | null;
+    units?: string | null;
+    total_units_delta?: string | null;
+    repaid_units?: string | null;
+  };
+};
+
+type HistorySnapshot = {
+  expiresAt: number;
+  points: MidnightHistoryPoint[];
+  available: boolean;
+};
+
+const historySnapshots = new Map<string, HistorySnapshot>();
+
+function utcDay(timestamp: number): number {
+  return Math.floor(timestamp / DAY_SECONDS) * DAY_SECONDS;
+}
+
+function rawBigint(value: string | null | undefined): bigint {
+  if (!value || !/^-?\d+$/.test(value)) return 0n;
+  return BigInt(value);
+}
+
+/**
+ * How this fill changes outstanding units.
+ * A new loan is the lend leg's `total_units_delta` (the borrow leg repeats it).
+ * Closing a borrow and liquidations pay units back. Checked against Morpho's
+ * daily outstanding change for 30 Oct and 31 Oct 2026.
+ */
+function historyUnitChange(event: MidnightHistoryEvent): bigint {
+  const data = event.data;
+  switch (event.event_type) {
+    case 'lend':
+      return rawBigint(data?.total_units_delta);
+    case 'exit_borrow_primary':
+    case 'exit_borrow_secondary':
+      return -rawBigint(data?.units);
+    case 'partial_liquidation':
+    case 'full_liquidation':
+      return -rawBigint(data?.repaid_units);
+    default:
+      return 0n;
+  }
+}
+
+function vwapPriceWad(assets: bigint, units: bigint): string | null {
+  if (assets <= 0n || units <= 0n) return null;
+  return ((assets * 10n ** 18n) / units).toString();
+}
+
+function unitsToUsd(units: bigint, decimals: number, loanUsd: number | null): number | null {
+  if (loanUsd == null || !Number.isFinite(loanUsd)) return null;
+  const human = Number(units) / 10 ** decimals;
+  return Number.isFinite(human) ? human * loanUsd : null;
+}
+
+/**
+ * Daily APR and outstanding loans, same shape Morpho graphs.
+ * Outstanding at a UTC midnight is the live total minus every change after it.
+ * APR uses that day's volume-weighted take price and the time left until maturity.
+ * `complete` is false when paging stopped before the start of the window; those
+ * partial days are left off.
+ */
+export function buildMidnightHistory(
+  events: readonly MidnightHistoryEvent[],
+  args: {
+    maturitySec: number;
+    totalUnits: string | null;
+    nowSec: number;
+    loanDecimals: number;
+    loanUsd: number | null;
+    complete: boolean;
+  }
+): MidnightHistoryPoint[] {
+  const totalUnits = rawBigint(args.totalUnits);
+  const today = utcDay(args.nowSec);
+  const windowStart = today - (HISTORY_DAYS - 1) * DAY_SECONDS;
+  const seen = new Set<string>();
+  let oldest = Number.POSITIVE_INFINITY;
+
+  const changeByDay = new Map<number, bigint>();
+  const assetsByDay = new Map<number, bigint>();
+  const unitsByDay = new Map<number, bigint>();
+
+  for (const event of events) {
+    if (event.id) {
+      if (seen.has(event.id)) continue;
+      seen.add(event.id);
+    }
+    if (event.created_at == null || !Number.isFinite(event.created_at)) continue;
+    if (event.created_at < oldest) oldest = event.created_at;
+    const day = utcDay(event.created_at);
+    const change = historyUnitChange(event);
+    if (change !== 0n) {
+      changeByDay.set(day, (changeByDay.get(day) ?? 0n) + change);
+    }
+    if (event.event_type === 'lend') {
+      assetsByDay.set(day, (assetsByDay.get(day) ?? 0n) + rawBigint(event.data?.assets));
+      unitsByDay.set(day, (unitsByDay.get(day) ?? 0n) + rawBigint(event.data?.units));
+    }
+  }
+
+  let coverFrom = windowStart;
+  if (!args.complete && Number.isFinite(oldest)) {
+    coverFrom = utcDay(oldest) + DAY_SECONDS;
+  }
+  if (coverFrom > today) return [];
+
+  const points: MidnightHistoryPoint[] = [];
+  let later = 0n;
+  for (let day = today; day >= coverFrom; day -= DAY_SECONDS) {
+    const thisDay = changeByDay.get(day) ?? 0n;
+    const outstanding = totalUnits - later - thisDay;
+    later += thisDay;
+    const priceWad = vwapPriceWad(assetsByDay.get(day) ?? 0n, unitsByDay.get(day) ?? 0n);
+    points.push({
+      timestamp: day,
+      outstandingAssets: outstanding.toString(),
+      outstandingUsd: unitsToUsd(outstanding, args.loanDecimals, args.loanUsd),
+      takePrice: takePriceNumber(priceWad),
+      apr: midnightPriceToApr(priceWad, args.maturitySec - day),
+    });
+  }
+  points.reverse();
+  return points;
+}
+
+type MidnightTransactionsPage = {
+  cursor?: string | null;
+  data?: MidnightHistoryEvent[];
+};
+
+async function pageMidnightTransactions(
+  marketId: string,
+  sinceSec: number
+): Promise<{ events: MidnightHistoryEvent[]; complete: boolean }> {
+  const events: MidnightHistoryEvent[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < HISTORY_MAX_PAGES; page += 1) {
+    const params = new URLSearchParams({
+      limit: String(HISTORY_PAGE_LIMIT),
+      created_at_gte: String(sinceSec),
+    });
+    if (cursor) params.set('cursor', cursor);
+    const body = await fetchMidnightRest<MidnightTransactionsPage>(
+      `/v0/midnight/markets/${marketId}/transactions?${params.toString()}`
+    );
+    const batch = body?.data ?? [];
+    events.push(...batch);
+    cursor = body?.cursor ?? null;
+    if (!cursor || batch.length === 0) {
+      return { events, complete: true };
+    }
+    const oldest = batch.reduce(
+      (min, event) =>
+        event.created_at != null && event.created_at < min ? event.created_at : min,
+      Number.POSITIVE_INFINITY
+    );
+    if (oldest < sinceSec) return { events, complete: true };
+  }
+  logger.warn('Midnight history exceeded page cap', { marketId });
+  return { events, complete: false };
+}
+
 export async function fetchMidnightMarketDetail(
   marketId: string,
   chainId: number = BASE_CHAIN_ID
@@ -599,7 +840,10 @@ export async function fetchMidnightMarketDetail(
     throw new AppError('Invalid Midnight market id', 400, 'INVALID_MARKET_ID');
   }
 
-  const [marketWrap, stateWrap, bookWrap, positionTotals] = await Promise.all([
+  const sinceSec = utcDay(Math.floor(Date.now() / 1000)) - (HISTORY_DAYS - 1) * DAY_SECONDS;
+  const cachedHistory = historySnapshots.get(id.toLowerCase());
+  const historyReady = cachedHistory != null && cachedHistory.expiresAt > Date.now();
+  const [marketWrap, stateWrap, bookWrap, positionTotals, pagedHistory] = await Promise.all([
     fetchMidnightRest<RestWrap<MidnightMarketConfig>>(`/v0/midnight/markets/${id}`),
     fetchMidnightRest<RestWrap<MidnightMarketState>>(`/v0/midnight/markets/${id}/state`),
     fetchMidnightRest<RestWrap<MidnightBook>>(`/v0/midnight/books/${id}?depth=80`),
@@ -607,6 +851,12 @@ export async function fetchMidnightMarketDetail(
       logger.warn('Midnight position totals failed', { marketId: id, error });
       return null;
     }),
+    historyReady
+      ? Promise.resolve(null)
+      : pageMidnightTransactions(id, sinceSec).catch((error: unknown) => {
+          logger.warn('Midnight history failed', { marketId: id, error });
+          return null;
+        }),
   ]);
 
   const config = marketWrap?.data;
@@ -643,6 +893,26 @@ export async function fetchMidnightMarketDetail(
   const pairCollaterals = selectMidnightCollaterals(collaterals, loanAddress);
   const asks = mapBookLevels(book?.asks, tenorSeconds);
   const bids = mapBookLevels(book?.bids, tenorSeconds);
+  let history: HistorySnapshot;
+  if (cachedHistory && cachedHistory.expiresAt > Date.now()) {
+    history = cachedHistory;
+  } else if (pagedHistory) {
+    history = {
+      expiresAt: Date.now() + HISTORY_CACHE_MS,
+      available: true,
+      points: buildMidnightHistory(pagedHistory.events, {
+        maturitySec: maturity,
+        totalUnits: state?.total_units ?? null,
+        nowSec,
+        loanDecimals: loanMeta.decimals,
+        loanUsd: loanSpotUsd,
+        complete: pagedHistory.complete,
+      }),
+    };
+    historySnapshots.set(id.toLowerCase(), history);
+  } else {
+    history = { expiresAt: 0, available: false, points: [] };
+  }
 
   const detail: MidnightMarketDetail = {
     marketId: resolvedId,
@@ -676,6 +946,8 @@ export async function fetchMidnightMarketDetail(
     borrowerDebt: positionTotals?.borrowerDebt ?? null,
     lendPositionCount: positionTotals?.lendPositionCount ?? 0,
     borrowPositionCount: positionTotals?.borrowPositionCount ?? 0,
+    history: history.points,
+    historyAvailable: history.available,
   };
 
   logger.debug('Fetched Midnight market detail', { marketId: resolvedId, chainId: resolvedChain });

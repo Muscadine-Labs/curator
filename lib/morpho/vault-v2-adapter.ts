@@ -30,6 +30,18 @@ export function isMorphoVaultV2Adapter(adapter: {
   return t === MORPHO_VAULT_V2_ADAPTER_TYPENAME || t === MORPHO_VAULT_V2_ADAPTER_TYPE;
 }
 
+/** Blue is Morpho Market V1. Midnight is the fixed-rate adapter. */
+export function vaultAdapterProduct(adapter: {
+  __typename?: string | null;
+  type?: string | null;
+  adapterType?: string | null;
+}): 'blue' | 'midnight' | null {
+  const blob = `${adapter.__typename ?? ''} ${adapter.adapterType ?? ''} ${adapter.type ?? ''}`.toLowerCase();
+  if (blob.includes('midnight') || blob.includes('fixed')) return 'midnight';
+  if (blob.includes('marketv1') || blob.includes('market v1') || blob.includes('variable')) return 'blue';
+  return null;
+}
+
 export function underlyingVaultLabel(
   vault: { name?: string | null; symbol?: string | null } | null | undefined,
   fallback = UNDERLYING_VAULT_FALLBACK

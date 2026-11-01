@@ -4,6 +4,75 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-01 — Price chart scale
+
+- The Midnight price chart scales to the take prices. A price near 1 is no longer drawn on a 0–1 axis.
+
+---
+
+## 2026-11-01 — Midnight history comes from transactions
+
+- The charts were empty because the Morpho app history route answers servers with a bot challenge. Daily APR and outstanding loans are now built from the public Midnight transaction list. A failed read is not cached. The rate panel title follows the APR / Price toggle, and an empty tooltip value stays a dash.
+
+---
+
+## 2026-11-01 — Base is the only network
+
+- The account sheet, wallet, and market APIs no longer offer Ethereum, HyperEVM, or Robinhood. Base stays labeled in the account sheet. Explorer links for other chains still resolve.
+
+---
+
+## 2026-11-01 — Midnight analytics charts
+
+- The Midnight market page charts daily APR and outstanding loans the way Morpho’s analytics tab does. APR uses that day’s take price and the time left until maturity. The public Midnight API has no history route, so the series comes from the markets app history call. A failed history call leaves the charts empty.
+
+---
+
+## 2026-11-01 — Vault overview drops the allocation bar
+
+- The pinned "Where assets sit" bar is gone from the vault overview. Adapter rows still mark Blue and Midnight.
+
+---
+
+## 2026-11-01 — Supplier rows and market filter links
+
+- Market back-links and the Blue / Midnight product switch keep the current browse filters. `replaceState` does not update `useSearchParams`.
+- A V2 supplier row sums every adapter and links the largest adapter. Configured Muscadine vaults are included even when Morpho omits them from the 20-vault `supplyingVaultV2s` list and the top 100 suppliers.
+
+---
+
+## 2026-11-01 — 1% steps on market curves
+
+- Blue market IRM utilization curve and collateral-at-risk curve are sampled every 1% (`numberOfPoints: 100`). The collateral axis labels stay every 10%.
+
+---
+
+## 2026-11-01 — Market pages drop repeated facts
+
+- Blue and Midnight market pages keep oracle price, contract, and feeds in `MarketOraclePanel` only. Overview no longer repeats network, oracle price, supply, utilization, or instant APY. Liquidation LLTV stays once. `MarketRiskDetailCard` on the market page is scores only.
+- Market page names every listing vault on the supplier list, including vaults outside the top 100 positions. Listed and Muscadine filters hide on Midnight-only browse. Blue row tint is Muscadine caps only. Midnight adapter rows stay light so the address stays readable.
+
+---
+
+## 2026-11-01 — Vault allocation colors and market suppliers
+
+- Vault overview allocation bar and adapter rows: Blue is blue, Midnight is black, and the bar stays pinned while the overview scrolls.
+- Market page drops the separate vaults-supplying table. A V2 vault that supplies through its adapter is named on the supplier row and links to the vault.
+
+---
+
+## 2026-11-01 — One markets table for Blue and Midnight
+
+- `/markets` sorts Blue and Midnight in one table (`markets-browse-rows.ts`). Shared columns stay blank when a product has no value, and blanks sort last. Blue-only and Midnight-only browse keep the columns that product fills.
+
+---
+
+## 2026-11-01 — Midnight active / matured filter on /markets
+
+- `/markets` Midnight table defaults to markets that have not matured. The Midnight select is Active, Matured, or All (`maturity` query; Active omitted). `isMidnightMarketActive` in `lib/morpho/midnight-markets.ts`.
+
+---
+
 ## 2026-11-01 — Repo-wide review fixes (PR #79)
 
 - protocol-stats: failed vault TVL / depositor reads go into `warning` (dashboard banner) and the result is not cached; depositors page past 1,000. protocol-transactions throws instead of caching an empty list.

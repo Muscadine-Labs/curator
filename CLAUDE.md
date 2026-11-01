@@ -876,12 +876,21 @@ Midnight is Morpho’s fixed-term (tenor) **order book** — not Blue (no IRM,
 utilization, or variable APY). GraphQL does **not** expose it.
 `GET /api/markets/midnight` lists markets by filled size; `GET /api/markets/midnight/[id]`
 loads market + state + full book + position totals
-(`https://api.morpho.org/v0/midnight/…`).
+(`https://api.morpho.org/v0/midnight/…`). Daily APR and outstanding-loan charts
+are built from `GET /v0/midnight/markets/{id}/transactions` (180 days). A day's
+APR is the volume-weighted lend price over the time left until maturity.
+Outstanding at each UTC midnight is the live total units minus later changes.
+The markets app history route is behind a bot challenge, so the server does not
+call it. A failed history read is not cached and the charts say history is
+unavailable.
 External app: [Morpho Markets](https://markets.morpho.org/fixed/base/0x549cd072daf99328554f3a6d2d4d6f4a07f1c59369e891e6391946f9cf75f221)
 `https://markets.morpho.org/fixed/{chain}/{marketId}`
 (`morphoMidnightMarketHref`). In-app: `curatorMidnightMarketHref`.
-Tenor = remaining time to `maturity`. List columns match Blue: Collateral / Loan,
-LLTV, market size, maturity. Market size is filled loan-token units
+Tenor = remaining time to `maturity`. `/markets` (All products) puts Blue and Midnight
+in one table with one column set. A blank cell means that product has no value
+there: Midnight leaves Liquidity, 6H net APY, Listed, and Muscadine blank; Blue
+leaves Maturity blank. Blue-only and Midnight-only browse keep the columns that
+product fills. Market size is filled loan-token units
 (`total_units` from `GET /v0/midnight/markets`, sorted largest first). The pair
 drops the loan token when another collateral exists, and drops Tenor receipt
 symbols ending in `-collat`. Detail pages still list every accepted collateral
@@ -909,9 +918,8 @@ Midnight lend stays on Morpho’s quote/router
 
 **BFF** — `GET /api/markets` and `GET /api/markets/[marketId]`
 (`lib/morpho/curator-markets.ts`). Midnight: `GET /api/markets/midnight` and
-`GET /api/markets/midnight/[id]` (`lib/morpho/midnight-markets.ts`). Networks (same as top-bar wallet): Base,
-Ethereum, HyperEVM, Robinhood (`CURATOR_MARKET_NETWORKS`). `/markets`
-mirrors the wallet chain (no independent network `<select>`). List query uses
+`GET /api/markets/midnight/[id]` (`lib/morpho/midnight-markets.ts`). The only
+network is Base (`CURATOR_MARKET_NETWORKS`, same as the wallet). List query uses
 `orderBy: SizeUsd` server-side; client re-sorts via column headers.
 
 **Market size / liquidity (token + USD):**
@@ -940,21 +948,27 @@ Public Allocator reallocatable liquidity, so it is a different measure.
 the market detail page.
 
 **URL filters** — `CuratorMarketsBrowser` syncs `q`, `loan`, `collateral`,
-`listed`, `muscadine` both ways: a real navigation (sidebar “Markets”, Back)
+`listed`, `muscadine`, `maturity` both ways: a real navigation (sidebar “Markets”, Back)
 resets the filters, and typing writes the URL with `window.history.replaceState`
 (no RSC round trip per keystroke). Market links carry `from=` so the detail
 page's back link returns there; `safeReturnPath` rejects anything that is not a
 same-origin path (`//`, `/\host`, control characters).
 
 **List defaults** — filter **Listed** only; sort **Market size** high → low.
+Midnight status defaults to **Active** (`maturity` omitted). **Matured** is
+`maturity=matured`; **All** is `maturity=all`. Active means `maturity` is still
+in the future (`isMidnightMarketActive`). The control is hidden on Blue-only
+browse.
 Muscadine rows (blue highlight) = business vault with allocatable market cap on
 that `marketId` (30s in-process index in `curator-markets.ts`).
 
-**Detail page** — overview KPIs (APY, utilization, supply/borrow, oracle price,
-created, Morpho `warnings`), a **Liquidations** panel (LLTV, liquidation penalty
-`min(1.15, 1/(0.3·LLTV+0.7)) − 1`, realized / unrealized bad debt),
-`MarketOraclePanel`, and `MarketRiskDetailCard` on Base only (oracle/IRM reads use
-Base RPC today).
+**Detail page** — overview keeps size, liquidity, borrow, collateral, LLTV, and
+net APY once. Instant supply/borrow APY and utilization live on **Rates**.
+Oracle price, contract, and feeds live only on `MarketOraclePanel` (kind is the
+header badge, not a second type row). Liquidation penalty and bad debt sit
+above **Recent liquidations**. `MarketRiskDetailCard` on this page is scores
+only (`scoresOnly`); the vault Risk tab still shows the full snapshot. Base
+only for the oracle panel and risk scores.
 
 **Market activity** — `GET /api/markets/[marketId]/activity`
 (`lib/morpho/market-activity.server.ts`, one GraphQL round trip, ≤30s cache,
@@ -968,12 +982,18 @@ seized, bad debt), **Rates** (90-day daily borrow / supply APY with rate at
 target, 7/30/90D averages, IRM breakdown: target utilization from
 `targetUtilization` on the detail response, borrow/repay to target =
 `target × supply − borrow`, `currentIrmCurve` chart with target + current
-lines), **Vaults supplying this market** (V1 allocation from
-`state.allocation`; V2 matched through adapter addresses in the top-100
-supplier list, else "Not in top suppliers"; Muscadine vaults link in-app),
-**Borrowers** (top 100 by borrow; health, distance to liquidation, borrow
-share) and **Suppliers** (top 100). Tables paginate 10/page with the shared
-`components/ui/pagination-bar.tsx`. Pure math: `lib/morpho/market-activity-math.ts`.
+lines; both that curve and collateral at risk are sampled every 1%), **Suppliers** (top 100 by supply, plus every vault that lists the
+market even when its adapter is outside that page). `supplyingVaultV2s` returns only
+20 vaults, so configured Muscadine strategy vaults are loaded in the same
+request from their Morpho Market V1 adapter positions (a follow-up; nesting
+those positions in the activity query exceeds Morpho's complexity limit). A V2 vault is one row:
+every adapter is summed, and the explorer address is the largest adapter
+(`vaultName` / `vaultAddress` still name the vault). Muscadine vaults link
+in-app. V1 allocation comes from `state.allocation`. The supplier heading count
+is at least the number of rows shown. **Borrowers** (top 100 by
+borrow; health, distance to liquidation, borrow share). Tables paginate 10/page
+with the shared `components/ui/pagination-bar.tsx`. Pure math:
+`lib/morpho/market-activity-math.ts`.
 
 **Oracle decoding (do not regress)** — Morpho GraphQL only types
 MorphoChainlinkOracle(V2). Primary/backup `MetaOracleDeviationTimelock` proxies
@@ -1233,9 +1253,9 @@ components.
   Sentinel preview dialogs; owners sign EIP-712 on `/safe/[role]`.
   Direct wallet confirm remains for EOA role holders only (`lib/safe/vault-role-match.ts`).
 - Wallet connect lives in the **topbar** (`ConnectWalletButton` / Reown
-  AppKit). Featured wallets are configured in `lib/wallet/appkit.ts`. Chain
-  switching for the **app network** is the top-bar `NetworkSwitcher`; the
-  AppKit account modal can still switch the wallet chain.
+  AppKit). Featured wallets are configured in `lib/wallet/appkit.ts`. The app
+  and the wallet stay on Base. The account sheet labels the network; it does
+  not offer another chain.
 
 ---
 

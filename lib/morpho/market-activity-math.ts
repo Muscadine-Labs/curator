@@ -52,10 +52,10 @@ export function collateralAtRiskFromMorpho(
     .sort((a, b) => b.priceChange - a.priceChange);
 }
 
-/** Default x-axis: 0% down to −90% in 5% steps (Morpho uses the same range). */
+/** Default x-axis: 0% down to −99% in 1% steps (Morpho `numberOfPoints: 100`). */
 export const COLLATERAL_AT_RISK_STEPS: ReadonlyArray<number> = Array.from(
-  { length: 19 },
-  (_, i) => -i * 0.05
+  { length: 100 },
+  (_, i) => -i / 100
 );
 
 /**

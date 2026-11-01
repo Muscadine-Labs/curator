@@ -11,9 +11,29 @@ type NetworkSwitcherProps = {
   fullWidth?: boolean;
 };
 
-/** App network preference — works without a connected wallet. */
+/** App network. Base is the only choice, so this is a label, not a menu. */
 export function NetworkSwitcher({ className, fullWidth = false }: NetworkSwitcherProps) {
   const { chainId, setChainId, isWalletOnSelectedChain, networkName } = useCuratorNetwork();
+
+  if (CURATOR_MARKET_NETWORKS.length < 2) {
+    return (
+      <div className={cn(fullWidth && 'w-full', className)}>
+        <p
+          className={cn(
+            'flex items-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
+            fullWidth ? 'h-11' : 'h-9 px-2.5 text-xs'
+          )}
+        >
+          {networkName}
+        </p>
+        {!isWalletOnSelectedChain ? (
+          <p className="mt-1.5 text-[11px] text-amber-700 dark:text-amber-400">
+            Wallet not on {networkName} — switch wallet chain to sign.
+          </p>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className={cn('relative', fullWidth && 'w-full', className)}>
