@@ -15,9 +15,11 @@ import {
  * One Morpho GraphQL round trip, cached ≤30s.
  */
 
-/** Borrow positions fetched for the collateral-at-risk curve (largest first). */
-const RISK_BORROWERS = 500;
-/** Rows sent to the borrowers / suppliers / liquidations tables. */
+/**
+ * Rows for the borrowers / suppliers / liquidations tables. Morpho's
+ * `marketCollateralAtRisk` covers every position, so the borrower page doubles
+ * as the (labelled) fallback curve instead of a separate 500-row fetch.
+ */
 const TABLE_ROWS = 100;
 const HISTORY_DAYS = 90;
 const IRM_POINTS = 40;
@@ -26,7 +28,6 @@ const MARKET_ACTIVITY_QUERY = gql`
   query CuratorMarketActivity(
     $marketId: String!
     $chainId: Int!
-    $riskBorrowers: Int!
     $rows: Int!
     $since: Int!
     $irmPoints: Int!
@@ -99,7 +100,7 @@ const MARKET_ACTIVITY_QUERY = gql`
       }
     }
     borrowers: marketPositions(
-      first: $riskBorrowers
+      first: $rows
       orderBy: BorrowShares
       orderDirection: Desc
       where: { marketUniqueKey_in: [$marketId], chainId_in: [$chainId], borrowShares_gte: 1 }
@@ -410,7 +411,7 @@ export function mapMarketActivity(data: GraphActivity, marketId: string): Market
   }));
 
   return {
-    borrowers: allBorrowers.slice(0, TABLE_ROWS),
+    borrowers: allBorrowers,
     borrowerCount: data.borrowers?.pageInfo?.countTotal ?? null,
     suppliers,
     supplierCount: data.suppliers?.pageInfo?.countTotal ?? null,
@@ -443,7 +444,6 @@ export async function fetchMarketActivity(
       const data = await morphoGraphQLClient.request<GraphActivity>(MARKET_ACTIVITY_QUERY, {
         marketId,
         chainId,
-        riskBorrowers: RISK_BORROWERS,
         rows: TABLE_ROWS,
         since,
         irmPoints: IRM_POINTS,

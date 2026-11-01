@@ -5,6 +5,8 @@ import {
   activityRoles,
   describeVaultCall,
   governanceCallsFromSafeTx,
+  matchPendingConfig,
+  pendingStatus,
   signedAllocationAmount,
   sortActivity,
   type VaultActivityRow,
@@ -56,10 +58,12 @@ describe('describeVaultCall', () => {
   });
 });
 
+const actions = (calls: Array<{ action: string }>) => calls.map((c) => c.action);
+
 describe('governanceCallsFromSafeTx', () => {
   it('reads direct vault calls and skips allocations', () => {
     expect(governanceCallsFromSafeTx({ to: VAULT, data: submitMaxRate }, VAULT)).toEqual([
-      'Submit setMaxRate',
+      { action: 'Submit setMaxRate', submittedData: setMaxRate.toLowerCase() },
     ]);
     expect(governanceCallsFromSafeTx({ to: VAULT, data: allocate }, VAULT)).toEqual([]);
   });
@@ -70,14 +74,16 @@ describe('governanceCallsFromSafeTx', () => {
       functionName: 'multicall',
       args: [[setMaxRate, allocate]],
     });
-    expect(governanceCallsFromSafeTx({ to: VAULT, data: multicall }, VAULT)).toEqual(['setMaxRate']);
+    expect(governanceCallsFromSafeTx({ to: VAULT, data: multicall }, VAULT)).toEqual([
+      { action: 'setMaxRate', submittedData: null },
+    ]);
 
     const batch = multiSend([
       { to: VAULT, data: submitMaxRate },
       { to: OTHER, data: setMaxRate },
     ]);
     expect(
-      governanceCallsFromSafeTx({ to: MULTI_SEND_CALL_ONLY, data: batch }, VAULT.toLowerCase())
+      actions(governanceCallsFromSafeTx({ to: MULTI_SEND_CALL_ONLY, data: batch }, VAULT.toLowerCase()))
     ).toEqual(['Submit setMaxRate']);
   });
 
@@ -160,5 +166,60 @@ describe('summarizeAdapter', () => {
     });
     expect(s.liquidityUsd).toBe(40);
     expect(s.rate).toBe(0.05);
+  });
+});
+
+describe('matchPendingConfig', () => {
+  const setMaxRate2 = encodeFunctionData({ abi: vaultV2Abi, functionName: 'setMaxRate', args: [2n] });
+  const TX = '0xAB';
+  const pending = [
+    { txHash: '0xab', data: setMaxRate, validAt: 100 },
+    { txHash: '0xab', data: setMaxRate2, validAt: 300 },
+  ];
+
+  it('matches each submit in a batch to its own config', () => {
+    const calls = governanceCallsFromSafeTx(
+      {
+        to: VAULT,
+        data: encodeFunctionData({
+          abi: vaultV2Abi,
+          functionName: 'multicall',
+          args: [
+            [
+              encodeFunctionData({ abi: vaultV2Abi, functionName: 'submit', args: [setMaxRate2] }),
+              submitMaxRate,
+              setMaxRate,
+            ],
+          ],
+        }),
+      },
+      VAULT
+    );
+    const taken = new Set<number>();
+    const matched = calls.map((c) => {
+      const i = matchPendingConfig({ txHash: TX, submittedData: c.submittedData }, pending, taken);
+      if (i >= 0) taken.add(i);
+      return i >= 0 ? pending[i].validAt : null;
+    });
+    // submit(setMaxRate(2)) → 300, submit(setMaxRate(1)) → 100, direct setter → none.
+    expect(matched).toEqual([300, 100, null]);
+  });
+
+  it('does not match another tx or a claimed config', () => {
+    expect(
+      matchPendingConfig({ txHash: '0xcd', submittedData: setMaxRate.toLowerCase() }, pending, new Set())
+    ).toBe(-1);
+    expect(
+      matchPendingConfig({ txHash: TX, submittedData: setMaxRate.toLowerCase() }, pending, new Set([0]))
+    ).toBe(-1);
+  });
+});
+
+describe('pendingStatus', () => {
+  it('never treats a missing unlock time as executable', () => {
+    expect(pendingStatus(0, 1000)).toBe('unknown');
+    expect(pendingStatus(null, 1000)).toBe('unknown');
+    expect(pendingStatus(900, 1000)).toBe('executable');
+    expect(pendingStatus(1100, 1000)).toBe('timelocked');
   });
 });

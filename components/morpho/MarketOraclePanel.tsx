@@ -5,7 +5,7 @@ import { AlertTriangle, ExternalLink } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatAddress, formatCompactUSD, formatFullUSD } from '@/lib/format/number';
-import { getAddressScanUrl } from '@/lib/constants';
+import { ExplorerAddressLink } from '@/components/morpho/ExplorerAddressLink';
 import { MORPHO_ORACLE_PORTAL_URL } from '@/lib/constants/links';
 import type {
   ChainlinkFeedSnapshot,
@@ -30,20 +30,6 @@ import {
   type OracleConstructionRow,
 } from '@/lib/morpho/oracle-display';
 import { cn } from '@/lib/utils';
-
-function ExplorerAddressLink({ address, chainId }: { address: string; chainId: number }) {
-  return (
-    <a
-      href={getAddressScanUrl(chainId, address)}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-flex items-center gap-1 font-mono text-xs text-blue-600 hover:underline dark:text-blue-400"
-    >
-      {formatAddress(address)}
-      <ExternalLink className="h-3 w-3 shrink-0" />
-    </a>
-  );
-}
 
 function Attr({ label, children }: { label: string; children: React.ReactNode }) {
   return (

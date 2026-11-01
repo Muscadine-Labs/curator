@@ -59,6 +59,7 @@ const VAULT_QUERY_PREFIXES = [
   vaultV2GovernanceQueryKey(null)[0],
   'vault-v2-pending',
   'vault-reallocations',
+  'vault-activity',
   'vault',
 ] as const;
 

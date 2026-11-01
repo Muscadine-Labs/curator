@@ -1,7 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { ExternalLink } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { keccak256 } from 'viem';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,14 +10,15 @@ import { PaginationBar } from '@/components/ui/pagination-bar';
 import { AddressBadge } from '@/components/AddressBadge';
 import { CuratorEmptyText, CuratorErrorText } from '@/components/morpho/CuratorChrome';
 import { useVaultActivity } from '@/lib/hooks/useVaultActivity';
-import { getScanUrlForChain } from '@/lib/constants';
+import { ExplorerTxLink } from '@/components/morpho/ExplorerAddressLink';
 import { getVaultV2PublicAllocatorAddress } from '@/lib/constants/bots';
-import { formatAddress, formatRawTokenAmount } from '@/lib/format/number';
+import { formatRawTokenAmount } from '@/lib/format/number';
 import { getTokenDisplayDecimals, resolveAssetDecimals } from '@/lib/format/asset-decimals';
 import { buildAdapterLabelMap, capDisplayLabel } from '@/lib/morpho/v2-cap-format';
 import { resolveCapIdData } from '@/lib/morpho/v2-id-data';
 import {
   activityRoles,
+  pendingStatus,
   type VaultActivityRole,
   type VaultActivityRow,
   type VaultActivityType,
@@ -88,11 +88,17 @@ export function VaultActivityFeed({
   const [type, setType] = useState<'all' | VaultActivityType>('all');
   const [role, setRole] = useState<'all' | VaultActivityRole>('all');
   const [page, setPage] = useState(0);
+  // Timelock badges flip from Timelocked to Executable while the card is open.
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    if (!open) return;
+    const id = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 30_000);
+    return () => clearInterval(id);
+  }, [open]);
   const { data, isLoading, error } = useVaultActivity(vaultAddress, { enabled: open });
   const labels = useTargetLabels(governance, risk);
   const chainDecimals = resolveAssetDecimals(assetSymbol, assetDecimals ?? undefined);
   const displayDecimals = getTokenDisplayDecimals(assetSymbol, chainDecimals);
-  const scan = getScanUrlForChain(chainId);
 
   const roleInput = useMemo(
     () => ({
@@ -172,6 +178,12 @@ export function VaultActivityFeed({
         </div>
       ) : (
         <div className="space-y-2 p-4">
+          {data?.governanceHistory === 'complete' && data.governanceHistorySince != null && (
+            <p className="text-xs text-muted-foreground">
+              Governance history covers the role Safes&apos; latest transactions — calls before{' '}
+              {new Date(data.governanceHistorySince * 1000).toLocaleDateString()} may be missing.
+            </p>
+          )}
           {data?.governanceHistory !== 'complete' && (
             <p className="text-xs text-amber-700 dark:text-amber-300">
               {data?.governanceHistory === 'unavailable'
@@ -219,13 +231,7 @@ export function VaultActivityFeed({
                           </td>
                           <td className={cn(td, 'font-mono text-xs')}>
                             {row.action}
-                            {row.pending && (
-                              <Badge variant="outline" className="ml-1 text-[10px]">
-                                {row.pending.validAt * 1000 > Date.now()
-                                  ? `Timelocked until ${new Date(row.pending.validAt * 1000).toLocaleDateString()}`
-                                  : 'Executable'}
-                              </Badge>
-                            )}
+                            {row.pending && <PendingBadge validAt={row.pending.validAt} now={now} />}
                           </td>
                           <td className={td}>
                             {row.actor ? (
@@ -257,19 +263,7 @@ export function VaultActivityFeed({
                               : '—'}
                           </td>
                           <td className={td}>
-                            {row.txHash ? (
-                              <a
-                                href={`${scan}/tx/${row.txHash}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 font-mono text-xs text-blue-600 hover:underline dark:text-blue-400"
-                              >
-                                {formatAddress(row.txHash)}
-                                <ExternalLink className="h-3 w-3" />
-                              </a>
-                            ) : (
-                              '—'
-                            )}
+                            {row.txHash ? <ExplorerTxLink hash={row.txHash} chainId={chainId} /> : '—'}
                           </td>
                         </tr>
                       );
@@ -306,4 +300,17 @@ function formatSignedAmount(
     return `${sign}< ${(1 / 10 ** displayDecimals).toFixed(displayDecimals)} ${symbol}`;
   }
   return `${sign}${formatRawTokenAmount(abs, decimals, displayDecimals)} ${symbol}`;
+}
+
+function PendingBadge({ validAt, now }: { validAt: number; now: number }) {
+  const status = pendingStatus(validAt, now);
+  return (
+    <Badge variant="outline" className="ml-1 text-[10px]">
+      {status === 'executable'
+        ? 'Executable'
+        : status === 'timelocked'
+          ? `Timelocked until ${new Date(validAt * 1000).toLocaleDateString()}`
+          : 'Pending · unlock time unknown'}
+    </Badge>
+  );
 }

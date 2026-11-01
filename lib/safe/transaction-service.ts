@@ -144,7 +144,8 @@ const HISTORY_LIMIT = 40;
  * helper attaches a JSON body, which some server fetches turn into an empty list.
  */
 export async function fetchExecutedMultisigTransactions(
-  safeAddress: Address
+  safeAddress: Address,
+  options?: { limit?: number }
 ): Promise<ServiceHistoryTx[]> {
   const apiKey = process.env.NEXT_PUBLIC_SAFE_API_KEY?.trim();
   if (!apiKey) {
@@ -156,7 +157,7 @@ export async function fetchExecutedMultisigTransactions(
   );
   url.searchParams.set('executed', 'true');
   url.searchParams.set('ordering', '-nonce');
-  url.searchParams.set('limit', String(HISTORY_LIMIT));
+  url.searchParams.set('limit', String(options?.limit ?? HISTORY_LIMIT));
 
   const response = await withSafeTxServiceRateLimit(() =>
     fetch(url, {

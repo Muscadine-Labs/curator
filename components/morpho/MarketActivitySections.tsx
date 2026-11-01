@@ -2,7 +2,6 @@
 
 import { useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { ExternalLink } from 'lucide-react';
 import {
   Area,
   AreaChart,
@@ -20,8 +19,8 @@ import { Button } from '@/components/ui/button';
 import { PaginationBar } from '@/components/ui/pagination-bar';
 import { CuratorPanel } from '@/components/morpho/CuratorChrome';
 import { formatMarketTokenAmount } from '@/components/morpho/TokenUsdValue';
-import { formatAddress, formatCompactUSD, formatPercentage } from '@/lib/format/number';
-import { getAddressScanUrl, getScanUrlForChain } from '@/lib/constants';
+import { formatCompactUSD, formatPercentage } from '@/lib/format/number';
+import { ExplorerAddressLink, ExplorerTxLink } from '@/components/morpho/ExplorerAddressLink';
 import { getVaultByAddress } from '@/lib/config/vaults';
 import {
   borrowToTargetUsd,
@@ -49,20 +48,6 @@ function usePage<T>(rows: ReadonlyArray<T>) {
     setPage,
     rows: rows.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE),
   };
-}
-
-function AddressLink({ address, chainId }: { address: string; chainId: number }) {
-  return (
-    <a
-      href={getAddressScanUrl(chainId, address)}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-flex items-center gap-1 font-mono text-xs text-blue-600 hover:underline dark:text-blue-400"
-    >
-      {formatAddress(address)}
-      <ExternalLink className="h-3 w-3" />
-    </a>
-  );
 }
 
 function Amount({
@@ -292,7 +277,7 @@ export function MarketRatesPanel({
             {toTarget != null ? formatCompactUSD(Math.abs(toTarget)) : '—'}
           </Row>
           <Row label="Interest rate model">
-            {irmAddress ? <AddressLink address={irmAddress} chainId={chainId} /> : '—'}
+            {irmAddress ? <ExplorerAddressLink address={irmAddress} chainId={chainId} /> : '—'}
           </Row>
         </div>
         {curve.length === 0 ? (
@@ -484,7 +469,7 @@ export function MarketBorrowersTable({
                 return (
                   <tr key={b.address}>
                     <td className={td}>
-                      <AddressLink address={b.address} chainId={chainId} />
+                      <ExplorerAddressLink address={b.address} chainId={chainId} />
                     </td>
                     <td className={cn(td, 'text-right')}>
                       <Amount raw={b.collateral} usd={b.collateralUsd} token={collateral} />
@@ -565,7 +550,7 @@ export function MarketSuppliersTable({
                   <tr key={s.address}>
                     <td className={td}>
                       <div className="flex items-center gap-2">
-                        <AddressLink address={s.address} chainId={chainId} />
+                        <ExplorerAddressLink address={s.address} chainId={chainId} />
                         {vaultName && <span className="text-xs text-muted-foreground">{vaultName}</span>}
                       </div>
                     </td>
@@ -607,7 +592,6 @@ export function MarketLiquidationsTable({
   chainId: number;
 }) {
   const pager = usePage(activity.liquidations);
-  const scan = getScanUrlForChain(chainId);
   return (
     <CuratorPanel title="Liquidations" description="Most recent first (up to 100).">
       <div className="p-4">
@@ -634,10 +618,10 @@ export function MarketLiquidationsTable({
                       {new Date(l.timestamp * 1000).toISOString().slice(0, 16).replace('T', ' ')}
                     </td>
                     <td className={td}>
-                      {l.borrower ? <AddressLink address={l.borrower} chainId={chainId} /> : '—'}
+                      {l.borrower ? <ExplorerAddressLink address={l.borrower} chainId={chainId} /> : '—'}
                     </td>
                     <td className={td}>
-                      {l.liquidator ? <AddressLink address={l.liquidator} chainId={chainId} /> : '—'}
+                      {l.liquidator ? <ExplorerAddressLink address={l.liquidator} chainId={chainId} /> : '—'}
                     </td>
                     <td className={cn(td, 'text-right tabular-nums')}>
                       {formatMarketTokenAmount(l.repaidAssets, loan.symbol, loan.decimals) ?? '—'}
@@ -649,15 +633,7 @@ export function MarketLiquidationsTable({
                       {badDebt ? formatMarketTokenAmount(l.badDebtAssets, loan.symbol, loan.decimals) : '—'}
                     </td>
                     <td className={cn(td, 'text-right')}>
-                      <a
-                        href={`${scan}/tx/${l.txHash}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 font-mono text-xs text-blue-600 hover:underline dark:text-blue-400"
-                      >
-                        {formatAddress(l.txHash)}
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
+<ExplorerTxLink hash={l.txHash} chainId={chainId} />
                     </td>
                   </tr>
                 );
@@ -720,7 +696,7 @@ export function MarketListingVaultsTable({
                         ) : (
                           <span className="font-medium">{v.name}</span>
                         )}
-                        <AddressLink address={v.address} chainId={chainId} />
+                        <ExplorerAddressLink address={v.address} chainId={chainId} />
                       </div>
                     </td>
                     <td className={td}>
@@ -731,7 +707,7 @@ export function MarketListingVaultsTable({
                     <td className={cn(td, 'text-xs')}>
                       {v.curator ? (
                         /^0x[0-9a-fA-F]{40}$/.test(v.curator) ? (
-                          <AddressLink address={v.curator} chainId={chainId} />
+                          <ExplorerAddressLink address={v.curator} chainId={chainId} />
                         ) : (
                           v.curator
                         )

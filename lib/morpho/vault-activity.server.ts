@@ -6,6 +6,7 @@ import { API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
 import {
   describeVaultCall,
   governanceCallsFromSafeTx,
+  matchPendingConfig,
   signedAllocationAmount,
   sortActivity,
   type VaultActivityRow,
@@ -14,6 +15,7 @@ import { SAFE_ACCOUNTS } from '@/lib/safe/config';
 import {
   fetchExecutedMultisigTransactions,
   isTransactionServiceConfigured,
+  type ServiceHistoryTx,
 } from '@/lib/safe/transaction-service';
 import { logger } from '@/lib/utils/logger';
 
@@ -90,36 +92,75 @@ export type VaultActivityResponse = {
    * key, `partial` = some Safe histories failed to load.
    */
   governanceHistory: 'complete' | 'partial' | 'unavailable';
+  /**
+   * Unix seconds. A Safe history hit the page limit, so governance executed
+   * before this time may be missing. Null when every history was read whole.
+   */
+  governanceHistorySince: number | null;
 };
 
-async function governanceRowsFromSafes(
-  vault: Address
-): Promise<{ rows: VaultActivityRow[]; status: VaultActivityResponse['governanceHistory'] }> {
-  if (!isTransactionServiceConfigured()) return { rows: [], status: 'unavailable' };
+/** Newest executed txs read per Safe (shared across every vault the Safe governs). */
+const SAFE_HISTORY_LIMIT = 100;
+
+type SafeHistory = { txs: ServiceHistoryTx[]; truncated: boolean };
+
+/**
+ * One cached read per Safe, keyed by the Safe — not per vault — so opening
+ * Activity on several vaults does not re-spend the 5 req/s Transaction
+ * Service quota on identical histories.
+ */
+function loadSafeHistory(safe: Address): Promise<SafeHistory> {
+  return withServerResponseCache(
+    `safe-executed-history:${safe.toLowerCase()}:${SAFE_HISTORY_LIMIT}`,
+    API_CACHE_MAX_AGE_MS,
+    async () => {
+      const txs = await fetchExecutedMultisigTransactions(safe, { limit: SAFE_HISTORY_LIMIT });
+      return { txs, truncated: txs.length >= SAFE_HISTORY_LIMIT };
+    }
+  );
+}
+
+function executionTime(tx: ServiceHistoryTx): number {
+  return tx.executionDate ? Math.floor(Date.parse(tx.executionDate) / 1000) : 0;
+}
+
+type GovernanceRow = VaultActivityRow & { submittedData: string | null };
+
+async function governanceRowsFromSafes(vault: Address): Promise<{
+  rows: GovernanceRow[];
+  status: VaultActivityResponse['governanceHistory'];
+  since: number | null;
+}> {
+  if (!isTransactionServiceConfigured()) return { rows: [], status: 'unavailable', since: null };
 
   const safes = SAFE_ACCOUNTS.filter((s) => GOVERNANCE_SAFE_ROLES.has(s.role));
   let failed = 0;
-  const rows: VaultActivityRow[] = [];
+  let since: number | null = null;
+  const rows: GovernanceRow[] = [];
   // Sequential: the Transaction Service free tier is 5 req/s and the client
   // already serializes through withSafeTxServiceRateLimit.
   for (const safe of safes) {
     try {
-      const history = await fetchExecutedMultisigTransactions(safe.address);
-      for (const tx of history) {
+      const history = await loadSafeHistory(safe.address);
+      if (history.truncated && history.txs.length > 0) {
+        const oldest = Math.min(...history.txs.map(executionTime).filter((t) => t > 0));
+        if (Number.isFinite(oldest)) since = since == null ? oldest : Math.max(since, oldest);
+      }
+      for (const tx of history.txs) {
         if (tx.isSuccessful === false) continue;
-        const names = governanceCallsFromSafeTx({ to: tx.to, data: tx.data }, vault);
-        const ts = tx.executionDate ? Math.floor(Date.parse(tx.executionDate) / 1000) : 0;
-        names.forEach((action, i) => {
+        const ts = executionTime(tx);
+        governanceCallsFromSafeTx({ to: tx.to, data: tx.data }, vault).forEach((call, i) => {
           rows.push({
             id: `gov-${tx.safeTxHash}-${i}`,
             timestamp: ts,
             type: 'governance',
-            action,
+            action: call.action,
             actor: safe.address,
             amount: null,
             adapter: null,
             ids: [],
             txHash: tx.transactionHash ?? null,
+            submittedData: call.submittedData,
           });
         });
       }
@@ -131,7 +172,7 @@ async function governanceRowsFromSafes(
       });
     }
   }
-  return { rows, status: failed === 0 ? 'complete' : 'partial' };
+  return { rows, status: failed === 0 ? 'complete' : 'partial', since };
 }
 
 export async function fetchVaultActivity(
@@ -166,41 +207,40 @@ export async function fetchVaultActivity(
           txHash: tx.txHash,
         }));
 
-      const pendingRows: VaultActivityRow[] = (data.vault?.pendingConfigs?.items ?? [])
+      const pendingConfigs = (data.vault?.pendingConfigs?.items ?? [])
         .filter((p): p is NonNullable<typeof p> => Boolean(p?.functionName))
-        .map((p, i) => {
-          const validAt = Number(p.validAt ?? 0);
-          return {
-            id: `pending-${p.txHash ?? i}-${i}`,
-            timestamp: validAt,
-            type: 'governance' as const,
-            action: `Submit ${describeVaultCall(p.data) ?? p.functionName}`,
-            actor: null,
-            amount: null,
-            adapter: null,
-            ids: [],
-            txHash: p.txHash ?? null,
-            pending: { validAt },
-          };
-        });
+        .map((p) => ({
+          txHash: p.txHash ?? null,
+          data: p.data ?? null,
+          functionName: p.functionName!,
+          validAt: Number(p.validAt ?? 0),
+        }));
 
-      // A submit the Safe executed is also a pending config. Keep the Safe row
-      // (it has the actor and execution time) and tag it with the timelock.
-      const pendingByHash = new Map(
-        pendingRows
-          .filter((p) => p.txHash)
-          .map((p) => [p.txHash!.toLowerCase(), p.pending ?? null])
-      );
-      const governanceRows = governance.rows.map((r) => {
-        const pending = r.txHash ? pendingByHash.get(r.txHash.toLowerCase()) : undefined;
-        return pending ? { ...r, pending } : r;
+      // Reconcile executed Safe calls with pending configs call by call (tx
+      // hash + submitted calldata): one batch can submit several configs with
+      // different timelocks, alongside calls that have none.
+      const matched = new Set<number>();
+      const governanceRows: VaultActivityRow[] = governance.rows.map(({ submittedData, ...row }) => {
+        const idx = matchPendingConfig({ txHash: row.txHash, submittedData }, pendingConfigs, matched);
+        if (idx < 0) return row;
+        matched.add(idx);
+        return { ...row, pending: { validAt: pendingConfigs[idx].validAt } };
       });
-      const executedHashes = new Set(
-        governance.rows.map((r) => r.txHash?.toLowerCase()).filter(Boolean)
-      );
-      const pendingOnly = pendingRows.filter(
-        (p) => !p.txHash || !executedHashes.has(p.txHash.toLowerCase())
-      );
+
+      const pendingOnly: VaultActivityRow[] = pendingConfigs
+        .filter((_, i) => !matched.has(i))
+        .map((p, i) => ({
+          id: `pending-${p.txHash ?? 'unknown'}-${i}`,
+          timestamp: p.validAt,
+          type: 'governance' as const,
+          action: `Submit ${describeVaultCall(p.data) ?? p.functionName}`,
+          actor: null,
+          amount: null,
+          adapter: null,
+          ids: [],
+          txHash: p.txHash,
+          pending: { validAt: p.validAt },
+        }));
 
       return {
         rows: sortActivity([
@@ -209,6 +249,7 @@ export async function fetchVaultActivity(
           ...pendingOnly,
         ]),
         governanceHistory: governance.status,
+        governanceHistorySince: governance.since,
       };
     },
     (result) => result.governanceHistory !== 'partial'

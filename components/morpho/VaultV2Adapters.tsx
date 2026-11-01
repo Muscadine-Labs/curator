@@ -123,7 +123,12 @@ export function VaultV2Adapters({
               <th className={`${th} text-right`}>Allocation / %</th>
               <th className={`${th} text-right`}>Absolute / Relative cap</th>
               <th className={`${th} text-right`}>Liquidity</th>
-              <th className={`${th} text-right`}>Rate</th>
+              <th
+                className={`${th} text-right`}
+                title="Allocation-weighted gross supply APY of the adapter's markets (child vault: net APY). Excludes rewards and vault fees, so it can differ from the vault APY above."
+              >
+                Supply APY
+              </th>
               <th className={`${th} text-right`}>Force dealloc. penalty</th>
             </tr>
           </thead>

@@ -395,8 +395,9 @@ grades; Sentinel holds emergency actions at the bottom.
    Columns: adapter, underlying (N markets / child vault), allocation / %,
    absolute / relative cap, liquidity, rate, force-deallocation penalty.
    Liquidity = Σ min(market allocation, market `liquidityAssetsUsd`) (child
-   vault: min(allocation, child liquidity)); rate = allocation-weighted supply
-   APY (child vault: `avgNetApy`, else `netApy`) — `summarizeAdapter` in
+   vault: min(allocation, child liquidity)); **Supply APY** = allocation-weighted
+   gross supply APY (child vault: `avgNetApy`, else `netApy`) — it excludes
+   rewards and fees, so it is labelled Supply APY, not the vault's net rate — `summarizeAdapter` in
    `lib/morpho/vault-adapter-summary.ts`. Pass `assetSymbol` / `assetDecimals`.
    **Activity** (`VaultActivityFeed`, `GET /api/vaults/[id]/activity`,
    `lib/morpho/vault-activity(.server).ts`) merges Morpho
@@ -406,7 +407,15 @@ grades; Sentinel holds emergency actions at the bottom.
    vault calls, vault `multicall`, canonical MultiSend batches; allocations
    skipped there because Morpho indexes them). Morpho does **not** index
    governance history; without `NEXT_PUBLIC_SAFE_API_KEY` the feed says so and
-   shows allocations + pending only. A partial Safe read is not cached.
+   shows allocations + pending only. A partial Safe read is not cached. Each
+   Safe's newest 100 executed txs are cached **per Safe** (shared across
+   vaults); when a page is full the response carries
+   `governanceHistorySince` and the feed says older calls may be missing.
+   Executed submits reconcile with `pendingConfigs` **per call** (tx hash +
+   submitted calldata, `matchPendingConfig`) — a batch can submit several
+   configs with different timelocks next to calls that have none. A pending
+   config with no `validAt` is never Executable (`pendingStatus` → unknown);
+   badges tick every 30s. `vault-activity` refetches after Safe execute.
    Filters: type and role (`activityRoles` — an address can hold several).
    Allocation targets resolve from cap ids (`keccak256(resolveCapIdData)`), most
    specific id first. Fetches only when the card is opened.
@@ -948,8 +957,9 @@ Base RPC today).
 (`lib/morpho/market-activity.server.ts`, one GraphQL round trip, ≤30s cache,
 `useCuratorMarketActivity`) feeds `MarketActivitySections.tsx`:
 **Collateral at risk** (Morpho `marketCollateralAtRisk` full-market curve,
-`collateralPriceRatio − 1` = price change; fallback is our curve from the 500
-largest borrowers' `priceVariationToLiquidationPrice`, labelled as such),
+`collateralPriceRatio − 1` = price change; fallback is our curve from the same
+100-row borrower page's `priceVariationToLiquidationPrice`, labelled with its
+share of market borrow — no separate large fetch),
 **Liquidations** (last 100 `marketTransactions` of type Liquidation: repaid,
 seized, bad debt), **Rates** (90-day daily borrow / supply APY with rate at
 target, 7/30/90D averages, IRM breakdown: target utilization from
@@ -1455,6 +1465,7 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
 | Market id helpers                | `lib/morpho/morpho-app-links.ts` (`marketKeyFromGraphQL`, `curatorBlueMarketHref`, `curatorMidnightMarketHref`, `morphoMidnightMarketHref`) |
 | Midnight markets                 | `lib/morpho/midnight-markets.ts`, `app/midnight/[id]/page.tsx`, `GET /api/markets/midnight`, `GET /api/markets/midnight/[id]` |
 | Oracle address from GraphQL      | `lib/morpho/market-oracle-address.ts` (`resolveMarketOracleAddress`) |
+| Explorer address / tx links      | `components/morpho/ExplorerAddressLink.tsx` |
 | Market activity (blue detail)    | `lib/morpho/market-activity.server.ts`, `market-activity-math.ts`, `components/morpho/MarketActivitySections.tsx`, `GET /api/markets/[marketId]/activity` |
 | Vault activity feed              | `lib/morpho/vault-activity.ts`, `vault-activity.server.ts`, `components/morpho/VaultActivityFeed.tsx`, `GET /api/vaults/[id]/activity` |
 | Adapter table rollups            | `lib/morpho/vault-adapter-summary.ts` |

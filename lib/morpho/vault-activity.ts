@@ -46,6 +46,30 @@ export function describeVaultCall(data: string | null | undefined): string | nul
   }
 }
 
+export type GovernanceCall = {
+  /** e.g. `Submit increaseAbsoluteCap`, `setIsAllocator`. */
+  action: string;
+  /**
+   * For `submit(data)`: the submitted calldata — the identity Morpho's
+   * `pendingConfigs[].data` carries, so a batch of submits with different
+   * timelocks reconciles call by call. Null for any other call.
+   */
+  submittedData: string | null;
+};
+
+function governanceCall(data: Hex): GovernanceCall | null {
+  const action = describeVaultCall(data);
+  if (!action || VAULT_WRITE_SKIP.has(action)) return null;
+  let submittedData: string | null = null;
+  try {
+    const decoded = decodeFunctionData({ abi: vaultV2Abi, data });
+    if (decoded.functionName === 'submit') submittedData = String(decoded.args?.[0] ?? '');
+  } catch {
+    /* describeVaultCall already named it */
+  }
+  return { action, submittedData: submittedData ? submittedData.toLowerCase() : null };
+}
+
 /**
  * Governance calls a Safe tx made on `vault`: a direct call, a vault
  * `multicall`, or calls inside a canonical MultiSend batch. Allocations are
@@ -54,37 +78,63 @@ export function describeVaultCall(data: string | null | undefined): string | nul
 export function governanceCallsFromSafeTx(
   tx: { to: string; data: string | null },
   vault: string
-): string[] {
+): GovernanceCall[] {
   const target = vault.toLowerCase();
-  const calls: Array<{ to: string; data: string }> = [];
+  const calls: Hex[] = [];
   if (tx.to.toLowerCase() === target && tx.data) {
-    calls.push({ to: tx.to, data: tx.data });
+    calls.push(tx.data as Hex);
   } else if (isKnownMultiSend(tx.to) && tx.data) {
     for (const inner of decodeMultiSend(tx.data as Hex) ?? []) {
-      if (inner.to.toLowerCase() === target) calls.push({ to: inner.to, data: inner.data });
+      if (inner.to.toLowerCase() === target) calls.push(inner.data);
     }
   }
 
-  const names: string[] = [];
-  for (const call of calls) {
-    let decoded: { functionName: string; args?: readonly unknown[] } | null = null;
+  const out: GovernanceCall[] = [];
+  for (const data of calls) {
+    let functionName: string;
+    let args: readonly unknown[] | undefined;
     try {
-      decoded = decodeFunctionData({ abi: vaultV2Abi, data: call.data as Hex });
+      ({ functionName, args } = decodeFunctionData({ abi: vaultV2Abi, data }));
     } catch {
-      names.push('Unknown call');
+      out.push({ action: 'Unknown call', submittedData: null });
       continue;
     }
-    if (decoded.functionName === 'multicall') {
-      for (const inner of (decoded.args?.[0] as readonly Hex[] | undefined) ?? []) {
-        const name = describeVaultCall(inner);
-        if (name && !VAULT_WRITE_SKIP.has(name)) names.push(name);
-      }
-      continue;
+    const inner = functionName === 'multicall' ? ((args?.[0] as readonly Hex[]) ?? []) : [data];
+    for (const call of inner) {
+      const g = governanceCall(call);
+      if (g) out.push(g);
     }
-    const name = describeVaultCall(call.data);
-    if (name && !VAULT_WRITE_SKIP.has(name)) names.push(name);
   }
-  return names;
+  return out;
+}
+
+/**
+ * Index of the pending config one executed governance call created: a
+ * `submit` whose submitted calldata is still pending, from the same tx, not
+ * already claimed by an earlier identical call in that batch. −1 = none.
+ */
+export function matchPendingConfig(
+  call: { txHash: string | null; submittedData: string | null },
+  pending: ReadonlyArray<{ txHash: string | null; data: string | null }>,
+  taken: ReadonlySet<number>
+): number {
+  if (!call.txHash || !call.submittedData) return -1;
+  const hash = call.txHash.toLowerCase();
+  return pending.findIndex(
+    (p, i) =>
+      !taken.has(i) &&
+      p.txHash?.toLowerCase() === hash &&
+      p.data?.toLowerCase() === call.submittedData
+  );
+}
+
+/** A pending config is executable only with a known, elapsed unlock time. */
+export function pendingStatus(
+  validAt: number | null | undefined,
+  nowSeconds: number
+): 'executable' | 'timelocked' | 'unknown' {
+  if (validAt == null || !Number.isFinite(validAt) || validAt <= 0) return 'unknown';
+  return validAt <= nowSeconds ? 'executable' : 'timelocked';
 }
 
 /** Signed allocation change: `change` when indexed, else ± assets by type. */

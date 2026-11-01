@@ -4,6 +4,14 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-01 — Review + Codex fixes on PR #79
+
+- Activity feed: executed submits match `pendingConfigs` per call (tx hash + submitted calldata), not per tx (Codex P2 — batched submits with different timelocks). Missing `validAt` is never Executable; badges tick. Safe histories cached per Safe (100 newest) and a truncation cutoff is surfaced. `vault-activity` refetches after Safe execute.
+- Market activity no longer fetches 500 borrowers (Morpho's curve covers every position; fallback uses the 100-row table page).
+- Shared `ExplorerAddressLink` / `ExplorerTxLink`; adapter rate column labelled Supply APY (gross, excludes rewards/fees).
+
+---
+
 ## 2026-11-01 — Market activity sections, vault activity feed and adapter table
 
 - **Blue market page** (`MarketActivitySections.tsx`, `GET /api/markets/[marketId]/activity`): collateral at risk (Morpho's full-market `marketCollateralAtRisk`), liquidations, rates (90-day history, averages, rate at target) with IRM breakdown + curve, vaults supplying the market (V2 allocation matched through adapter addresses), borrowers (health, distance to liquidation) and suppliers. One GraphQL round trip, ≤30s cache.
