@@ -1531,7 +1531,9 @@ client serializes calls with ≥210ms spacing.
   address-scoped log lookup (Etherscan-style `getLogs` for the gate), the same
   idea as the app's `vaultV2transactions` query — not a block-range walk.
   Sources in order: Safe Transaction Service (`NEXT_PUBLIC_SAFE_API_KEY`,
-  executed Curator and Allocator calls whose `to` is the gate, newest first,
+  executed Curator and Allocator calls whose `to` is the gate or a canonical
+  MultiSend batch that calls it (the queue's **Batch into MultiSend** and Safe's
+  transaction builder both execute through MultiSend), newest first,
   stopping at the hashes in `lib/morpho/send-assets-gate-history.ts`) → Blockscout
   PRO API (`BLOCKSCOUT_API_KEY`; Base is paid as of 2026-10-01) → Etherscan V2
   (`ETHERSCAN_API_KEY`, Base is paid-only) → keyless `base.blockscout.com` →
