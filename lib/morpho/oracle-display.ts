@@ -1,3 +1,4 @@
+import { lltvToFraction } from '@/lib/format/number';
 import type {
   ChainlinkFeedSnapshot,
   OracleKind,
@@ -32,20 +33,9 @@ export function chainlinkFeedPageUrl(
 const LIF_CURSOR = 0.3;
 const LIF_MAX = 1.15;
 
-/** LLTV as a fraction (0–1). Accepts WAD strings (`"770000000000000000"`) or fractions. */
-export function lltvToFraction(lltv: string | number | null | undefined): number | null {
-  if (lltv == null || lltv === '') return null;
-  // Same convention as formatLtv: wei (> 1e6), fraction (≤ 1), else percent.
-  const n = typeof lltv === 'string' ? Number(lltv) : lltv;
-  if (!Number.isFinite(n) || n <= 0) return null;
-  if (n > 1_000_000) return n / 1e18;
-  if (n <= 1) return n;
-  return n / 100;
-}
-
 export function liquidationIncentiveFactor(lltv: string | number | null | undefined): number | null {
   const f = lltvToFraction(lltv);
-  if (f == null) return null;
+  if (f == null || f <= 0) return null;
   return Math.min(LIF_MAX, 1 / (LIF_CURSOR * f + (1 - LIF_CURSOR)));
 }
 

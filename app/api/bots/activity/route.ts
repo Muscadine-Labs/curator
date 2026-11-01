@@ -11,6 +11,7 @@ import { BASE_CHAIN_ID } from '@/lib/constants';
 import { labelForActor, type BotActorKind } from '@/lib/format/address-label';
 import {
   decodeTransactionVaultCalls,
+  decodeVaultV2CalldataList,
   type DecodedMarketParams,
   type DecodedVaultCallSummary,
 } from '@/lib/bots/decode-vault-calls';
@@ -31,12 +32,10 @@ import { withServerResponseCache } from '@/lib/api/server-response-cache';
 import { logger } from '@/lib/utils/logger';
 import { getSafeByRole } from '@/lib/safe/config';
 import { decodeMultiSend, isKnownMultiSend } from '@/lib/safe/multisend';
-import {
-  fetchExecutedMultisigTransactions,
-  isTransactionServiceConfigured,
-} from '@/lib/safe/transaction-service';
+import { isTransactionServiceConfigured } from '@/lib/safe/transaction-service';
 import { fetchRebaterActivity, type RebaterActivityItem, type RebaterWatcher } from '@/lib/bots/rebater-activity';
 import { unauthorizedUnlessAdmin } from '@/lib/auth/require-admin';
+import { loadSafeHistory } from '@/lib/morpho/vault-activity.server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -463,20 +462,27 @@ async function fetchSafeExecutedVaultTxHashes(
   safe: Address,
   vaultSet: Set<string>,
   maxCount = 12
-): Promise<Array<{ hash: Hex; to: Address; timestamp: number | null }>> {
+): Promise<Array<{ hash: Hex; to: Address; timestamp: number | null; vaultCalls: Hex[] }>> {
   if (!isTransactionServiceConfigured()) return [];
   try {
-    const history = await fetchExecutedMultisigTransactions(safe);
-    const out: Array<{ hash: Hex; to: Address; timestamp: number | null }> = [];
+    // Same per-Safe cache as the vault Activity feed: one Transaction Service
+    // read per Safe per 30s, shared across pages.
+    const { txs: history } = await loadSafeHistory(safe);
+    const out: Array<{ hash: Hex; to: Address; timestamp: number | null; vaultCalls: Hex[] }> = [];
     for (const tx of history) {
       if (out.length >= maxCount) break;
       if (!tx.transactionHash || tx.isSuccessful === false || !isAddress(tx.to)) continue;
-      let vault: string | null = vaultSet.has(tx.to.toLowerCase()) ? tx.to : null;
-      if (!vault && tx.operation === 1 && isKnownMultiSend(tx.to) && tx.data) {
-        vault =
-          decodeMultiSend(tx.data as Hex)?.find((inner) =>
-            vaultSet.has(inner.to.toLowerCase())
-          )?.to ?? null;
+      let vault: string | null = null;
+      let vaultCalls: Hex[] = [];
+      if (vaultSet.has(tx.to.toLowerCase()) && tx.operation === 0) {
+        vault = tx.to;
+        vaultCalls = tx.data ? [tx.data as Hex] : [];
+      } else if (tx.operation === 1 && isKnownMultiSend(tx.to) && tx.data) {
+        const inner = (decodeMultiSend(tx.data as Hex) ?? []).filter(
+          (c) => c.operation === 0 && vaultSet.has(c.to.toLowerCase())
+        );
+        vault = inner[0]?.to ?? null;
+        vaultCalls = inner.filter((c) => c.to.toLowerCase() === vault?.toLowerCase()).map((c) => c.data);
       }
       if (!vault) continue;
       const ts = tx.executionDate
@@ -486,6 +492,7 @@ async function fetchSafeExecutedVaultTxHashes(
         hash: tx.transactionHash as Hex,
         to: getAddress(vault),
         timestamp: Number.isFinite(ts) ? ts : null,
+        vaultCalls,
       });
     }
     return out;
@@ -600,6 +607,8 @@ export async function GET(request: NextRequest) {
           blockNumber: number | null;
           sender: Address | null;
           changes: BotActivityChange[];
+          /** Vault calldata already known from Safe history — no RPC needed to decode. */
+          safeVaultCalls?: Hex[];
         };
 
         const candidatesByHash = new Map<string, Candidate>();
@@ -714,7 +723,12 @@ export async function GET(request: NextRequest) {
             const transfers = await fetchSafeExecutedVaultTxHashes(addr, vaultSet, 12);
             for (const t of transfers) {
               const key = t.hash.toLowerCase();
-              if (candidatesByHash.has(key)) continue;
+              const existing = candidatesByHash.get(key);
+              if (existing) {
+                existing.safeVaultCalls ??= t.vaultCalls;
+                existing.sender ??= addr;
+                continue;
+              }
               const cfg = vaultByAddr.get(t.to.toLowerCase());
               if (!cfg) continue;
               candidatesByHash.set(key, {
@@ -727,6 +741,7 @@ export async function GET(request: NextRequest) {
                 blockNumber: null,
                 sender: addr,
                 changes: [],
+                safeVaultCalls: t.vaultCalls,
               });
             }
           })
@@ -764,7 +779,10 @@ export async function GET(request: NextRequest) {
                   roleChanges: [],
                 };
 
-                if (needsCalldataDecode(c)) {
+                if (needsCalldataDecode(c) && c.safeVaultCalls) {
+                  // Safe history already gave the inner vault calls.
+                  decoded = decodeVaultV2CalldataList(c.safeVaultCalls);
+                } else if (needsCalldataDecode(c)) {
                   const tx = await publicClient.getTransaction({ hash: c.hash });
                   // A role Safe acts through execTransaction: the vault's
                   // msg.sender is the Safe (tx.to), not the executing EOA.

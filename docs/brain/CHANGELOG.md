@@ -4,6 +4,18 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-01 — Repo-wide review fixes (PR #79)
+
+- protocol-stats: failed vault TVL / depositor reads go into `warning` (dashboard banner) and the result is not cached; depositors page past 1,000. protocol-transactions throws instead of caching an empty list.
+- Transactions: shared `vault-v2-tx-amounts.ts`; transfers flagged `assetsEstimated` (today's share price), USD marked as today's price (≈).
+- Holders ranked over every page (positions has no orderBy), cached 30s, `parseBoundedIntParam`.
+- Rate limit buckets per endpoint path (`rateLimitIdentifier`).
+- Bots watcher: shared per-Safe history cache; Safe-sourced txs decoded from history calldata, no RPC.
+- `lltvToFraction` is the single LLTV parser (risk scoring, formatLtv, penalty).
+- Codex: Blue market detail polls every 30s so the ticking oracle clock does not mark live feeds Late.
+
+---
+
 ## 2026-11-01 — Review + Codex fixes on PR #79
 
 - Activity feed: executed submits match `pendingConfigs` per call (tx hash + submitted calldata), not per tx (Codex P2 — batched submits with different timelocks). Missing `validAt` is never Executable; badges tick. Safe histories cached per Safe (100 newest) and a truncation cutoff is surfaced. `vault-activity` refetches after Safe execute.

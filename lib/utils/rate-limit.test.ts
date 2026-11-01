@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   consumeRateLimit,
+  rateLimitIdentifier,
   hasSharedRateLimitStore,
   resolveClientIp,
 } from '@/lib/utils/rate-limit';
@@ -139,5 +140,17 @@ describe('shared login rate-limit store', () => {
       }))
     );
     expect(await consumeRateLimit('auth-verify:test', 10, 60_000)).toBe(false);
+  });
+});
+
+
+describe('rateLimitIdentifier', () => {
+  it('keys each endpoint path separately for the same client', () => {
+    const a = new Request('https://x.test/api/vaults/0xAB/risk', { headers: { 'x-forwarded-for': '1.2.3.4' } });
+    const b = new Request('https://x.test/api/vaults/0xab/governance', { headers: { 'x-forwarded-for': '1.2.3.4' } });
+    expect(rateLimitIdentifier(a)).not.toBe(rateLimitIdentifier(b));
+    expect(rateLimitIdentifier(a)).toBe(
+      rateLimitIdentifier(new Request('https://x.test/api/vaults/0xab/risk?x=1', { headers: { 'x-forwarded-for': '1.2.3.4' } }))
+    );
   });
 });

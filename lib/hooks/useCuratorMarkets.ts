@@ -1,6 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch, apiErrorMessage } from '@/lib/data/api-fetch';
-import { DASHBOARD_QUERY_OPTIONS, ON_CHAIN_VAULT_QUERY_OPTIONS } from '@/lib/data/query-config';
+import {
+  CURATOR_REFETCH_INTERVAL_MS,
+  DASHBOARD_QUERY_OPTIONS,
+  ON_CHAIN_VAULT_QUERY_OPTIONS,
+} from '@/lib/data/query-config';
 import type { CuratorMarketDetail, CuratorMarketListItem } from '@/lib/morpho/curator-markets';
 import type {
   MidnightMarketDetail,
@@ -63,6 +67,9 @@ export function useCuratorMarketDetail(
     },
     enabled: Boolean(marketId),
     ...ON_CHAIN_VAULT_QUERY_OPTIONS,
+    // The oracle panel's clock ticks every 30s; without refreshing the feed
+    // snapshot alongside it, healthy feeds would turn Late on an open page.
+    refetchInterval: CURATOR_REFETCH_INTERVAL_MS,
   });
 }
 

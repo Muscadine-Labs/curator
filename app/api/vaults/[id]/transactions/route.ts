@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { gql } from 'graphql-request';
+import { parseBoundedIntParam } from '@/lib/api/query-params';
+import {
+  assetsToUsdAtCurrentPrice,
+  mapV2TxAssets,
+  parseBigIntSafe,
+} from '@/lib/morpho/vault-v2-tx-amounts';
 import { getAddress, isAddress } from 'viem';
 import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
 import { getVaultByAddress } from '@/lib/config/vaults';
@@ -17,6 +23,9 @@ export type VaultTransaction = {
   user: string | null;
   shares: string | null;
   assets: string | null;
+  /** Transfer: assets estimated from shares at today's share price. */
+  assetsEstimated: boolean;
+  /** Assets valued at today's asset price (Morpho has no per-tx USD). */
   assetsUsd: number | null;
 };
 
@@ -110,86 +119,6 @@ type V2GraphResponse = {
   } | null;
 };
 
-function parseBigIntSafe(value: string | number | null | undefined): bigint | null {
-  if (value == null) return null;
-  try {
-    return BigInt(typeof value === 'number' ? Math.floor(value) : value);
-  } catch {
-    return null;
-  }
-}
-
-function sharesToAssets(
-  shares: string | null | undefined,
-  totalAssets: bigint | null,
-  totalSupply: bigint | null
-): string | null {
-  if (!shares || totalAssets == null || totalSupply == null || totalSupply === BigInt(0)) {
-    return null;
-  }
-  try {
-    const shareAmount = BigInt(shares);
-    if (shareAmount <= BigInt(0)) return null;
-    return String((shareAmount * totalAssets) / totalSupply);
-  } catch {
-    return null;
-  }
-}
-
-function assetsToUsd(
-  assets: string | null,
-  totalAssets: bigint | null,
-  totalAssetsUsd: number | null
-): number | null {
-  if (!assets || totalAssets == null || totalAssets === BigInt(0) || totalAssetsUsd == null) {
-    return null;
-  }
-  try {
-    const assetAmount = BigInt(assets);
-    if (assetAmount <= BigInt(0)) return null;
-    return (Number(assetAmount) / Number(totalAssets)) * totalAssetsUsd;
-  } catch {
-    return null;
-  }
-}
-
-function mapV2TransactionData(
-  data: (VaultV2TxData & { assets?: string | number | null }) | null | undefined,
-  shares: string | null | undefined,
-  totalAssets: bigint | null,
-  totalSupply: bigint | null
-): { user: string | null; assets: string | null } {
-  if (!data?.__typename) return { user: null, assets: null };
-  const user = vaultV2TransactionUser(data);
-  switch (data.__typename) {
-    case 'VaultV2DepositData':
-      return {
-        user,
-        assets: data.assets != null ? String(data.assets) : null,
-      };
-    case 'VaultV2WithdrawData':
-      return {
-        user,
-        assets: data.assets != null ? String(data.assets) : null,
-      };
-    case 'VaultV2TransferData': {
-      const converted = sharesToAssets(shares, totalAssets, totalSupply);
-      return {
-        user,
-        assets: converted,
-      };
-    }
-    default:
-      return { user: null, assets: null };
-  }
-}
-
-function parseFirst(value: string | null, fallback: number, max: number): number {
-  const n = value ? Number(value) : fallback;
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.min(Math.floor(n), max);
-}
-
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -224,8 +153,8 @@ export async function GET(
     }
 
     const url = new URL(request.url);
-    const first = parseFirst(url.searchParams.get('first'), 100, 200);
-    const skip = parseFirst(url.searchParams.get('skip'), 0, 10_000);
+    const first = parseBoundedIntParam(url.searchParams.get('first'), 100, { min: 1, max: 200 });
+    const skip = parseBoundedIntParam(url.searchParams.get('skip'), 0, { min: 0, max: 10_000 });
 
     const chainIds = [vaultConfig.chainId ?? BASE_CHAIN_ID];
 
@@ -246,7 +175,8 @@ export async function GET(
     const transactions = items
       .filter((x): x is NonNullable<typeof x> => x !== null && Boolean(x.txHash))
       .map((tx) => {
-        const { user, assets } = mapV2TransactionData(
+        const user = vaultV2TransactionUser(tx.data ?? null);
+        const { assets, assetsEstimated } = mapV2TxAssets(
           tx.data ?? null,
           tx.shares,
           totalAssets,
@@ -260,7 +190,8 @@ export async function GET(
           user,
           shares: tx.shares ?? null,
           assets,
-          assetsUsd: assetsToUsd(assets, totalAssets, totalAssetsUsd),
+          assetsEstimated,
+          assetsUsd: assetsToUsdAtCurrentPrice(assets, totalAssets, totalAssetsUsd),
         };
       });
 

@@ -109,7 +109,7 @@ type SafeHistory = { txs: ServiceHistoryTx[]; truncated: boolean };
  * Activity on several vaults does not re-spend the 5 req/s Transaction
  * Service quota on identical histories.
  */
-function loadSafeHistory(safe: Address): Promise<SafeHistory> {
+export function loadSafeHistory(safe: Address): Promise<SafeHistory> {
   return withServerResponseCache(
     `safe-executed-history:${safe.toLowerCase()}:${SAFE_HISTORY_LIMIT}`,
     API_CACHE_MAX_AGE_MS,

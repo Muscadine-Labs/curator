@@ -6,7 +6,9 @@ import { getVaultByAddress } from '@/lib/config/vaults';
 import { handleApiError, AppError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
 import { BASE_CHAIN_ID } from '@/lib/constants';
-import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
+import { API_CACHE_MAX_AGE_MS, mergeApiCacheHeaders } from '@/lib/api/response-cache';
+import { withServerResponseCache } from '@/lib/api/server-response-cache';
+import { parseBoundedIntParam } from '@/lib/api/query-params';
 import { unauthorizedUnlessAdmin } from '@/lib/auth/require-admin';
 
 export type VaultHolder = {
@@ -52,26 +54,49 @@ const V2_HOLDERS_QUERY = gql`
   }
 `;
 
+type GraphPosition = {
+  user?: { address?: string | null } | null;
+  assets?: string | null;
+  assetsUsd?: number | null;
+  shares?: string | null;
+};
+
 type V2GraphResponse = {
   vaultV2ByAddress?: {
     address?: string | null;
     asset?: { symbol?: string | null; decimals?: number | null } | null;
     positions?: {
-      items?: Array<{
-        user?: { address?: string | null } | null;
-        assets?: string | null;
-        assetsUsd?: number | null;
-        shares?: string | null;
-      } | null> | null;
+      items?: Array<GraphPosition | null> | null;
       pageInfo?: { countTotal?: number | null } | null;
     } | null;
   } | null;
 };
 
-function parseInt_(value: string | null, fallback: number, max: number): number {
-  const n = value ? Number(value) : fallback;
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.min(Math.floor(n), max);
+const PAGE = 1000;
+/** Safety bound: 10 pages. Holders past this are counted but not ranked. */
+const MAX_HOLDER_ROWS = 10_000;
+
+/**
+ * Every position, paged past the 1,000-row limit, so "top holders" ranks the
+ * whole vault — `positions` has no orderBy, so sorting one page is not a top list.
+ */
+async function fetchAllPositions(vaultAddress: string, chainId: number) {
+  const items: Array<GraphPosition | null> = [];
+  let head: V2GraphResponse['vaultV2ByAddress'] = null;
+  for (let skip = 0; skip < MAX_HOLDER_ROWS; skip += PAGE) {
+    const data = await morphoGraphQLClient.request<V2GraphResponse>(V2_HOLDERS_QUERY, {
+      address: vaultAddress,
+      chainId,
+      first: PAGE,
+      skip,
+    });
+    const v2 = data.vaultV2ByAddress;
+    head ??= v2;
+    const page = v2?.positions?.items ?? [];
+    items.push(...page);
+    if (page.length < PAGE) break;
+  }
+  return { head, items };
 }
 
 export async function GET(
@@ -108,21 +133,19 @@ export async function GET(
     }
 
     const url = new URL(request.url);
-    const first = parseInt_(url.searchParams.get('first'), 100, 1000);
-    const skip = parseInt_(url.searchParams.get('skip'), 0, 10_000);
+    const first = parseBoundedIntParam(url.searchParams.get('first'), 100, { min: 1, max: 1000 });
+    const skip = parseBoundedIntParam(url.searchParams.get('skip'), 0, { min: 0, max: 10_000 });
     const chainId = vaultConfig.chainId ?? BASE_CHAIN_ID;
 
-    const data = await morphoGraphQLClient.request<V2GraphResponse>(V2_HOLDERS_QUERY, {
-      address: vaultAddress,
-      chainId,
-      first,
-      skip,
-    });
-    const v2 = data.vaultV2ByAddress;
-    const assetSymbol = v2?.asset?.symbol ?? null;
-    const assetDecimals = v2?.asset?.decimals ?? null;
-    const totalHolders = v2?.positions?.pageInfo?.countTotal ?? 0;
-    const holders = (v2?.positions?.items ?? [])
+    const { head, items } = await withServerResponseCache(
+      `vault-holders:${chainId}:${vaultAddress.toLowerCase()}`,
+      API_CACHE_MAX_AGE_MS,
+      () => fetchAllPositions(vaultAddress, chainId)
+    );
+    const assetSymbol = head?.asset?.symbol ?? null;
+    const assetDecimals = head?.asset?.decimals ?? null;
+    const totalHolders = head?.positions?.pageInfo?.countTotal ?? items.length;
+    const holders = items
       .filter((x): x is NonNullable<typeof x> => x !== null && Boolean(x.user?.address))
       .map((h) => ({
         address: String(h.user!.address),
@@ -130,7 +153,8 @@ export async function GET(
         assets: h.assets != null ? String(h.assets) : null,
         assetsUsd: h.assetsUsd ?? null,
       }))
-      .sort((a, b) => (b.assetsUsd ?? 0) - (a.assetsUsd ?? 0));
+      .sort((a, b) => (b.assetsUsd ?? 0) - (a.assetsUsd ?? 0))
+      .slice(skip, skip + first);
 
     const response: VaultHoldersResponse = {
       vaultAddress,

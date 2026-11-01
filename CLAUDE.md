@@ -416,6 +416,9 @@ grades; Sentinel holds emergency actions at the bottom.
    configs with different timelocks next to calls that have none. A pending
    config with no `validAt` is never Executable (`pendingStatus` → unknown);
    badges tick every 30s. `vault-activity` refetches after Safe execute.
+   `loadSafeHistory` (per-Safe cache) is also used by `/api/bots/activity`,
+   which decodes Safe-sourced candidates from the history calldata instead of
+   an RPC `getTransaction`.
    Filters: type and role (`activityRoles` — an address can hold several).
    Allocation targets resolve from cap ids (`keccak256(resolveCapIdData)`), most
    specific id first. Fetches only when the card is opened.
@@ -1007,7 +1010,8 @@ Morpho app directly.
 Pass `chainId` from the vault page into `VaultRiskV2`.
 
 **Hooks** — `useCuratorMarkets`, `useCuratorMarketDetail` (`lib/hooks/useCuratorMarkets.ts`);
-dashboard poll tier (30s).
+dashboard poll tier (30s). The Blue detail polls every 30s too — the oracle
+panel's clock ticks, and a frozen snapshot would turn healthy feeds Late.
 
 **Mobile** — filter row uses `flex-wrap`; table is `overflow-x-auto` with
 `whitespace-nowrap` sort headers; market detail overview uses responsive
@@ -1152,6 +1156,21 @@ components.
   so junk never reaches GraphQL variables or cache keys.
 - `GET /api/vaults/[id]` returns **502** when Morpho GraphQL fails — only a vault
   that is genuinely not indexed gets the "Unknown V2 Vault" placeholder.
+- **Never serve partial aggregates as complete.** `protocol-stats` records every
+  failed per-vault TVL / depositor read in `warning` (shown on the dashboard)
+  and skips the 30s cache for that result; `protocol-transactions` throws on a
+  GraphQL failure instead of caching an empty list. Depositors and holders page
+  past the 1,000-row limit (`positions` has no `orderBy`, so holders are ranked
+  over every page, then sliced).
+- **Transaction amounts** (`lib/morpho/vault-v2-tx-amounts.ts`, shared by both
+  transaction routes): deposits/withdrawals use Morpho's indexed `assets`;
+  share transfers are estimated at today's share price (`assetsEstimated`, shown
+  with ≈); `assetsUsd` is always at today's asset price (≈, tooltip).
+- **Rate limit buckets** are per endpoint path per client
+  (`rateLimitIdentifier`): a single shared `api` bucket made ordinary vault-page
+  fan-out and tab switches trip 429s.
+- **LLTV** is parsed only through `lltvToFraction` (`lib/format/number.ts`; WAD,
+  fraction or percent) — risk scoring, `formatLtv`, liquidation penalty.
 - `components/ErrorBoundary.tsx` catches render errors.
 - For reallocation failures, surface:
   - Cap validation messages inline next to inputs
