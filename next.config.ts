@@ -119,7 +119,7 @@ const nextConfig: NextConfig = {
           },
           {
             key: 'Strict-Transport-Security',
-            value: 'max-age=63072000; includeSubDomains; preload',
+            value: 'max-age=63072000',
           },
           {
             key: 'Content-Security-Policy',
@@ -128,10 +128,6 @@ const nextConfig: NextConfig = {
           {
             key: 'X-Content-Type-Options',
             value: 'nosniff',
-          },
-          {
-            key: 'X-XSS-Protection',
-            value: '1; mode=block',
           },
           {
             key: 'Referrer-Policy',
