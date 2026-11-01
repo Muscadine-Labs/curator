@@ -395,7 +395,8 @@ grades; Sentinel holds emergency actions at the bottom.
    Columns: adapter, underlying (N markets / child vault), allocation / %,
    absolute / relative cap, liquidity, rate, force-deallocation penalty.
    Liquidity = Σ min(market allocation, market `liquidityAssetsUsd`) (child
-   vault: min(allocation, child liquidity)); **Supply APY** = allocation-weighted
+   vault: min(allocation, child liquidity)), shown as compact tokens like Morpho
+   (`24.85k USDC`, USD in the tooltip); **Supply APY** = allocation-weighted
    gross supply APY (child vault: `avgNetApy`, else `netApy`) — it excludes
    rewards and fees, so it is labelled Supply APY, not the vault's net rate — `summarizeAdapter` in
    `lib/morpho/vault-adapter-summary.ts`. Pass `assetSymbol` / `assetDecimals`.
@@ -1013,7 +1014,8 @@ routes derive freshness from the snapshot's feeds (`oracleTimestampFromFeeds`)
 instead of re-reading them. The Chainlink directory failure is cached for the
 30s window too. Feed heartbeat / deviation / name come from
 Chainlink's feed directory (`chainlink-feed-registry.server.ts`, ≤30s cache); a feed
-not in it is **Unverified**. Feed answers are in the feed's own unit (ETH, BTC,
+not in it is **Unverified** — but only when the directory loaded
+(`registryAvailable`); during an outage feeds read **Unknown**, not flagged. Feed answers are in the feed's own unit (ETH, BTC,
 USD) — never format them all as USD. A feed is **Late** past heartbeat + 10%.
 Panel helpers live in `lib/morpho/oracle-display.ts`. Midnight collateral
 oracles use the same panel.
@@ -1186,9 +1188,10 @@ components.
   transaction routes): deposits/withdrawals use Morpho's indexed `assets`;
   share transfers are estimated at today's share price (`assetsEstimated`, shown
   with ≈); `assetsUsd` is always at today's asset price (≈, tooltip).
-- **Rate limit buckets** are per endpoint path per client
-  (`rateLimitIdentifier`): a single shared `api` bucket made ordinary vault-page
-  fan-out and tab switches trip 429s.
+- **Rate limit buckets** are per route template per client
+  (`rateLimitIdentifier`; hex ids collapse to `:id`): a single shared `api`
+  bucket made ordinary vault-page fan-out and tab switches trip 429s, and a
+  raw-path key let a caller mint a fresh budget per vault / market id.
 - **LLTV** is parsed only through `lltvToFraction` (`lib/format/number.ts`; WAD,
   fraction or percent) — risk scoring, `formatLtv`, liquidation penalty.
 - `components/ErrorBoundary.tsx` catches render errors.

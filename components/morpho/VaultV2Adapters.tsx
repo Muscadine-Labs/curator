@@ -12,6 +12,7 @@ import {
 } from '@/components/morpho/CuratorChrome';
 import { isAdapterCap } from '@/lib/morpho/cap-utils';
 import { formatCapCompactAmount, formatCapRelative } from '@/lib/morpho/v2-cap-format';
+import { estimateRawFromUsd } from '@/lib/format/allocation-display';
 import { summarizeAdapter } from '@/lib/morpho/vault-adapter-summary';
 import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
 import { useVaultV2Risk } from '@/lib/hooks/useVaultV2Risk';
@@ -146,7 +147,9 @@ export function VaultV2Adapters({
                 <p className="text-xs text-muted-foreground">{pctOfTotal(idleUsd, totalUsd)}</p>
               </td>
               <td className={`${td} text-right text-muted-foreground`}>No cap</td>
-              <td className={`${td} text-right tabular-nums`}>{formatUSD(idleUsd, 2)}</td>
+              <td className={`${td} text-right tabular-nums`} title={formatUSD(idleUsd, 2)}>
+                {formatToken(data.idleAssets, chainDecimals, displayDecimals, assetSymbol)}
+              </td>
               <td className={`${td} text-right text-muted-foreground`}>0%</td>
               <td className={`${td} text-right text-muted-foreground`}>—</td>
             </tr>
@@ -232,7 +235,9 @@ export function VaultV2Adapters({
                     </p>
                   </td>
                   <td className={`${td} text-right tabular-nums`}>
-                    {summary.liquidityUsd != null ? formatUSD(summary.liquidityUsd, 2) : '—'}
+                    <span title={summary.liquidityUsd != null ? formatUSD(summary.liquidityUsd, 2) : undefined}>
+                      {formatLiquidityTokens(summary.liquidityUsd, usd, adapter.assets, assetSymbol, assetDecimals)}
+                    </span>
                   </td>
                   <td className={`${td} text-right tabular-nums`}>
                     {summary.rate != null ? formatPercentage(summary.rate * 100) : '—'}
@@ -311,4 +316,22 @@ function formatTokenFromAssets(
   } catch {
     return '—';
   }
+}
+
+/**
+ * Withdrawable liquidity as a compact token amount (Morpho shows `24.85k USDC`).
+ * Converted with the adapter's own token/USD ratio; USD stays in the tooltip.
+ */
+function formatLiquidityTokens(
+  liquidityUsd: number | null,
+  allocationUsd: number,
+  allocationAssets: number | null,
+  symbol: string | null | undefined,
+  decimals: number | null | undefined
+): string {
+  if (liquidityUsd == null) return '—';
+  if (liquidityUsd <= 0) return symbol ? `0 ${symbol}` : '0';
+  if (allocationAssets == null || allocationUsd <= 0) return formatUSD(liquidityUsd, 2);
+  const raw = estimateRawFromUsd(liquidityUsd, allocationUsd, BigInt(Math.floor(allocationAssets)));
+  return raw != null ? formatCapCompactAmount(raw.toString(), symbol, decimals) : formatUSD(liquidityUsd, 2);
 }

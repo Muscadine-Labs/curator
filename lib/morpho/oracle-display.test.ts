@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  feedProvider,
   feedFreshness,
   formatDurationShort,
   formatOraclePriceLine,
@@ -130,5 +131,23 @@ describe('parseChainlinkDirectory', () => {
   });
   it('ignores non-arrays', () => {
     expect(parseChainlinkDirectory({}).size).toBe(0);
+  });
+});
+
+describe('feedProvider', () => {
+  const registry = {
+    name: 'BTC / USD',
+    heartbeatSeconds: 1200,
+    deviationPct: 0.1,
+    feedType: 'Crypto',
+    productType: 'Price',
+    path: 'btc-usd',
+  };
+  it('is Chainlink for a directory proxy', () => {
+    expect(feedProvider(feed({ registry }))).toBe('Chainlink');
+  });
+  it('is Unverified only when the directory loaded', () => {
+    expect(feedProvider(feed({}), true)).toBe('Unverified');
+    expect(feedProvider(feed({}), false)).toBe('Unknown');
   });
 });

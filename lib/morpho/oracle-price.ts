@@ -83,6 +83,11 @@ export type OraclePriceSnapshot = {
   materialMismatch: boolean;
   /** Meta oracle is pricing from its backup source. */
   onBackup: boolean;
+  /**
+   * The Chainlink feed directory loaded. When false, a feed with no `registry`
+   * entry is unknown, not Unverified — don't flag every feed during an outage.
+   */
+  registryAvailable: boolean;
   /** Feeds of the active source. */
   feeds: ChainlinkFeedSnapshot[];
   kind: OracleKind;
@@ -372,6 +377,7 @@ export async function getOraclePriceSnapshot(input: {
     priceWarning: hasBoundCappedFeed || materialMismatch,
     materialMismatch,
     onBackup: decoded.kind === 'metaOracle' && isMetaOnBackup(decoded.meta),
+    registryAvailable: registry.size > 0,
     feeds,
     kind: decoded.kind,
     sources,

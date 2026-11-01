@@ -105,7 +105,7 @@ function Pagination({
 
 function UsersDetail() {
   const { data, isLoading, error } = useProtocolUsers();
-  const { data: txData, isLoading: txLoading } = useProtocolTransactions();
+  const { data: txData, isLoading: txLoading, error: txError } = useProtocolTransactions();
   const [userPage, setUserPage] = useState(0);
   const [txPage, setTxPage] = useState(0);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -336,6 +336,10 @@ function UsersDetail() {
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-10 w-full" />
         </div>
+      ) : txError ? (
+        <p className="text-sm text-red-600 dark:text-red-400">
+          {txError instanceof Error ? txError.message : 'Failed to load transactions'}
+        </p>
       ) : pagedTxs.length === 0 ? (
         <p className="text-sm text-muted-foreground">No recent transactions.</p>
       ) : (

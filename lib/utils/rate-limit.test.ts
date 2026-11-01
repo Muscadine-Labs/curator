@@ -149,6 +149,10 @@ describe('rateLimitIdentifier', () => {
     const a = new Request('https://x.test/api/vaults/0xAB/risk', { headers: { 'x-forwarded-for': '1.2.3.4' } });
     const b = new Request('https://x.test/api/vaults/0xab/governance', { headers: { 'x-forwarded-for': '1.2.3.4' } });
     expect(rateLimitIdentifier(a)).not.toBe(rateLimitIdentifier(b));
+    // Different ids share the route's bucket.
+    expect(rateLimitIdentifier(a)).toBe(
+      rateLimitIdentifier(new Request('https://x.test/api/vaults/0xcd/risk', { headers: { 'x-forwarded-for': '1.2.3.4' } }))
+    );
     expect(rateLimitIdentifier(a)).toBe(
       rateLimitIdentifier(new Request('https://x.test/api/vaults/0xab/risk?x=1', { headers: { 'x-forwarded-for': '1.2.3.4' } }))
     );

@@ -280,7 +280,11 @@ export function resolveClientIp(request: Request): { ip: string; trusted: boolea
 export function rateLimitIdentifier(request: Request, bucket = 'api'): string {
   let path = '';
   try {
-    path = new URL(request.url).pathname.toLowerCase();
+    // Route template, not the raw path: hex ids (vault / market / tx) collapse
+    // to `:id`, so varying an id cannot mint a fresh budget (or a new store entry).
+    path = new URL(request.url).pathname
+      .toLowerCase()
+      .replace(/\/0x[0-9a-f]+/g, '/:id');
   } catch {
     path = '';
   }

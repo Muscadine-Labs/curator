@@ -70,6 +70,12 @@ Append-only session log. Newest first. Keep entries short; link files.
 ## 2026-11-01 — Midnight active / matured filter on /markets
 
 - `/markets` Midnight table defaults to markets that have not matured. The Midnight select is Active, Matured, or All (`maturity` query; Active omitted). `isMidnightMarketActive` in `lib/morpho/midnight-markets.ts`.
+## 2026-11-01 — High-effort review follow-ups (carried onto PR #80)
+
+- Rate-limit buckets key on the route template (hex ids → `:id`), so varying an id cannot mint fresh budgets.
+- Protocol transactions panel shows the API error instead of "No recent transactions" during a Morpho outage.
+- Oracle panel: feeds read Unknown (not Unverified) when the Chainlink directory is unavailable (`registryAvailable`).
+- Adapter table liquidity in compact tokens like Morpho (`24.85k USDC`).
 
 ---
 
