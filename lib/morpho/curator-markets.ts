@@ -82,7 +82,17 @@ export type CuratorMarketDetail = CuratorMarketListItem & {
   oraclePrice: OraclePriceSnapshot | null;
   spotCollateralUsd: number | null;
   spotLoanUsd: number | null;
+  /** Unix seconds — market creation. */
+  createdAt: number | null;
+  /** Unix seconds — oracle deployment (Morpho only indexes Chainlink V2 factory oracles). */
+  oracleCreatedAt: number | null;
+  /** Morpho GraphQL oracle `type` (e.g. ChainlinkOracleV2, Unknown). */
+  oracleIndexedType: string | null;
+  /** Morpho market warnings (e.g. unrecognized_collateral_asset). */
+  warnings: MarketWarning[];
 };
+
+export type MarketWarning = { type: string; level: string | null };
 
 const MARKETS_BROWSER_QUERY = gql`
   query CuratorMarketsBrowser($first: Int!, $chainId: Int!) {
@@ -136,6 +146,11 @@ const MARKET_DETAIL_QUERY = gql`
       marketId
       listed
       lltv
+      creationTimestamp
+      warnings {
+        type
+        level
+      }
       loanAsset {
         address
         symbol
@@ -155,6 +170,10 @@ const MARKET_DETAIL_QUERY = gql`
       irmAddress
       oracle {
         address
+        type
+        creationEvent {
+          timestamp
+        }
         type
         data {
           ... on MorphoChainlinkOracleV2Data {
@@ -267,8 +286,12 @@ type GraphMarketItem = {
   } | null;
   oracle?: {
     address?: string | null;
+    type?: string | null;
+    creationEvent?: { timestamp?: number | string | null } | null;
     data?: GraphOracleData;
   } | null;
+  creationTimestamp?: number | string | null;
+  warnings?: Array<{ type?: string | null; level?: string | null } | null> | null;
   irmAddress?: string | null;
   state?: {
     sizeUsd?: number | null;
@@ -509,6 +532,7 @@ export async function fetchCuratorMarketDetail(
         collateralDecimals,
         spotCollateralUsd,
         spotLoanUsd,
+        chainId,
       }),
     ]);
     oracleTimestampData = oracleData;
@@ -533,7 +557,19 @@ export async function fetchCuratorMarketDetail(
     oraclePrice,
     spotCollateralUsd,
     spotLoanUsd,
+    createdAt: toUnixSeconds(item.creationTimestamp),
+    oracleCreatedAt: toUnixSeconds(item.oracle?.creationEvent?.timestamp),
+    oracleIndexedType: item.oracle?.type ?? null,
+    warnings: (item.warnings ?? [])
+      .filter((w): w is { type: string; level?: string | null } => Boolean(w?.type))
+      .map((w) => ({ type: w.type, level: w.level ?? null })),
   };
+}
+
+function toUnixSeconds(value: number | string | null | undefined): number | null {
+  if (value == null) return null;
+  const n = typeof value === 'string' ? Number(value) : value;
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 export function defaultCuratorMarketChainId(): number {

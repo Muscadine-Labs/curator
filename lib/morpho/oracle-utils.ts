@@ -12,6 +12,9 @@ const MORPHO_CHAINLINK_ORACLE_ABI = parseAbi([
   'function QUOTE_FEED_2() view returns (address)',
 ]);
 
+/** Primary/backup MetaOracleDeviationTimelock — prices via `currentOracle()`. */
+const META_ORACLE_ABI = parseAbi(['function currentOracle() view returns (address)']);
+
 const ZERO = zeroAddress.toLowerCase();
 
 export interface OracleTimestampData {
@@ -54,7 +57,8 @@ function isValidFeedAddress(address: string | null | undefined): address is Addr
 
 async function collectFeedCandidates(
   oracleAddress: Address,
-  hints?: OracleFeedHints
+  hints?: OracleFeedHints,
+  depth = 0
 ): Promise<Address[]> {
   const seen = new Set<string>();
   const candidates: Address[] = [];
@@ -93,6 +97,20 @@ async function collectFeedCandidates(
     ]);
     for (const outcome of [baseFeedOne, ...rest]) {
       if (outcome.status === 'ok') add(outcome.value);
+    }
+  } else if (depth === 0 && candidates.length === 0) {
+    // Not a Chainlink V2 oracle. A meta oracle (primary/backup) prices through
+    // `currentOracle()`, which is itself a Chainlink V2 oracle — score its feeds
+    // instead of treating the market as having an opaque oracle.
+    const current = await readContractOutcome<Address>(
+      oracleAddress,
+      META_ORACLE_ABI as Abi,
+      'currentOracle',
+      [],
+      probe
+    );
+    if (current.status === 'ok' && isValidFeedAddress(current.value)) {
+      for (const feed of await collectFeedCandidates(current.value, undefined, 1)) add(feed);
     }
   }
 
