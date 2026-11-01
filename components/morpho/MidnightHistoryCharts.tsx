@@ -29,9 +29,11 @@ type RateMode = 'apr' | 'price';
 type LoanMode = 'token' | 'usd';
 
 function dateLabel(unix: number): string {
+  // Points sit at UTC midnight; local time would show the previous day west of UTC.
   return new Date(unix * 1000).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
+    timeZone: 'UTC',
   });
 }
 
@@ -83,8 +85,15 @@ export function MidnightHistoryCharts({ market }: { market: MidnightMarketDetail
 
   const latestApr = [...rows].reverse().find((row) => row.apr != null)?.apr ?? null;
   const latestPrice = [...rows].reverse().find((row) => row.price != null)?.price ?? null;
-  const latestLoans = [...rows].reverse().find((row) => row.loans != null)?.loans ?? null;
-  const latestLoansUsd = [...rows].reverse().find((row) => row.loansUsd != null)?.loansUsd ?? null;
+  // Points are each UTC day's opening balance (Morpho's DAY convention), so the
+  // headline uses the live total — the last point would lag today's fills.
+  const lastPoint = [...rows].reverse().find((row) => row.loans != null);
+  const liveLoans = loanAmount(market.totalUnits, market.loanDecimals);
+  const latestLoans = liveLoans ?? lastPoint?.loans ?? null;
+  const latestLoansUsd =
+    liveLoans != null && lastPoint?.loans && lastPoint.loansUsd != null
+      ? (liveLoans * lastPoint.loansUsd) / lastPoint.loans
+      : (lastPoint?.loansUsd ?? null);
   const priceDomain = useMemo(
     () =>
       priceAxisDomain(

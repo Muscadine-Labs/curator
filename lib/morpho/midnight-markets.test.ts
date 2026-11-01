@@ -263,3 +263,21 @@ describe('historyUnitChange', () => {
     expect(legs.reduce((sum, e) => sum + historyUnitChange(e), 0n)).toBe(-5050830n);
   });
 });
+
+describe('buildMidnightHistory USD', () => {
+  it('values each day at that day’s price, spot only where history is missing', () => {
+    const day = 1_793_404_800;
+    const next = day + 86_400;
+    const points = buildMidnightHistory([], {
+      maturitySec: next + 30 * 86_400,
+      totalUnits: '1000000',
+      nowSec: next + 5,
+      loanDecimals: 6,
+      loanUsd: 2,
+      loanUsdByDay: new Map([[day, 0.5]]),
+      complete: true,
+    });
+    expect(points.find((p) => p.timestamp === day)?.outstandingUsd).toBeCloseTo(0.5);
+    expect(points.find((p) => p.timestamp === next)?.outstandingUsd).toBeCloseTo(2);
+  });
+});

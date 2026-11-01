@@ -15,7 +15,9 @@ import {
 import { bigintRatio } from '@/lib/format/bigint-ratio';
 import { logger } from '@/lib/utils/logger';
 import { AppError } from '@/lib/utils/error-handler';
+import { gql } from 'graphql-request';
 import { formatUnits, type Address } from 'viem';
+import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
 
 /** Morpho REST normally answers in well under a second; a stall must not hang the route. */
 const MIDNIGHT_FETCH_TIMEOUT_MS = 15_000;
@@ -661,8 +663,6 @@ type MidnightHistoryBucket = {
 const HISTORY_DAYS = 180;
 const HISTORY_PAGE_LIMIT = 1000;
 const HISTORY_MAX_PAGES = 30;
-/** Daily series. Rebuilt from transactions, so a few minutes of lag is enough. */
-const HISTORY_CACHE_MS = 5 * 60 * 1000;
 const DAY_SECONDS = 86_400;
 
 export type MidnightHistoryEvent = {
@@ -677,9 +677,22 @@ export type MidnightHistoryEvent = {
   };
 };
 
+/**
+ * Raw transactions behind a market's history. Refreshed within the app-wide
+ * 30s TTL by fetching only events newer than `newestSec` — a full 180-day
+ * re-scan (up to 30 pages) every 30s would be too heavy. Points are rebuilt
+ * from these events and the live `total_units` on every request.
+ */
 type HistorySnapshot = {
-  expiresAt: number;
-  points: MidnightHistoryPoint[];
+  fetchedAt: number;
+  /** Start of the window the events cover (UTC day). */
+  windowStart: number;
+  events: MidnightHistoryEvent[];
+  /** Newest event timestamp seen; the next refresh pages from here. */
+  newestSec: number;
+  /** False when the scan stopped before `windowStart` (partial first days are dropped). */
+  complete: boolean;
+  priceByDay: Map<number, number>;
   available: boolean;
 };
 
@@ -752,6 +765,8 @@ export function buildMidnightHistory(
     nowSec: number;
     loanDecimals: number;
     loanUsd: number | null;
+    /** Loan token USD at each UTC day (Morpho `historicalPriceUsd`); spot fills gaps. */
+    loanUsdByDay?: ReadonlyMap<number, number>;
     complete: boolean;
   }
 ): MidnightHistoryPoint[] {
@@ -799,7 +814,12 @@ export function buildMidnightHistory(
     points.push({
       timestamp: day,
       outstandingAssets: outstanding.toString(),
-      outstandingUsd: unitsToUsd(outstanding, args.loanDecimals, args.loanUsd),
+      // Each day's balance at that day's price, so the USD series is historical.
+      outstandingUsd: unitsToUsd(
+        outstanding,
+        args.loanDecimals,
+        args.loanUsdByDay?.get(day) ?? args.loanUsd
+      ),
       takePrice: takePriceNumber(priceWad),
       apr: midnightPriceToApr(priceWad, args.maturitySec - day),
     });
@@ -819,6 +839,55 @@ type MidnightTransactionsPage = {
  * partial (or last good) series instead of failing the whole market page.
  */
 const HISTORY_BUDGET_MS = 20_000;
+
+const LOAN_PRICE_HISTORY_QUERY = gql`
+  query MidnightLoanPriceHistory($address: String!, $chainId: Int!, $since: Int!) {
+    assetByAddress(address: $address, chainId: $chainId) {
+      historicalPriceUsd(options: { interval: DAY, startTimestamp: $since }) {
+        x
+        y
+      }
+    }
+  }
+`;
+
+/**
+ * Runs after history paging (it needs the loan token), so it gets a short cap:
+ * paging's 20s budget + this must stay inside the 40s cache-loader timeout.
+ */
+const LOAN_PRICE_HISTORY_TIMEOUT_MS = 5_000;
+
+/** Daily loan-token USD keyed by UTC day. Empty on failure or timeout (spot is the fallback). */
+async function fetchLoanPriceByDay(
+  address: string,
+  chainId: number,
+  sinceSec: number
+): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  try {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error('loan price history timed out')),
+        LOAN_PRICE_HISTORY_TIMEOUT_MS
+      );
+    });
+    const data = await Promise.race([
+      morphoGraphQLClient.request<{
+        assetByAddress?: {
+          historicalPriceUsd?: Array<{ x: number; y: number | null }> | null;
+        } | null;
+      }>(LOAN_PRICE_HISTORY_QUERY, { address, chainId, since: sinceSec }),
+      timeout,
+    ]).finally(() => clearTimeout(timer));
+    for (const point of data.assetByAddress?.historicalPriceUsd ?? []) {
+      if (point.y != null && Number.isFinite(point.y)) out.set(utcDay(point.x), point.y);
+    }
+  } catch (error) {
+    logger.warn('Midnight loan price history failed', { address, error });
+  }
+  return out;
+}
 
 async function pageMidnightTransactions(
   marketId: string,
@@ -842,9 +911,13 @@ async function pageMidnightTransactions(
       `/v0/midnight/markets/${marketId}/transactions?${params.toString()}`,
       Math.min(MIDNIGHT_FETCH_TIMEOUT_MS, remaining)
     );
-    const batch = body?.data ?? [];
+    // A 404 on a market that exists means the history endpoint is unavailable,
+    // not that the market has no trades: fail so the page says so instead of
+    // caching "No rate history yet".
+    if (body == null) throw new Error('Midnight transactions endpoint returned 404');
+    const batch = body.data ?? [];
     events.push(...batch);
-    cursor = body?.cursor ?? null;
+    cursor = body.cursor ?? null;
     if (!cursor || batch.length === 0) {
       return { events, complete: true };
     }
@@ -869,8 +942,19 @@ export async function fetchMidnightMarketDetail(
   }
 
   const sinceSec = utcDay(Math.floor(Date.now() / 1000)) - (HISTORY_DAYS - 1) * DAY_SECONDS;
-  const cachedHistory = historySnapshots.get(id.toLowerCase());
-  const historyReady = cachedHistory != null && cachedHistory.expiresAt > Date.now();
+  const key = id.toLowerCase();
+  // Freshness is decided once, before the fetches.
+  const snap = historySnapshots.get(key);
+  const fresh = snap != null && snap.fetchedAt + API_CACHE_MAX_AGE_MS > Date.now();
+  const incremental = !fresh && snap?.available === true && snap.windowStart <= sinceSec;
+  const historyTask: Promise<{ events: MidnightHistoryEvent[]; complete: boolean } | null> = fresh
+    ? Promise.resolve(null)
+    : pageMidnightTransactions(id, incremental ? snap!.newestSec : sinceSec).catch(
+        (error: unknown) => {
+          logger.warn('Midnight history failed', { marketId: id, error });
+          return null;
+        }
+      );
   const [marketWrap, stateWrap, bookWrap, positionTotals, pagedHistory] = await Promise.all([
     fetchMidnightRest<RestWrap<MidnightMarketConfig>>(`/v0/midnight/markets/${id}`),
     fetchMidnightRest<RestWrap<MidnightMarketState>>(`/v0/midnight/markets/${id}/state`),
@@ -879,12 +963,7 @@ export async function fetchMidnightMarketDetail(
       logger.warn('Midnight position totals failed', { marketId: id, error });
       return null;
     }),
-    historyReady
-      ? Promise.resolve(null)
-      : pageMidnightTransactions(id, sinceSec).catch((error: unknown) => {
-          logger.warn('Midnight history failed', { marketId: id, error });
-          return null;
-        }),
+    historyTask,
   ]);
 
   const config = marketWrap?.data;
@@ -902,10 +981,12 @@ export async function fetchMidnightMarketDetail(
   const nowSec = Math.floor(Date.now() / 1000);
   const tenorSeconds = Math.max(0, maturity - nowSec);
   const loanMeta = await resolveTokenMeta(loanAddress, resolvedChain);
-  const loanSpotUsd =
-    resolvedChain === BASE_CHAIN_ID
-      ? await fetchAssetUsdPrice(loanAddress, resolvedChain)
-      : null;
+  const [loanSpotUsd, refreshedPrices] = await Promise.all([
+    resolvedChain === BASE_CHAIN_ID ? fetchAssetUsdPrice(loanAddress, resolvedChain) : null,
+    pagedHistory != null
+      ? fetchLoanPriceByDay(loanAddress, resolvedChain, sinceSec)
+      : Promise.resolve(null),
+  ]);
   const collaterals = await mapCollaterals(
     config?.collaterals ?? book?.collaterals,
     resolvedChain,
@@ -921,35 +1002,70 @@ export async function fetchMidnightMarketDetail(
   const pairCollaterals = selectMidnightCollaterals(collaterals, loanAddress);
   const asks = mapBookLevels(book?.asks, tenorSeconds);
   const bids = mapBookLevels(book?.bids, tenorSeconds);
-  // Freshness is decided once, before the fetches: if the snapshot expires
-  // while they run, no history was fetched and the snapshot is still the best data.
-  let history: HistorySnapshot;
-  if (historyReady && cachedHistory) {
-    history = cachedHistory;
-  } else if (pagedHistory) {
+  let history: HistorySnapshot | null = null;
+  if (fresh && snap) {
+    history = snap;
+  } else if (pagedHistory && incremental && snap && pagedHistory.complete) {
+    // New events since the last refresh, appended (build dedupes by id).
+    const kept = snap.events.filter((e) => (e.created_at ?? 0) >= sinceSec);
+    const newest = pagedHistory.events.reduce(
+      (max, e) => Math.max(max, e.created_at ?? 0),
+      snap.newestSec
+    );
     history = {
-      expiresAt: Date.now() + HISTORY_CACHE_MS,
-      available: true,
-      points: buildMidnightHistory(pagedHistory.events, {
-        maturitySec: maturity,
-        totalUnits: state?.total_units ?? null,
-        nowSec,
-        loanDecimals: loanMeta.decimals,
-        loanUsd: loanSpotUsd,
-        complete: pagedHistory.complete,
-      }),
+      ...snap,
+      fetchedAt: Date.now(),
+      windowStart: sinceSec,
+      events: [...kept, ...pagedHistory.events],
+      newestSec: newest,
+      priceByDay: refreshedPrices && refreshedPrices.size > 0 ? refreshedPrices : snap.priceByDay,
     };
-    historySnapshots.set(id.toLowerCase(), history);
-  } else if (cachedHistory?.available) {
-    // Paging failed: serve the last good series and retry after the cache window.
-    history = { ...cachedHistory, expiresAt: Date.now() + API_CACHE_MAX_AGE_MS };
-    historySnapshots.set(id.toLowerCase(), history);
-  } else {
-    // No good series yet. Hold the failure for the cache window so every
-    // request in it does not restart the full multi-page scan.
-    history = { expiresAt: Date.now() + API_CACHE_MAX_AGE_MS, available: false, points: [] };
-    historySnapshots.set(id.toLowerCase(), history);
+  } else if (pagedHistory && !incremental) {
+    history = {
+      fetchedAt: Date.now(),
+      windowStart: sinceSec,
+      events: pagedHistory.events,
+      newestSec: pagedHistory.events.reduce((max, e) => Math.max(max, e.created_at ?? 0), 0),
+      complete: pagedHistory.complete,
+      priceByDay: refreshedPrices ?? new Map(),
+      available: true,
+    };
+  } else if (snap?.available) {
+    // Refresh failed (or an incremental page hit its budget, leaving a gap):
+    // serve what we have, retry after the TTL; a gap forces a full scan next.
+    history = {
+      ...snap,
+      fetchedAt: Date.now(),
+      windowStart: pagedHistory && incremental ? Number.POSITIVE_INFINITY : snap.windowStart,
+    };
   }
+  if (history) {
+    historySnapshots.set(key, history);
+  } else {
+    // No good series yet. Hold the failure for the TTL so every request in it
+    // does not restart the full multi-page scan.
+    historySnapshots.set(key, {
+      fetchedAt: Date.now(),
+      windowStart: sinceSec,
+      events: [],
+      newestSec: 0,
+      complete: false,
+      priceByDay: new Map(),
+      available: false,
+    });
+  }
+  const historyPoints =
+    history?.available
+      ? buildMidnightHistory(history.events, {
+          maturitySec: maturity,
+          totalUnits: state?.total_units ?? null,
+          nowSec,
+          loanDecimals: loanMeta.decimals,
+          loanUsd: loanSpotUsd,
+          loanUsdByDay: history.priceByDay,
+          complete: history.complete,
+        })
+      : [];
 
   const detail: MidnightMarketDetail = {
     marketId: resolvedId,
@@ -983,8 +1099,8 @@ export async function fetchMidnightMarketDetail(
     borrowerDebt: positionTotals?.borrowerDebt ?? null,
     lendPositionCount: positionTotals?.lendPositionCount ?? 0,
     borrowPositionCount: positionTotals?.borrowPositionCount ?? 0,
-    history: history.points,
-    historyAvailable: history.available,
+    history: historyPoints,
+    historyAvailable: history?.available ?? false,
   };
 
   logger.debug('Fetched Midnight market detail', { marketId: resolvedId, chainId: resolvedChain });

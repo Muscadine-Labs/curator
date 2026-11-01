@@ -392,6 +392,11 @@ export function MarketOraclePanel({
       `${s.role === 'single' ? 'This oracle' : `The ${s.role} source`}${s.active && s.role !== 'single' ? ' (active)' : ''} is hardcoded — it has no feeds and does not track the market price.`
     );
   }
+  if (oraclePrice?.meta && !oraclePrice.meta.currentOracle) {
+    alerts.push(
+      'Could not read which source (primary or backup) currently prices this market; freshness and bound checks are skipped.'
+    );
+  }
   if (oraclePrice?.onBackup) alerts.push('This oracle is currently pricing from its backup source.');
   if (oraclePrice?.meta?.isChallenged) alerts.push('The primary source is under an open challenge.');
   if (kind === 'error') {

@@ -350,6 +350,8 @@ export type MarketActivity = {
   suppliers: MarketSupplierRow[];
   supplierCount: number | null;
   liquidations: MarketLiquidationRow[];
+  /** Set when a supplier lookup failed: the list may be missing vaults (not cached). */
+  warning?: string | null;
   collateralAtRisk: CollateralAtRiskPoint[];
   /**
    * `morpho` = Morpho's full-market curve; `topBorrowers` = our fallback from
@@ -634,19 +636,19 @@ async function fetchConfiguredVaultAdapters(
   marketId: string,
   chainId: number,
   vaultAddresses: string[]
-): Promise<GraphActivity['configuredVaults']> {
-  if (vaultAddresses.length === 0) return null;
+): Promise<{ vaults: GraphActivity['configuredVaults']; failed: boolean }> {
+  if (vaultAddresses.length === 0) return { vaults: null, failed: false };
   try {
     const vaults = await morphoGraphQLClient.request<{
       configuredVaults?: GraphActivity['configuredVaults'];
     }>(CONFIGURED_VAULT_ADAPTERS_QUERY, { chainId, vaultAddresses });
-    return vaults.configuredVaults ?? null;
+    return { vaults: vaults.configuredVaults ?? null, failed: false };
   } catch (error) {
     logger.warn('Failed to load configured vault adapters for this market', {
       marketId,
       error: error instanceof Error ? error.message : String(error),
     });
-    return null;
+    return { vaults: null, failed: true };
   }
 }
 
@@ -655,7 +657,7 @@ async function attachVaultSuppliers(
   marketId: string,
   chainId: number,
   configuredVaults: GraphActivity['configuredVaults']
-): Promise<void> {
+): Promise<{ failed: boolean }> {
   const known = new Set(
     (data.suppliers?.items ?? [])
       .map((item) => item.user?.address?.toLowerCase())
@@ -689,6 +691,7 @@ async function attachVaultSuppliers(
   }
 
   let fetched: NonNullable<GraphActivity['suppliers']>['items'] = [];
+  let supplierLookupFailed = false;
   if (wanted.length > 0) {
     try {
       const extra = await morphoGraphQLClient.request<{
@@ -701,6 +704,7 @@ async function attachVaultSuppliers(
       });
       fetched = extra.marketPositions?.items ?? [];
     } catch (error) {
+      supplierLookupFailed = true;
       logger.warn('Failed to load vault adapters outside the top suppliers', {
         marketId,
         error: error instanceof Error ? error.message : String(error),
@@ -731,11 +735,13 @@ async function attachVaultSuppliers(
       listingAdapters.some((adapter) => adapter.toLowerCase() === address)
     );
   });
-  if (listingItems.length === 0) return;
-  data.suppliers = {
-    pageInfo: data.suppliers?.pageInfo,
-    items: [...(data.suppliers?.items ?? []), ...listingItems],
-  };
+  if (listingItems.length > 0) {
+    data.suppliers = {
+      pageInfo: data.suppliers?.pageInfo,
+      items: [...(data.suppliers?.items ?? []), ...listingItems],
+    };
+  }
+  return { failed: supplierLookupFailed };
 }
 
 export async function fetchMarketActivity(
@@ -750,7 +756,7 @@ export async function fetchMarketActivity(
       const vaultAddresses = getVaultAddressesForProtocolStats()
         .filter((vault) => vault.chainId === chainId)
         .map((vault) => vault.address);
-      const [data, configuredVaults] = await Promise.all([
+      const [data, configured] = await Promise.all([
         morphoGraphQLClient.request<GraphActivity>(MARKET_ACTIVITY_QUERY, {
           marketId,
           chainId,
@@ -762,8 +768,15 @@ export async function fetchMarketActivity(
         fetchConfiguredVaultAdapters(marketId, chainId, vaultAddresses),
       ]);
       if (!data.market) return null;
-      await attachVaultSuppliers(data, marketId, chainId, configuredVaults);
-      return mapMarketActivity(data, marketId);
-    }
+      const attached = await attachVaultSuppliers(data, marketId, chainId, configured.vaults);
+      const activity = mapMarketActivity(data, marketId);
+      if (configured.failed || attached.failed) {
+        activity.warning =
+          'Some vault supply lookups failed; vaults outside Morpho’s top lists may be missing from Suppliers.';
+      }
+      return activity;
+    },
+    // Never cache a partial supplier list as complete.
+    (activity) => activity == null || activity.warning == null
   );
 }

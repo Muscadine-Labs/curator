@@ -894,10 +894,16 @@ are negative. Subtract `units` on `exit_borrow_primary` (repayment) and
 The markets app history route is behind a bot challenge, so the server does not
 call it. History paging has a 20s budget (`HISTORY_BUDGET_MS`, inside the 40s
 cache loader) and stops with a partial series instead of failing the market
-page. Freshness of the 5-minute history snapshot is decided once, before the
-fetches. A failed read serves the last good series; with none, the failure is
-held for 30s so requests do not restart the full scan, and the charts say
-history is unavailable.
+page. The snapshot caches the raw transactions within the 30s TTL and each
+refresh pages only events newer than the last one seen (a full 180-day re-scan
+every 30s is too heavy); points are rebuilt from the events and the live
+`total_units` on every request. Freshness is decided once, before the fetches.
+A transactions 404 is a failure, not an empty history. A failed read serves the
+last good series; with none, the failure is held for 30s so requests do not
+restart the full scan, and the charts say history is unavailable. USD uses each
+day's `historicalPriceUsd` (5s cap; spot fills gaps). Points are UTC-day opening
+balances (Morpho's DAY convention), so the headline uses live `totalUnits`.
+Chart dates format in UTC.
 External app: [Morpho Markets](https://markets.morpho.org/fixed/base/0x549cd072daf99328554f3a6d2d4d6f4a07f1c59369e891e6391946f9cf75f221)
 `https://markets.morpho.org/fixed/{chain}/{marketId}`
 (`morphoMidnightMarketHref`). In-app: `curatorMidnightMarketHref`.
@@ -1010,7 +1016,8 @@ borrow; health, distance to liquidation, borrow share). A vault that lists the
 market with no supply is not a supplier row (a cap is not a position); the
 merged supplier list is re-sorted largest first. The configured-vault adapter
 lookup runs in parallel with the main activity query. The response no longer
-carries a separate `vaults` list (nothing read it). Tables paginate 10/page
+carries a separate `vaults` list (nothing read it). If a vault-supplier lookup
+fails the response carries `warning` (shown on Suppliers) and is not cached. Tables paginate 10/page
 with the shared `components/ui/pagination-bar.tsx`. Pure math:
 `lib/morpho/market-activity-math.ts`.
 
@@ -1025,7 +1032,8 @@ the RPC-failure fallback. `getOraclePriceSnapshot` returns `kind`, `sources[]`
 (role `single`|`primary`|`backup`, `active`) and `meta`; `feeds` = the active
 source's feeds. `activeChainlinkSource` matches `currentOracle()` exactly and
 returns null when that source failed to decode — never substitute the other
-source; `onBackup` comes from the meta state alone. An RPC failure with no
+source, and an unreadable `currentOracle()` is null too (the panel warns), not
+primary; `onBackup` comes from the meta state alone. An RPC failure with no
 GraphQL hints is kind `error`, not `unknown`. `getOracleTimestampData` uses the
 same decoder (so a meta oracle is not scored as opaque); the market detail
 routes derive freshness from the snapshot's feeds (`oracleTimestampFromFeeds`)
@@ -1210,6 +1218,10 @@ components.
   (`rateLimitIdentifier`; hex ids collapse to `:id`): a single shared `api`
   bucket made ordinary vault-page fan-out and tab switches trip 429s, and a
   raw-path key let a caller mint a fresh budget per vault / market id.
+- **Token metadata / spot prices** (`lib/morpho/known-tokens.ts`): spot USD
+  expires with the 30s TTL and failures are not cached; a failed Morpho metadata
+  lookup falls back to on-chain `decimals()` / `symbol()`, and an unresolved
+  18-decimal placeholder is held only 30s — never cached for the process.
 - **LLTV** is parsed only through `lltvToFraction` (`lib/format/number.ts`; WAD,
   fraction or percent) — risk scoring, `formatLtv`, liquidation penalty.
 - `components/ErrorBoundary.tsx` catches render errors.

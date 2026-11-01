@@ -4,6 +4,17 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-01 — Whole-repo review + Codex (PR #80)
+
+- Codex: transactions 404 → history unavailable (not empty); USD series uses daily `historicalPriceUsd`; chart dates in UTC.
+- Token cache: spot prices expire at 30s, failures not cached; metadata falls back to on-chain decimals, placeholders held 30s only.
+- Midnight history: raw events cached within 30s TTL with incremental refresh (only newer events); headline uses live total; price-history call capped at 5s.
+- Meta oracle: unreadable `currentOracle()` → no active source + panel warning (no primary substitution).
+- Market activity: failed supplier lookups set `warning` and skip the cache.
+- Removed duplicate `oracle.type` selection; vault-activity decodes each call once.
+
+---
+
 ## 2026-11-01 — PR #80 review fixes
 
 - Midnight outstanding history: count `total_units_delta` on `lend` / `exit_borrow_secondary` (one leg per fill). Debt handovers no longer inflate past outstanding by billions; `roll` stays uncounted (its `exit_borrow_primary` already subtracts). Tests use the live shapes.

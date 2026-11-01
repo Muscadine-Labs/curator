@@ -545,7 +545,13 @@ export function MarketSuppliersTable({
   return (
     <CuratorPanel
       title={`Suppliers (${supplierTotal.toLocaleString()})`}
-      description="Largest supply positions. Vaults allocated to this market are named here, including ones outside this page."
+      description={
+        activity.warning ? (
+          <span className="text-amber-700 dark:text-amber-300">{activity.warning}</span>
+        ) : (
+          'Largest supply positions. Vaults allocated to this market are named here, including ones outside this page.'
+        )
+      }
     >
       <div className="p-4">
         {activity.suppliers.length === 0 ? (
