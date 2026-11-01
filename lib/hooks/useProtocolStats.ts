@@ -6,6 +6,8 @@ import {
 } from '@/lib/data/query-config';
 
 export interface ProtocolStats {
+  /** Some Morpho reads failed; TVL / users may be understated (result not cached). */
+  warning?: string | null;
   totalDeposited: number;
   totalFeesGenerated: number;
   activeVaults: number;

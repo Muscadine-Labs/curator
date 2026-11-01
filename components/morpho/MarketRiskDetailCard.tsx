@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { Info } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { formatAddress, formatCompactUSD, formatPercentage } from '@/lib/format/number';
+import { formatAddress, formatCompactUSD, formatPercentage, lltvToFraction } from '@/lib/format/number';
 import { resolveTokenDisplayProps } from '@/lib/format/asset-decimals';
 import { TokenUsdValue } from '@/components/morpho/TokenUsdValue';
 import type { MarketRiskScores } from '@/lib/morpho/compute-blue-market-risk';
@@ -72,7 +72,7 @@ export function MarketRiskDetailCard({
     marketTotalSupplyUsd > 0 ? (vaultSupplyUsd / marketTotalSupplyUsd) * 100 : 0;
 
   const state = market.state;
-  const lltvRatio = market.lltv ? Number(market.lltv) / 1e18 : 0;
+  const lltvRatio = lltvToFraction(market.lltv) ?? 0;
 
   const loanAsset = market.loanAsset;
   const collateralAsset = market.collateralAsset;

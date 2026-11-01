@@ -6,7 +6,11 @@
 import { BASE_CHAIN_ID, MORPHO_REST_ORIGIN, SECONDS_PER_YEAR } from '@/lib/constants';
 import { fetchAssetUsdPrice, resolveTokenMeta } from '@/lib/morpho/known-tokens';
 import { getOraclePriceSnapshot, type OraclePriceSnapshot } from '@/lib/morpho/oracle-price';
-import { getOracleTimestampData, type OracleTimestampData } from '@/lib/morpho/oracle-utils';
+import {
+  getOracleTimestampData,
+  oracleTimestampFromFeeds,
+  type OracleTimestampData,
+} from '@/lib/morpho/oracle-utils';
 import { bigintRatio } from '@/lib/format/bigint-ratio';
 import { logger } from '@/lib/utils/logger';
 import { AppError } from '@/lib/utils/error-handler';
@@ -559,16 +563,17 @@ async function mapCollaterals(
 
       if (chainId === BASE_CHAIN_ID && oracle) {
         const collateralSpotUsd = await fetchAssetUsdPrice(c.token, chainId);
-        [oracleTimestampData, oraclePrice] = await Promise.all([
-          getOracleTimestampData(oracle as Address),
-          getOraclePriceSnapshot({
-            oracleAddress: oracle,
-            loanDecimals,
-            collateralDecimals: meta.decimals,
-            spotCollateralUsd: collateralSpotUsd,
-            spotLoanUsd: loanSpotUsd,
-          }),
-        ]);
+        oraclePrice = await getOraclePriceSnapshot({
+          oracleAddress: oracle,
+          loanDecimals,
+          collateralDecimals: meta.decimals,
+          spotCollateralUsd: collateralSpotUsd,
+          spotLoanUsd: loanSpotUsd,
+        });
+        oracleTimestampData =
+          oraclePrice && oraclePrice.kind !== 'error'
+            ? oracleTimestampFromFeeds(oraclePrice.feeds)
+            : await getOracleTimestampData(oracle as Address);
       }
 
       return {

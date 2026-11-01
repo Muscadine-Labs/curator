@@ -147,6 +147,11 @@ export default function Home() {
       }
     >
       <div className="space-y-6">
+        {stats?.warning ? (
+          <p className="rounded-lg border border-amber-500/50 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/20 dark:text-amber-200">
+            {stats.warning}
+          </p>
+        ) : null}
         <div className="rounded-lg border bg-card/40 p-3 space-y-2.5">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-4">
             <p className="col-span-full text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">

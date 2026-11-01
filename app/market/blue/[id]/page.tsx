@@ -11,10 +11,23 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { MarketRiskDetailCard } from '@/components/morpho/MarketRiskDetailCard';
 import { MarketOraclePanel } from '@/components/morpho/MarketOraclePanel';
 import { MarketInteractButton } from '@/components/morpho/MarketInteractButton';
-import { useCuratorMarketDetail } from '@/lib/hooks/useCuratorMarkets';
+import { useCuratorMarketActivity, useCuratorMarketDetail } from '@/lib/hooks/useCuratorMarkets';
+import {
+  CollateralAtRiskPanel,
+  MarketBorrowersTable,
+  MarketLiquidationsTable,
+  MarketListingVaultsTable,
+  MarketRatesPanel,
+  MarketSuppliersTable,
+} from '@/components/morpho/MarketActivitySections';
 import { morphoMarketHref, safeReturnPath } from '@/lib/morpho/morpho-app-links';
 import { asBlueMarketData } from '@/lib/morpho/blue-market-data';
 import { formatPercentage } from '@/lib/format/number';
+import {
+  formatOraclePriceLine,
+  liquidationPenaltyPct,
+  marketWarningLabel,
+} from '@/lib/morpho/oracle-display';
 import { formatLltvPill } from '@/components/morpho/AllocationListView';
 import { TokenUsdValue } from '@/components/morpho/TokenUsdValue';
 import { resolveTokenDisplayProps } from '@/lib/format/asset-decimals';
@@ -62,6 +75,14 @@ export default function CuratorBlueMarketPage() {
 
   const { data, isLoading, error } = useCuratorMarketDetail(marketId, chainId);
   const market = data?.market;
+  const activityQuery = useCuratorMarketActivity(market ? marketId : null, chainId);
+  const activity = activityQuery.data;
+  const loanToken = market
+    ? { symbol: market.loanSymbol, decimals: market.loanDecimals ?? 18 }
+    : null;
+  const collateralToken = market
+    ? { symbol: market.collateralSymbol, decimals: market.collateralDecimals ?? 18 }
+    : null;
   const networkName =
     CURATOR_MARKET_NETWORKS.find((n) => n.chainId === chainId)?.name ?? `Chain ${chainId}`;
 
@@ -181,6 +202,37 @@ export default function CuratorBlueMarketPage() {
             <CuratorKvList>
               <CuratorKvRow label="Network">{networkName}</CuratorKvRow>
               <CuratorKvRow label="LLTV">{formatLltvPill(market.lltv) ?? '—'}</CuratorKvRow>
+              <CuratorKvRow label="Oracle price">
+                {formatOraclePriceLine(
+                  market.oraclePrice?.loanPerCollateral,
+                  market.collateralSymbol,
+                  market.loanSymbol
+                ) ?? '—'}
+              </CuratorKvRow>
+              <CuratorKvRow label="Created">
+                {market.createdAt
+                  ? new Date(market.createdAt * 1000).toISOString().slice(0, 10)
+                  : '—'}
+              </CuratorKvRow>
+              {market.warnings.length > 0 && (
+                <CuratorKvRow label="Morpho warnings">
+                  <div className="flex flex-wrap justify-end gap-1">
+                    {market.warnings.map((w) => (
+                      <Badge
+                        key={w.type}
+                        variant={w.level === 'RED' ? 'destructive' : 'secondary'}
+                        className={
+                          w.level === 'YELLOW'
+                            ? 'border-amber-500/50 text-amber-700 dark:text-amber-300'
+                            : undefined
+                        }
+                      >
+                        {marketWarningLabel(w.type)}
+                      </Badge>
+                    ))}
+                  </div>
+                </CuratorKvRow>
+              )}
               <CuratorKvRow label="Market size">
                 <MarketUsdValue
                   underlying={market.supplyAssets}
@@ -256,22 +308,6 @@ export default function CuratorBlueMarketPage() {
                   {market.listed ? 'Listed' : 'Not listed'}
                 </Badge>
               </CuratorKvRow>
-              <CuratorKvRow label="Realized bad debt">
-                <MarketUsdValue
-                  underlying={market.realizedBadDebt?.underlying}
-                  usd={market.realizedBadDebt?.usd}
-                  assetSymbol={market.loanSymbol}
-                  decimals={market.loanDecimals ?? 18}
-                />
-              </CuratorKvRow>
-              <CuratorKvRow label="Unrealized bad debt">
-                <MarketUsdValue
-                  underlying={market.unrealizedBadDebt?.underlying}
-                  usd={market.unrealizedBadDebt?.usd}
-                  assetSymbol={market.loanSymbol}
-                  decimals={market.loanDecimals ?? 18}
-                />
-              </CuratorKvRow>
               <CuratorKvRow label="Market ID">
                 <p className="break-all font-mono text-xs font-normal">{market.marketId}</p>
               </CuratorKvRow>
@@ -300,7 +336,71 @@ export default function CuratorBlueMarketPage() {
               chainId={chainId}
               oraclePrice={market.oraclePrice}
               oracleTimestampData={market.oracleTimestampData}
+              oracleCreatedAt={market.oracleCreatedAt}
+              valueSecuredUsd={market.collateralAssetsUsd}
             />
+          )}
+
+          <CuratorPanel title="Liquidations">
+            <CuratorKvList>
+              <CuratorKvRow label="Liquidation LTV (LLTV)">
+                {formatLltvPill(market.lltv) ?? '—'}
+              </CuratorKvRow>
+              <CuratorKvRow label="Liquidation penalty">
+                {liquidationPenaltyPct(market.lltv) != null
+                  ? formatPercentage(liquidationPenaltyPct(market.lltv)!)
+                  : '—'}
+              </CuratorKvRow>
+              <CuratorKvRow label="Realized bad debt">
+                <MarketUsdValue
+                  underlying={market.realizedBadDebt?.underlying}
+                  usd={market.realizedBadDebt?.usd}
+                  assetSymbol={market.loanSymbol}
+                  decimals={market.loanDecimals ?? 18}
+                />
+              </CuratorKvRow>
+              <CuratorKvRow label="Unrealized bad debt">
+                <MarketUsdValue
+                  underlying={market.unrealizedBadDebt?.underlying}
+                  usd={market.unrealizedBadDebt?.usd}
+                  assetSymbol={market.loanSymbol}
+                  decimals={market.loanDecimals ?? 18}
+                />
+              </CuratorKvRow>
+            </CuratorKvList>
+          </CuratorPanel>
+
+          {activityQuery.isLoading && <Skeleton className="h-64 w-full rounded-xl" />}
+          {activityQuery.error && (
+            <Card>
+              <CardContent className="pt-6 text-sm text-red-600 dark:text-red-400">
+                {activityQuery.error instanceof Error
+                  ? activityQuery.error.message
+                  : 'Failed to load market activity'}
+              </CardContent>
+            </Card>
+          )}
+          {activity && loanToken && collateralToken && (
+            <>
+              <CollateralAtRiskPanel activity={activity} />
+              <MarketLiquidationsTable
+                activity={activity}
+                loan={loanToken}
+                collateral={collateralToken}
+                chainId={chainId}
+              />
+              <MarketRatesPanel
+                activity={activity}
+                borrowApy={market.borrowApy}
+                supplyApy={market.supplyApy}
+                utilization={market.utilization}
+                supplyUsd={market.supplyAssetsUsd}
+                borrowUsd={market.borrowAssetsUsd}
+                targetUtilization={market.targetUtilization}
+                irmAddress={market.irmAddress}
+                chainId={chainId}
+              />
+            </>
           )}
 
           {chainId !== BASE_CHAIN_ID ? (
@@ -321,6 +421,24 @@ export default function CuratorBlueMarketPage() {
               chainId={chainId}
               marketTitleLink="morpho"
             />
+          )}
+
+          {activity && loanToken && collateralToken && (
+            <>
+              <MarketListingVaultsTable activity={activity} loan={loanToken} chainId={chainId} />
+              <MarketBorrowersTable
+                activity={activity}
+                loan={loanToken}
+                collateral={collateralToken}
+                chainId={chainId}
+              />
+              <MarketSuppliersTable
+                activity={activity}
+                loan={loanToken}
+                supplyUsd={market.supplyAssetsUsd}
+                chainId={chainId}
+              />
+            </>
           )}
         </div>
       )}

@@ -103,7 +103,8 @@ function appendCurrentTvlPoint(
   return [...dataPoints.filter((p) => p.date !== today), { date: today, value: currentTvl }];
 }
 
-async function fetchVaultV2TvlSeries(address: string): Promise<VaultTvlSeries | null> {
+/** `'failed'` = the Morpho request errored (distinct from a vault with no TVL). */
+async function fetchVaultV2TvlSeries(address: string): Promise<VaultTvlSeries | null | 'failed'> {
   try {
     const options = {
       startTimestamp: TVL_HISTORY_START,
@@ -148,9 +149,46 @@ async function fetchVaultV2TvlSeries(address: string): Promise<VaultTvlSeries | 
       address,
       error: error instanceof Error ? error.message : String(error),
     });
-    return null;
+    return 'failed';
   }
 }
+
+const DEPOSITORS_QUERY = gql`
+  query V2VaultDepositors($address: String!, $chainId: Int!, $first: Int!, $skip: Int!) {
+    vaultV2ByAddress(address: $address, chainId: $chainId) {
+      positions(first: $first, skip: $skip) {
+        items {
+          user {
+            address
+          }
+        }
+      }
+    }
+  }
+`;
+
+/** Every depositor address, paging past the 1,000-row GraphQL limit. Throws on failure. */
+async function fetchAllDepositorAddresses(address: string): Promise<string[]> {
+  const out: string[] = [];
+  for (let skip = 0; skip < MAX_DEPOSITOR_ROWS; skip += GRAPHQL_FIRST_LIMIT) {
+    const result = await morphoGraphQLClient.request<{
+      vaultV2ByAddress?: {
+        positions?: {
+          items?: Array<{ user?: { address?: string | null } | null } | null> | null;
+        } | null;
+      } | null;
+    }>(DEPOSITORS_QUERY, { address, chainId: BASE_CHAIN_ID, first: GRAPHQL_FIRST_LIMIT, skip });
+    const items = result.vaultV2ByAddress?.positions?.items ?? [];
+    for (const item of items) {
+      if (item?.user?.address) out.push(item.user.address);
+    }
+    if (items.length < GRAPHQL_FIRST_LIMIT) break;
+  }
+  return out;
+}
+
+/** Safety bound on depositor paging (10 pages). */
+const MAX_DEPOSITOR_ROWS = 10_000;
 
 function padSinglePointSeries(series: VaultTvlSeries): VaultTvlSeries {
   if (series.data.length !== 1) return series;
@@ -186,16 +224,28 @@ export async function GET(request: Request) {
     const activeAddresses = activeVaultsForStats.map((v) => getAddress(v.address));
     const activeVaults = activeVaultsForStats.length;
 
-    const tvlByVaultResults = (
-      await Promise.all(addresses.map((address) => fetchVaultV2TvlSeries(address)))
-    ).filter((v): v is VaultTvlSeries => v !== null);
+    // Partial data is reported, never silently summed: a failed vault would
+    // otherwise lower protocol TVL and the trend with no sign anything is off.
+    const failedSources: string[] = [];
+    const keepSeries = (results: Array<VaultTvlSeries | null | 'failed'>, addrs: string[]) =>
+      results.filter((v, i): v is VaultTvlSeries => {
+        if (v === 'failed') failedSources.push(`TVL ${addrs[i]}`);
+        return v != null && v !== 'failed';
+      });
+
+    const tvlByVaultResults = keepSeries(
+      await Promise.all(addresses.map((address) => fetchVaultV2TvlSeries(address))),
+      addresses
+    );
 
     const tvlByVault = tvlByVaultResults.map(padSinglePointSeries);
 
     const wrapperConfigs = activeVaultsForStats.filter((v) => v.kind === 'feeWrapper');
-    const wrapperSeries = (
-      await Promise.all(wrapperConfigs.map((v) => fetchVaultV2TvlSeries(getAddress(v.address))))
-    ).filter((v): v is VaultTvlSeries => v !== null);
+    const wrapperAddresses = wrapperConfigs.map((v) => getAddress(v.address));
+    const wrapperSeries = keepSeries(
+      await Promise.all(wrapperAddresses.map((address) => fetchVaultV2TvlSeries(address))),
+      wrapperAddresses
+    );
 
     const tvlByAddress = new Map<string, VaultTvlSeries>();
     for (const series of [...tvlByVaultResults, ...wrapperSeries]) {
@@ -228,34 +278,21 @@ export async function GET(request: Request) {
     const v2UserResults = await Promise.all(
       activeAddresses.map(async (address) => {
         try {
-          const usersQuery = gql`
-            query V2VaultDepositors($address: String!, $chainId: Int!) {
-              vaultV2ByAddress(address: $address, chainId: $chainId) {
-                positions(first: ${GRAPHQL_FIRST_LIMIT}) {
-                  items {
-                    user { address }
-                  }
-                }
-              }
-            }
-          `;
-          const result = await morphoGraphQLClient.request<{
-            vaultV2ByAddress?: {
-              positions?: {
-                items?: Array<{ user?: { address?: string | null } | null } | null> | null;
-              } | null;
-            } | null;
-          }>(usersQuery, { address, chainId: BASE_CHAIN_ID });
-          return result.vaultV2ByAddress?.positions?.items ?? [];
-        } catch {
+          return await fetchAllDepositorAddresses(address);
+        } catch (error) {
+          failedSources.push(`users ${address}`);
+          logger.warn('Failed to fetch V2 vault depositors', {
+            address,
+            error: error instanceof Error ? error.message : String(error),
+          });
           return [];
         }
       })
     );
 
     for (const items of v2UserResults) {
-      for (const pos of items) {
-        const userAddress = pos?.user?.address?.toLowerCase();
+      for (const address of items) {
+        const userAddress = address.toLowerCase();
         if (
           userAddress &&
           userAddress !== '0x0000000000000000000000000000000000000000' &&
@@ -340,6 +377,11 @@ export async function GET(request: Request) {
     }
 
     const stats = {
+      /** Set when some Morpho reads failed: totals and users are understated. */
+      warning:
+        failedSources.length > 0
+          ? `Some Morpho data failed to load (${failedSources.join(', ')}); TVL and user counts may be understated.`
+          : null,
       totalDeposited,
       totalFeesGenerated,
       activeVaults,
@@ -364,7 +406,7 @@ export async function GET(request: Request) {
     };
 
     return stats;
-    });
+    }, (result) => result.warning == null);
 
     const responseHeaders = mergeApiCacheHeaders(rateLimitResult.headers, 60);
     return NextResponse.json(stats, { headers: responseHeaders });

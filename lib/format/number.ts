@@ -123,13 +123,23 @@ export const formatAddress = (address: string | null, startChars: number = 6, en
   return `${address.slice(0, startChars)}...${address.slice(-endChars)}`;
 };
 
+/**
+ * LLTV as a fraction (0–1). The one parser for every LLTV shape in the app:
+ * WAD (n > 1e6, e.g. "860000000000000000"), fraction (n ≤ 1), or percent.
+ */
+export function lltvToFraction(lltv: number | string | null | undefined): number | null {
+  if (lltv == null || lltv === '') return null;
+  const n = typeof lltv === 'string' ? Number(lltv) : lltv;
+  if (!Number.isFinite(n) || n < 0) return null;
+  if (n > 1_000_000) return n / 1e18;
+  if (n <= 1) return n;
+  return n / 100;
+}
+
 /** Format LTV to a percentage string (2 decimals). Handles wei (n>1e6), fraction (n<=1), or plain %. */
 export function formatLtv(lltv: number | string | null | undefined): string {
-  const n = typeof lltv === 'string' ? Number(lltv) : lltv;
-  if (n == null || !Number.isFinite(n)) return '—';
-  if (n > 1_000_000) return `${((n / 1e18) * 100).toFixed(2)}%`;
-  if (n <= 1) return `${(n * 100).toFixed(2)}%`;
-  return `${n.toFixed(2)}%`;
+  const f = lltvToFraction(lltv);
+  return f == null ? '—' : `${(f * 100).toFixed(2)}%`;
 }
 
 // Format token amount with decimals

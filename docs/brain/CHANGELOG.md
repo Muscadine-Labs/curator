@@ -4,6 +4,45 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-01 — Repo-wide review fixes (PR #79)
+
+- protocol-stats: failed vault TVL / depositor reads go into `warning` (dashboard banner) and the result is not cached; depositors page past 1,000. protocol-transactions throws instead of caching an empty list.
+- Transactions: shared `vault-v2-tx-amounts.ts`; transfers flagged `assetsEstimated` (today's share price), USD marked as today's price (≈).
+- Holders ranked over every page (positions has no orderBy), cached 30s, `parseBoundedIntParam`.
+- Rate limit buckets per endpoint path (`rateLimitIdentifier`).
+- Bots watcher: shared per-Safe history cache; Safe-sourced txs decoded from history calldata, no RPC.
+- `lltvToFraction` is the single LLTV parser (risk scoring, formatLtv, penalty).
+- Codex: Blue market detail polls every 30s so the ticking oracle clock does not mark live feeds Late.
+
+---
+
+## 2026-11-01 — Review + Codex fixes on PR #79
+
+- Activity feed: executed submits match `pendingConfigs` per call (tx hash + submitted calldata), not per tx (Codex P2 — batched submits with different timelocks). Missing `validAt` is never Executable; badges tick. Safe histories cached per Safe (100 newest) and a truncation cutoff is surfaced. `vault-activity` refetches after Safe execute.
+- Market activity no longer fetches 500 borrowers (Morpho's curve covers every position; fallback uses the 100-row table page).
+- Shared `ExplorerAddressLink` / `ExplorerTxLink`; adapter rate column labelled Supply APY (gross, excludes rewards/fees).
+
+---
+
+## 2026-11-01 — Market activity sections, vault activity feed and adapter table
+
+- **Blue market page** (`MarketActivitySections.tsx`, `GET /api/markets/[marketId]/activity`): collateral at risk (Morpho's full-market `marketCollateralAtRisk`), liquidations, rates (90-day history, averages, rate at target) with IRM breakdown + curve, vaults supplying the market (V2 allocation matched through adapter addresses), borrowers (health, distance to liquidation) and suppliers. One GraphQL round trip, ≤30s cache.
+- **Vault Overview**: Morpho Curator–style adapters table (allocation / %, abs / rel cap, withdrawable liquidity, weighted rate, force-deallocation penalty); Public Allocator fee and a Risk parameters panel; collapsible **Activity** feed (allocations from Morpho, pending submits, executed governance decoded from the role Safes' history — Morpho does not index governance; needs `NEXT_PUBLIC_SAFE_API_KEY`), filterable by type and role.
+- PR review fixes: exact meta-oracle active source, `error` oracle kind, `*.server.ts` naming, shared decoder for freshness, registry failure cache, ticking panel clock.
+- `PaginationBar` moved to `components/ui/pagination-bar.tsx` (holders + new tables).
+
+---
+
+## 2026-11-01 — Oracle panel decodes every oracle (Morpho-style price construction)
+
+- Morpho GraphQL types only MorphoChainlinkOracle(V2); primary/backup **MetaOracleDeviationTimelock** proxies (e.g. PAXG/USDC, USDe/USDC on Base) come back `type: Unknown`, `data: null`, so the panel showed no feeds and freshness scored the oracle as opaque (20). `lib/morpho/oracle-decode.server.ts` reads the oracle on-chain in one multicall: V2 feeds + ERC-4626 vaults, or the meta oracle's primary/backup sources, `currentOracle`, deviation vs threshold, challenge/healing state. `getOracleTimestampData` follows `currentOracle()` too (PAXG/USDC oracle score 20 → 85, also on vault Risk tabs). Midnight collateral oracles (no GraphQL hints) now show their feeds.
+- Feed heartbeat / deviation / name / type come from Chainlink's public feed directory (`lib/morpho/chainlink-feed-registry.server.ts`, ≤30s cache, last-good copy on failure). Feeds not in it read **Unverified**.
+- `MarketOraclePanel` redesign: attributes (contract, type, created, providers, oracle vs Morpho reference price + signed gap, value secured, stalest feed), primary/backup state, per-source price-construction table grouped Collateral / Loan (Fixed 1:1, ERC-4626 rate, feed rows with heartbeat/deviation, age + **Late** past heartbeat+10%, latest answer in the feed's own unit, bounds). Alerts: bound-pinned, ≥5% gap, late feeds, pricing from backup, open challenge, hardcoded source, unrecognized type.
+- Blue market page: Oracle price, Created, Morpho warnings in overview; new **Liquidations** panel (LLTV, liquidation penalty = `min(1.15, 1/(0.3·LLTV+0.7)) − 1`, realized / unrealized bad debt).
+- Pure helpers + tests: `lib/morpho/oracle-display.ts`, `oracle-display.test.ts`.
+
+---
+
 ## 2026-11-01 — Gate history reads MultiSend batches; Basenames are forward-checked
 
 - The Safe-history roster source only decoded transactions whose `to` was the gate. A whitelist call batched with **Batch into MultiSend** (or Safe's transaction builder) executes with `to` = MultiSend, so that account was missed while the scan still reported `complete`. `accountsFromSafeTx` now also unpacks canonical MultiSend batches (`lib/safe/multisend.ts`) and reads the plain calls to the gate inside. Tests in `send-assets-gate-roster.test.ts`.

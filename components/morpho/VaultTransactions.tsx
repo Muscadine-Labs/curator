@@ -218,13 +218,19 @@ export function VaultTransactions({
                     <span className="text-xs text-muted-foreground">—</span>
                   )}
                 </TableCell>
-                <TableCell className="text-right font-mono text-xs">
+                <TableCell
+                  className="text-right font-mono text-xs"
+                  title={tx.assetsEstimated ? 'Share transfer: estimated at today\'s share price' : undefined}
+                >
                   {tx.assets
-                    ? formatRawTokenAmount(tx.assets, decimals, displayDecimals)
+                    ? `${tx.assetsEstimated ? '≈ ' : ''}${formatRawTokenAmount(tx.assets, decimals, displayDecimals)}`
                     : '—'}
                 </TableCell>
-                <TableCell className="text-right font-mono text-xs">
-                  {tx.assetsUsd != null ? formatFullUSD(tx.assetsUsd) : '—'}
+                <TableCell
+                  className="text-right font-mono text-xs"
+                  title="Valued at today's asset price — Morpho does not index USD at the time of the transaction"
+                >
+                  {tx.assetsUsd != null ? `≈ ${formatFullUSD(tx.assetsUsd)}` : '—'}
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">
                   {timestampMs ? formatRelativeTime(new Date(timestampMs)) : '—'}

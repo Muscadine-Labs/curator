@@ -391,12 +391,12 @@ function UsersDetail() {
                     <div className="text-right text-xs tabular-nums">
                       <p>
                         {tx.assets
-                          ? `${formatRawTokenAmount(tx.assets, decimals, display)} ${tx.assetSymbol}`
+                          ? `${tx.assetsEstimated ? '≈ ' : ''}${formatRawTokenAmount(tx.assets, decimals, display)} ${tx.assetSymbol}`
                           : '—'}
                       </p>
                       {tx.assetsUsd != null && (
-                        <p className="text-muted-foreground">
-                          {formatFullUSD(tx.assetsUsd)}
+                        <p className="text-muted-foreground" title="Valued at today's asset price">
+                          ≈ {formatFullUSD(tx.assetsUsd)}
                         </p>
                       )}
                     </div>
@@ -485,12 +485,12 @@ function UsersDetail() {
                       <TableCell className="text-right text-xs tabular-nums">
                         <p>
                           {tx.assets
-                            ? `${formatRawTokenAmount(tx.assets, decimals, display)} ${tx.assetSymbol}`
+                            ? `${tx.assetsEstimated ? '≈ ' : ''}${formatRawTokenAmount(tx.assets, decimals, display)} ${tx.assetSymbol}`
                             : '—'}
                         </p>
                         {tx.assetsUsd != null && (
-                          <p className="text-muted-foreground">
-                            {formatFullUSD(tx.assetsUsd)}
+                          <p className="text-muted-foreground" title="Valued at today's asset price">
+                            ≈ {formatFullUSD(tx.assetsUsd)}
                           </p>
                         )}
                       </TableCell>

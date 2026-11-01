@@ -1,3 +1,4 @@
+import { lltvToFraction } from '@/lib/format/number';
 import type { BlueMarketData } from './blue-market-data';
 import type { OracleTimestampData } from './oracle-utils';
 import { getIRMTargetUtilizationWithFallback } from './irm-utils';
@@ -200,9 +201,9 @@ function computeLiquidationHeadroomScore(market: BlueMarketData): number {
     return 0; // No LTV = highest risk
   }
 
-  // Convert LTV from wei format to ratio for calculations
-  // Wei to ratio: divide by 1e18 (e.g., 860000000000000000 -> 0.86)
-  const lltvRatio = Number(lltvRaw) / 1e18;
+  // WAD, fraction or percent → 0–1 (shared parser; a raw /1e18 turned a
+  // fraction LLTV into ~0 and scored the market as having no headroom).
+  const lltvRatio = lltvToFraction(lltvRaw) ?? 0;
 
   if (hasUnknownBorrow(state)) {
     return 0;
@@ -342,9 +343,9 @@ function computeCoverageRatioScore(market: BlueMarketData): number {
     return 0; // No LTV = highest risk
   }
 
-  // Convert LTV from wei format to ratio for calculations
-  // Wei to ratio: divide by 1e18 (e.g., 860000000000000000 -> 0.86)
-  const lltvRatio = Number(lltvRaw) / 1e18;
+  // WAD, fraction or percent → 0–1 (shared parser; a raw /1e18 turned a
+  // fraction LLTV into ~0 and scored the market as having no headroom).
+  const lltvRatio = lltvToFraction(lltvRaw) ?? 0;
 
   if (hasUnknownBorrow(state)) {
     return 0;

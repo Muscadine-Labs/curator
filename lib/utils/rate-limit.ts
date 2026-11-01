@@ -271,13 +271,29 @@ export function resolveClientIp(request: Request): { ip: string; trusted: boolea
  * bypass has a security cost (login) must key off `resolveClientIp().trusted`
  * themselves and pair it with a global cap.
  */
+/**
+ * Bucket per endpoint path (per client): one vault page fans out to ~10 BFF
+ * routes and tab switches refetch several of them, so a single shared `api`
+ * bucket let ordinary navigation trip 429s. Each path still gets its own
+ * `maxRequests` per window, which keeps the per-endpoint abuse throttle.
+ */
+export function rateLimitIdentifier(request: Request, bucket = 'api'): string {
+  let path = '';
+  try {
+    path = new URL(request.url).pathname.toLowerCase();
+  } catch {
+    path = '';
+  }
+  return `${bucket}:${path}:${resolveClientIp(request).ip}`;
+}
+
 export function createRateLimitMiddleware(
   maxRequests: number,
   windowMs: number,
   bucket = 'api'
 ) {
   return (request: Request): { allowed: boolean; headers?: Headers } => {
-    const identifier = `${bucket}:${resolveClientIp(request).ip}`;
+    const identifier = rateLimitIdentifier(request, bucket);
 
     const allowed = rateLimit(identifier, maxRequests, windowMs);
 

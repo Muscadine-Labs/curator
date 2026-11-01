@@ -1,6 +1,18 @@
 import { Address, Abi, parseAbi, zeroAddress } from 'viem';
 import { publicClient, safeContractRead } from '@/lib/onchain/client';
 import type { OracleFeedHints } from '@/lib/morpho/oracle-utils';
+import {
+  activeChainlinkSource,
+  decodeMorphoOracle,
+  isMetaOnBackup,
+  type DecodedChainlinkSource,
+  type MetaOracleState,
+  type OracleVaultRef,
+} from '@/lib/morpho/oracle-decode.server';
+import {
+  getChainlinkFeedRegistry,
+  type ChainlinkFeedRegistryEntry,
+} from '@/lib/morpho/chainlink-feed-registry.server';
 
 const MORPHO_ORACLE_ABI = parseAbi(['function price() view returns (uint256)']);
 
@@ -32,7 +44,26 @@ export type ChainlinkFeedSnapshot = {
   maxAnswerHuman: number | null;
   atMinBound: boolean;
   atMaxBound: boolean;
+  /** Chainlink directory match (heartbeat, deviation). Null = not a known Chainlink proxy. */
+  registry: ChainlinkFeedRegistryEntry | null;
 };
+
+export type OracleSourceRole = 'single' | 'primary' | 'backup';
+
+/** One MorphoChainlinkOracle(V2)-shaped source with its feeds read on-chain. */
+export type OracleSourceSnapshot = {
+  address: string;
+  role: OracleSourceRole;
+  /** This source currently prices the market. */
+  active: boolean;
+  priceRaw: string | null;
+  loanPerCollateral: number | null;
+  feeds: ChainlinkFeedSnapshot[];
+  baseVault: OracleVaultRef | null;
+  quoteVault: OracleVaultRef | null;
+};
+
+export type OracleKind = 'chainlinkV2' | 'metaOracle' | 'unknown' | 'error';
 
 export type OraclePriceSnapshot = {
   oracleAddress: string;
@@ -48,7 +79,16 @@ export type OraclePriceSnapshot = {
   mismatchRatio: number | null;
   /** Material divergence or a feed pinned to min/max. */
   priceWarning: boolean;
+  /** Oracle vs spot gap beyond `mismatchThreshold` (default 5%). */
+  materialMismatch: boolean;
+  /** Meta oracle is pricing from its backup source. */
+  onBackup: boolean;
+  /** Feeds of the active source. */
   feeds: ChainlinkFeedSnapshot[];
+  kind: OracleKind;
+  /** Price sources: one for V2, primary + backup for a meta oracle. */
+  sources: OracleSourceSnapshot[];
+  meta: MetaOracleState | null;
 };
 
 function isValidFeedAddress(address: string | null | undefined): address is Address {
@@ -116,7 +156,8 @@ async function readFeedBound(
 
 async function readChainlinkFeedSnapshot(
   address: Address,
-  role: ChainlinkFeedRole
+  role: ChainlinkFeedRole,
+  registry: Map<string, ChainlinkFeedRegistryEntry>
 ): Promise<ChainlinkFeedSnapshot> {
   const base: ChainlinkFeedSnapshot = {
     address,
@@ -132,6 +173,7 @@ async function readChainlinkFeedSnapshot(
     maxAnswerHuman: null,
     atMinBound: false,
     atMaxBound: false,
+    registry: registry.get(address.toLowerCase()) ?? null,
   };
 
   const probe = { probe: true } as const;
@@ -187,14 +229,17 @@ async function readChainlinkFeedSnapshot(
   return base;
 }
 
-async function collectFeedSnapshots(hints?: OracleFeedHints): Promise<ChainlinkFeedSnapshot[]> {
+async function collectFeedSnapshots(
+  hints: OracleFeedHints | undefined,
+  registry: Map<string, ChainlinkFeedRegistryEntry>
+): Promise<ChainlinkFeedSnapshot[]> {
   if (!hints) return [];
 
   const snapshots = await Promise.all(
     FEED_ROLES.map(async (role) => {
       const addr = hints[role];
       if (!isValidFeedAddress(addr)) return null;
-      return readChainlinkFeedSnapshot(addr, role);
+      return readChainlinkFeedSnapshot(addr, role, registry);
     })
   );
 
@@ -213,6 +258,31 @@ export async function getMorphoOraclePriceRaw(
   );
 }
 
+async function buildSourceSnapshot(
+  source: DecodedChainlinkSource,
+  role: OracleSourceRole,
+  active: boolean,
+  registry: Map<string, ChainlinkFeedRegistryEntry>,
+  loanDecimals: number,
+  collateralDecimals: number
+): Promise<OracleSourceSnapshot> {
+  const feeds = await collectFeedSnapshots(source.feeds, registry);
+  const priceRaw = source.priceRaw != null ? BigInt(source.priceRaw) : null;
+  return {
+    address: source.address,
+    role,
+    active,
+    priceRaw: source.priceRaw,
+    loanPerCollateral:
+      priceRaw != null
+        ? loanPerCollateralFromOraclePrice(priceRaw, loanDecimals, collateralDecimals)
+        : null,
+    feeds,
+    baseVault: source.baseVault,
+    quoteVault: source.quoteVault,
+  };
+}
+
 export async function getOraclePriceSnapshot(input: {
   oracleAddress: string | null;
   feedHints?: OracleFeedHints;
@@ -222,9 +292,14 @@ export async function getOraclePriceSnapshot(input: {
   spotLoanUsd?: number | null;
   /** Relative spot/oracle gap that triggers priceWarning (default 5%). */
   mismatchThreshold?: number;
+  chainId?: number;
 }): Promise<OraclePriceSnapshot | null> {
   const oracleAddr = input.oracleAddress as Address | null;
-  const priceRaw = await getMorphoOraclePriceRaw(oracleAddr);
+  const [priceRaw, decoded, registry] = await Promise.all([
+    getMorphoOraclePriceRaw(oracleAddr),
+    decodeMorphoOracle(input.oracleAddress, input.feedHints),
+    getChainlinkFeedRegistry(input.chainId ?? 8453),
+  ]);
   if (!oracleAddr || priceRaw == null) return null;
 
   const loanPerCollateral = loanPerCollateralFromOraclePrice(
@@ -248,7 +323,38 @@ export async function getOraclePriceSnapshot(input: {
     mismatchRatio = oracleCollateralUsd / spotCollateralUsd;
   }
 
-  const feeds = await collectFeedSnapshots(input.feedHints);
+  const active = activeChainlinkSource(decoded);
+  const decodedSources: Array<{ source: DecodedChainlinkSource; role: OracleSourceRole }> =
+    decoded.kind === 'chainlinkV2'
+      ? [{ source: decoded.source, role: 'single' }]
+      : decoded.kind === 'metaOracle'
+        ? [
+            ...(decoded.primary ? [{ source: decoded.primary, role: 'primary' as const }] : []),
+            ...(decoded.backup ? [{ source: decoded.backup, role: 'backup' as const }] : []),
+          ]
+        : [];
+
+  const sources = await Promise.all(
+    decodedSources.map(({ source, role }) =>
+      buildSourceSnapshot(
+        source,
+        role,
+        source === active,
+        registry,
+        input.loanDecimals,
+        input.collateralDecimals
+      )
+    )
+  );
+  // A V2 source decoded from GraphQL hints has no price(); the oracle's own price is it.
+  for (const s of sources) {
+    if (s.role === 'single' && s.loanPerCollateral == null) {
+      s.priceRaw = priceRaw.toString();
+      s.loanPerCollateral = loanPerCollateral;
+    }
+  }
+
+  const feeds = sources.find((s) => s.active)?.feeds ?? [];
   const hasBoundCappedFeed = feeds.some((f) => f.atMinBound || f.atMaxBound);
   const threshold = input.mismatchThreshold ?? 0.05;
   const materialMismatch =
@@ -264,6 +370,11 @@ export async function getOraclePriceSnapshot(input: {
     spotLoanUsd: input.spotLoanUsd ?? null,
     mismatchRatio,
     priceWarning: hasBoundCappedFeed || materialMismatch,
+    materialMismatch,
+    onBackup: decoded.kind === 'metaOracle' && isMetaOnBackup(decoded.meta),
     feeds,
+    kind: decoded.kind,
+    sources,
+    meta: decoded.kind === 'metaOracle' ? decoded.meta : null,
   };
 }

@@ -14,6 +14,7 @@ import { getIRMTargetUtilizationWithFallback } from '@/lib/morpho/irm-utils';
 import {
   getOracleFeedHintsFromMarket,
   getOracleTimestampData,
+  oracleTimestampFromFeeds,
   type OracleTimestampData,
 } from '@/lib/morpho/oracle-utils';
 import { getOraclePriceSnapshot, type OraclePriceSnapshot } from '@/lib/morpho/oracle-price';
@@ -82,7 +83,19 @@ export type CuratorMarketDetail = CuratorMarketListItem & {
   oraclePrice: OraclePriceSnapshot | null;
   spotCollateralUsd: number | null;
   spotLoanUsd: number | null;
+  /** Unix seconds — market creation. */
+  createdAt: number | null;
+  /** Unix seconds — oracle deployment (Morpho only indexes Chainlink V2 factory oracles). */
+  oracleCreatedAt: number | null;
+  /** Morpho GraphQL oracle `type` (e.g. ChainlinkOracleV2, Unknown). */
+  oracleIndexedType: string | null;
+  /** Morpho market warnings (e.g. unrecognized_collateral_asset). */
+  warnings: MarketWarning[];
+  /** IRM target utilization (fraction); Base only. */
+  targetUtilization: number | null;
 };
+
+export type MarketWarning = { type: string; level: string | null };
 
 const MARKETS_BROWSER_QUERY = gql`
   query CuratorMarketsBrowser($first: Int!, $chainId: Int!) {
@@ -136,6 +149,11 @@ const MARKET_DETAIL_QUERY = gql`
       marketId
       listed
       lltv
+      creationTimestamp
+      warnings {
+        type
+        level
+      }
       loanAsset {
         address
         symbol
@@ -155,6 +173,10 @@ const MARKET_DETAIL_QUERY = gql`
       irmAddress
       oracle {
         address
+        type
+        creationEvent {
+          timestamp
+        }
         type
         data {
           ... on MorphoChainlinkOracleV2Data {
@@ -267,8 +289,12 @@ type GraphMarketItem = {
   } | null;
   oracle?: {
     address?: string | null;
+    type?: string | null;
+    creationEvent?: { timestamp?: number | string | null } | null;
     data?: GraphOracleData;
   } | null;
+  creationTimestamp?: number | string | null;
+  warnings?: Array<{ type?: string | null; level?: string | null } | null> | null;
   irmAddress?: string | null;
   state?: {
     sizeUsd?: number | null;
@@ -486,6 +512,7 @@ export async function fetchCuratorMarketDetail(
   let scores: MarketRiskScores | null = null;
   let oracleTimestampData: OracleTimestampData | null = null;
   let oraclePrice: OraclePriceSnapshot | null = null;
+  let targetUtilization: number | null = null;
 
   const spotCollateralUsd = item.collateralAsset?.price?.usd ?? null;
   const spotLoanUsd = item.loanAsset?.price?.usd ?? null;
@@ -497,8 +524,7 @@ export async function fetchCuratorMarketDetail(
   if (chainId === BASE_CHAIN_ID && !isMarketIdle(market)) {
     const baseFeedHints = getOracleFeedHintsFromMarket(item);
     const oracleAddr = market.oracleAddress ? (market.oracleAddress as Address) : null;
-    const [oracleData, targetUtil, priceSnapshot] = await Promise.all([
-      getOracleTimestampData(oracleAddr, baseFeedHints),
+    const [targetUtil, priceSnapshot] = await Promise.all([
       getIRMTargetUtilizationWithFallback(
         market.irmAddress ? (market.irmAddress as Address) : null
       ),
@@ -509,10 +535,17 @@ export async function fetchCuratorMarketDetail(
         collateralDecimals,
         spotCollateralUsd,
         spotLoanUsd,
+        chainId,
       }),
     ]);
+    // The snapshot already read the active source's feeds; reuse them.
+    const oracleData =
+      priceSnapshot && priceSnapshot.kind !== 'error'
+        ? oracleTimestampFromFeeds(priceSnapshot.feeds)
+        : await getOracleTimestampData(oracleAddr, baseFeedHints);
     oracleTimestampData = oracleData;
     oraclePrice = priceSnapshot;
+    targetUtilization = targetUtil;
     scores = await computeBlueMarketRiskScores(market, oracleData, targetUtil);
   }
 
@@ -533,7 +566,20 @@ export async function fetchCuratorMarketDetail(
     oraclePrice,
     spotCollateralUsd,
     spotLoanUsd,
+    createdAt: toUnixSeconds(item.creationTimestamp),
+    oracleCreatedAt: toUnixSeconds(item.oracle?.creationEvent?.timestamp),
+    oracleIndexedType: item.oracle?.type ?? null,
+    targetUtilization,
+    warnings: (item.warnings ?? [])
+      .filter((w): w is { type: string; level?: string | null } => Boolean(w?.type))
+      .map((w) => ({ type: w.type, level: w.level ?? null })),
   };
+}
+
+function toUnixSeconds(value: number | string | null | undefined): number | null {
+  if (value == null) return null;
+  const n = typeof value === 'string' ? Number(value) : value;
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 export function defaultCuratorMarketChainId(): number {

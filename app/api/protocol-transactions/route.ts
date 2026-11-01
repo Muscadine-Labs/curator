@@ -21,7 +21,11 @@ import {
 } from '@/lib/utils/rate-limit';
 import { mergeApiCacheHeaders, API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
 import { withServerResponseCache } from '@/lib/api/server-response-cache';
-import { bigintShareOf } from '@/lib/format/bigint-ratio';
+import {
+  assetsToUsdAtCurrentPrice,
+  mapV2TxAssets,
+  parseBigIntSafe,
+} from '@/lib/morpho/vault-v2-tx-amounts';
 import { unauthorizedUnlessAdmin } from '@/lib/auth/require-admin';
 
 export const runtime = 'nodejs';
@@ -34,6 +38,9 @@ export type ProtocolTransaction = {
   type: string;
   user: string | null;
   assets: string | null;
+  /** Transfer: assets estimated from shares at today's share price. */
+  assetsEstimated: boolean;
+  /** Assets valued at today's asset price (Morpho has no per-tx USD). */
   assetsUsd: number | null;
   vaultAddress: string;
   vaultName: string;
@@ -118,65 +125,6 @@ type V2TxGraphResponse = {
   } | null;
 };
 
-function parseBigIntSafe(value: string | number | null | undefined): bigint | null {
-  if (value == null) return null;
-  try {
-    return BigInt(typeof value === 'number' ? Math.floor(value) : value);
-  } catch {
-    return null;
-  }
-}
-
-function sharesToAssets(
-  shares: string | null | undefined,
-  totalAssets: bigint | null,
-  totalSupply: bigint | null
-): string | null {
-  if (!shares || totalAssets == null || totalSupply == null || totalSupply === 0n) {
-    return null;
-  }
-  try {
-    const shareAmount = BigInt(shares);
-    if (shareAmount <= 0n) return null;
-    return String((shareAmount * totalAssets) / totalSupply);
-  } catch {
-    return null;
-  }
-}
-
-function assetsToUsd(
-  assets: string | null,
-  totalAssets: bigint | null,
-  totalAssetsUsd: number | null
-): number | null {
-  if (!assets || totalAssets == null || totalAssets === 0n || totalAssetsUsd == null) {
-    return null;
-  }
-  try {
-    const assetAmount = BigInt(assets);
-    if (assetAmount <= 0n) return null;
-    return bigintShareOf(assetAmount, totalAssets, totalAssetsUsd);
-  } catch {
-    return null;
-  }
-}
-
-function mapAssets(
-  data: (VaultV2TxData & { assets?: string | number | null }) | null | undefined,
-  shares: string | null | undefined,
-  totalAssets: bigint | null,
-  totalSupply: bigint | null
-): string | null {
-  if (!data?.__typename) return null;
-  if (data.__typename === 'VaultV2DepositData' || data.__typename === 'VaultV2WithdrawData') {
-    return data.assets != null ? String(data.assets) : null;
-  }
-  if (data.__typename === 'VaultV2TransferData') {
-    return sharesToAssets(shares, totalAssets, totalSupply);
-  }
-  return null;
-}
-
 export async function GET(request: NextRequest) {
   const denied = await unauthorizedUnlessAdmin(request);
   if (denied) return denied;
@@ -206,20 +154,17 @@ export async function GET(request: NextRequest) {
           vaults.map((v) => [v.address.toLowerCase(), v] as const)
         );
 
-        let data: V2TxGraphResponse | null = null;
-        try {
-          data = await morphoGraphQLClient.request<V2TxGraphResponse>(V2_TX_QUERY, {
-            first: Math.min(perVault * vaults.length, 200),
-            vaultAddress: addresses.map((a) => a.toLowerCase()),
-            chainIds,
-          });
-        } catch {
-          data = null;
-        }
+        // A failure throws (502 via handleApiError) instead of serving and
+        // caching an empty list that reads as "no transactions".
+        const data = await morphoGraphQLClient.request<V2TxGraphResponse>(V2_TX_QUERY, {
+          first: Math.min(perVault * vaults.length, 200),
+          vaultAddress: addresses.map((a) => a.toLowerCase()),
+          chainIds,
+        });
 
         const transactions: ProtocolTransaction[] = [];
 
-        for (const tx of data?.vaultV2transactions?.items ?? []) {
+        for (const tx of data.vaultV2transactions?.items ?? []) {
           if (!tx?.txHash || !tx.vault?.address) continue;
           const vaultAddr = tx.vault.address.toLowerCase();
           const cfg = vaultByAddr.get(vaultAddr);
@@ -233,9 +178,9 @@ export async function GET(request: NextRequest) {
           const totalAssets = parseBigIntSafe(tx.vault.totalAssets);
           const totalSupply = parseBigIntSafe(tx.vault.totalSupply);
           const totalAssetsUsd = tx.vault.totalAssetsUsd ?? null;
+          const mapped = mapV2TxAssets(tx.data, tx.shares, totalAssets, totalSupply);
           const assets =
-            mapAssets(tx.data, tx.shares, totalAssets, totalSupply) ??
-            (tx.assets != null ? String(tx.assets) : null);
+            mapped.assets ?? (tx.assets != null ? (parseBigIntSafe(tx.assets)?.toString() ?? null) : null);
 
           transactions.push({
             hash: String(tx.txHash),
@@ -244,7 +189,8 @@ export async function GET(request: NextRequest) {
             type: tx.type ?? 'Unknown',
             user: vaultV2TransactionUser(tx.data ?? null),
             assets,
-            assetsUsd: assetsToUsd(assets, totalAssets, totalAssetsUsd),
+            assetsEstimated: mapped.assetsEstimated,
+            assetsUsd: assetsToUsdAtCurrentPrice(assets, totalAssets, totalAssetsUsd),
             vaultAddress: getAddress(tx.vault.address),
             vaultName,
             assetSymbol,

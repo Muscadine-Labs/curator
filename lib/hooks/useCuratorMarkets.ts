@@ -1,12 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch, apiErrorMessage } from '@/lib/data/api-fetch';
-import { DASHBOARD_QUERY_OPTIONS, ON_CHAIN_VAULT_QUERY_OPTIONS } from '@/lib/data/query-config';
+import {
+  CURATOR_REFETCH_INTERVAL_MS,
+  DASHBOARD_QUERY_OPTIONS,
+  ON_CHAIN_VAULT_QUERY_OPTIONS,
+} from '@/lib/data/query-config';
 import type { CuratorMarketDetail, CuratorMarketListItem } from '@/lib/morpho/curator-markets';
 import type {
   MidnightMarketDetail,
   MidnightMarketListItem,
 } from '@/lib/morpho/midnight-markets';
 import { BASE_CHAIN_ID } from '@/lib/constants';
+import type { MarketActivity } from '@/lib/morpho/market-activity.server';
 
 type CuratorMarketsResponse = {
   chainId: number;
@@ -62,6 +67,9 @@ export function useCuratorMarketDetail(
     },
     enabled: Boolean(marketId),
     ...ON_CHAIN_VAULT_QUERY_OPTIONS,
+    // The oracle panel's clock ticks every 30s; without refreshing the feed
+    // snapshot alongside it, healthy feeds would turn Late on an open page.
+    refetchInterval: CURATOR_REFETCH_INTERVAL_MS,
   });
 }
 
@@ -106,5 +114,28 @@ export function useMidnightMarkets(
     },
     ...DASHBOARD_QUERY_OPTIONS,
     enabled: options?.enabled ?? true,
+  });
+}
+
+/** Borrowers, suppliers, liquidations, listing vaults, rate history, IRM curve. */
+export function useCuratorMarketActivity(
+  marketId: string | null | undefined,
+  chainId: number = BASE_CHAIN_ID
+) {
+  return useQuery({
+    queryKey: ['curator-market-activity', chainId, marketId],
+    queryFn: async (): Promise<MarketActivity> => {
+      if (!marketId) throw new Error('Market id is required');
+      const res = await apiFetch(
+        `/api/markets/${encodeURIComponent(marketId)}/activity?chainId=${chainId}`
+      );
+      if (!res.ok) {
+        throw new Error(await apiErrorMessage(res, 'Failed to fetch market activity'));
+      }
+      const body = (await res.json()) as { activity: MarketActivity };
+      return body.activity;
+    },
+    ...DASHBOARD_QUERY_OPTIONS,
+    enabled: Boolean(marketId),
   });
 }

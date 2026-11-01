@@ -1,5 +1,7 @@
 'use client';
 
+import { formatUnits } from 'viem';
+
 import type { ReactNode } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -145,6 +147,18 @@ function BookSide({
       </Table>
     </CuratorTableShell>
   );
+}
+
+
+/** USD of posted collateral at Morpho's spot price — what the oracle secures. */
+function postedCollateralUsd(c: {
+  postedAssets?: string | null;
+  decimals: number;
+  oraclePrice?: { spotCollateralUsd: number | null } | null;
+}): number | null {
+  const spot = c.oraclePrice?.spotCollateralUsd;
+  if (!c.postedAssets || spot == null) return null;
+  return Number(formatUnits(BigInt(c.postedAssets), c.decimals)) * spot;
 }
 
 export function MidnightMarketView({ market }: { market: MidnightMarketDetail }) {
@@ -309,6 +323,7 @@ export function MidnightMarketView({ market }: { market: MidnightMarketDetail })
             chainId={market.chainId}
             oraclePrice={c.oraclePrice ?? null}
             oracleTimestampData={c.oracleTimestampData}
+            valueSecuredUsd={postedCollateralUsd(c)}
           />
         ) : market.chainId !== BASE_CHAIN_ID && c.oracle ? (
           <Card>
