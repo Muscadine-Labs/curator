@@ -4,6 +4,12 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-10-31 — Morpho MCP is the hosted server
+
+- `docs/brain/MCP.md` now points at Morpho's public MCP (`https://mcp.morpho.org/`), not the community `mcp-morpho-server` package. No account and no API key. Cursor config is `.cursor/mcp.json`; Claude Code config is `.mcp.json`. Prepare tools are not a write path for this app.
+
+---
+
 ## 2026-10-31 — Gate logs failed: Blockscout blocks server requests
 
 - `/curator/gates` always said "Could not load the gate's logs". `base.blockscout.com/api` now answers server requests with a Cloudflare bot challenge (HTTP 403 HTML), so the only log source never worked. Basescan via Etherscan V2 needs a paid plan for Base, and free Alchemy caps `eth_getLogs` at 10 blocks.

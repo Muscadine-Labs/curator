@@ -41,5 +41,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# cursor
-.cursor/
+# cursor (local rules stay untracked; the Morpho MCP server config is shared)
+.cursor/*
+!.cursor/mcp.json

@@ -15,7 +15,7 @@ Single entry for AI sessions. Deep architecture stays in **`CLAUDE.md`**. This f
 
 1. **Read** `TODO.md` → Today (top → bottom). Skip Later unless asked.
 2. **Load context** — this file + relevant `CLAUDE.md` sections (see map below). Invariants: `AGENTS.md`.
-3. **Use Morpho MCP** when the task needs live Morpho data (markets, vaults, APY, oracles, liquidations) instead of guessing or pasting GraphQL by hand. See [`MCP.md`](./MCP.md).
+3. **Use Morpho MCP** when the task needs live vault, Blue market, or Midnight state instead of guessing. See [`MCP.md`](./MCP.md). Oracle feeds stay on https://oracles.morpho.dev/. App data shapes stay on the BFF.
 4. **Implement** — match existing patterns; no server private keys; wallet writes only.
 5. **Close the loop** before ending:
    - Mark items in `TODO.md` (move to Done or check off).
