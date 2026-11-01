@@ -63,6 +63,8 @@ export default function Home() {
       if (!res.ok) throw new Error('Failed to fetch monthly statement');
       return res.json();
     },
+    // Only shown when Treasury Wallet is picked; DefiLlama is the default.
+    enabled: revenueSource === 'treasury',
     ...STATEMENT_QUERY_OPTIONS,
   });
 
@@ -139,8 +141,8 @@ export default function Home() {
           onChange={(e) => setRevenueSource(e.target.value as RevenueSource)}
           className="h-8 rounded-md border border-input bg-background px-2 py-0 text-xs ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
         >
-          <option value="treasury">Treasury Wallet</option>
           <option value="defillama">DefiLlama</option>
+          <option value="treasury">Treasury Wallet</option>
         </select>
       }
     >

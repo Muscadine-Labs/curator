@@ -5,6 +5,7 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 ## Today
 
 ## Done
+- DefiLlama is the default revenue source (statement tab, dashboard KPIs, Revenue chart); Treasury Wallet is second.
 - Removed Muscadine Ledger and the Google Sheets API route.
 - Gate allowlist log lookup works again with `BLOCKSCOUT_API_KEY` (keyless Blockscout is Cloudflare-blocked); the panel shows why a lookup failed.
 - TVL, vault history, and DefiLlama inflow days use the UTC calendar day.

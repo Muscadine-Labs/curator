@@ -756,12 +756,14 @@ tab switch, post-tx, and Rebalance (`lib/data/query-config.ts`).
 
 ### 4.6 Monthly income statement (treasury wallet)
 
-**UI** — `app/monthly-statement/page.tsx` (tabs: **By Treasury Wallet** /
-**DefiLlama**). Treasury view modes: **Total** (default), By Token, By Vault.
-Dashboard overview shows **Total Revenue** and **YTD Revenue** KPIs from treasury
-daily token-change (`app/page.tsx`). Toggle treasury vs DefiLlama via
-`lib/RevenueSourceContext.tsx` (default: treasury). Home Revenue chart
-(`ChartRevenue`) uses the same treasury daily series when source = treasury.
+**UI** — `app/monthly-statement/page.tsx` (tabs: **DefiLlama** (default) /
+**By Treasury Wallet**). Treasury view modes: **Total** (default), By Token, By Vault.
+Dashboard overview shows **Total Revenue** and **YTD Revenue** KPIs and the
+Revenue chart (`ChartRevenue`) from the selected source (`app/page.tsx`). Toggle
+DefiLlama vs treasury via `lib/RevenueSourceContext.tsx` (default: **DefiLlama**;
+Treasury Wallet is the second option). Each source's query is `enabled` only
+while it is selected (statement tab or dashboard source), so the treasury
+GraphQL statement is not fetched on a default page load.
 
 **Treasury API** — `GET /api/monthly-statement-morphoql` thin wrapper around
 `computeTreasuryStatement()` in `lib/morpho/compute-treasury-statement.ts`

@@ -12,6 +12,7 @@ Append-only session log. Newest first. Keep entries short; link files.
 - Client error readers in Safe settings/history/balances/info, the gate panel, and Curator markets hooks use `apiErrorMessage`.
 - Outbound requests that had no deadline now time out: Morpho GraphQL client (30s, under the 40s cache loader timeout), Midnight REST (15s), Google Sheets CSV (15s), Upstash rate-limit store (5s; login already fails closed on error).
 - Removed **Muscadine Ledger** (`/muscadine-ledger`), its only backend `GET /api/google-sheets`, `lib/constants/google-ledger.ts`, and the CSV parser that only that route used (`lib/utils/csv.ts` + test). Sidebar link and nav area entry gone; `/muscadine-ledger` and `/overview/muscadine-ledger` redirect to `/monthly-statement`.
+- **DefiLlama is now the default revenue source**: Monthly Income Statement opens on the DefiLlama tab (Treasury Wallet second), and the dashboard Revenue KPIs / chart / `Revenue · DefiLlama` box default to DefiLlama (`RevenueSourceContext`). The treasury statement query only runs while Treasury Wallet is selected.
 - Tests: `send-assets-gate-roster.test.ts` (challenge, keyed source, page boundary), new `allocation-dust.test.ts`.
 
 ---
