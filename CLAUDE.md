@@ -447,7 +447,12 @@ grades; Sentinel holds emergency actions at the bottom.
    the current option from governance `liquidityAdapter` / `liquidityData`,
    which the governance route overlays with on-chain `liquidityAdapter()` /
    `liquidityData()` (the indexer lags `setLiquidityAdapterAndData`, so a
-   post-write refetch would otherwise still show the old adapter as current). Caps are resolved via
+   post-write refetch would otherwise still show the old adapter as current). A
+   Blue market is offered as a liquidity target **only** when its params hash
+   back to its own id (`marketParamsMatchMarketKey` in
+   `buildLiquidityAdapterOptions`): zero-filled params give `liquidityData` for
+   a market that does not exist, the vault accepts it, and every user deposit
+   and withdrawal then reverts. Caps are resolved via
    `keccak256(idData)` using helpers in `lib/morpho/v2-id-data.ts` (see §3.2).
    **List layout** — sections **Idle → Morpho Vault V2 → Morpho Blue Market**.
    Row types:
@@ -1788,6 +1793,13 @@ guard, address book)
   (`resolveNextSafeNonce`) so two queued txs cannot share a nonce.
 - Sign/execute use the AppKit/wagmi provider and switch to Base first.
 - Over-allocated rebalance plans fail closed (do not trim then submit).
+- `queueSafeTransaction` eth_calls the inner tx **from the Safe** before
+  queueing (`assertSafeCallSucceeds`, `lib/safe/simulate-safe-call.ts`) so a
+  call that would revert (stale cap, wrong role, insufficient balance) is never
+  signed. Only a revert blocks; an RPC failure does not (an emergency sentinel
+  proposal must not depend on a flaky RPC). MultiSend batches are DelegateCalls
+  and are not simulated here; the Allocation rebalance path already simulates
+  as the Safe (`simulateVaultRebalance`).
 - Sentinel deallocate requires booked `allocation(id)` and market params
   (`data` is never `0x` for a Blue market).
 

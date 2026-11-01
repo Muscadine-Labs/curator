@@ -15,6 +15,7 @@ import {
 } from '@/lib/safe/protocol-kit-client';
 import { sendTransactionViaSafeApp } from '@/lib/safe/safe-apps-send';
 import { autoShareQueuedTransaction } from '@/lib/safe/auto-share';
+import { assertSafeCallSucceeds } from '@/lib/safe/simulate-safe-call';
 import {
   upsertPendingTransaction,
   updatePendingTransaction,
@@ -104,6 +105,14 @@ export async function queueSafeTransaction(options: {
   safeAppSdk?: SafeAppsSDK | null;
 }): Promise<SafePendingTransaction> {
   const safe = getSafeByRole(options.safeRole);
+
+  // Fail before owners sign, not at execution.
+  await assertSafeCallSucceeds({
+    safe: getAddress(safe.address),
+    to: options.calldata.to,
+    data: options.calldata.data,
+    value: options.calldata.value,
+  });
 
   const { safeTxHash, transactionData } = await createSafeTransactionFromCalldata({
     safeAddress: safe.address,

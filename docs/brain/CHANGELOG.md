@@ -4,6 +4,15 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-01 — On-chain path review (PR #80)
+
+- Liquidity adapter options require market params that hash to the market id; zero-filled params would set `liquidityData` for a nonexistent market and brick deposits/withdrawals.
+- Safe proposals are simulated from the Safe before queueing (`assertSafeCallSucceeds`); reverts block, RPC failures do not.
+- Codex: unknown Midnight `total_units` charts null not zero; incomplete first scans are retried in full.
+- Verified unchanged: v2 write builders, cap-decrease parsing (≤ current, exact WAD), Sentinel deallocate data/clamp, rebalance finalize + fingerprint + simulate-as-Safe, Safe hash re-check, execute `value: 0`, receipt-gated executed.
+
+---
+
 ## 2026-11-01 — Whole-repo review + Codex (PR #80)
 
 - Codex: transactions 404 → history unavailable (not empty); USD series uses daily `historicalPriceUsd`; chart dates in UTC.
