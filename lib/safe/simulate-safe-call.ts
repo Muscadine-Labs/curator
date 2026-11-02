@@ -61,6 +61,26 @@ export function safeCallRevertOutcome(
 }
 
 /**
+ * Distinct unexecuted proposals for one Safe: local rows plus Transaction
+ * Service rows (another browser's proposal exists only there until a manual
+ * sync), counted once per `safeTxHash`. Service rows below the on-chain nonce
+ * were replaced or executed and do not count.
+ */
+export function countDistinctQueuedProposals(
+  localHashes: ReadonlyArray<string>,
+  serviceTxs: ReadonlyArray<{ safeTxHash: string; nonce: string | number }>,
+  onChainNonce: number | null
+): number {
+  const hashes = new Set(localHashes.map((h) => h.toLowerCase()));
+  for (const tx of serviceTxs) {
+    const nonce = Number(tx.nonce);
+    if (onChainNonce != null && Number.isFinite(nonce) && nonce < onChainNonce) continue;
+    hashes.add(tx.safeTxHash.toLowerCase());
+  }
+  return hashes.size;
+}
+
+/**
  * eth_call the inner Safe transaction from the Safe's own address before it is
  * queued. Owners otherwise sign a proposal that can only fail at execution —
  * on the Sentinel path that is an emergency action discovered to be dead
@@ -76,15 +96,18 @@ export async function checkSafeCallBeforeQueue(input: {
   to: Address;
   data: Hex;
   value?: bigint;
-  /** Unexecuted proposals already queued for this Safe. */
-  queuedAhead: number;
+  /**
+   * Unexecuted proposals already queued for this Safe. Called only when the
+   * call reverts, so the Transaction Service is not hit on the happy path.
+   */
+  countQueuedAhead: () => Promise<number>;
 }): Promise<string | null> {
   try {
     await client.call({ account: input.safe, to: input.to, data: input.data, value: input.value });
     return null;
   } catch (error) {
     if (!isRevertError(error)) return null;
-    const outcome = safeCallRevertOutcome(revertMessage(error), input.queuedAhead);
+    const outcome = safeCallRevertOutcome(revertMessage(error), await input.countQueuedAhead());
     if (outcome.block) throw new Error(outcome.message);
     return outcome.warning;
   }

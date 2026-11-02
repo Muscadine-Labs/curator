@@ -12,6 +12,7 @@ Append-only session log. Newest first. Keep entries short; link files.
 - Adapters table: Idle uses on-chain idle; token amounts from raw on-chain allocation (`adapterAllocationRaw`), no float → BigInt crash.
 - Codex: Midnight live USD headline uses the live loan price (`loanPriceUsd`), not a $0 opening-balance point; snapshot eviction covered by the LRU cap.
 - Codex: `useVaultWrite` / `useSafeFunding` switch chains based on the wallet's real chain (`useAccount().chainId`), not `useChainId()` (always Base with Base-only config).
+- Codex: Safe queue's "queued ahead" count includes Transaction Service proposals (other browsers) above the on-chain nonce, deduped by `safeTxHash`; fetched only after a revert.
 
 ---
 

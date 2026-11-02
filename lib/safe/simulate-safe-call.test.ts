@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { BaseError, ExecutionRevertedError, HttpRequestError } from 'viem';
-import { isRevertError, safeCallRevertOutcome } from '@/lib/safe/simulate-safe-call';
+import {
+  countDistinctQueuedProposals,
+  isRevertError,
+  safeCallRevertOutcome,
+} from '@/lib/safe/simulate-safe-call';
 
 describe('isRevertError', () => {
   it('treats an execution revert as a revert', () => {
@@ -28,5 +32,30 @@ describe('safeCallRevertOutcome', () => {
       expect(outcome.warning).toContain('2 earlier queued proposals');
       expect(outcome.warning).toContain('exceeds balance');
     }
+  });
+});
+
+describe('countDistinctQueuedProposals', () => {
+  it('counts a proposal that exists only on the Transaction Service', () => {
+    expect(countDistinctQueuedProposals([], [{ safeTxHash: '0xAA', nonce: 7 }], 7)).toBe(1);
+  });
+
+  it('counts a proposal held both locally and on the service once', () => {
+    expect(
+      countDistinctQueuedProposals(['0xaa'], [{ safeTxHash: '0xAA', nonce: '7' }], 7)
+    ).toBe(1);
+  });
+
+  it('ignores service rows below the on-chain nonce', () => {
+    expect(
+      countDistinctQueuedProposals(
+        [],
+        [
+          { safeTxHash: '0x01', nonce: 5 },
+          { safeTxHash: '0x02', nonce: 8 },
+        ],
+        7
+      )
+    ).toBe(1);
   });
 });

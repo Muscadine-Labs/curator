@@ -1809,13 +1809,13 @@ guard, address book)
 - Sign/execute use the AppKit/wagmi provider and switch to Base first.
 - Over-allocated rebalance plans fail closed (do not trim then submit).
 - `queueSafeTransaction` eth_calls the inner tx **from the Safe** before
-  queueing (`assertSafeCallSucceeds`, `lib/safe/simulate-safe-call.ts`) so a
+  queueing (`checkSafeCallBeforeQueue`, `lib/safe/simulate-safe-call.ts`) so a
   call that would revert (stale cap, wrong role, insufficient balance) is never
   signed. The simulation sees today's state, not the state after proposals
   queued ahead execute, so with any unexecuted proposal queued for that Safe a
   revert is stored as `simulationWarning` (shown on the card, not blocking)
   instead of refusing — nonce N funding the Safe and N+1 spending it must
-  still queue (`safeCallRevertOutcome`). Only a revert blocks; an RPC failure does not (an emergency sentinel
+  still queue (`safeCallRevertOutcome`). "Queued ahead" counts local rows plus Transaction Service rows at or above the on-chain nonce, once per `safeTxHash` (`countDistinctQueuedProposals`) — a proposal made in another browser lives only on the service until a manual sync. The service is read only after a revert; if it fails, the local count is used. Only a revert blocks; an RPC failure does not (an emergency sentinel
   proposal must not depend on a flaky RPC). MultiSend batches are DelegateCalls
   and are not simulated here; the Allocation rebalance path already simulates
   as the Safe (`simulateVaultRebalance`).
@@ -1991,7 +1991,7 @@ at `/markets`. Old `/markets/create` and `/markets/positions` redirect to `/mark
 
 ---
 
-_Last updated: 2026-10-31. When you change reallocation logic, allocation
+_Last updated: 2026-11-02. When you change reallocation logic, allocation
 list/filters (§5), caps/adapters display, V2 idData/Sentinel (§3.2, §4.2), tx
 preview, client fetch/cache (§4.3), app/API route paths (§2, §4.7, `next.config.ts`
 redirects), Morpho GraphQL field names (§4.4.1), Curator markets browser (§4.7),
