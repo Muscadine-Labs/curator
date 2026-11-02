@@ -908,7 +908,8 @@ A transactions 404 is a failure, not an empty history. A failed read serves the
 last good series; with none, the charts say history is unavailable. A failed
 read is held only 5s (`HISTORY_FAILURE_HOLD_MS`, not the 30s TTL) — enough to
 stop a burst of requests each restarting the scan, short enough to retry a
-recovered endpoint promptly; prices are not fetched while a failure is held. USD uses each
+recovered endpoint promptly. Daily prices are fetched with every retry, so
+the read that recovers is valued at historical prices, not spot. USD uses each
 day's `historicalPriceUsd` (5s cap; spot fills gaps). Points are UTC-day opening
 balances (Morpho's DAY convention), so the headline uses live `totalUnits`.
 Without a live `total_units` the outstanding series is null (unknown), never

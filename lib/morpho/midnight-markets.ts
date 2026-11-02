@@ -948,8 +948,9 @@ export async function fetchMidnightMarketDetail(
   const priceSince = incremental && lastPricedDay != null ? lastPricedDay : sinceSec;
   // Top-up always re-reads from the newest priced day, so today's point keeps
   // moving with the market instead of freezing at the first fetch of the day.
-  // A snapshot holding a failed read skips prices: paging is likely failing too.
-  const needPrices = !fresh && snap?.available !== false;
+  // Fetched alongside paging even after a failure: the retry that succeeds
+  // needs daily prices, or every past day would be valued at today's spot.
+  const needPrices = !fresh;
 
   const enrichment = (async () => {
     const loanMeta = await resolveTokenMeta(loanAddress, resolvedChain);
