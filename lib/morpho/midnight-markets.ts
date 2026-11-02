@@ -604,7 +604,16 @@ type HistorySnapshot = {
   complete: boolean;
   priceByDay: Map<number, number>;
   available: boolean;
+  /**
+   * Freshness window for this snapshot. A failed read is held only
+   * HISTORY_FAILURE_HOLD_MS (not the 30s TTL): long enough to stop a burst of
+   * requests each restarting the scan, short enough that a recovered endpoint
+   * is retried promptly.
+   */
+  holdMs?: number;
 };
+
+const HISTORY_FAILURE_HOLD_MS = 5_000;
 
 /**
  * Most recently used first-out cap. Each entry can hold up to 180 days of raw
@@ -890,7 +899,7 @@ export async function fetchMidnightMarketDetail(
   const key = id.toLowerCase();
   // Freshness is decided once, before the fetches.
   const snap = historySnapshots.get(key);
-  const fresh = snap != null && snap.fetchedAt + API_CACHE_MAX_AGE_MS > Date.now();
+  const fresh = snap != null && snap.fetchedAt + (snap.holdMs ?? API_CACHE_MAX_AGE_MS) > Date.now();
   // Incremental refresh only extends a snapshot that already covers the whole
   // window. An incomplete first scan (budget / page cap) is retried in full,
   // or its older days would never be filled in.
@@ -937,8 +946,10 @@ export async function fetchMidnightMarketDetail(
   const pricedDays = snap?.priceByDay.size ? [...snap.priceByDay.keys()] : [];
   const lastPricedDay = pricedDays.length > 0 ? Math.max(...pricedDays) : null;
   const priceSince = incremental && lastPricedDay != null ? lastPricedDay : sinceSec;
-  const needPrices =
-    !fresh && !(incremental && lastPricedDay != null && lastPricedDay >= utcDay(nowSec));
+  // Top-up always re-reads from the newest priced day, so today's point keeps
+  // moving with the market instead of freezing at the first fetch of the day.
+  // A snapshot holding a failed read skips prices: paging is likely failing too.
+  const needPrices = !fresh && snap?.available !== false;
 
   const enrichment = (async () => {
     const loanMeta = await resolveTokenMeta(loanAddress, resolvedChain);
@@ -997,6 +1008,7 @@ export async function fetchMidnightMarketDetail(
       events: [...kept, ...pagedHistory.events],
       newestSec: newest,
       priceByDay: refreshedPrices && refreshedPrices.size > 0 ? refreshedPrices : snap.priceByDay,
+      holdMs: undefined,
     };
   } else if (pagedHistory && !incremental) {
     history = {
@@ -1015,13 +1027,14 @@ export async function fetchMidnightMarketDetail(
       ...snap,
       fetchedAt: Date.now(),
       windowStart: pagedHistory && incremental ? Number.POSITIVE_INFINITY : snap.windowStart,
+      holdMs: HISTORY_FAILURE_HOLD_MS,
     };
   }
   if (history) {
     storeHistorySnapshot(key, history);
   } else {
-    // No good series yet. Hold the failure for the TTL so every request in it
-    // does not restart the full multi-page scan.
+    // No good series yet. Hold the failure briefly so a burst of requests
+    // does not each restart the multi-page scan, then retry.
     storeHistorySnapshot(key, {
       fetchedAt: Date.now(),
       windowStart: sinceSec,
@@ -1030,6 +1043,7 @@ export async function fetchMidnightMarketDetail(
       complete: false,
       priceByDay: new Map(),
       available: false,
+      holdMs: HISTORY_FAILURE_HOLD_MS,
     });
   }
   const historyPoints =

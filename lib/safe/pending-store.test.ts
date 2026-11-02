@@ -72,3 +72,11 @@ describe('importPendingBundle', () => {
     expect(merged?.signatures.map((s) => s.signer).sort()).toEqual([OWNER_A, OWNER_B].sort());
   });
 });
+
+describe('sanitizeImportedPending', () => {
+  it('drops a simulation warning carried in an imported bundle', async () => {
+    const { sanitizeImportedPending } = await import('@/lib/safe/pending-store');
+    const tx = { ...proposal([]), simulationWarning: 'Verified safe' };
+    expect(sanitizeImportedPending(tx).simulationWarning).toBeNull();
+  });
+});

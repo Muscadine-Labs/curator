@@ -905,8 +905,10 @@ refresh pages only events newer than the last one seen (a full 180-day re-scan
 every 30s is too heavy); points are rebuilt from the events and the live
 `total_units` on every request. Freshness is decided once, before the fetches.
 A transactions 404 is a failure, not an empty history. A failed read serves the
-last good series; with none, the failure is held for 30s so requests do not
-restart the full scan, and the charts say history is unavailable. USD uses each
+last good series; with none, the charts say history is unavailable. A failed
+read is held only 5s (`HISTORY_FAILURE_HOLD_MS`, not the 30s TTL) — enough to
+stop a burst of requests each restarting the scan, short enough to retry a
+recovered endpoint promptly; prices are not fetched while a failure is held. USD uses each
 day's `historicalPriceUsd` (5s cap; spot fills gaps). Points are UTC-day opening
 balances (Morpho's DAY convention), so the headline uses live `totalUnits`.
 Without a live `total_units` the outstanding series is null (unknown), never
@@ -916,7 +918,8 @@ Chart dates format in UTC. History paging runs **in parallel** with token
 metadata and collateral oracle decode (not before them), so the detail stays
 inside the 40s loader: each collateral's oracle read is cut at 12s and spot
 prices at 5s (the panel then shows no oracle data). An incremental refresh tops
-the daily price map up from its newest day instead of re-reading 180 days.
+the daily price map up from its newest day (today included, so today's price
+keeps moving) instead of re-reading 180 days.
 Snapshots are capped at 48 markets (least recently used evicted). The live USD headline is `totalUnits × loanPriceUsd` (live spot on the detail); without it, the price implied by the newest non-zero day — a zero opening balance is never reused for a positive live total.
 **Client imports:** `midnight-markets.ts` is server code (REST, GraphQL, RPC,
 oracle decode). Client components import pure helpers from
@@ -1783,7 +1786,8 @@ guard, address book)
   (`prepareSafeBatchSelection(txs, queue)`): folding N rows into one nonce
   frees N−1 nonces and would strand any later signed proposal forever.
 - Bundle import merges signatures into a proposal already held locally
-  (union by signer) instead of overwriting it.
+  (union by signer) instead of overwriting it, and drops any imported
+  `simulationWarning` (only Curator writes that, at queue time).
 - Send's address-book upsert passes an empty label, which keeps an existing
   saved label (`upsertAddressBookEntry`).
 - Safe Receive shows Confirmed only for a successful receipt; Failed otherwise.

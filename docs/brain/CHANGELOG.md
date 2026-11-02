@@ -14,6 +14,8 @@ Append-only session log. Newest first. Keep entries short; link files.
 - Codex: `useVaultWrite` / `useSafeFunding` switch chains based on the wallet's real chain (`useAccount().chainId`), not `useChainId()` (always Base with Base-only config).
 - Codex: Safe queue's "queued ahead" count includes Transaction Service proposals (other browsers) above the on-chain nonce, deduped by `safeTxHash`; fetched only after a revert.
 - Codex: local Safe rows below the on-chain nonce (executed by another client) no longer count as queued ahead.
+- Codex: a failed Midnight history read is held 5s, not 30s, so a recovered endpoint is retried promptly.
+- Review: prices skip while a failure is held; today's price refreshes on each top-up; imported Safe bundles drop `simulationWarning`.
 
 ---
 

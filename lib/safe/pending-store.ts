@@ -166,6 +166,8 @@ export function sanitizeImportedPending(tx: SafePendingTransaction): SafePending
   return {
     ...tx,
     preview: null,
+    // Curator writes this at queue time; text from another browser's bundle is not ours.
+    simulationWarning: null,
     source: inferSafeTxSource(getAddress(tx.to), tx.data, tx.value || '0', tx.operation),
   };
 }
