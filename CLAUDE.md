@@ -578,7 +578,7 @@ ops are `/vault/[address]/*`. User deposit/withdraw is muscadine-onchain.
 The app is Base-only: `CURATOR_MARKET_NETWORKS` / `SIDEBAR_NETWORKS` and the
 wagmi config hold Base alone. The "Wallet not on Base" hint reads the wallet's
 real chain from `useAccount().chainId` — `useChainId()` only reports configured
-chains, so with Base-only config it stays 8453 and the hint would never show.
+chains, so with Base-only config it stays 8453 and the hint would never show. The same applies to writes: `useVaultWrite` and `useSafeFunding` compare `useAccount().chainId` to Base before `switchChainAsync`, or a wallet left on Ethereum skips the switch and viem rejects the write.
 
 ### 4.4 Vault overview, liquidity, and history (Morpho GraphQL)
 
