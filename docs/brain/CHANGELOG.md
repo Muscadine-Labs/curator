@@ -10,6 +10,7 @@ Append-only session log. Newest first. Keep entries short; link files.
 - Midnight detail: history paging runs in parallel with metadata + oracle decode; collateral oracle reads cut at 12s, spot at 5s; incremental price top-up; snapshot map capped at 48 (LRU). Dead bucket mapper removed.
 - Safe queue: a revert with proposals queued ahead is a card warning (`simulationWarning`), not a block — sequenced proposals can queue.
 - Adapters table: Idle uses on-chain idle; token amounts from raw on-chain allocation (`adapterAllocationRaw`), no float → BigInt crash.
+- Codex: Midnight live USD headline uses the live loan price (`loanPriceUsd`), not a $0 opening-balance point; snapshot eviction covered by the LRU cap.
 
 ---
 

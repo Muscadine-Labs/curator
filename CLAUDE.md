@@ -917,7 +917,7 @@ metadata and collateral oracle decode (not before them), so the detail stays
 inside the 40s loader: each collateral's oracle read is cut at 12s and spot
 prices at 5s (the panel then shows no oracle data). An incremental refresh tops
 the daily price map up from its newest day instead of re-reading 180 days.
-Snapshots are capped at 48 markets (least recently used evicted).
+Snapshots are capped at 48 markets (least recently used evicted). The live USD headline is `totalUnits × loanPriceUsd` (live spot on the detail); without it, the price implied by the newest non-zero day — a zero opening balance is never reused for a positive live total.
 **Client imports:** `midnight-markets.ts` is server code (REST, GraphQL, RPC,
 oracle decode). Client components import pure helpers from
 `lib/morpho/midnight-format.ts` and only **types** from `midnight-markets` — a

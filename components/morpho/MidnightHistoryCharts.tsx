@@ -67,6 +67,27 @@ function loanAmount(raw: string | null, decimals: number): number | null {
   }
 }
 
+/**
+ * USD for the live loan total. Prefers the live loan price; else the price
+ * implied by the newest day with a non-zero balance. A zero opening balance
+ * (first fill after today's UTC midnight) carries no price, so it is never
+ * reused as the headline for a positive live total.
+ */
+function liveLoansUsd(
+  liveLoans: number | null,
+  priceUsd: number | null | undefined,
+  rows: ReadonlyArray<{ loans: number | null; loansUsd: number | null }>,
+  lastPointUsd: number | null
+): number | null {
+  if (liveLoans == null) return lastPointUsd;
+  if (liveLoans === 0) return 0;
+  if (priceUsd != null && Number.isFinite(priceUsd) && priceUsd > 0) return liveLoans * priceUsd;
+  const priced = [...rows]
+    .reverse()
+    .find((row) => row.loans != null && row.loans > 0 && row.loansUsd != null);
+  return priced ? (liveLoans * priced.loansUsd!) / priced.loans! : null;
+}
+
 export function MidnightHistoryCharts({ market }: { market: MidnightMarketDetail }) {
   const [rateMode, setRateMode] = useState<RateMode>('apr');
   const [loanMode, setLoanMode] = useState<LoanMode>('token');
@@ -90,10 +111,12 @@ export function MidnightHistoryCharts({ market }: { market: MidnightMarketDetail
   const lastPoint = [...rows].reverse().find((row) => row.loans != null);
   const liveLoans = loanAmount(market.totalUnits, market.loanDecimals);
   const latestLoans = liveLoans ?? lastPoint?.loans ?? null;
-  const latestLoansUsd =
-    liveLoans != null && lastPoint?.loans && lastPoint.loansUsd != null
-      ? (liveLoans * lastPoint.loansUsd) / lastPoint.loans
-      : (lastPoint?.loansUsd ?? null);
+  const latestLoansUsd = liveLoansUsd(
+    liveLoans,
+    market.loanPriceUsd,
+    rows,
+    lastPoint?.loansUsd ?? null
+  );
   const priceDomain = useMemo(
     () =>
       priceAxisDomain(

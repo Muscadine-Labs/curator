@@ -341,6 +341,8 @@ export type MidnightMarketDetail = {
   history: MidnightHistoryPoint[];
   /** False when the history read failed. An empty series with this true means no takes yet. */
   historyAvailable: boolean;
+  /** Live loan-token USD price (null when unknown); values the live headline. */
+  loanPriceUsd: number | null;
 };
 
 type MidnightMarketConfig = {
@@ -1077,6 +1079,7 @@ export async function fetchMidnightMarketDetail(
     borrowPositionCount: positionTotals?.borrowPositionCount ?? 0,
     history: historyPoints,
     historyAvailable: history?.available ?? false,
+    loanPriceUsd: loanSpotUsd,
   };
 
   logger.debug('Fetched Midnight market detail', { marketId: resolvedId, chainId: resolvedChain });
