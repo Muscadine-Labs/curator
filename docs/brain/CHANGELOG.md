@@ -4,6 +4,13 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-02 — Gates "Safe history only" + env docs
+
+- Gate roster status `safeHistory` when candidates come from the Curator / Allocator Safe history; `/curator/gates` labels it **Safe history only** (misses other whitelisters and relayed signatures). No paid log source added.
+- README / `.env.example` / CLAUDE env table drop Upstash and the paid Blockscout / Etherscan keys (not used). The optional code paths stay.
+
+---
+
 ## 2026-11-01 — On-chain path review (PR #80)
 
 - Liquidity adapter options require market params that hash to the market id; zero-filled params would set `liquidityData` for a nonexistent market and brick deposits/withdrawals.

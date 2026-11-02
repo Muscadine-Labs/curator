@@ -26,9 +26,8 @@ npm run build   # next build
   `POST /api/auth/verify` is IP rate-limited (`AUTH_LOGIN_MAX_ATTEMPTS`).
   Sessions are HMAC-signed with `CURATOR_SESSION_SECRET` when set, otherwise
   `CURATOR_ADMIN_PASSWORD`. Bump
-  `CURATOR_SESSION_VERSION` to invalidate sessions. Login rate limits use
-  Upstash REST when `UPSTASH_REDIS_REST_*` are set; otherwise they are
-  per-instance memory.
+  `CURATOR_SESSION_VERSION` to invalidate sessions. Login rate limits are
+  per-instance memory (Upstash is not used).
 - **V2-only vault config:** all tracked vaults are Morpho V2 (`lib/config/vaults.ts`).
   No MetaMorpho / V1 vault routes. Blue market risk uses `blue-market-data.ts` +
   `compute-blue-market-risk.ts`. MetaMorpho adapters are ignored in risk, allocation,

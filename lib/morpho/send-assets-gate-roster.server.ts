@@ -79,6 +79,7 @@ const BASE_CHAIN_ID = 8453;
 const SAFE_TX_SERVICE_ORIGIN = 'https://api.safe.global';
 const SAFE_HISTORY_PAGE_LIMIT = 100;
 const MAX_SAFE_HISTORY_PAGES = 20;
+const SAFE_HISTORY_SOURCE = 'Safe history';
 
 type ExplorerLog = {
   blockNumber?: string;
@@ -86,11 +87,17 @@ type ExplorerLog = {
   topics?: Array<string | null>;
 };
 
-export type GateRosterStatus = 'complete' | 'failed';
+/**
+ * - `complete`: every log the gate emitted was read (explorer or RPC).
+ * - `safeHistory`: candidates come from the Curator / Allocator Safes' executed
+ *   calls only. Free and the normal case, but it cannot see whitelistings by
+ *   another whitelister or relayed `setIsWhitelistedWithSig` signatures.
+ * - `failed`: no source answered in full, so the list may miss accounts.
+ */
+export type GateRosterStatus = 'complete' | 'safeHistory' | 'failed';
 
 export type GateRosterCandidates = {
   accounts: Address[];
-  /** `failed` means no log source answered in full, so the list may miss accounts. */
   status: GateRosterStatus;
   /** Why the lookup failed, safe to show in the UI (no URLs or keys). */
   reason?: string;
@@ -462,7 +469,7 @@ export async function scanGateLogs(
   const attempts: Array<{ name: string; run: () => Promise<LogScan> }> = [];
   if (process.env.NEXT_PUBLIC_SAFE_API_KEY?.trim()) {
     attempts.push({
-      name: 'Safe history',
+      name: SAFE_HISTORY_SOURCE,
       run: () => scanSafeHistory(gate, explorerDeadline, checkpoint),
     });
   }
@@ -476,7 +483,12 @@ export async function scanGateLogs(
   for (const attempt of attempts) {
     try {
       const scan = await attempt.run();
-      if (!scan.truncated) return { accounts: [...scan.accounts], status: 'complete' };
+      if (!scan.truncated) {
+        return {
+          accounts: [...scan.accounts],
+          status: attempt.name === SAFE_HISTORY_SOURCE ? 'safeHistory' : 'complete',
+        };
+      }
       failures.push(`${attempt.name}: incomplete (page limit or out of time)`);
       if (!partial || scan.accounts.size > partial.size) partial = scan.accounts;
     } catch (error) {

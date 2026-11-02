@@ -117,8 +117,21 @@ function GateRosters({ state }: { state: SendAssetsGateState }) {
     (row) => row.isWhitelisted == null || row.isWhitelister == null
   );
   const logsFailed = (state.rosterScan?.status ?? 'failed') === 'failed';
+  const safeHistoryOnly = state.rosterScan?.status === 'safeHistory';
   return (
     <>
+      {safeHistoryOnly ? (
+        <div className="space-y-1 rounded-xl border border-border bg-muted/40 px-4 py-3 text-xs text-muted-foreground">
+          <p>
+            <span className="mr-1.5 rounded-md border border-border px-1.5 py-0.5 font-medium text-foreground">
+              Safe history only
+            </span>
+            Accounts come from whitelist calls the Curator and Allocator Safes
+            executed, plus configured accounts. An address whitelisted by another
+            whitelister or through a relayed signature will not show here.
+          </p>
+        </div>
+      ) : null}
       {logsFailed || unreadable.length > 0 ? (
         <div className="space-y-1 rounded-xl border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-xs text-amber-700 dark:text-amber-400">
           {logsFailed ? (

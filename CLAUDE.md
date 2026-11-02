@@ -34,12 +34,9 @@ Copy `.env.example` → `.env.local`. See that file for the full list.
 | `CURATOR_SESSION_SECRET` | No | Optional dedicated HMAC for `curator_session` |
 | `CURATOR_SESSION_VERSION` | No | Bump to invalidate all sessions |
 | `CURATOR_TRUSTED_PROXY_HOPS` | **Yes in production** | Proxy count in front of the app; required for per-IP login rate limiting |
-| `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | Recommended in production | Shared login rate-limit store across serverless isolates |
 | `MORPHO_API_URL`, `NEXT_PUBLIC_VAULT_*` | No | Overrides |
 | `SEND_ASSETS_GATE_ADDRESS` (or `GATE_ADDRESS`) | No | Override the built-in send-assets gate |
 | `ALLOCATOR_SAFE_8453` | No | Override the Allocator Safe used as a gate whitelister |
-| `BLOCKSCOUT_API_KEY` | No | Paid Base fallback for gate logs. Free Blockscout no longer includes Base |
-| `ETHERSCAN_API_KEY` | No | Fallback gate log source (Etherscan V2; Base needs a paid plan) |
 
 ---
 
@@ -1270,9 +1267,9 @@ components.
 - If `CURATOR_TRUSTED_PROXY_HOPS` is set **higher than the real number of
   proxies**, or the origin is reachable without passing through them, per-IP
   limits become forgeable again. The global cap is the backstop for that case
-  and bounds guessing to ~50/min. Login rate limits use Upstash REST when
-  `UPSTASH_REDIS_REST_*` are set (shared across isolates); otherwise they are
-  per-instance memory.
+  and bounds guessing to ~50/min. Login rate limits are per-instance memory.
+  (The code still reads optional `UPSTASH_REDIS_REST_*` for a shared store,
+  but this deployment does not use Upstash and the env docs leave it out.)
 - HMAC uses `CURATOR_SESSION_SECRET` when set, otherwise
   `CURATOR_ADMIN_PASSWORD` (same in production and development).
   Bump `CURATOR_SESSION_VERSION` to invalidate sessions. `proxy.ts` requires the cookie on `/api/*` except
@@ -1692,7 +1689,9 @@ client serializes calls with ≥210ms spacing.
   stopping at the hashes in `lib/morpho/send-assets-gate-history.ts`) → Blockscout
   PRO API (`BLOCKSCOUT_API_KEY`; Base is paid as of 2026-10-01) → Etherscan V2
   (`ETHERSCAN_API_KEY`, Base is paid-only) → keyless `base.blockscout.com` →
-  one full-range `eth_getLogs` on the server RPC.
+  one full-range `eth_getLogs` on the server RPC. Muscadine pays for no log
+  subscription, so the two paid keys are unset and left out of the env docs;
+  in practice the Safe history is the source.
   **Keyless Blockscout answers server requests with a Cloudflare bot challenge
   (HTTP 403 HTML)** and free Alchemy caps `eth_getLogs` at 10 blocks, so without
   the Safe key the lookup fails. A full
@@ -1701,8 +1700,11 @@ client serializes calls with ≥210ms spacing.
   cache loader timeout); explorers stop 10s early so the RPC fallback always
   gets its turn, and a stalled RPC is cut at the deadline. Results (failures
   too) are cached 30s, and a failure logs once per lookup. Status is
-  `complete` or `failed`; `rosterScan.reason` names each failed source and the
-  panel shows it. The panel also lists accounts whose reads failed instead of
+  `safeHistory` (read from the Safe history — the panel labels it **Safe
+  history only**, because it cannot see a whitelisting by another whitelister
+  or a relayed `setIsWhitelistedWithSig`), `complete` (a full log source
+  answered), or `failed`; `rosterScan.reason` names each failed source and the
+  panel shows it. Do not report a Safe-history scan as `complete`. The panel also lists accounts whose reads failed instead of
   dropping them.
 
 ### 13.3.1 Assets, send and receive

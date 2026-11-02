@@ -167,7 +167,7 @@ describe('readGateRosterCandidates', () => {
       })
     );
     const result = await scanGateLogs(gate);
-    expect(result.status).toBe('complete');
+    expect(result.status).toBe('safeHistory');
     expect(result.accounts.map((address) => address.toLowerCase()).sort()).toEqual(
       [ACCOUNT, removed].map((address) => address.toLowerCase()).sort()
     );
@@ -234,7 +234,7 @@ describe('readGateRosterCandidates', () => {
     );
     const result = await scanGateLogs(gate, undefined, checkpoint);
     expect(fetched).toHaveLength(2);
-    expect(result.status).toBe('complete');
+    expect(result.status).toBe('safeHistory');
     expect(result.accounts.map((address) => address.toLowerCase()).sort()).toEqual(
       [known, fresh].map((address) => address.toLowerCase()).sort()
     );
