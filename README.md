@@ -70,12 +70,11 @@ Copy `.env.example` → `.env.local`. Summary:
 | `ALCHEMY_API_KEY` or `COINBASE_CDP_API_KEY` | Recommended | Server RPC; demo endpoints if both missing |
 | `NEXT_PUBLIC_ALCHEMY_API_KEY` | Recommended | Client RPC |
 | `NEXT_PUBLIC_APP_URL` | No | Default `http://localhost:3001` |
-| `NEXT_PUBLIC_SAFE_API_KEY` | No | Safe Transaction Service sync |
+| `NEXT_PUBLIC_SAFE_API_KEY` | **Yes for `/curator/gates`** | Safe Transaction Service sync and gate whitelist history (free tier) |
 | `CURATOR_ADMIN_PASSWORD` | **Yes to log in** | Username is `admin` |
 | `CURATOR_SESSION_SECRET` | No | Dedicated session HMAC; login password is the fallback |
 | `CURATOR_SESSION_VERSION` | No | Bump to invalidate sessions |
 | `CURATOR_TRUSTED_PROXY_HOPS` | **Yes in production** | Proxy count for per-IP login rate limits |
-| `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | Recommended in production | Shared login rate-limit store |
 | `MORPHO_API_URL` | No | Morpho GraphQL override |
 | `NEXT_PUBLIC_VAULT_*` | No | Vault address overrides |
 | `SEND_ASSETS_GATE_ADDRESS` | No | Override the built-in send-assets gate |

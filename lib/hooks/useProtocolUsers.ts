@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import type { ProtocolUsersResponse } from '@/app/api/protocol-users/route';
 import type { ProtocolTransactionsResponse } from '@/app/api/protocol-transactions/route';
-import { apiFetch } from '@/lib/data/api-fetch';
+import { apiErrorMessage, apiFetch } from '@/lib/data/api-fetch';
 import { INDEXED_VAULT_QUERY_OPTIONS } from '@/lib/data/query-config';
 
 export function useProtocolUsers(options?: { enabled?: boolean }) {
@@ -22,7 +22,9 @@ export function useProtocolTransactions(options?: { enabled?: boolean }) {
     queryKey: ['protocol-transactions'],
     queryFn: async (): Promise<ProtocolTransactionsResponse> => {
       const res = await apiFetch('/api/protocol-transactions');
-      if (!res.ok) throw new Error('Failed to fetch protocol transactions');
+      if (!res.ok) {
+        throw new Error(await apiErrorMessage(res, 'Failed to fetch protocol transactions'));
+      }
       return res.json();
     },
     enabled: options?.enabled ?? true,

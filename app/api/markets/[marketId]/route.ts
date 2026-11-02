@@ -10,7 +10,8 @@ import {
   RATE_LIMIT_REQUESTS_PER_MINUTE,
   MINUTE_MS,
 } from '@/lib/utils/rate-limit';
-import { mergeApiOnChainVaultHeaders } from '@/lib/api/response-cache';
+import { API_CACHE_MAX_AGE_MS, mergeApiOnChainVaultHeaders } from '@/lib/api/response-cache';
+import { withServerResponseCache } from '@/lib/api/server-response-cache';
 import { unauthorizedUnlessAdmin } from '@/lib/auth/require-admin';
 
 export const runtime = 'nodejs';
@@ -50,7 +51,15 @@ export async function GET(
     const { searchParams } = new URL(request.url);
     const chainId = parseChainId(searchParams.get('chainId'));
 
-    const market = await fetchCuratorMarketDetail(marketId, chainId);
+    // Shared 30s dedupe: every open tab polls every 30s, and each uncached
+    // read is a GraphQL query plus oracle multicalls and the IRM read on RPC.
+    // A failed oracle decode is not cached, so it is retried on the next poll.
+    const market = await withServerResponseCache(
+      `curator-market-detail-v1-${chainId}-${marketId.toLowerCase()}`,
+      API_CACHE_MAX_AGE_MS,
+      () => fetchCuratorMarketDetail(marketId, chainId),
+      (detail) => detail != null && detail.oraclePrice?.kind !== 'error'
+    );
     if (!market) {
       throw new AppError('Market not found', 404, 'MARKET_NOT_FOUND');
     }

@@ -34,12 +34,9 @@ Copy `.env.example` → `.env.local`. See that file for the full list.
 | `CURATOR_SESSION_SECRET` | No | Optional dedicated HMAC for `curator_session` |
 | `CURATOR_SESSION_VERSION` | No | Bump to invalidate all sessions |
 | `CURATOR_TRUSTED_PROXY_HOPS` | **Yes in production** | Proxy count in front of the app; required for per-IP login rate limiting |
-| `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | Recommended in production | Shared login rate-limit store across serverless isolates |
 | `MORPHO_API_URL`, `NEXT_PUBLIC_VAULT_*` | No | Overrides |
 | `SEND_ASSETS_GATE_ADDRESS` (or `GATE_ADDRESS`) | No | Override the built-in send-assets gate |
 | `ALLOCATOR_SAFE_8453` | No | Override the Allocator Safe used as a gate whitelister |
-| `BLOCKSCOUT_API_KEY` | No | Paid Base fallback for gate logs. Free Blockscout no longer includes Base |
-| `ETHERSCAN_API_KEY` | No | Fallback gate log source (Etherscan V2; Base needs a paid plan) |
 
 ---
 
@@ -395,10 +392,15 @@ grades; Sentinel holds emergency actions at the bottom.
    Columns: adapter, underlying (N markets / child vault), allocation / %,
    absolute / relative cap, liquidity, rate, force-deallocation penalty.
    Liquidity = Σ min(market allocation, market `liquidityAssetsUsd`) (child
-   vault: min(allocation, child liquidity)); **Supply APY** = allocation-weighted
+   vault: min(allocation, child liquidity)), shown as compact tokens like Morpho
+   (`24.85k USDC`, USD in the tooltip); **Supply APY** = allocation-weighted
    gross supply APY (child vault: `avgNetApy`, else `netApy`) — it excludes
    rewards and fees, so it is labelled Supply APY, not the vault's net rate — `summarizeAdapter` in
    `lib/morpho/vault-adapter-summary.ts`. Pass `assetSymbol` / `assetDecimals`.
+   The Idle row uses the risk overlay's on-chain idle (GraphQL only as
+   fallback); adapter token amounts come from the overlay's raw
+   `allocationAssets` via `adapterAllocationRaw` (a non-finite governance
+   number is unknown, never `BigInt`-ed mid-render).
    **Activity** (`VaultActivityFeed`, `GET /api/vaults/[id]/activity`,
    `lib/morpho/vault-activity(.server).ts`) merges Morpho
    `vaultV2AllocationTransactions` (signed `change`, `sender`), pending
@@ -446,7 +448,12 @@ grades; Sentinel holds emergency actions at the bottom.
    the current option from governance `liquidityAdapter` / `liquidityData`,
    which the governance route overlays with on-chain `liquidityAdapter()` /
    `liquidityData()` (the indexer lags `setLiquidityAdapterAndData`, so a
-   post-write refetch would otherwise still show the old adapter as current). Caps are resolved via
+   post-write refetch would otherwise still show the old adapter as current). A
+   Blue market is offered as a liquidity target **only** when its params hash
+   back to its own id (`marketParamsMatchMarketKey` in
+   `buildLiquidityAdapterOptions`): zero-filled params give `liquidityData` for
+   a market that does not exist, the vault accepts it, and every user deposit
+   and withdrawal then reverts. Caps are resolved via
    `keccak256(idData)` using helpers in `lib/morpho/v2-id-data.ts` (see §3.2).
    **List layout** — sections **Idle → Morpho Vault V2 → Morpho Blue Market**.
    Row types:
@@ -568,8 +575,10 @@ underlyings. Legacy page/API paths still **redirect** via
 `next.config.ts` (`/vaults/transact` → `/vaults`). Catalog is `/vaults`; vault
 ops are `/vault/[address]/*`. User deposit/withdraw is muscadine-onchain.
 
-Ethereum appears in `SIDEBAR_NETWORKS` but has no configured vaults — expand
-**Base**, not Ethereum, to see vault links.
+The app is Base-only: `CURATOR_MARKET_NETWORKS` / `SIDEBAR_NETWORKS` and the
+wagmi config hold Base alone. The "Wallet not on Base" hint reads the wallet's
+real chain from `useAccount().chainId` — `useChainId()` only reports configured
+chains, so with Base-only config it stays 8453 and the hint would never show. The same applies to writes: `useVaultWrite` and `useSafeFunding` compare `useAccount().chainId` to Base before `switchChainAsync`, or a wallet left on Ethereum skips the switch and viem rejects the write.
 
 ### 4.4 Vault overview, liquidity, and history (Morpho GraphQL)
 
@@ -876,12 +885,55 @@ Midnight is Morpho’s fixed-term (tenor) **order book** — not Blue (no IRM,
 utilization, or variable APY). GraphQL does **not** expose it.
 `GET /api/markets/midnight` lists markets by filled size; `GET /api/markets/midnight/[id]`
 loads market + state + full book + position totals
-(`https://api.morpho.org/v0/midnight/…`).
+(`https://api.morpho.org/v0/midnight/…`). Daily APR and outstanding-loan charts
+are built from `GET /v0/midnight/markets/{id}/transactions` (180 days). A day's
+APR is the volume-weighted lend price over the time left until maturity.
+Outstanding at each UTC midnight is the live total units minus later changes.
+**Unit changes (do not regress, `historyUnitChange`):** count `total_units_delta`
+on the unit-buying leg of each fill — `lend` and `exit_borrow_secondary` — so a
+fill counts once: a new loan is positive, a debt handover
+(`borrow` + `exit_borrow_secondary`, delta 0) is 0, two exits matched together
+are negative. Subtract `units` on `exit_borrow_primary` (repayment) and
+`repaid_units` on liquidations. A `roll` to Blue always comes with an
+`exit_borrow_primary` for the same units, so it is not counted. Subtracting
+`units` on every `exit_borrow_secondary` inflated past outstanding by billions.
+The markets app history route is behind a bot challenge, so the server does not
+call it. History paging has a 20s budget (`HISTORY_BUDGET_MS`, inside the 40s
+cache loader) and stops with a partial series instead of failing the market
+page. The snapshot caches the raw transactions within the 30s TTL and each
+refresh pages only events newer than the last one seen (a full 180-day re-scan
+every 30s is too heavy); points are rebuilt from the events and the live
+`total_units` on every request. Freshness is decided once, before the fetches.
+A transactions 404 is a failure, not an empty history. A failed read serves the
+last good series; with none, the charts say history is unavailable. A failed
+read is held only 5s (`HISTORY_FAILURE_HOLD_MS`, not the 30s TTL) — enough to
+stop a burst of requests each restarting the scan, short enough to retry a
+recovered endpoint promptly. Daily prices are fetched with every retry, so
+the read that recovers is valued at historical prices, not spot. USD uses each
+day's `historicalPriceUsd` (5s cap; spot fills gaps). Points are UTC-day opening
+balances (Morpho's DAY convention), so the headline uses live `totalUnits`.
+Without a live `total_units` the outstanding series is null (unknown), never
+zero; APR still charts. Incremental refresh only extends a **complete**
+snapshot — an incomplete first scan is retried in full so older days fill in.
+Chart dates format in UTC. History paging runs **in parallel** with token
+metadata and collateral oracle decode (not before them), so the detail stays
+inside the 40s loader: each collateral's oracle read is cut at 12s and spot
+prices at 5s (the panel then shows no oracle data). An incremental refresh tops
+the daily price map up from its newest day (today included, so today's price
+keeps moving) instead of re-reading 180 days.
+Snapshots are capped at 48 markets (least recently used evicted). The live USD headline is `totalUnits × loanPriceUsd` (live spot on the detail); without it, the price implied by the newest non-zero day — a zero opening balance is never reused for a positive live total.
+**Client imports:** `midnight-markets.ts` is server code (REST, GraphQL, RPC,
+oracle decode). Client components import pure helpers from
+`lib/morpho/midnight-format.ts` and only **types** from `midnight-markets` — a
+value import bundled the oracle / RPC / history code into `/markets`.
 External app: [Morpho Markets](https://markets.morpho.org/fixed/base/0x549cd072daf99328554f3a6d2d4d6f4a07f1c59369e891e6391946f9cf75f221)
 `https://markets.morpho.org/fixed/{chain}/{marketId}`
 (`morphoMidnightMarketHref`). In-app: `curatorMidnightMarketHref`.
-Tenor = remaining time to `maturity`. List columns match Blue: Collateral / Loan,
-LLTV, market size, maturity. Market size is filled loan-token units
+Tenor = remaining time to `maturity`. `/markets` (All products) puts Blue and Midnight
+in one table with one column set. A blank cell means that product has no value
+there: Midnight leaves Liquidity, 6H net APY, Listed, and Muscadine blank; Blue
+leaves Maturity blank. Blue-only and Midnight-only browse keep the columns that
+product fills. Market size is filled loan-token units
 (`total_units` from `GET /v0/midnight/markets`, sorted largest first). The pair
 drops the loan token when another collateral exists, and drops Tenor receipt
 symbols ending in `-collat`. Detail pages still list every accepted collateral
@@ -908,10 +960,9 @@ Midnight lend stays on Morpho’s quote/router
 ([lend-at-a-fixed-rate](https://docs.morpho.org/developers/midnight/tutorials/lend-at-a-fixed-rate/)).
 
 **BFF** — `GET /api/markets` and `GET /api/markets/[marketId]`
-(`lib/morpho/curator-markets.ts`). Midnight: `GET /api/markets/midnight` and
-`GET /api/markets/midnight/[id]` (`lib/morpho/midnight-markets.ts`). Networks (same as top-bar wallet): Base,
-Ethereum, HyperEVM, Robinhood (`CURATOR_MARKET_NETWORKS`). `/markets`
-mirrors the wallet chain (no independent network `<select>`). List query uses
+(`lib/morpho/curator-markets.ts`). The Blue detail is deduped in-process for 30s (`withServerResponseCache`, not cached when the oracle decode errored): every open tab polls it, and each uncached read is a GraphQL query plus oracle multicalls and the IRM read. Midnight: `GET /api/markets/midnight` and
+`GET /api/markets/midnight/[id]` (`lib/morpho/midnight-markets.ts`). The only
+network is Base (`CURATOR_MARKET_NETWORKS`, same as the wallet). List query uses
 `orderBy: SizeUsd` server-side; client re-sorts via column headers.
 
 **Market size / liquidity (token + USD):**
@@ -940,21 +991,27 @@ Public Allocator reallocatable liquidity, so it is a different measure.
 the market detail page.
 
 **URL filters** — `CuratorMarketsBrowser` syncs `q`, `loan`, `collateral`,
-`listed`, `muscadine` both ways: a real navigation (sidebar “Markets”, Back)
+`listed`, `muscadine`, `maturity` both ways: a real navigation (sidebar “Markets”, Back)
 resets the filters, and typing writes the URL with `window.history.replaceState`
 (no RSC round trip per keystroke). Market links carry `from=` so the detail
 page's back link returns there; `safeReturnPath` rejects anything that is not a
 same-origin path (`//`, `/\host`, control characters).
 
 **List defaults** — filter **Listed** only; sort **Market size** high → low.
+Midnight status defaults to **Active** (`maturity` omitted). **Matured** is
+`maturity=matured`; **All** is `maturity=all`. Active means `maturity` is still
+in the future (`isMidnightMarketActive`). The control is hidden on Blue-only
+browse.
 Muscadine rows (blue highlight) = business vault with allocatable market cap on
 that `marketId` (30s in-process index in `curator-markets.ts`).
 
-**Detail page** — overview KPIs (APY, utilization, supply/borrow, oracle price,
-created, Morpho `warnings`), a **Liquidations** panel (LLTV, liquidation penalty
-`min(1.15, 1/(0.3·LLTV+0.7)) − 1`, realized / unrealized bad debt),
-`MarketOraclePanel`, and `MarketRiskDetailCard` on Base only (oracle/IRM reads use
-Base RPC today).
+**Detail page** — overview keeps size, liquidity, borrow, collateral, LLTV, and
+net APY once. Instant supply/borrow APY and utilization live on **Rates**.
+Oracle price, contract, and feeds live only on `MarketOraclePanel` (kind is the
+header badge, not a second type row). Liquidation penalty and bad debt sit
+above **Recent liquidations**. `MarketRiskDetailCard` on this page is scores
+only (`scoresOnly`); the vault Risk tab still shows the full snapshot. Base
+only for the oracle panel and risk scores.
 
 **Market activity** — `GET /api/markets/[marketId]/activity`
 (`lib/morpho/market-activity.server.ts`, one GraphQL round trip, ≤30s cache,
@@ -968,12 +1025,23 @@ seized, bad debt), **Rates** (90-day daily borrow / supply APY with rate at
 target, 7/30/90D averages, IRM breakdown: target utilization from
 `targetUtilization` on the detail response, borrow/repay to target =
 `target × supply − borrow`, `currentIrmCurve` chart with target + current
-lines), **Vaults supplying this market** (V1 allocation from
-`state.allocation`; V2 matched through adapter addresses in the top-100
-supplier list, else "Not in top suppliers"; Muscadine vaults link in-app),
-**Borrowers** (top 100 by borrow; health, distance to liquidation, borrow
-share) and **Suppliers** (top 100). Tables paginate 10/page with the shared
-`components/ui/pagination-bar.tsx`. Pure math: `lib/morpho/market-activity-math.ts`.
+lines; both that curve and collateral at risk are sampled every 1%), **Suppliers** (top 100 by supply, plus every vault that lists the
+market even when its adapter is outside that page). `supplyingVaultV2s` returns only
+20 vaults, so configured Muscadine strategy vaults are loaded in the same
+request from their Morpho Market V1 adapter positions (a follow-up; nesting
+those positions in the activity query exceeds Morpho's complexity limit). A V2 vault is one row:
+every adapter is summed, and the explorer address is the largest adapter
+(`vaultName` / `vaultAddress` still name the vault). Muscadine vaults link
+in-app. V1 allocation comes from `state.allocation`. The supplier heading count
+is at least the number of rows shown. **Borrowers** (top 100 by
+borrow; health, distance to liquidation, borrow share). A vault that lists the
+market with no supply is not a supplier row (a cap is not a position); the
+merged supplier list is re-sorted largest first. The configured-vault adapter
+lookup runs in parallel with the main activity query. The response no longer
+carries a separate `vaults` list (nothing read it). If a vault-supplier lookup
+fails the response carries `warning` (shown on Suppliers) and is not cached. Tables paginate 10/page
+with the shared `components/ui/pagination-bar.tsx`. Pure math:
+`lib/morpho/market-activity-math.ts`.
 
 **Oracle decoding (do not regress)** — Morpho GraphQL only types
 MorphoChainlinkOracle(V2). Primary/backup `MetaOracleDeviationTimelock` proxies
@@ -986,14 +1054,16 @@ the RPC-failure fallback. `getOraclePriceSnapshot` returns `kind`, `sources[]`
 (role `single`|`primary`|`backup`, `active`) and `meta`; `feeds` = the active
 source's feeds. `activeChainlinkSource` matches `currentOracle()` exactly and
 returns null when that source failed to decode — never substitute the other
-source; `onBackup` comes from the meta state alone. An RPC failure with no
+source, and an unreadable `currentOracle()` is null too (the panel warns), not
+primary; `onBackup` comes from the meta state alone. An RPC failure with no
 GraphQL hints is kind `error`, not `unknown`. `getOracleTimestampData` uses the
 same decoder (so a meta oracle is not scored as opaque); the market detail
 routes derive freshness from the snapshot's feeds (`oracleTimestampFromFeeds`)
 instead of re-reading them. The Chainlink directory failure is cached for the
 30s window too. Feed heartbeat / deviation / name come from
 Chainlink's feed directory (`chainlink-feed-registry.server.ts`, ≤30s cache); a feed
-not in it is **Unverified**. Feed answers are in the feed's own unit (ETH, BTC,
+not in it is **Unverified** — but only when the directory loaded
+(`registryAvailable`); during an outage feeds read **Unknown**, not flagged. Feed answers are in the feed's own unit (ETH, BTC,
 USD) — never format them all as USD. A feed is **Late** past heartbeat + 10%.
 Panel helpers live in `lib/morpho/oracle-display.ts`. Midnight collateral
 oracles use the same panel.
@@ -1166,9 +1236,14 @@ components.
   transaction routes): deposits/withdrawals use Morpho's indexed `assets`;
   share transfers are estimated at today's share price (`assetsEstimated`, shown
   with ≈); `assetsUsd` is always at today's asset price (≈, tooltip).
-- **Rate limit buckets** are per endpoint path per client
-  (`rateLimitIdentifier`): a single shared `api` bucket made ordinary vault-page
-  fan-out and tab switches trip 429s.
+- **Rate limit buckets** are per route template per client
+  (`rateLimitIdentifier`; hex ids collapse to `:id`): a single shared `api`
+  bucket made ordinary vault-page fan-out and tab switches trip 429s, and a
+  raw-path key let a caller mint a fresh budget per vault / market id.
+- **Token metadata / spot prices** (`lib/morpho/known-tokens.ts`): spot USD
+  expires with the 30s TTL and failures are not cached; a failed Morpho metadata
+  lookup falls back to on-chain `decimals()` / `symbol()`, and an unresolved
+  18-decimal placeholder is held only 30s — never cached for the process.
 - **LLTV** is parsed only through `lltvToFraction` (`lib/format/number.ts`; WAD,
   fraction or percent) — risk scoring, `formatLtv`, liquidation penalty.
 - `components/ErrorBoundary.tsx` catches render errors.
@@ -1209,9 +1284,9 @@ components.
 - If `CURATOR_TRUSTED_PROXY_HOPS` is set **higher than the real number of
   proxies**, or the origin is reachable without passing through them, per-IP
   limits become forgeable again. The global cap is the backstop for that case
-  and bounds guessing to ~50/min. Login rate limits use Upstash REST when
-  `UPSTASH_REDIS_REST_*` are set (shared across isolates); otherwise they are
-  per-instance memory.
+  and bounds guessing to ~50/min. Login rate limits are per-instance memory.
+  (The code still reads optional `UPSTASH_REDIS_REST_*` for a shared store,
+  but this deployment does not use Upstash and the env docs leave it out.)
 - HMAC uses `CURATOR_SESSION_SECRET` when set, otherwise
   `CURATOR_ADMIN_PASSWORD` (same in production and development).
   Bump `CURATOR_SESSION_VERSION` to invalidate sessions. `proxy.ts` requires the cookie on `/api/*` except
@@ -1233,9 +1308,9 @@ components.
   Sentinel preview dialogs; owners sign EIP-712 on `/safe/[role]`.
   Direct wallet confirm remains for EOA role holders only (`lib/safe/vault-role-match.ts`).
 - Wallet connect lives in the **topbar** (`ConnectWalletButton` / Reown
-  AppKit). Featured wallets are configured in `lib/wallet/appkit.ts`. Chain
-  switching for the **app network** is the top-bar `NetworkSwitcher`; the
-  AppKit account modal can still switch the wallet chain.
+  AppKit). Featured wallets are configured in `lib/wallet/appkit.ts`. The app
+  and the wallet stay on Base. The account sheet labels the network; it does
+  not offer another chain.
 
 ---
 
@@ -1631,7 +1706,9 @@ client serializes calls with ≥210ms spacing.
   stopping at the hashes in `lib/morpho/send-assets-gate-history.ts`) → Blockscout
   PRO API (`BLOCKSCOUT_API_KEY`; Base is paid as of 2026-10-01) → Etherscan V2
   (`ETHERSCAN_API_KEY`, Base is paid-only) → keyless `base.blockscout.com` →
-  one full-range `eth_getLogs` on the server RPC.
+  one full-range `eth_getLogs` on the server RPC. Muscadine pays for no log
+  subscription, so the two paid keys are unset and left out of the env docs;
+  in practice the Safe history is the source.
   **Keyless Blockscout answers server requests with a Cloudflare bot challenge
   (HTTP 403 HTML)** and free Alchemy caps `eth_getLogs` at 10 blocks, so without
   the Safe key the lookup fails. A full
@@ -1640,8 +1717,11 @@ client serializes calls with ≥210ms spacing.
   cache loader timeout); explorers stop 10s early so the RPC fallback always
   gets its turn, and a stalled RPC is cut at the deadline. Results (failures
   too) are cached 30s, and a failure logs once per lookup. Status is
-  `complete` or `failed`; `rosterScan.reason` names each failed source and the
-  panel shows it. The panel also lists accounts whose reads failed instead of
+  `safeHistory` (read from the Safe history — the panel labels it **Safe
+  history only**, because it cannot see a whitelisting by another whitelister
+  or a relayed `setIsWhitelistedWithSig`), `complete` (a full log source
+  answered), or `failed`; `rosterScan.reason` names each failed source and the
+  panel shows it. Do not report a Safe-history scan as `complete`. The panel also lists accounts whose reads failed instead of
   dropping them.
 
 ### 13.3.1 Assets, send and receive
@@ -1707,7 +1787,8 @@ guard, address book)
   (`prepareSafeBatchSelection(txs, queue)`): folding N rows into one nonce
   frees N−1 nonces and would strand any later signed proposal forever.
 - Bundle import merges signatures into a proposal already held locally
-  (union by signer) instead of overwriting it.
+  (union by signer) instead of overwriting it, and drops any imported
+  `simulationWarning` (only Curator writes that, at queue time).
 - Send's address-book upsert passes an empty label, which keeps an existing
   saved label (`upsertAddressBookEntry`).
 - Safe Receive shows Confirmed only for a successful receipt; Failed otherwise.
@@ -1732,6 +1813,17 @@ guard, address book)
   (`resolveNextSafeNonce`) so two queued txs cannot share a nonce.
 - Sign/execute use the AppKit/wagmi provider and switch to Base first.
 - Over-allocated rebalance plans fail closed (do not trim then submit).
+- `queueSafeTransaction` eth_calls the inner tx **from the Safe** before
+  queueing (`checkSafeCallBeforeQueue`, `lib/safe/simulate-safe-call.ts`) so a
+  call that would revert (stale cap, wrong role, insufficient balance) is never
+  signed. The simulation sees today's state, not the state after proposals
+  queued ahead execute, so with any unexecuted proposal queued for that Safe a
+  revert is stored as `simulationWarning` (shown on the card, not blocking)
+  instead of refusing — nonce N funding the Safe and N+1 spending it must
+  still queue (`safeCallRevertOutcome`). "Queued ahead" counts local and Transaction Service rows **at or above the on-chain nonce**, once per `safeTxHash` (`countDistinctQueuedProposals`) — a proposal made in another browser lives only on the service until a manual sync, and a local row another client already executed is stale and must not turn a dead call into a warning. Read only after a revert; a failed service read uses local rows, a failed nonce read keeps every row. Only a revert blocks; an RPC failure does not (an emergency sentinel
+  proposal must not depend on a flaky RPC). MultiSend batches are DelegateCalls
+  and are not simulated here; the Allocation rebalance path already simulates
+  as the Safe (`simulateVaultRebalance`).
 - Sentinel deallocate requires booked `allocation(id)` and market params
   (`data` is never `0x` for a Blue market).
 
@@ -1904,7 +1996,7 @@ at `/markets`. Old `/markets/create` and `/markets/positions` redirect to `/mark
 
 ---
 
-_Last updated: 2026-10-31. When you change reallocation logic, allocation
+_Last updated: 2026-11-02. When you change reallocation logic, allocation
 list/filters (§5), caps/adapters display, V2 idData/Sentinel (§3.2, §4.2), tx
 preview, client fetch/cache (§4.3), app/API route paths (§2, §4.7, `next.config.ts`
 redirects), Morpho GraphQL field names (§4.4.1), Curator markets browser (§4.7),

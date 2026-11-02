@@ -82,8 +82,17 @@ export function feedFreshness(
   return nowSeconds - feed.updatedAt > heartbeat * 1.1 ? 'late' : 'fresh';
 }
 
-export function feedProvider(feed: Pick<ChainlinkFeedSnapshot, 'registry'>): string {
-  return feed.registry ? 'Chainlink' : 'Unverified';
+/**
+ * `Chainlink` when the feed is a known directory proxy, `Unverified` when the
+ * directory loaded and does not list it, `Unknown` when the directory itself
+ * was unavailable (so nothing can be said about the feed).
+ */
+export function feedProvider(
+  feed: Pick<ChainlinkFeedSnapshot, 'registry'>,
+  registryAvailable = true
+): 'Chainlink' | 'Unverified' | 'Unknown' {
+  if (feed.registry) return 'Chainlink';
+  return registryAvailable ? 'Unverified' : 'Unknown';
 }
 
 /** Price · Exchange rate · Commodity … from the Chainlink directory. */
@@ -148,9 +157,12 @@ export function oracleKindLabel(kind: OracleKind): string {
 }
 
 /** Distinct providers across sources, e.g. ["Chainlink"]. */
-export function oracleProviders(sources: ReadonlyArray<Pick<OracleSourceSnapshot, 'feeds'>>): string[] {
+export function oracleProviders(
+  sources: ReadonlyArray<Pick<OracleSourceSnapshot, 'feeds'>>,
+  registryAvailable = true
+): string[] {
   const set = new Set<string>();
-  for (const s of sources) for (const f of s.feeds) set.add(feedProvider(f));
+  for (const s of sources) for (const f of s.feeds) set.add(feedProvider(f, registryAvailable));
   return [...set];
 }
 

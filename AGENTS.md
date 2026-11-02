@@ -26,9 +26,8 @@ npm run build   # next build
   `POST /api/auth/verify` is IP rate-limited (`AUTH_LOGIN_MAX_ATTEMPTS`).
   Sessions are HMAC-signed with `CURATOR_SESSION_SECRET` when set, otherwise
   `CURATOR_ADMIN_PASSWORD`. Bump
-  `CURATOR_SESSION_VERSION` to invalidate sessions. Login rate limits use
-  Upstash REST when `UPSTASH_REDIS_REST_*` are set; otherwise they are
-  per-instance memory.
+  `CURATOR_SESSION_VERSION` to invalidate sessions. Login rate limits are
+  per-instance memory (Upstash is not used).
 - **V2-only vault config:** all tracked vaults are Morpho V2 (`lib/config/vaults.ts`).
   No MetaMorpho / V1 vault routes. Blue market risk uses `blue-market-data.ts` +
   `compute-blue-market-risk.ts`. MetaMorpho adapters are ignored in risk, allocation,
@@ -140,10 +139,15 @@ npm run build   # next build
   SSG/`generateStaticParams` for vault addresses).
 - **Curator Morpho Markets** — `/markets` (default: All products, listed only, sort
   market size desc; product toggle All / Blue — variable rate / Midnight — fixed
-  rate), `/market/blue/[id]` (Blue), and
-  `/midnight/[id]` (Midnight order book — not Blue KPIs). Loan / Collateral /
-  Search apply to both tables (`market-pair-filter.ts`). Midnight REST
-  (`/v0/midnight/markets`, `/state`, `/books`, `/positions`). Browse lists filled
+  rate; Midnight status Active / Matured / All, default Active), `/market/blue/[id]` (Blue), and
+  `/midnight/[id]` (Midnight order book — not Blue KPIs). `/markets` lists Blue and
+  Midnight in one table; a blank cell means that product has no value (Midnight:
+  liquidity, 6H net APY, listed, Muscadine; Blue: maturity). Loan / Collateral /
+  Search apply to both products (`market-pair-filter.ts`). Midnight REST
+  (`/v0/midnight/markets`, `/state`, `/books`, `/positions`, `/transactions`).
+  Daily APR and outstanding-loan charts are built from market transactions
+  (180 days). APR is that day's volume-weighted lend price over the time left
+  to maturity. A failed history read is not cached. Browse lists filled
   market size (`total_units`). The market page adds summed lender credit and
   borrower debt; open lend / borrow offers stay there. Morpho app is
   `https://markets.morpho.org/fixed/{chain}/{id}`. Use `sizeUsd` /
@@ -167,11 +171,9 @@ npm run build   # next build
   deployable cash only (accrual residual is not Idle). Post-tx: refetch risk +
   governance, exit edit. Allocations **Min** = allocation minus withdrawable
   market liquidity (0 when fully liquid); replaces former Zero.
-- **Curator networks** — Base, Ethereum, HyperEVM, Robinhood only
-  (`CURATOR_MARKET_NETWORKS` + wagmi `chains`). Top-bar **NetworkSwitcher** sets
-  preferred chain **without requiring a wallet**; when connected it also
-  `switchChain`. `/markets` follows that preference
-  (not AppKit-only chain UI).
+- **Curator networks** — Base only (`CURATOR_MARKET_NETWORKS` + wagmi `chains`).
+  The account sheet shows Base; it does not offer another chain. `/markets`
+  follows that chain.
 - **Token display decimals** — `getTokenDisplayDecimals`: WETH/cbBTC → 6, USDC → 3
   (holders, txs, allocation history, markets token lines).
 - **Dependency pins** — ESLint **9.39.x**, wagmi **2.19.x**, TypeScript **6.0.x**
@@ -179,13 +181,3 @@ npm run build   # next build
   bump ESLint 10, wagmi 3, TypeScript 7, or ox 1 (§11).
 - Keep `docs/brain/` (changelog + MCP), `CLAUDE.md`, `AGENTS.md`, and `TODO.md`
   in sync with behavior changes (closed loop).
-
-<!-- BEGIN:nextjs-agent-rules -->
-
-# This is NOT the Next.js you know
-
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
-
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
-
-<!-- END:nextjs-agent-rules -->

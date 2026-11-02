@@ -30,20 +30,31 @@ export type VaultActivityRow = {
 
 const VAULT_WRITE_SKIP = new Set(['allocate', 'deallocate', 'multicall']);
 
-/** Human name for one Vault V2 call; `submit(data)` names the inner call. */
-export function describeVaultCall(data: string | null | undefined): string | null {
+type DecodedVaultCall = { functionName: string; args?: readonly unknown[] };
+
+function decodeVaultCall(data: string | null | undefined): DecodedVaultCall | null {
   if (!data || data === '0x') return null;
   try {
-    const decoded = decodeFunctionData({ abi: vaultV2Abi, data: data as Hex });
-    if (decoded.functionName === 'submit' || decoded.functionName === 'revoke') {
-      const inner = describeVaultCall(String(decoded.args?.[0] ?? ''));
-      const verb = decoded.functionName === 'submit' ? 'Submit' : 'Revoke';
-      return inner ? `${verb} ${inner}` : verb;
-    }
-    return decoded.functionName;
+    return decodeFunctionData({ abi: vaultV2Abi, data: data as Hex });
   } catch {
     return null;
   }
+}
+
+/** Name of an already-decoded call; `submit` / `revoke` name their inner call. */
+function describeDecoded(decoded: DecodedVaultCall): string {
+  if (decoded.functionName === 'submit' || decoded.functionName === 'revoke') {
+    const inner = describeVaultCall(String(decoded.args?.[0] ?? ''));
+    const verb = decoded.functionName === 'submit' ? 'Submit' : 'Revoke';
+    return inner ? `${verb} ${inner}` : verb;
+  }
+  return decoded.functionName;
+}
+
+/** Human name for one Vault V2 call; `submit(data)` names the inner call. */
+export function describeVaultCall(data: string | null | undefined): string | null {
+  const decoded = decodeVaultCall(data);
+  return decoded ? describeDecoded(decoded) : null;
 }
 
 export type GovernanceCall = {
@@ -57,17 +68,13 @@ export type GovernanceCall = {
   submittedData: string | null;
 };
 
-function governanceCall(data: Hex): GovernanceCall | null {
-  const action = describeVaultCall(data);
-  if (!action || VAULT_WRITE_SKIP.has(action)) return null;
-  let submittedData: string | null = null;
-  try {
-    const decoded = decodeFunctionData({ abi: vaultV2Abi, data });
-    if (decoded.functionName === 'submit') submittedData = String(decoded.args?.[0] ?? '');
-  } catch {
-    /* describeVaultCall already named it */
-  }
-  return { action, submittedData: submittedData ? submittedData.toLowerCase() : null };
+/** One decoded call → governance row (allocations skipped). Decodes nothing again. */
+function governanceCall(decoded: DecodedVaultCall): GovernanceCall | null {
+  const action = describeDecoded(decoded);
+  if (VAULT_WRITE_SKIP.has(action)) return null;
+  const submitted =
+    decoded.functionName === 'submit' ? String(decoded.args?.[0] ?? '').toLowerCase() : '';
+  return { action, submittedData: submitted || null };
 }
 
 /**
@@ -91,17 +98,18 @@ export function governanceCallsFromSafeTx(
 
   const out: GovernanceCall[] = [];
   for (const data of calls) {
-    let functionName: string;
-    let args: readonly unknown[] | undefined;
-    try {
-      ({ functionName, args } = decodeFunctionData({ abi: vaultV2Abi, data }));
-    } catch {
+    const decoded = decodeVaultCall(data);
+    if (!decoded) {
       out.push({ action: 'Unknown call', submittedData: null });
       continue;
     }
-    const inner = functionName === 'multicall' ? ((args?.[0] as readonly Hex[]) ?? []) : [data];
+    // Each call is decoded once; a multicall decodes its inner calls once each.
+    const inner =
+      decoded.functionName === 'multicall'
+        ? ((decoded.args?.[0] as readonly Hex[] | undefined) ?? []).map(decodeVaultCall)
+        : [decoded];
     for (const call of inner) {
-      const g = governanceCall(call);
+      const g = call ? governanceCall(call) : null;
       if (g) out.push(g);
     }
   }

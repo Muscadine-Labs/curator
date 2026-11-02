@@ -54,11 +54,15 @@ describe('activeChainlinkSource (meta oracle)', () => {
     ).toBeNull();
   });
 
-  it('defaults to primary when currentOracle is unreadable', () => {
-    const primary = source(PRIMARY);
+  it('does not assume primary when currentOracle is unreadable', () => {
     expect(
-      activeChainlinkSource({ kind: 'metaOracle', meta: meta(null), primary, backup: null })
-    ).toBe(primary);
+      activeChainlinkSource({
+        kind: 'metaOracle',
+        meta: meta(null),
+        primary: source(PRIMARY),
+        backup: source(BACKUP),
+      })
+    ).toBeNull();
   });
 
   it('reports backup pricing from the meta state alone', () => {

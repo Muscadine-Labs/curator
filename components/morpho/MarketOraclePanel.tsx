@@ -73,11 +73,13 @@ function ConstructionRow({
   chainId,
   now,
   symbol,
+  registryAvailable,
 }: {
   row: OracleConstructionRow;
   chainId: number;
   now: number;
   symbol: string;
+  registryAvailable: boolean;
 }) {
   const cell = 'px-3 py-2 align-middle whitespace-nowrap';
   if (row.kind === 'fixed') {
@@ -139,8 +141,8 @@ function ConstructionRow({
         <Badge variant="secondary" className="text-[10px]">{feedTypeLabel(feed)}</Badge>
       </td>
       <td className={cell}>
-        <span className={cn(!reg && 'text-amber-600 dark:text-amber-400')}>
-          {feedProvider(feed)}
+        <span className={cn(!reg && registryAvailable && 'text-amber-600 dark:text-amber-400')}>
+          {feedProvider(feed, registryAvailable)}
         </span>
       </td>
       <td className={cn(cell, 'tabular-nums')}>
@@ -186,7 +188,9 @@ function SourceTable({
   collateralSymbol,
   loanSymbol,
   showHeader,
+  registryAvailable,
 }: {
+  registryAvailable: boolean;
   source: OracleSourceSnapshot;
   index: number;
   chainId: number;
@@ -243,6 +247,7 @@ function SourceTable({
                     chainId={chainId}
                     now={now}
                     symbol={g.symbol}
+                    registryAvailable={registryAvailable}
                   />
                 ))}
               </Fragment>
@@ -353,10 +358,12 @@ export function MarketOraclePanel({
         )
       : null;
   const deviation = oracleDeviationPct(oraclePrice?.mismatchRatio);
-  const providers = oracleProviders(sources);
+  // Older cached snapshots lack the flag; treat them as directory-available.
+  const registryAvailable = oraclePrice?.registryAvailable ?? true;
+  const providers = oracleProviders(sources, registryAvailable);
   const allFeeds = sources.flatMap((s) => s.feeds);
   const lateFeeds = allFeeds.filter((f) => feedFreshness(f, now) === 'late');
-  const unverifiedFeeds = allFeeds.filter((f) => !f.registry);
+  const unverifiedFeeds = registryAvailable ? allFeeds.filter((f) => !f.registry) : [];
   const kind = oraclePrice?.kind ?? 'unknown';
 
   const alerts: string[] = [];
@@ -383,6 +390,11 @@ export function MarketOraclePanel({
   for (const s of hardcoded) {
     alerts.push(
       `${s.role === 'single' ? 'This oracle' : `The ${s.role} source`}${s.active && s.role !== 'single' ? ' (active)' : ''} is hardcoded — it has no feeds and does not track the market price.`
+    );
+  }
+  if (oraclePrice?.meta && !oraclePrice.meta.currentOracle) {
+    alerts.push(
+      'Could not read which source (primary or backup) currently prices this market; freshness and bound checks are skipped.'
     );
   }
   if (oraclePrice?.onBackup) alerts.push('This oracle is currently pricing from its backup source.');
@@ -434,7 +446,6 @@ export function MarketOraclePanel({
             <Attr label="Oracle contract">
               {oracleAddress ? <ExplorerAddressLink address={oracleAddress} chainId={chainId} /> : '—'}
             </Attr>
-            <Attr label="Type">{oracleKindLabel(kind)}</Attr>
             <Attr label="Created">
               {oracleCreatedAt
                 ? new Date(oracleCreatedAt * 1000).toISOString().slice(0, 10)
@@ -498,6 +509,7 @@ export function MarketOraclePanel({
             collateralSymbol={collateralSymbol}
             loanSymbol={loanSymbol}
             showHeader={sources.length > 1}
+            registryAvailable={registryAvailable}
           />
         ))}
 
@@ -505,6 +517,9 @@ export function MarketOraclePanel({
           <p className="text-xs text-muted-foreground">
             Oracle price = collateral side ÷ loan side × scale. Heartbeat and deviation come from
             Chainlink&apos;s feed directory
+            {!registryAvailable
+              ? ' (unavailable right now — providers and heartbeats are unknown, not unverified)'
+              : ''}
             {unverifiedFeeds.length > 0
               ? '; feeds marked Unverified are not Chainlink proxies on this chain — check who controls them'
               : ''}

@@ -111,6 +111,8 @@ export type VaultV2GovernanceResponse = {
 
 export type AdapterInfo = {
   address: string;
+  /** GraphQL concrete type, so adapters outside the known fragments can still be classified. */
+  __typename?: string | null;
   type: string;
   assets: number | null;
   assetsUsd: number | null;
@@ -178,6 +180,10 @@ const VAULT_V2_GOVERNANCE_QUERY = gql`
       liquidityAdapter {
         __typename
         address
+        type
+        assets
+        assetsUsd
+        forceDeallocatePenalty
         ... on MetaMorphoAdapter {
           type
           assets
@@ -221,6 +227,10 @@ const VAULT_V2_GOVERNANCE_QUERY = gql`
         items {
           __typename
           address
+          type
+          assets
+          assetsUsd
+          forceDeallocatePenalty
           ... on MetaMorphoAdapter {
             type
             assets
@@ -302,7 +312,8 @@ function mapAdapter(
 
   return {
     address: graph.address,
-    type: graph.type ?? 'Unknown',
+    __typename: graph.__typename ?? null,
+    type: graph.type ?? graph.__typename ?? 'Unknown',
     assets:
       graph.assets === null || graph.assets === undefined
         ? null

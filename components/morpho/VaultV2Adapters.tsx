@@ -12,7 +12,8 @@ import {
 } from '@/components/morpho/CuratorChrome';
 import { isAdapterCap } from '@/lib/morpho/cap-utils';
 import { formatCapCompactAmount, formatCapRelative } from '@/lib/morpho/v2-cap-format';
-import { summarizeAdapter } from '@/lib/morpho/vault-adapter-summary';
+import { estimateRawFromUsd } from '@/lib/format/allocation-display';
+import { adapterAllocationRaw, summarizeAdapter } from '@/lib/morpho/vault-adapter-summary';
 import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
 import { useVaultV2Risk } from '@/lib/hooks/useVaultV2Risk';
 import { formatPercentage, formatRawTokenAmount, formatUSD } from '@/lib/format/number';
@@ -25,12 +26,14 @@ import {
   underlyingVaultLabel,
   isMorphoVaultV2Adapter,
   UNDERLYING_VAULT_FALLBACK,
+  vaultAdapterProduct,
 } from '@/lib/morpho/vault-v2-adapter';
 import {
   getConfiguredVaultDisplayName,
   getVaultByAddress,
   resolveUnderlyingVaultAddress,
 } from '@/lib/config/vaults';
+import { cn } from '@/lib/utils';
 import type { AdapterInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/[id]/governance/route';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/[id]/risk/route';
 
@@ -65,11 +68,15 @@ export function VaultV2Adapters({
       .sort((a, b) => (b.assetsUsd ?? 0) - (a.assetsUsd ?? 0));
   }, [data?.adapters]);
 
+  // Deployable idle is the vault's own on-chain asset balance (risk overlay);
+  // GraphQL idle lags right after a rebalance and is only the fallback.
+  const idleRaw = risk?.idleAssets ?? data?.idleAssets ?? null;
+  const idleUsd = risk?.idleAssetsUsd ?? data?.idleAssetsUsd ?? 0;
+
   const totalUsd = useMemo(() => {
-    const idle = data?.idleAssetsUsd ?? 0;
     const strat = adapters.reduce((s, a) => s + (a.assetsUsd ?? 0), 0);
-    return idle + strat;
-  }, [data?.idleAssetsUsd, adapters]);
+    return idleUsd + strat;
+  }, [idleUsd, adapters]);
 
   const chainDecimals = resolveAssetDecimals(assetSymbol ?? undefined, assetDecimals ?? undefined);
   const displayDecimals = getTokenDisplayDecimals(assetSymbol ?? undefined, chainDecimals);
@@ -97,7 +104,6 @@ export function VaultV2Adapters({
     );
   }
 
-  const idleUsd = data.idleAssetsUsd ?? 0;
   const th = 'whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-muted-foreground';
   const td = 'whitespace-nowrap border-t border-border/60 px-3 py-2 align-top';
 
@@ -140,21 +146,29 @@ export function VaultV2Adapters({
               </td>
               <td className={`${td} text-muted-foreground`}>—</td>
               <td className={`${td} text-right tabular-nums`}>
-                {formatToken(data.idleAssets, chainDecimals, displayDecimals, assetSymbol)}
+                {formatToken(idleRaw, chainDecimals, displayDecimals, assetSymbol)}
                 <p className="text-xs text-muted-foreground">{pctOfTotal(idleUsd, totalUsd)}</p>
               </td>
               <td className={`${td} text-right text-muted-foreground`}>No cap</td>
-              <td className={`${td} text-right tabular-nums`}>{formatUSD(idleUsd, 2)}</td>
+              <td className={`${td} text-right tabular-nums`} title={formatUSD(idleUsd, 2)}>
+                {/* Idle cash is fully withdrawable, so liquidity = idle. */}
+                {formatToken(idleRaw, chainDecimals, displayDecimals, assetSymbol)}
+              </td>
               <td className={`${td} text-right text-muted-foreground`}>0%</td>
               <td className={`${td} text-right text-muted-foreground`}>—</td>
             </tr>
             {adapters.map((adapter) => {
               const key = adapter.address.toLowerCase();
+              const product = vaultAdapterProduct(adapter);
               const isLiquidity = key === liquidityAdapterAddress;
               const riskAdapter = risk?.adapters?.find(
                 (a) => a.adapterAddress.toLowerCase() === key
               );
               const usd = adapter.assetsUsd ?? 0;
+              const allocationRaw = adapterAllocationRaw(
+                riskAdapter?.allocationAssets,
+                adapter.assets
+              );
               const summary = summarizeAdapter({
                 allocationUsd: riskAdapter?.allocationUsd ?? usd,
                 markets: (riskAdapter?.markets ?? []).map((m) => ({
@@ -180,10 +194,27 @@ export function VaultV2Adapters({
                   : '—';
 
               return (
-                <tr key={adapter.address}>
+                <tr
+                  key={adapter.address}
+                  className={cn(
+                    product === 'blue' && 'bg-blue-50/80 dark:bg-blue-950/40',
+                    product === 'midnight' && 'bg-neutral-100 dark:bg-neutral-900'
+                  )}
+                >
                   <td className={td}>
                     <div className="flex flex-col gap-1">
-                      <span className="font-medium">{adapterLabel(adapter, vaultAddress)}</span>
+                      <span className="flex items-center gap-2 font-medium">
+                        <span
+                          className={cn(
+                            'inline-block h-3 w-3 shrink-0 rounded-sm',
+                            product === 'blue' && 'bg-blue-600',
+                            product === 'midnight' && 'bg-black',
+                            product == null && 'bg-muted-foreground/40'
+                          )}
+                          aria-hidden
+                        />
+                        {adapterLabel(adapter, vaultAddress)}
+                      </span>
                       <AddressBadge address={adapter.address} truncate />
                       {isLiquidity && (
                         <Badge
@@ -198,7 +229,9 @@ export function VaultV2Adapters({
                   </td>
                   <td className={td}>{underlying}</td>
                   <td className={`${td} text-right tabular-nums`}>
-                    {formatTokenFromAssets(adapter.assets, chainDecimals, displayDecimals, assetSymbol)}
+                    {allocationRaw != null
+                      ? formatTokenRaw(allocationRaw, chainDecimals, displayDecimals, assetSymbol)
+                      : '—'}
                     <p className="text-xs text-muted-foreground">
                       {pctOfTotal(usd, totalUsd)} · {formatUSD(usd, 2)}
                     </p>
@@ -212,7 +245,9 @@ export function VaultV2Adapters({
                     </p>
                   </td>
                   <td className={`${td} text-right tabular-nums`}>
-                    {summary.liquidityUsd != null ? formatUSD(summary.liquidityUsd, 2) : '—'}
+                    <span title={summary.liquidityUsd != null ? formatUSD(summary.liquidityUsd, 2) : undefined}>
+                      {formatLiquidityTokens(summary.liquidityUsd, usd, allocationRaw, assetSymbol, assetDecimals)}
+                    </span>
                   </td>
                   <td className={`${td} text-right tabular-nums`}>
                     {summary.rate != null ? formatPercentage(summary.rate * 100) : '—'}
@@ -278,17 +313,30 @@ function formatToken(
   }
 }
 
-function formatTokenFromAssets(
-  assets: number | null,
+function formatTokenRaw(
+  raw: bigint,
   decimals: number,
   displayDecimals: number,
   symbol?: string | null
 ): string {
-  if (assets == null) return '—';
-  try {
-    const f = formatRawTokenAmount(BigInt(Math.floor(assets)), decimals, displayDecimals);
-    return symbol ? `${f} ${symbol}` : f;
-  } catch {
-    return '—';
-  }
+  const f = formatRawTokenAmount(raw, decimals, displayDecimals);
+  return symbol ? `${f} ${symbol}` : f;
+}
+
+/**
+ * Withdrawable liquidity as a compact token amount (Morpho shows `24.85k USDC`).
+ * Converted with the adapter's own token/USD ratio; USD stays in the tooltip.
+ */
+function formatLiquidityTokens(
+  liquidityUsd: number | null,
+  allocationUsd: number,
+  allocationRaw: bigint | null,
+  symbol: string | null | undefined,
+  decimals: number | null | undefined
+): string {
+  if (liquidityUsd == null) return '—';
+  if (liquidityUsd <= 0) return symbol ? `0 ${symbol}` : '0';
+  if (allocationRaw == null || allocationUsd <= 0) return formatUSD(liquidityUsd, 2);
+  const raw = estimateRawFromUsd(liquidityUsd, allocationUsd, allocationRaw);
+  return raw != null ? formatCapCompactAmount(raw.toString(), symbol, decimals) : formatUSD(liquidityUsd, 2);
 }

@@ -34,8 +34,10 @@ export interface MarketRiskDetailCardProps {
   vaultTotalUsd?: number;
   className?: string;
   chainId?: number;
-  /** Where the market name links: curator (vault risk) or Morpho app (curator market page). */
+  /** Where the market name links. The vault Risk tab stays in-app; the market page opens Morpho. */
   marketTitleLink?: 'curator' | 'morpho';
+  /** Hide the market snapshot (name, size, liquidity, APYs). The market page already shows those. */
+  scoresOnly?: boolean;
 }
 
 export function MarketRiskDetailCard({
@@ -47,6 +49,7 @@ export function MarketRiskDetailCard({
   className,
   chainId = BASE_CHAIN_ID,
   marketTitleLink = 'curator',
+  scoresOnly = false,
 }: MarketRiskDetailCardProps) {
   const marketName = formatMarketIdentifier(
     market.loanAsset?.symbol,
@@ -170,6 +173,9 @@ export function MarketRiskDetailCard({
       )}
     >
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+        {scoresOnly ? (
+          <p className="text-sm font-medium text-foreground">Risk score</p>
+        ) : (
         <div className="flex-1">
           <div className="flex flex-wrap items-center gap-2">
             {marketTitle}
@@ -190,6 +196,7 @@ export function MarketRiskDetailCard({
             </p>
           </div>
         </div>
+        )}
         {!isIdle && scores && (
           <div className="text-right">
             <Badge
@@ -269,6 +276,7 @@ export function MarketRiskDetailCard({
             />
           </div>
 
+          {!scoresOnly && (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-2 border-t">
             <div>
               <p className="text-xs text-muted-foreground mb-1">Total Market Size</p>
@@ -311,6 +319,7 @@ export function MarketRiskDetailCard({
               }
             />
           </div>
+          )}
         </>
       )}
     </div>

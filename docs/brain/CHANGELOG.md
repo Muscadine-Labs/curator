@@ -4,6 +4,135 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-02 — Code review fixes (PR #80)
+
+- `/markets` no longer bundles server Midnight / oracle / RPC code: pure helpers moved to `lib/morpho/midnight-format.ts`; clients import types only from `midnight-markets`.
+- Midnight detail: history paging runs in parallel with metadata + oracle decode; collateral oracle reads cut at 12s, spot at 5s; incremental price top-up; snapshot map capped at 48 (LRU). Dead bucket mapper removed.
+- Safe queue: a revert with proposals queued ahead is a card warning (`simulationWarning`), not a block — sequenced proposals can queue.
+- Adapters table: Idle uses on-chain idle; token amounts from raw on-chain allocation (`adapterAllocationRaw`), no float → BigInt crash.
+- Codex: Midnight live USD headline uses the live loan price (`loanPriceUsd`), not a $0 opening-balance point; snapshot eviction covered by the LRU cap.
+- Codex: `useVaultWrite` / `useSafeFunding` switch chains based on the wallet's real chain (`useAccount().chainId`), not `useChainId()` (always Base with Base-only config).
+- Codex: Safe queue's "queued ahead" count includes Transaction Service proposals (other browsers) above the on-chain nonce, deduped by `safeTxHash`; fetched only after a revert.
+- Codex: local Safe rows below the on-chain nonce (executed by another client) no longer count as queued ahead.
+- Codex: a failed Midnight history read is held 5s, not 30s, so a recovered endpoint is retried promptly.
+- Review: today's price refreshes on each top-up; imported Safe bundles drop `simulationWarning`.
+- Blue market detail route deduped in-process for 30s (was uncached: GraphQL + RPC per poll per tab).
+
+---
+
+## 2026-11-02 — Gates "Safe history only" + env docs
+
+- Gate roster status `safeHistory` when candidates come from the Curator / Allocator Safe history; `/curator/gates` labels it **Safe history only** (misses other whitelisters and relayed signatures). No paid log source added.
+- README / `.env.example` / CLAUDE env table drop Upstash and the paid Blockscout / Etherscan keys (not used). The optional code paths stay.
+
+---
+
+## 2026-11-01 — On-chain path review (PR #80)
+
+- Liquidity adapter options require market params that hash to the market id; zero-filled params would set `liquidityData` for a nonexistent market and brick deposits/withdrawals.
+- Safe proposals are simulated from the Safe before queueing (`assertSafeCallSucceeds`); reverts block, RPC failures do not.
+- Codex: unknown Midnight `total_units` charts null not zero; incomplete first scans are retried in full.
+- Verified unchanged: v2 write builders, cap-decrease parsing (≤ current, exact WAD), Sentinel deallocate data/clamp, rebalance finalize + fingerprint + simulate-as-Safe, Safe hash re-check, execute `value: 0`, receipt-gated executed.
+
+---
+
+## 2026-11-01 — Whole-repo review + Codex (PR #80)
+
+- Codex: transactions 404 → history unavailable (not empty); USD series uses daily `historicalPriceUsd`; chart dates in UTC.
+- Token cache: spot prices expire at 30s, failures not cached; metadata falls back to on-chain decimals, placeholders held 30s only.
+- Midnight history: raw events cached within 30s TTL with incremental refresh (only newer events); headline uses live total; price-history call capped at 5s.
+- Meta oracle: unreadable `currentOracle()` → no active source + panel warning (no primary substitution).
+- Market activity: failed supplier lookups set `warning` and skip the cache.
+- Removed duplicate `oracle.type` selection; vault-activity decodes each call once.
+
+---
+
+## 2026-11-01 — PR #80 review fixes
+
+- Midnight outstanding history: count `total_units_delta` on `lend` / `exit_borrow_secondary` (one leg per fill). Debt handovers no longer inflate past outstanding by billions; `roll` stays uncounted (its `exit_borrow_primary` already subtracts). Tests use the live shapes.
+- Midnight history paging has a 20s budget and degrades to partial / last good series; snapshot freshness is decided once; failures are held 30s instead of restarting the scan every request.
+- Market suppliers: listing vaults with no supply are not supplier rows; merged list re-sorted; unused `vaults` output and curator fields removed; configured-vault adapters fetched in parallel.
+- "Wallet not on Base" hint reads `useAccount().chainId` (useChainId stays 8453 with Base-only config).
+- Midnight charts use shared `formatCompactAmount` / `formatPrice`; units → USD via `formatUnits`.
+- CLAUDE.md: Base-only sidebar note replaces the stale Ethereum line.
+
+---
+
+## 2026-11-01 — Price chart scale
+
+- The Midnight price chart scales to the take prices. A price near 1 is no longer drawn on a 0–1 axis.
+
+---
+
+## 2026-11-01 — Midnight history comes from transactions
+
+- The charts were empty because the Morpho app history route answers servers with a bot challenge. Daily APR and outstanding loans are now built from the public Midnight transaction list. A failed read is not cached. The rate panel title follows the APR / Price toggle, and an empty tooltip value stays a dash.
+
+---
+
+## 2026-11-01 — Base is the only network
+
+- The account sheet, wallet, and market APIs no longer offer Ethereum, HyperEVM, or Robinhood. Base stays labeled in the account sheet. Explorer links for other chains still resolve.
+
+---
+
+## 2026-11-01 — Midnight analytics charts
+
+- The Midnight market page charts daily APR and outstanding loans the way Morpho’s analytics tab does. APR uses that day’s take price and the time left until maturity. The public Midnight API has no history route, so the series comes from the markets app history call. A failed history call leaves the charts empty.
+
+---
+
+## 2026-11-01 — Vault overview drops the allocation bar
+
+- The pinned "Where assets sit" bar is gone from the vault overview. Adapter rows still mark Blue and Midnight.
+
+---
+
+## 2026-11-01 — Supplier rows and market filter links
+
+- Market back-links and the Blue / Midnight product switch keep the current browse filters. `replaceState` does not update `useSearchParams`.
+- A V2 supplier row sums every adapter and links the largest adapter. Configured Muscadine vaults are included even when Morpho omits them from the 20-vault `supplyingVaultV2s` list and the top 100 suppliers.
+
+---
+
+## 2026-11-01 — 1% steps on market curves
+
+- Blue market IRM utilization curve and collateral-at-risk curve are sampled every 1% (`numberOfPoints: 100`). The collateral axis labels stay every 10%.
+
+---
+
+## 2026-11-01 — Market pages drop repeated facts
+
+- Blue and Midnight market pages keep oracle price, contract, and feeds in `MarketOraclePanel` only. Overview no longer repeats network, oracle price, supply, utilization, or instant APY. Liquidation LLTV stays once. `MarketRiskDetailCard` on the market page is scores only.
+- Market page names every listing vault on the supplier list, including vaults outside the top 100 positions. Listed and Muscadine filters hide on Midnight-only browse. Blue row tint is Muscadine caps only. Midnight adapter rows stay light so the address stays readable.
+
+---
+
+## 2026-11-01 — Vault allocation colors and market suppliers
+
+- Vault overview allocation bar and adapter rows: Blue is blue, Midnight is black, and the bar stays pinned while the overview scrolls.
+- Market page drops the separate vaults-supplying table. A V2 vault that supplies through its adapter is named on the supplier row and links to the vault.
+
+---
+
+## 2026-11-01 — One markets table for Blue and Midnight
+
+- `/markets` sorts Blue and Midnight in one table (`markets-browse-rows.ts`). Shared columns stay blank when a product has no value, and blanks sort last. Blue-only and Midnight-only browse keep the columns that product fills.
+
+---
+
+## 2026-11-01 — Midnight active / matured filter on /markets
+
+- `/markets` Midnight table defaults to markets that have not matured. The Midnight select is Active, Matured, or All (`maturity` query; Active omitted). `isMidnightMarketActive` in `lib/morpho/midnight-markets.ts`.
+## 2026-11-01 — High-effort review follow-ups (carried onto PR #80)
+
+- Rate-limit buckets key on the route template (hex ids → `:id`), so varying an id cannot mint fresh budgets.
+- Protocol transactions panel shows the API error instead of "No recent transactions" during a Morpho outage.
+- Oracle panel: feeds read Unknown (not Unverified) when the Chainlink directory is unavailable (`registryAvailable`).
+- Adapter table liquidity in compact tokens like Morpho (`24.85k USDC`).
+
+---
+
 ## 2026-11-01 — Repo-wide review fixes (PR #79)
 
 - protocol-stats: failed vault TVL / depositor reads go into `warning` (dashboard banner) and the result is not cached; depositors page past 1,000. protocol-transactions throws instead of caching an empty list.

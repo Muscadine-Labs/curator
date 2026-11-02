@@ -2,7 +2,11 @@ import { zeroAddress, type Hex } from 'viem';
 import type { VaultV2GovernanceResponse, CapInfo } from '@/app/api/vaults/[id]/governance/route';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/[id]/risk/route';
 import { isMarketCap } from '@/lib/morpho/cap-utils';
-import { encodeMarketParamsData, type MarketParamsInput } from '@/lib/morpho/v2-id-data';
+import {
+  encodeMarketParamsData,
+  marketParamsMatchMarketKey,
+  type MarketParamsInput,
+} from '@/lib/morpho/v2-id-data';
 import { formatMarketPairLabel, formatLltvPill } from '@/components/morpho/AllocationListView';
 import { marketKeyFromGraphQL, morphoMarketHref } from '@/lib/morpho/morpho-app-links';
 import { isMorphoVaultV2Adapter } from '@/lib/morpho/vault-v2-adapter';
@@ -59,6 +63,17 @@ export function resolveLiquidityDisplay(
     lltv: formatLltvPill(data.marketParams?.lltv ?? null),
     morphoHref: data.marketKey ? morphoMarketHref(data.marketKey) : null,
   };
+}
+
+/**
+ * A market is offered as the liquidity target only when its params hash back
+ * to its own id. Missing oracle / IRM / LLTV are zero-filled by the encoder,
+ * giving `liquidityData` for a market that does not exist; the vault accepts
+ * that on `setLiquidityAdapterAndData`, and then every user deposit and
+ * withdrawal reverts. Same rule as `resolveCapIdData` (CLAUDE.md §3.2).
+ */
+function isVerifiedMarket(market: MarketParamsInput, marketKey: string | null | undefined): boolean {
+  return Boolean(marketKey) && marketParamsMatchMarketKey(market, marketKey!);
 }
 
 function capToMarketInput(cap: CapInfo): MarketParamsInput | null {
@@ -129,6 +144,7 @@ export function buildLiquidityAdapterOptions(
     for (const m of adapter.markets ?? []) {
       if (!m.market) continue;
       const marketKey = marketKeyFromGraphQL(m.market);
+      if (!isVerifiedMarket(m.market, marketKey)) continue;
       add(
         optionFromMarket(
           adapter.adapterAddress,
@@ -143,7 +159,7 @@ export function buildLiquidityAdapterOptions(
   for (const cap of governance.caps ?? []) {
     if (!isMarketCap(cap) || !cap.adapterAddress) continue;
     const market = capToMarketInput(cap);
-    if (!market) continue;
+    if (!market || !isVerifiedMarket(market, cap.marketKey)) continue;
     add(
       optionFromMarket(
         cap.adapterAddress,

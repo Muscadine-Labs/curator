@@ -70,3 +70,23 @@ export function summarizeAdapter(adapter: AdapterSummaryInput): AdapterSummary {
     activeMarketsCount: active,
   };
 }
+
+/**
+ * Raw allocation in underlying units: the risk overlay's on-chain string when
+ * present, else the governance number. A non-finite number (malformed or
+ * Infinity) is unknown — `BigInt` would throw mid-render and take the table down.
+ */
+export function adapterAllocationRaw(
+  onChain: string | null | undefined,
+  governanceAssets: number | null | undefined
+): bigint | null {
+  if (onChain != null && onChain !== '') {
+    try {
+      return BigInt(onChain.split('.')[0] ?? '');
+    } catch {
+      /* fall through */
+    }
+  }
+  if (governanceAssets == null || !Number.isFinite(governanceAssets)) return null;
+  return BigInt(Math.max(0, Math.floor(governanceAssets)));
+}

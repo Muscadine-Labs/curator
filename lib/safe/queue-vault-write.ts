@@ -12,15 +12,21 @@ import { buildVaultRebalanceCalldata } from '@/lib/safe/build-vault-calldata';
 import {
   createSafeTransactionFromCalldata,
   createSafeTransactionFromCalls,
+  initSafeProtocolKit,
 } from '@/lib/safe/protocol-kit-client';
 import { sendTransactionViaSafeApp } from '@/lib/safe/safe-apps-send';
 import { autoShareQueuedTransaction } from '@/lib/safe/auto-share';
+import {
+  checkSafeCallBeforeQueue,
+  countDistinctQueuedProposals,
+} from '@/lib/safe/simulate-safe-call';
 import {
   upsertPendingTransaction,
   updatePendingTransaction,
   removePendingTransaction,
   getPendingById,
   getSafePendingSnapshot,
+  listPendingForRole,
 } from '@/lib/safe/pending-store';
 import {
   fetchPendingMultisigTransactions,
@@ -90,6 +96,25 @@ async function tryPublishViaSafeApp(
   }
 }
 
+/**
+ * Unexecuted proposals queued for this Safe: local rows and (when configured)
+ * Transaction Service rows, both filtered to the on-chain nonce so a local row
+ * another client already executed does not count. A failed service read uses
+ * local rows only; a failed nonce read keeps every row.
+ */
+async function countQueuedAheadForSafe(role: SafeRole, safeAddress: Address): Promise<number> {
+  const local = listPendingForRole(role);
+  const [serviceTxs, onChainNonce] = await Promise.all([
+    isTransactionServiceConfigured()
+      ? fetchPendingMultisigTransactions(safeAddress).catch(() => [])
+      : Promise.resolve([]),
+    initSafeProtocolKit({ safeAddress })
+      .then(async (kit) => Number(await kit.getNonce()))
+      .catch(() => null),
+  ]);
+  return countDistinctQueuedProposals(local, serviceTxs, onChainNonce);
+}
+
 /** A Safe meta-tx target. `value` is native ETH in wei, defaulting to none. */
 export type SafeCalldata = { to: Address; data: Hex; value?: bigint };
 
@@ -104,6 +129,16 @@ export async function queueSafeTransaction(options: {
   safeAppSdk?: SafeAppsSDK | null;
 }): Promise<SafePendingTransaction> {
   const safe = getSafeByRole(options.safeRole);
+
+  // Fail before owners sign, not at execution. With proposals queued ahead
+  // the result is only a warning: they may change the state this call needs.
+  const simulationWarning = await checkSafeCallBeforeQueue({
+    safe: getAddress(safe.address),
+    to: options.calldata.to,
+    data: options.calldata.data,
+    value: options.calldata.value,
+    countQueuedAhead: () => countQueuedAheadForSafe(options.safeRole, getAddress(safe.address)),
+  });
 
   const { safeTxHash, transactionData } = await createSafeTransactionFromCalldata({
     safeAddress: safe.address,
@@ -129,6 +164,7 @@ export async function queueSafeTransaction(options: {
     updatedAt: now,
     serviceSynced: false,
     serviceSyncError: null,
+    simulationWarning,
   };
 
   upsertPendingTransaction(tx);

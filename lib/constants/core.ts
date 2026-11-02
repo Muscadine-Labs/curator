@@ -9,14 +9,11 @@ export const HYPEREVM_CHAIN_ID = 999;
 /** Robinhood Chain mainnet */
 export const ROBINHOOD_CHAIN_ID = 4663;
 /**
- * Canonical curator networks — top-bar wallet + /markets + /market must match.
- * Order: Base, Ethereum, HyperEVM, Robinhood.
+ * Networks the app can browse. Base only — the account sheet, wallet, and
+ * market APIs do not offer another chain.
  */
 export const CURATOR_MARKET_NETWORKS = [
   { chainId: BASE_CHAIN_ID, name: 'Base', morphoSlug: 'base' },
-  { chainId: ETHEREUM_CHAIN_ID, name: 'Ethereum', morphoSlug: 'ethereum' },
-  { chainId: HYPEREVM_CHAIN_ID, name: 'HyperEVM', morphoSlug: 'hyperevm' },
-  { chainId: ROBINHOOD_CHAIN_ID, name: 'Robinhood', morphoSlug: 'robinhood' },
 ] as const;
 
 /** Sidebar vault grouping — same chain set as markets/wallet. */

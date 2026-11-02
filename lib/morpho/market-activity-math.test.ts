@@ -35,10 +35,11 @@ describe('collateralAtRiskCurve', () => {
     expect(curve.map((p) => p.collateralUsd)).toEqual([10, 10, 110, 160, 160]);
     expect(curve.map((p) => p.positions)).toEqual([1, 1, 2, 3, 3]);
   });
-  it('defaults to 0% … −90% in 5% steps', () => {
+  it('defaults to 0% … −99% in 1% steps', () => {
     const curve = collateralAtRiskCurve([]);
-    expect(curve).toHaveLength(19);
-    expect(curve[18].priceChange).toBeCloseTo(-0.9);
+    expect(curve).toHaveLength(100);
+    expect(curve[1].priceChange).toBeCloseTo(-0.01);
+    expect(curve[99].priceChange).toBeCloseTo(-0.99);
   });
 });
 
@@ -71,7 +72,6 @@ describe('mapMarketActivity', () => {
               address: '0xv1',
               name: 'V1 Vault',
               state: {
-                curator: '0xcur',
                 allocation: [
                   { market: { marketId: '0xother' }, supplyAssets: 1, supplyAssetsUsd: 1 },
                   { market: { marketId: '0xABC' }, supplyAssets: '500', supplyAssetsUsd: 5 },
@@ -83,13 +83,11 @@ describe('mapMarketActivity', () => {
             {
               address: '0xv2',
               name: 'V2 Vault',
-              curators: { items: [{ name: 'Muscadine' }] },
               adapters: { items: [{ address: '0xAdapter' }] },
             },
             {
               address: '0xv2b',
               name: 'Small V2',
-              curators: { items: [] },
               adapters: { items: [{ address: '0xnotsupplier' }] },
             },
           ],
@@ -111,14 +109,90 @@ describe('mapMarketActivity', () => {
       },
       MARKET
     );
-    expect(out.vaults.map((v) => [v.name, v.allocation, v.curator])).toEqual([
-      ['V2 Vault', '700', 'Muscadine'],
-      ['V1 Vault', '500', '0xcur'],
-      ['Small V2', null, null],
+    // Largest first; 'Small V2' lists the market but supplies nothing, so it is
+    // not a supplier row.
+    expect(out.suppliers.map((s) => [s.address, s.vaultName, s.vaultAddress, s.supplyAssets])).toEqual([
+      ['0xadapter', 'V2 Vault', '0xv2', '700'],
+      ['0xv1', 'V1 Vault', '0xv1', '500'],
     ]);
     expect(out.borrowerCount).toBe(2);
     expect(out.collateralAtRiskBorrowUsd).toBe(150);
     expect(out.collateralAtRisk.find((p) => Math.abs(p.priceChange + 0.1) < 1e-9)?.collateralUsd).toBe(300);
+  });
+
+  it('sums every adapter of a V2 vault into one row at the largest adapter', () => {
+    const out = mapMarketActivity(
+      {
+        market: {
+          supplyingVaultV2s: [
+            {
+              address: '0xv2',
+              name: 'V2 Vault',
+              adapters: { items: [{ address: '0xsmall' }, { address: '0xbig' }] },
+            },
+          ],
+        },
+        suppliers: {
+          items: [
+            { user: { address: '0xsmall' }, state: { supplyAssets: 100, supplyAssetsUsd: 1 } },
+            { user: { address: '0xother' }, state: { supplyAssets: 50, supplyAssetsUsd: 0.5 } },
+            { user: { address: '0xbig' }, state: { supplyAssets: 400, supplyAssetsUsd: 4 } },
+          ],
+        },
+      },
+      '0xabc'
+    );
+    expect(out.suppliers.map((s) => [s.address, s.vaultName, s.supplyAssets])).toEqual([
+      ['0xbig', 'V2 Vault', '500'],
+      ['0xother', null, '50'],
+    ]);
+    expect(out.suppliers[0].supplyAssetsUsd).toBe(5);
+  });
+
+  it('names a configured vault that Morpho omitted from supplyingVaultV2s', () => {
+    const out = mapMarketActivity(
+      {
+        market: { supplyingVaultV2s: [] },
+        suppliers: { items: [] },
+        configuredVaults: {
+          items: [
+            {
+              address: '0xmusc',
+              name: 'Muscadine USDC',
+              adapters: {
+                items: [
+                  {
+                    address: '0xmuscAdapter',
+                    positions: {
+                      items: [
+                        {
+                          market: { marketId: '0xABC' },
+                          state: { supplyAssets: '900', supplyAssetsUsd: 9 },
+                        },
+                        {
+                          market: { marketId: '0xother' },
+                          state: { supplyAssets: '1', supplyAssetsUsd: 1 },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+      '0xabc'
+    );
+    expect(out.suppliers).toEqual([
+      {
+        address: '0xmuscAdapter',
+        supplyAssets: '900',
+        supplyAssetsUsd: 9,
+        vaultAddress: '0xmusc',
+        vaultName: 'Muscadine USDC',
+      },
+    ]);
   });
 });
 

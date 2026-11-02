@@ -36,6 +36,8 @@ export type SendAssetsGateState = {
   accounts: GateAccountStatus[];
   /**
    * `complete` means every log the gate emitted was read.
+   * `safeHistory` means candidates come from the Curator / Allocator Safes'
+   * executed calls only (no paid log source).
    * `failed` means no log source answered in full, so accounts set elsewhere may be missing.
    * `reason` says which sources failed and why.
    */

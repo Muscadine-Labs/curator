@@ -177,7 +177,6 @@ const MARKET_DETAIL_QUERY = gql`
         creationEvent {
           timestamp
         }
-        type
         data {
           ... on MorphoChainlinkOracleV2Data {
             scaleFactor

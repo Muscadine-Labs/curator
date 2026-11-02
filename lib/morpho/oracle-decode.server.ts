@@ -260,8 +260,9 @@ export function activeChainlinkSource(decoded: DecodedOracle): DecodedChainlinkS
 }
 
 /**
- * Which decoded source matches `currentOracle()`. Returns null when the
- * current oracle's source failed to decode — never substitute the other one,
+ * Which decoded source matches `currentOracle()`. Returns null when
+ * `currentOracle()` was unreadable or its source failed to decode — never
+ * substitute the other one,
  * or a switch to backup would read as "primary active".
  */
 function metaActiveSource<T extends { address: string }>(
@@ -269,8 +270,10 @@ function metaActiveSource<T extends { address: string }>(
   primary: T | null,
   backup: T | null
 ): T | null {
+  // An unreadable currentOracle() means we do not know which source prices
+  // the market; assuming primary would hide a switch to backup.
   const current = meta.currentOracle?.toLowerCase();
-  if (!current) return primary;
+  if (!current) return null;
   if (primary && primary.address.toLowerCase() === current) return primary;
   if (backup && backup.address.toLowerCase() === current) return backup;
   return null;
