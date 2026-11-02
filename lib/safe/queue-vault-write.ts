@@ -97,25 +97,22 @@ async function tryPublishViaSafeApp(
 }
 
 /**
- * Unexecuted proposals queued for this Safe, local and (when configured)
- * Transaction Service. A service failure falls back to the local count: the
- * worst case is the old behaviour (a dependent call is blocked), never a
- * dead call slipping through unflagged.
+ * Unexecuted proposals queued for this Safe: local rows and (when configured)
+ * Transaction Service rows, both filtered to the on-chain nonce so a local row
+ * another client already executed does not count. A failed service read uses
+ * local rows only; a failed nonce read keeps every row.
  */
 async function countQueuedAheadForSafe(role: SafeRole, safeAddress: Address): Promise<number> {
-  const localHashes = listPendingForRole(role).map((tx) => tx.safeTxHash);
-  if (!isTransactionServiceConfigured()) return localHashes.length;
-  try {
-    const [serviceTxs, onChainNonce] = await Promise.all([
-      fetchPendingMultisigTransactions(safeAddress),
-      initSafeProtocolKit({ safeAddress })
-        .then(async (kit) => Number(await kit.getNonce()))
-        .catch(() => null),
-    ]);
-    return countDistinctQueuedProposals(localHashes, serviceTxs, onChainNonce);
-  } catch {
-    return localHashes.length;
-  }
+  const local = listPendingForRole(role);
+  const [serviceTxs, onChainNonce] = await Promise.all([
+    isTransactionServiceConfigured()
+      ? fetchPendingMultisigTransactions(safeAddress).catch(() => [])
+      : Promise.resolve([]),
+    initSafeProtocolKit({ safeAddress })
+      .then(async (kit) => Number(await kit.getNonce()))
+      .catch(() => null),
+  ]);
+  return countDistinctQueuedProposals(local, serviceTxs, onChainNonce);
 }
 
 /** A Safe meta-tx target. `value` is native ETH in wei, defaulting to none. */

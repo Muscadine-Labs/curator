@@ -1815,7 +1815,7 @@ guard, address book)
   queued ahead execute, so with any unexecuted proposal queued for that Safe a
   revert is stored as `simulationWarning` (shown on the card, not blocking)
   instead of refusing — nonce N funding the Safe and N+1 spending it must
-  still queue (`safeCallRevertOutcome`). "Queued ahead" counts local rows plus Transaction Service rows at or above the on-chain nonce, once per `safeTxHash` (`countDistinctQueuedProposals`) — a proposal made in another browser lives only on the service until a manual sync. The service is read only after a revert; if it fails, the local count is used. Only a revert blocks; an RPC failure does not (an emergency sentinel
+  still queue (`safeCallRevertOutcome`). "Queued ahead" counts local and Transaction Service rows **at or above the on-chain nonce**, once per `safeTxHash` (`countDistinctQueuedProposals`) — a proposal made in another browser lives only on the service until a manual sync, and a local row another client already executed is stale and must not turn a dead call into a warning. Read only after a revert; a failed service read uses local rows, a failed nonce read keeps every row. Only a revert blocks; an RPC failure does not (an emergency sentinel
   proposal must not depend on a flaky RPC). MultiSend batches are DelegateCalls
   and are not simulated here; the Allocation rebalance path already simulates
   as the Safe (`simulateVaultRebalance`).

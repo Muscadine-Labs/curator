@@ -42,7 +42,7 @@ describe('countDistinctQueuedProposals', () => {
 
   it('counts a proposal held both locally and on the service once', () => {
     expect(
-      countDistinctQueuedProposals(['0xaa'], [{ safeTxHash: '0xAA', nonce: '7' }], 7)
+      countDistinctQueuedProposals([{ safeTxHash: '0xaa', nonce: 7 }], [{ safeTxHash: '0xAA', nonce: '7' }], 7)
     ).toBe(1);
   });
 
@@ -57,5 +57,15 @@ describe('countDistinctQueuedProposals', () => {
         7
       )
     ).toBe(1);
+  });
+});
+
+describe('countDistinctQueuedProposals (stale local rows)', () => {
+  it('drops a local proposal another client already executed', () => {
+    expect(countDistinctQueuedProposals([{ safeTxHash: '0xaa', nonce: 6 }], [], 7)).toBe(0);
+  });
+
+  it('keeps local rows when the nonce is unknown', () => {
+    expect(countDistinctQueuedProposals([{ safeTxHash: '0xaa', nonce: 6 }], [], null)).toBe(1);
   });
 });

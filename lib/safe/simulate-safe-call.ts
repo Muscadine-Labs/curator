@@ -63,16 +63,17 @@ export function safeCallRevertOutcome(
 /**
  * Distinct unexecuted proposals for one Safe: local rows plus Transaction
  * Service rows (another browser's proposal exists only there until a manual
- * sync), counted once per `safeTxHash`. Service rows below the on-chain nonce
- * were replaced or executed and do not count.
+ * sync), counted once per `safeTxHash`. Rows below the on-chain nonce — local
+ * or remote — were executed or replaced (possibly by another client) and do
+ * not count. With an unknown nonce every row counts.
  */
 export function countDistinctQueuedProposals(
-  localHashes: ReadonlyArray<string>,
+  localTxs: ReadonlyArray<{ safeTxHash: string; nonce: string | number }>,
   serviceTxs: ReadonlyArray<{ safeTxHash: string; nonce: string | number }>,
   onChainNonce: number | null
 ): number {
-  const hashes = new Set(localHashes.map((h) => h.toLowerCase()));
-  for (const tx of serviceTxs) {
+  const hashes = new Set<string>();
+  for (const tx of [...localTxs, ...serviceTxs]) {
     const nonce = Number(tx.nonce);
     if (onChainNonce != null && Number.isFinite(nonce) && nonce < onChainNonce) continue;
     hashes.add(tx.safeTxHash.toLowerCase());
