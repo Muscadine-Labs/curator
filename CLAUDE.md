@@ -397,6 +397,10 @@ grades; Sentinel holds emergency actions at the bottom.
    gross supply APY (child vault: `avgNetApy`, else `netApy`) — it excludes
    rewards and fees, so it is labelled Supply APY, not the vault's net rate — `summarizeAdapter` in
    `lib/morpho/vault-adapter-summary.ts`. Pass `assetSymbol` / `assetDecimals`.
+   The Idle row uses the risk overlay's on-chain idle (GraphQL only as
+   fallback); adapter token amounts come from the overlay's raw
+   `allocationAssets` via `adapterAllocationRaw` (a non-finite governance
+   number is unknown, never `BigInt`-ed mid-render).
    **Activity** (`VaultActivityFeed`, `GET /api/vaults/[id]/activity`,
    `lib/morpho/vault-activity(.server).ts`) merges Morpho
    `vaultV2AllocationTransactions` (signed `change`, `sender`), pending
@@ -908,7 +912,16 @@ balances (Morpho's DAY convention), so the headline uses live `totalUnits`.
 Without a live `total_units` the outstanding series is null (unknown), never
 zero; APR still charts. Incremental refresh only extends a **complete**
 snapshot — an incomplete first scan is retried in full so older days fill in.
-Chart dates format in UTC.
+Chart dates format in UTC. History paging runs **in parallel** with token
+metadata and collateral oracle decode (not before them), so the detail stays
+inside the 40s loader: each collateral's oracle read is cut at 12s and spot
+prices at 5s (the panel then shows no oracle data). An incremental refresh tops
+the daily price map up from its newest day instead of re-reading 180 days.
+Snapshots are capped at 48 markets (least recently used evicted).
+**Client imports:** `midnight-markets.ts` is server code (REST, GraphQL, RPC,
+oracle decode). Client components import pure helpers from
+`lib/morpho/midnight-format.ts` and only **types** from `midnight-markets` — a
+value import bundled the oracle / RPC / history code into `/markets`.
 External app: [Morpho Markets](https://markets.morpho.org/fixed/base/0x549cd072daf99328554f3a6d2d4d6f4a07f1c59369e891e6391946f9cf75f221)
 `https://markets.morpho.org/fixed/{chain}/{marketId}`
 (`morphoMidnightMarketHref`). In-app: `curatorMidnightMarketHref`.
@@ -1798,7 +1811,11 @@ guard, address book)
 - `queueSafeTransaction` eth_calls the inner tx **from the Safe** before
   queueing (`assertSafeCallSucceeds`, `lib/safe/simulate-safe-call.ts`) so a
   call that would revert (stale cap, wrong role, insufficient balance) is never
-  signed. Only a revert blocks; an RPC failure does not (an emergency sentinel
+  signed. The simulation sees today's state, not the state after proposals
+  queued ahead execute, so with any unexecuted proposal queued for that Safe a
+  revert is stored as `simulationWarning` (shown on the card, not blocking)
+  instead of refusing — nonce N funding the Safe and N+1 spending it must
+  still queue (`safeCallRevertOutcome`). Only a revert blocks; an RPC failure does not (an emergency sentinel
   proposal must not depend on a flaky RPC). MultiSend batches are DelegateCalls
   and are not simulated here; the Allocation rebalance path already simulates
   as the Safe (`simulateVaultRebalance`).

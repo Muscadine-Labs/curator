@@ -2,11 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   buildMidnightHistory,
   historyUnitChange,
-  isMidnightMarketActive,
-  mapMidnightHistoryBuckets,
-  selectMidnightCollaterals,
   sumMidnightPositionRows,
 } from './midnight-markets';
+import { isMidnightMarketActive, selectMidnightCollaterals } from './midnight-format';
 
 describe('isMidnightMarketActive', () => {
   const now = 1_700_000_000;
@@ -102,50 +100,6 @@ describe('selectMidnightCollaterals', () => {
         loan
       ).map((c) => c.symbol)
     ).toEqual(['cbBTC']);
-  });
-});
-
-describe('mapMidnightHistoryBuckets', () => {
-  const day = 1_700_000_000;
-  const maturity = day + 25 * 86_400;
-  const priceWad = `${995n * 10n ** 15n}`;
-
-  it('prices each day against the time left until maturity', () => {
-    const [point] = mapMidnightHistoryBuckets(
-      [
-        {
-          timestamp: day,
-          outstandingLoans: '1000000',
-          outstandingLoansUsd: 1,
-          takePriceWad: priceWad,
-        },
-      ],
-      maturity
-    );
-    expect(point.outstandingAssets).toBe('1000000');
-    expect(point.takePrice).toBeCloseTo(0.995);
-    expect(point.apr).toBeCloseTo((1 / 0.995 - 1) * (365 / 25), 6);
-  });
-
-  it('drops a take once the bucket is at or past maturity and skips a bad timestamp', () => {
-    const points = mapMidnightHistoryBuckets(
-      [
-        { timestamp: maturity, outstandingLoans: '1', takePriceWad: priceWad },
-        { timestamp: null, outstandingLoans: '2', takePriceWad: priceWad },
-        {
-          timestamp: day + 86_400,
-          outstandingLoans: '3',
-          outstandingLoansUsd: 3,
-          takePriceWad: priceWad,
-        },
-      ],
-      maturity
-    );
-    expect(points.map((point) => point.timestamp)).toEqual([day + 86_400, maturity]);
-    expect(points[0].apr).not.toBeNull();
-    expect(points[0].takePrice).toBeCloseTo(0.995);
-    expect(points[1].apr).toBeNull();
-    expect(points[1].takePrice).toBeCloseTo(0.995);
   });
 });
 

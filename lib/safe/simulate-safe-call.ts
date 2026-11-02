@@ -38,27 +38,54 @@ function revertMessage(error: unknown): string {
 }
 
 /**
+ * What a revert means for queueing. With nothing queued ahead, the call is
+ * dead and must not be signed. With earlier proposals still queued, the
+ * simulation ran against today's state, not the state after those execute
+ * (nonce N funds the Safe, N+1 spends it), so it is a warning, not a block.
+ */
+export function safeCallRevertOutcome(
+  revertReason: string,
+  queuedAhead: number
+): { block: true; message: string } | { block: false; warning: string } {
+  if (queuedAhead <= 0) {
+    return {
+      block: true,
+      message: `This call reverts when the Safe executes it, so it was not queued: ${revertReason}`,
+    };
+  }
+  const n = `${queuedAhead} earlier queued proposal${queuedAhead === 1 ? '' : 's'}`;
+  return {
+    block: false,
+    warning: `Reverts against the current chain state (${revertReason}). It may depend on ${n}; execute ${queuedAhead === 1 ? 'it' : 'them'} first and check this call again before signing.`,
+  };
+}
+
+/**
  * eth_call the inner Safe transaction from the Safe's own address before it is
  * queued. Owners otherwise sign a proposal that can only fail at execution —
  * on the Sentinel path that is an emergency action discovered to be dead
  * after the signatures are collected.
  *
- * Only a revert blocks queueing. An RPC failure is not proof the call is bad,
- * and blocking an emergency proposal on a flaky RPC is worse than queueing it.
+ * Only a revert matters. An RPC failure is not proof the call is bad, and
+ * blocking an emergency proposal on a flaky RPC is worse than queueing it.
+ * Returns a warning for the queue card when the revert may come from
+ * proposals queued ahead of this one (`safeCallRevertOutcome`).
  */
-export async function assertSafeCallSucceeds(input: {
+export async function checkSafeCallBeforeQueue(input: {
   safe: Address;
   to: Address;
   data: Hex;
   value?: bigint;
-}): Promise<void> {
+  /** Unexecuted proposals already queued for this Safe. */
+  queuedAhead: number;
+}): Promise<string | null> {
   try {
     await client.call({ account: input.safe, to: input.to, data: input.data, value: input.value });
+    return null;
   } catch (error) {
-    if (isRevertError(error)) {
-      throw new Error(
-        `This call reverts when the Safe executes it, so it was not queued: ${revertMessage(error)}`
-      );
-    }
+    if (!isRevertError(error)) return null;
+    const outcome = safeCallRevertOutcome(revertMessage(error), input.queuedAhead);
+    if (outcome.block) throw new Error(outcome.message);
+    return outcome.warning;
   }
 }

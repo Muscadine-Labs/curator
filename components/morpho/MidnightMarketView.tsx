@@ -23,8 +23,10 @@ import {
   formatWadPercent,
   isTenorCollateralShare,
   midnightLiquidationIncentive,
-  type MidnightBookLevelView,
-  type MidnightMarketDetail,
+} from '@/lib/morpho/midnight-format';
+import type {
+  MidnightBookLevelView,
+  MidnightMarketDetail,
 } from '@/lib/morpho/midnight-markets';
 import { BASE_CHAIN_ID, getAddressScanUrl, getScanNameForChain } from '@/lib/constants';
 import { bigintRatio } from '@/lib/format/bigint-ratio';

@@ -636,6 +636,7 @@ export function safePendingWarnings(tx: SafePendingTransaction): {
 } {
   const hazards = safeTransactionHazards(tx);
   const messages = [...hazards.messages];
+  if (tx.simulationWarning) messages.push(tx.simulationWarning);
   if (tx.operation === 0 && getVaultByAddress(tx.to) && !decodeErc20Transfer(tx.data)) {
     const undecoded = countUndecodedVaultCalls(tx.data);
     if (undecoded > 0) {

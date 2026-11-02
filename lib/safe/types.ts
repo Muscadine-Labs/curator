@@ -91,6 +91,11 @@ export type SafePendingTransaction = {
   /** Posted to Safe Transaction Service for other owners. */
   serviceSynced?: boolean;
   serviceSyncError?: string | null;
+  /**
+   * Set at queue time when the call reverted against the then-current state
+   * while other proposals were queued ahead of it (it may depend on them).
+   */
+  simulationWarning?: string | null;
 };
 
 export type SafeOnChainInfo = {

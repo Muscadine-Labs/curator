@@ -18,6 +18,8 @@ import { AppError } from '@/lib/utils/error-handler';
 import { gql } from 'graphql-request';
 import { formatUnits, type Address } from 'viem';
 import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
+import { formatLltvWad, selectMidnightCollaterals } from '@/lib/morpho/midnight-format';
+
 
 /** Morpho REST normally answers in well under a second; a stall must not hang the route. */
 const MIDNIGHT_FETCH_TIMEOUT_MS = 15_000;
@@ -110,29 +112,6 @@ export type MidnightHistoryPoint = {
   apr: number | null;
 };
 
-export function mapMidnightHistoryBuckets(
-  buckets: ReadonlyArray<MidnightHistoryBucket>,
-  maturitySec: number
-): MidnightHistoryPoint[] {
-  const points: MidnightHistoryPoint[] = [];
-  for (const bucket of buckets) {
-    if (bucket.timestamp == null || !Number.isFinite(bucket.timestamp)) continue;
-    const price = takePriceNumber(bucket.takePriceWad);
-    points.push({
-      timestamp: bucket.timestamp,
-      outstandingAssets: bucket.outstandingLoans ?? null,
-      outstandingUsd:
-        bucket.outstandingLoansUsd == null || !Number.isFinite(bucket.outstandingLoansUsd)
-          ? null
-          : bucket.outstandingLoansUsd,
-      takePrice: price,
-      apr: midnightPriceToApr(bucket.takePriceWad, maturitySec - bucket.timestamp),
-    });
-  }
-  points.sort((a, b) => a.timestamp - b.timestamp);
-  return points;
-}
-
 function takePriceNumber(priceWad: string | null | undefined): number | null {
   if (!priceWad) return null;
   try {
@@ -168,91 +147,11 @@ function formatTenorLabel(ttmSeconds: number): string {
   return `${months}M`;
 }
 
-export function formatLltvWad(lltv: string | null | undefined): string {
-  if (!lltv) return '—';
-  try {
-    const pct = Number(BigInt(lltv)) / 1e16;
-    if (!Number.isFinite(pct)) return '—';
-    return `${pct.toFixed(0)}%`;
-  } catch {
-    return '—';
-  }
-}
-
-export function formatWadPercent(wad: string | null | undefined, digits = 2): string {
-  if (!wad) return '—';
-  try {
-    const pct = Number(BigInt(wad)) / 1e16;
-    if (!Number.isFinite(pct)) return '—';
-    return `${pct.toFixed(digits)}%`;
-  } catch {
-    return '—';
-  }
-}
-
-/** Morpho LIF − 1 from LLTV + liquidation cursor (WAD). */
-export function midnightLiquidationIncentive(
-  lltvWad: string | null | undefined,
-  cursorWad: string | null | undefined
-): number | null {
-  if (!lltvWad || !cursorWad) return null;
-  try {
-    const lltv = Number(BigInt(lltvWad)) / 1e18;
-    const cursor = Number(BigInt(cursorWad)) / 1e18;
-    const denom = lltv + cursor * (1 - lltv);
-    if (!(denom > 0)) return null;
-    const incentive = 1 / denom - 1;
-    return Number.isFinite(incentive) ? incentive : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Still open when maturity is strictly in the future. A missing maturity is not active. */
-export function isMidnightMarketActive(
-  maturitySec: number,
-  nowSec = Math.floor(Date.now() / 1000)
-): boolean {
-  return maturitySec > nowSec;
-}
-
-export function formatMidnightMaturityUtc(maturitySec: number): string {
-  if (!maturitySec) return '—';
-  return new Date(maturitySec * 1000).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
-}
-
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 function isZeroAddress(addr: string | null | undefined): boolean {
   if (!addr) return true;
   return addr.toLowerCase() === ZERO_ADDRESS;
-}
-
-/** Tenor collateral-vault receipt (`cbBTC-USDC-collat`), not a second collateral asset. */
-export function isTenorCollateralShare(symbol: string | undefined): boolean {
-  return Boolean(symbol && symbol.toLowerCase().endsWith('-collat'));
-}
-
-/**
- * Collaterals borrowers post. Two extras are not the pair:
- * the loan token itself (a USDC-debt market may accept USDC), and the Tenor
- * collateral-vault share (`cbBTC-USDC-collat`), which is a receipt for the
- * real collateral. Keep an extra only when nothing else is listed.
- */
-export function selectMidnightCollaterals<T extends { token: string; symbol?: string }>(
-  collaterals: readonly T[],
-  loanAddress: string
-): T[] {
-  const loan = loanAddress.toLowerCase();
-  const notLoan = collaterals.filter((c) => c.token.toLowerCase() !== loan);
-  const pool = notLoan.length > 0 ? notLoan : [...collaterals];
-  const withoutShares = pool.filter((c) => !isTenorCollateralShare(c.symbol));
-  return withoutShares.length > 0 ? withoutShares : pool;
 }
 
 function wadToRatio(wad: string | null | undefined): number | null {
@@ -625,18 +524,34 @@ async function mapCollaterals(
       let oraclePrice: OraclePriceSnapshot | null = null;
 
       if (chainId === BASE_CHAIN_ID && oracle) {
-        const collateralSpotUsd = await fetchAssetUsdPrice(c.token, chainId);
-        oraclePrice = await getOraclePriceSnapshot({
-          oracleAddress: oracle,
-          loanDecimals,
-          collateralDecimals: meta.decimals,
-          spotCollateralUsd: collateralSpotUsd,
-          spotLoanUsd: loanSpotUsd,
-        });
-        oracleTimestampData =
-          oraclePrice && oraclePrice.kind !== 'error'
-            ? oracleTimestampFromFeeds(oraclePrice.feeds)
-            : await getOracleTimestampData(oracle as Address);
+        const decoded = await withFallback(
+          (async () => {
+            const collateralSpotUsd = await withFallback(
+              fetchAssetUsdPrice(c.token, chainId),
+              SPOT_PRICE_TIMEOUT_MS,
+              null
+            );
+            const price = await getOraclePriceSnapshot({
+              oracleAddress: oracle,
+              loanDecimals,
+              collateralDecimals: meta.decimals,
+              spotCollateralUsd: collateralSpotUsd,
+              spotLoanUsd: loanSpotUsd,
+            });
+            const timestamp =
+              price && price.kind !== 'error'
+                ? oracleTimestampFromFeeds(price.feeds)
+                : await getOracleTimestampData(oracle as Address);
+            return { price, timestamp };
+          })(),
+          COLLATERAL_ORACLE_TIMEOUT_MS,
+          null
+        );
+        if (!decoded) {
+          logger.warn('Midnight collateral oracle read timed out', { oracle });
+        }
+        oraclePrice = decoded?.price ?? null;
+        oracleTimestampData = decoded?.timestamp ?? null;
       }
 
       return {
@@ -652,13 +567,6 @@ async function mapCollaterals(
     })
   );
 }
-
-type MidnightHistoryBucket = {
-  timestamp?: number | null;
-  outstandingLoans?: string | null;
-  outstandingLoansUsd?: number | null;
-  takePriceWad?: string | null;
-};
 
 const HISTORY_DAYS = 180;
 const HISTORY_PAGE_LIMIT = 1000;
@@ -696,7 +604,41 @@ type HistorySnapshot = {
   available: boolean;
 };
 
+/**
+ * Most recently used first-out cap. Each entry can hold up to 180 days of raw
+ * events, so an unbounded map grows with every market id ever requested.
+ */
+const MAX_HISTORY_SNAPSHOTS = 48;
 const historySnapshots = new Map<string, HistorySnapshot>();
+
+function storeHistorySnapshot(key: string, snapshot: HistorySnapshot): void {
+  // Re-insert so the Map's insertion order is recency order.
+  historySnapshots.delete(key);
+  historySnapshots.set(key, snapshot);
+  while (historySnapshots.size > MAX_HISTORY_SNAPSHOTS) {
+    const oldest = historySnapshots.keys().next().value;
+    if (oldest === undefined) break;
+    historySnapshots.delete(oldest);
+  }
+}
+
+/** Resolves `fallback` when `promise` rejects or takes longer than `ms`. */
+async function withFallback<T, F>(promise: Promise<T>, ms: number, fallback: F): Promise<T | F> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<F>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms);
+  });
+  try {
+    return await Promise.race([promise.catch(() => fallback), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Spot USD is optional display data. */
+const SPOT_PRICE_TIMEOUT_MS = 5_000;
+/** Per-collateral oracle decode + feed directory; past this the panel shows no oracle data. */
+const COLLATERAL_ORACLE_TIMEOUT_MS = 12_000;
 
 function utcDay(timestamp: number): number {
   return Math.floor(timestamp / DAY_SECONDS) * DAY_SECONDS;
@@ -960,7 +902,10 @@ export async function fetchMidnightMarketDetail(
           return null;
         }
       );
-  const [marketWrap, stateWrap, bookWrap, positionTotals, pagedHistory] = await Promise.all([
+  // History pages run alongside everything below (REST, token metadata,
+  // oracle decode) instead of before it, so the page stays inside the 40s
+  // loader timeout: total ≈ max(history budget, REST + enrichment budget).
+  const [marketWrap, stateWrap, bookWrap, positionTotals] = await Promise.all([
     fetchMidnightRest<RestWrap<MidnightMarketConfig>>(`/v0/midnight/markets/${id}`),
     fetchMidnightRest<RestWrap<MidnightMarketState>>(`/v0/midnight/markets/${id}/state`),
     fetchMidnightRest<RestWrap<MidnightBook>>(`/v0/midnight/books/${id}?depth=80`),
@@ -968,7 +913,6 @@ export async function fetchMidnightMarketDetail(
       logger.warn('Midnight position totals failed', { marketId: id, error });
       return null;
     }),
-    historyTask,
   ]);
 
   const config = marketWrap?.data;
@@ -985,19 +929,46 @@ export async function fetchMidnightMarketDetail(
   const maturity = Number(config?.maturity ?? book?.maturity ?? 0);
   const nowSec = Math.floor(Date.now() / 1000);
   const tenorSeconds = Math.max(0, maturity - nowSec);
-  const loanMeta = await resolveTokenMeta(loanAddress, resolvedChain);
-  const [loanSpotUsd, refreshedPrices] = await Promise.all([
-    resolvedChain === BASE_CHAIN_ID ? fetchAssetUsdPrice(loanAddress, resolvedChain) : null,
-    pagedHistory != null
-      ? fetchLoanPriceByDay(loanAddress, resolvedChain, sinceSec)
+
+  // Past daily prices do not change: an incremental refresh tops up from the
+  // newest priced day instead of re-reading all 180 days every 30s.
+  const pricedDays = snap?.priceByDay.size ? [...snap.priceByDay.keys()] : [];
+  const lastPricedDay = pricedDays.length > 0 ? Math.max(...pricedDays) : null;
+  const priceSince = incremental && lastPricedDay != null ? lastPricedDay : sinceSec;
+  const needPrices =
+    !fresh && !(incremental && lastPricedDay != null && lastPricedDay >= utcDay(nowSec));
+
+  const enrichment = (async () => {
+    const loanMeta = await resolveTokenMeta(loanAddress, resolvedChain);
+    const loanSpotUsd =
+      resolvedChain === BASE_CHAIN_ID
+        ? await withFallback(
+            fetchAssetUsdPrice(loanAddress, resolvedChain),
+            SPOT_PRICE_TIMEOUT_MS,
+            null
+          )
+        : null;
+    const collaterals = await mapCollaterals(
+      config?.collaterals ?? book?.collaterals,
+      resolvedChain,
+      loanMeta.decimals,
+      loanSpotUsd
+    );
+    return { loanMeta, loanSpotUsd, collaterals };
+  })();
+  const [{ loanMeta, loanSpotUsd, collaterals }, pagedHistory, fetchedPrices] = await Promise.all([
+    enrichment,
+    historyTask,
+    needPrices
+      ? fetchLoanPriceByDay(loanAddress, resolvedChain, priceSince)
       : Promise.resolve(null),
   ]);
-  const collaterals = await mapCollaterals(
-    config?.collaterals ?? book?.collaterals,
-    resolvedChain,
-    loanMeta.decimals,
-    loanSpotUsd
-  );
+  const refreshedPrices =
+    incremental && snap && fetchedPrices
+      ? new Map(
+          [...snap.priceByDay, ...fetchedPrices].filter(([day]) => day >= utcDay(sinceSec))
+        )
+      : fetchedPrices;
   const posted = positionTotals?.collateralByToken;
   for (const collateral of collaterals) {
     collateral.postedAssets = posted
@@ -1045,11 +1016,11 @@ export async function fetchMidnightMarketDetail(
     };
   }
   if (history) {
-    historySnapshots.set(key, history);
+    storeHistorySnapshot(key, history);
   } else {
     // No good series yet. Hold the failure for the TTL so every request in it
     // does not restart the full multi-page scan.
-    historySnapshots.set(key, {
+    storeHistorySnapshot(key, {
       fetchedAt: Date.now(),
       windowStart: sinceSec,
       events: [],

@@ -13,7 +13,7 @@ import {
 import { isAdapterCap } from '@/lib/morpho/cap-utils';
 import { formatCapCompactAmount, formatCapRelative } from '@/lib/morpho/v2-cap-format';
 import { estimateRawFromUsd } from '@/lib/format/allocation-display';
-import { summarizeAdapter } from '@/lib/morpho/vault-adapter-summary';
+import { adapterAllocationRaw, summarizeAdapter } from '@/lib/morpho/vault-adapter-summary';
 import { useVaultV2Governance } from '@/lib/hooks/useVaultV2Governance';
 import { useVaultV2Risk } from '@/lib/hooks/useVaultV2Risk';
 import { formatPercentage, formatRawTokenAmount, formatUSD } from '@/lib/format/number';
@@ -68,11 +68,15 @@ export function VaultV2Adapters({
       .sort((a, b) => (b.assetsUsd ?? 0) - (a.assetsUsd ?? 0));
   }, [data?.adapters]);
 
+  // Deployable idle is the vault's own on-chain asset balance (risk overlay);
+  // GraphQL idle lags right after a rebalance and is only the fallback.
+  const idleRaw = risk?.idleAssets ?? data?.idleAssets ?? null;
+  const idleUsd = risk?.idleAssetsUsd ?? data?.idleAssetsUsd ?? 0;
+
   const totalUsd = useMemo(() => {
-    const idle = data?.idleAssetsUsd ?? 0;
     const strat = adapters.reduce((s, a) => s + (a.assetsUsd ?? 0), 0);
-    return idle + strat;
-  }, [data?.idleAssetsUsd, adapters]);
+    return idleUsd + strat;
+  }, [idleUsd, adapters]);
 
   const chainDecimals = resolveAssetDecimals(assetSymbol ?? undefined, assetDecimals ?? undefined);
   const displayDecimals = getTokenDisplayDecimals(assetSymbol ?? undefined, chainDecimals);
@@ -100,7 +104,6 @@ export function VaultV2Adapters({
     );
   }
 
-  const idleUsd = data.idleAssetsUsd ?? 0;
   const th = 'whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-muted-foreground';
   const td = 'whitespace-nowrap border-t border-border/60 px-3 py-2 align-top';
 
@@ -143,12 +146,13 @@ export function VaultV2Adapters({
               </td>
               <td className={`${td} text-muted-foreground`}>—</td>
               <td className={`${td} text-right tabular-nums`}>
-                {formatToken(data.idleAssets, chainDecimals, displayDecimals, assetSymbol)}
+                {formatToken(idleRaw, chainDecimals, displayDecimals, assetSymbol)}
                 <p className="text-xs text-muted-foreground">{pctOfTotal(idleUsd, totalUsd)}</p>
               </td>
               <td className={`${td} text-right text-muted-foreground`}>No cap</td>
               <td className={`${td} text-right tabular-nums`} title={formatUSD(idleUsd, 2)}>
-                {formatToken(data.idleAssets, chainDecimals, displayDecimals, assetSymbol)}
+                {/* Idle cash is fully withdrawable, so liquidity = idle. */}
+                {formatToken(idleRaw, chainDecimals, displayDecimals, assetSymbol)}
               </td>
               <td className={`${td} text-right text-muted-foreground`}>0%</td>
               <td className={`${td} text-right text-muted-foreground`}>—</td>
@@ -161,6 +165,10 @@ export function VaultV2Adapters({
                 (a) => a.adapterAddress.toLowerCase() === key
               );
               const usd = adapter.assetsUsd ?? 0;
+              const allocationRaw = adapterAllocationRaw(
+                riskAdapter?.allocationAssets,
+                adapter.assets
+              );
               const summary = summarizeAdapter({
                 allocationUsd: riskAdapter?.allocationUsd ?? usd,
                 markets: (riskAdapter?.markets ?? []).map((m) => ({
@@ -221,7 +229,9 @@ export function VaultV2Adapters({
                   </td>
                   <td className={td}>{underlying}</td>
                   <td className={`${td} text-right tabular-nums`}>
-                    {formatTokenFromAssets(adapter.assets, chainDecimals, displayDecimals, assetSymbol)}
+                    {allocationRaw != null
+                      ? formatTokenRaw(allocationRaw, chainDecimals, displayDecimals, assetSymbol)
+                      : '—'}
                     <p className="text-xs text-muted-foreground">
                       {pctOfTotal(usd, totalUsd)} · {formatUSD(usd, 2)}
                     </p>
@@ -236,7 +246,7 @@ export function VaultV2Adapters({
                   </td>
                   <td className={`${td} text-right tabular-nums`}>
                     <span title={summary.liquidityUsd != null ? formatUSD(summary.liquidityUsd, 2) : undefined}>
-                      {formatLiquidityTokens(summary.liquidityUsd, usd, adapter.assets, assetSymbol, assetDecimals)}
+                      {formatLiquidityTokens(summary.liquidityUsd, usd, allocationRaw, assetSymbol, assetDecimals)}
                     </span>
                   </td>
                   <td className={`${td} text-right tabular-nums`}>
@@ -303,19 +313,14 @@ function formatToken(
   }
 }
 
-function formatTokenFromAssets(
-  assets: number | null,
+function formatTokenRaw(
+  raw: bigint,
   decimals: number,
   displayDecimals: number,
   symbol?: string | null
 ): string {
-  if (assets == null) return '—';
-  try {
-    const f = formatRawTokenAmount(BigInt(Math.floor(assets)), decimals, displayDecimals);
-    return symbol ? `${f} ${symbol}` : f;
-  } catch {
-    return '—';
-  }
+  const f = formatRawTokenAmount(raw, decimals, displayDecimals);
+  return symbol ? `${f} ${symbol}` : f;
 }
 
 /**
@@ -325,13 +330,13 @@ function formatTokenFromAssets(
 function formatLiquidityTokens(
   liquidityUsd: number | null,
   allocationUsd: number,
-  allocationAssets: number | null,
+  allocationRaw: bigint | null,
   symbol: string | null | undefined,
   decimals: number | null | undefined
 ): string {
   if (liquidityUsd == null) return '—';
   if (liquidityUsd <= 0) return symbol ? `0 ${symbol}` : '0';
-  if (allocationAssets == null || allocationUsd <= 0) return formatUSD(liquidityUsd, 2);
-  const raw = estimateRawFromUsd(liquidityUsd, allocationUsd, BigInt(Math.floor(allocationAssets)));
+  if (allocationRaw == null || allocationUsd <= 0) return formatUSD(liquidityUsd, 2);
+  const raw = estimateRawFromUsd(liquidityUsd, allocationUsd, allocationRaw);
   return raw != null ? formatCapCompactAmount(raw.toString(), symbol, decimals) : formatUSD(liquidityUsd, 2);
 }

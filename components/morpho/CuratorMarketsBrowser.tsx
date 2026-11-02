@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCuratorMarkets, useMidnightMarkets } from '@/lib/hooks/useCuratorMarkets';
-import { isMidnightMarketActive } from '@/lib/morpho/midnight-markets';
+import { isMidnightMarketActive } from '@/lib/morpho/midnight-format';
 import { formatCompactUSD, formatPercentage } from '@/lib/format/number';
 import { formatMarketTokenAmount } from '@/components/morpho/TokenUsdValue';
 import { formatLltvPill } from '@/components/morpho/AllocationListView';

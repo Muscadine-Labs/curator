@@ -11,7 +11,7 @@ import {
   sortActivity,
   type VaultActivityRow,
 } from '@/lib/morpho/vault-activity';
-import { summarizeAdapter } from '@/lib/morpho/vault-adapter-summary';
+import { adapterAllocationRaw, summarizeAdapter } from '@/lib/morpho/vault-adapter-summary';
 
 const VAULT = '0x314fD07319ef645bA7D548915CCd91F4788A1839';
 const OTHER = '0x0000000000000000000000000000000000000001';
@@ -221,5 +221,17 @@ describe('pendingStatus', () => {
     expect(pendingStatus(null, 1000)).toBe('unknown');
     expect(pendingStatus(900, 1000)).toBe('executable');
     expect(pendingStatus(1100, 1000)).toBe('timelocked');
+  });
+});
+
+describe('adapterAllocationRaw', () => {
+  it('prefers the on-chain raw string', () => {
+    expect(adapterAllocationRaw('123456789012345678901', 5)).toBe(123456789012345678901n);
+  });
+
+  it('treats a non-finite governance amount as unknown instead of throwing', () => {
+    expect(adapterAllocationRaw(null, Number.NaN)).toBeNull();
+    expect(adapterAllocationRaw(undefined, Number.POSITIVE_INFINITY)).toBeNull();
+    expect(adapterAllocationRaw('not-a-number', 42.9)).toBe(42n);
   });
 });

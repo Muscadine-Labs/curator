@@ -4,6 +4,15 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-02 — Code review fixes (PR #80)
+
+- `/markets` no longer bundles server Midnight / oracle / RPC code: pure helpers moved to `lib/morpho/midnight-format.ts`; clients import types only from `midnight-markets`.
+- Midnight detail: history paging runs in parallel with metadata + oracle decode; collateral oracle reads cut at 12s, spot at 5s; incremental price top-up; snapshot map capped at 48 (LRU). Dead bucket mapper removed.
+- Safe queue: a revert with proposals queued ahead is a card warning (`simulationWarning`), not a block — sequenced proposals can queue.
+- Adapters table: Idle uses on-chain idle; token amounts from raw on-chain allocation (`adapterAllocationRaw`), no float → BigInt crash.
+
+---
+
 ## 2026-11-02 — Gates "Safe history only" + env docs
 
 - Gate roster status `safeHistory` when candidates come from the Curator / Allocator Safe history; `/curator/gates` labels it **Safe history only** (misses other whitelisters and relayed signatures). No paid log source added.

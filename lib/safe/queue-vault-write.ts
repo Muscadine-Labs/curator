@@ -15,13 +15,14 @@ import {
 } from '@/lib/safe/protocol-kit-client';
 import { sendTransactionViaSafeApp } from '@/lib/safe/safe-apps-send';
 import { autoShareQueuedTransaction } from '@/lib/safe/auto-share';
-import { assertSafeCallSucceeds } from '@/lib/safe/simulate-safe-call';
+import { checkSafeCallBeforeQueue } from '@/lib/safe/simulate-safe-call';
 import {
   upsertPendingTransaction,
   updatePendingTransaction,
   removePendingTransaction,
   getPendingById,
   getSafePendingSnapshot,
+  listPendingForRole,
 } from '@/lib/safe/pending-store';
 import {
   fetchPendingMultisigTransactions,
@@ -106,12 +107,14 @@ export async function queueSafeTransaction(options: {
 }): Promise<SafePendingTransaction> {
   const safe = getSafeByRole(options.safeRole);
 
-  // Fail before owners sign, not at execution.
-  await assertSafeCallSucceeds({
+  // Fail before owners sign, not at execution. With proposals queued ahead
+  // the result is only a warning: they may change the state this call needs.
+  const simulationWarning = await checkSafeCallBeforeQueue({
     safe: getAddress(safe.address),
     to: options.calldata.to,
     data: options.calldata.data,
     value: options.calldata.value,
+    queuedAhead: listPendingForRole(options.safeRole).length,
   });
 
   const { safeTxHash, transactionData } = await createSafeTransactionFromCalldata({
@@ -138,6 +141,7 @@ export async function queueSafeTransaction(options: {
     updatedAt: now,
     serviceSynced: false,
     serviceSyncError: null,
+    simulationWarning,
   };
 
   upsertPendingTransaction(tx);
