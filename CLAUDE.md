@@ -959,7 +959,7 @@ Midnight lend stays on Morpho’s quote/router
 ([lend-at-a-fixed-rate](https://docs.morpho.org/developers/midnight/tutorials/lend-at-a-fixed-rate/)).
 
 **BFF** — `GET /api/markets` and `GET /api/markets/[marketId]`
-(`lib/morpho/curator-markets.ts`). Midnight: `GET /api/markets/midnight` and
+(`lib/morpho/curator-markets.ts`). The Blue detail is deduped in-process for 30s (`withServerResponseCache`, not cached when the oracle decode errored): every open tab polls it, and each uncached read is a GraphQL query plus oracle multicalls and the IRM read. Midnight: `GET /api/markets/midnight` and
 `GET /api/markets/midnight/[id]` (`lib/morpho/midnight-markets.ts`). The only
 network is Base (`CURATOR_MARKET_NETWORKS`, same as the wallet). List query uses
 `orderBy: SizeUsd` server-side; client re-sorts via column headers.

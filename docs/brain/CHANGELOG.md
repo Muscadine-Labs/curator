@@ -16,6 +16,7 @@ Append-only session log. Newest first. Keep entries short; link files.
 - Codex: local Safe rows below the on-chain nonce (executed by another client) no longer count as queued ahead.
 - Codex: a failed Midnight history read is held 5s, not 30s, so a recovered endpoint is retried promptly.
 - Review: prices skip while a failure is held; today's price refreshes on each top-up; imported Safe bundles drop `simulationWarning`.
+- Blue market detail route deduped in-process for 30s (was uncached: GraphQL + RPC per poll per tab).
 
 ---
 
