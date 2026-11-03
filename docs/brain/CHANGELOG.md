@@ -4,6 +4,13 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-03 — Dependency minor/patch bumps
+
+- Bumped to latest within current majors: next / eslint-config-next 16.4.4, viem 2.57.16, @tanstack/react-query(+devtools) 5.105.3, lucide-react 1.67.0, tailwindcss / @tailwindcss/postcss 4.3.4, vitest 5.1.0, fake-indexeddb 6.2.7.
+- Majors held back (see CLAUDE.md §11): wagmi 3, ESLint 10 (eslint-plugin-react peers ≤9), TypeScript 7 (typescript-eslint peers <6.1), ox 1, @types/node 26 (runtime is Node 24).
+
+---
+
 ## 2026-11-02 — Code review fixes (PR #80)
 
 - `/markets` no longer bundles server Midnight / oracle / RPC code: pure helpers moved to `lib/morpho/midnight-format.ts`; clients import types only from `midnight-markets`.
