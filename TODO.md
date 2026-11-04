@@ -4,3 +4,5 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 
 ## Today
 
+- Add apy averages to apy historical graphs
+- See if midnight apis came out for price and apy and order book instead of onchain fetchs.
