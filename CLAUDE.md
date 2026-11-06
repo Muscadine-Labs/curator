@@ -1961,12 +1961,14 @@ expose at most two filter dropdowns:
 Derivative views (`lib/utils/series-derivative.ts`, `TrendLineChart`): the
 change is per day (a missing day does not double a step), derivatives are
 taken over the **whole** series and then cut to the time range (so the first
-in-range day keeps its predecessor), and the raw series is drawn faintly under
-a bold **7D trailing average** (undefined until a full 7-day window exists).
-2nd-derivative views fit the axis to that average and clip larger one-day
-moves, with a note under the chart — otherwise a few spikes flatten the trend
-to 0. Signed `+$/−$` labels (`formatSignedCompactUSD`) only when the series
-goes negative. Derivative options live **in each chart's existing view
+in-range day keeps its predecessor). They show the **7D trailing average**
+(the rate of change; undefined until a full 7-day window exists) on its own
+by default. A **Daily changes** switch (`components/ui/switch.tsx`, above the
+chart, derivative views only) adds each day's actual value faintly
+underneath, at full scale. The switch keeps its state across 1st ↔ 2nd
+derivative on the same chart. With under 7 days of data there is no average,
+so the daily values always show and the switch is disabled. Signed `+$/−$`
+labels (`formatSignedCompactUSD`) only when a drawn series goes negative. Derivative options live **in each chart's existing view
 dropdown**, not a page-level or settings toggle — keeps the two-control rule.
 
 All of these are `ChartModeFilter` (`components/charts/ChartModeFilter.tsx`):

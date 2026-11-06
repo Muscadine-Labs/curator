@@ -240,7 +240,6 @@ export function ChartTvl({
                 : 'Change in daily TVL change (2nd derivative)'
             }
             derivative
-            fitToAverage={derivativeOrder === 2}
           />
         ) : (
           <ResponsiveContainer width="100%" height={300}>

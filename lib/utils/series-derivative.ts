@@ -169,30 +169,3 @@ export function flowViewSeries(
   if (order === 0) return cumulative.map((p) => ({ date: p.date.slice(0, 10), value: p.value }));
   return derivativeView(fillCumulativeDays(dropPartialDayPoints(cumulative)), order);
 }
-
-/**
- * Y-axis domain that fits the 7D average (with headroom, always including 0)
- * so the trend stays readable when a few raw days spike far past it. `null`
- * when there is no average to fit — the chart then auto-scales.
- */
-export function averageFitDomain(
-  points: ReadonlyArray<DerivativePoint>,
-  headroom = 1.25
-): [number, number] | null {
-  let min = 0;
-  let max = 0;
-  let any = false;
-  for (const p of points) {
-    if (p.avg7 == null || !Number.isFinite(p.avg7)) continue;
-    any = true;
-    if (p.avg7 < min) min = p.avg7;
-    if (p.avg7 > max) max = p.avg7;
-  }
-  if (!any || (min === 0 && max === 0)) return null;
-  // Round outward to half-steps of the leading magnitude so ticks read cleanly
-  // (±27K → ±30K, not ±26.81K).
-  const span = Math.max(Math.abs(min), Math.abs(max)) * headroom;
-  const step = 10 ** Math.floor(Math.log10(span)) / 2;
-  const roundOut = (v: number) => (v < 0 ? -Math.ceil(-v / step) * step : Math.ceil(v / step) * step);
-  return [min === 0 ? 0 : roundOut(min * headroom), max === 0 ? 0 : roundOut(max * headroom)];
-}

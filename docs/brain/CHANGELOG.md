@@ -4,6 +4,10 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-06 — Daily changes switch on derivative views (PR #82)
+
+- Derivative views now show only the 7D average (the rate of change) by default; a **Daily changes** switch adds each day's actual value at full scale. Replaces the fit-to-average axis + clipping note (`averageFitDomain` removed). New `components/ui/switch.tsx`.
+
 ## 2026-11-06 — Derivatives of the cumulative series (PR #82)
 
 - Flow charts' derivative views are now computed from the cumulative series (`flowViewSeries`) and labelled **1st derivative** / **2nd derivative** (TVL too). Missing days carry the total forward; the first day's amount is kept.

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  averageFitDomain,
   derivativeView,
   dropPartialDayPoints,
   fillCumulativeDays,
@@ -134,29 +133,6 @@ describe('flowViewSeries', () => {
     const out = flowViewSeries(2, { daily, cumulative });
     expect(out.map((p) => p.value)).toEqual([5, 10, 10, 10, 10, 10, 10]);
     expect(out.at(-1)?.avg7).toBeCloseTo(65 / 7);
-  });
-});
-
-describe('averageFitDomain', () => {
-  it('fits the average with headroom and keeps zero in range', () => {
-    const pts = [
-      { date: 'a', value: 900, avg7: 4 },
-      { date: 'b', value: -900, avg7: -2 },
-      { date: 'c', value: 1 },
-    ];
-    expect(averageFitDomain(pts)).toEqual([-2.5, 5]);
-    expect(averageFitDomain([{ date: 'a', value: 1, avg7: 8 }])).toEqual([0, 10]);
-  });
-
-  it('rounds outward to clean tick values', () => {
-    expect(averageFitDomain([{ date: 'a', value: 1, avg7: 21_450 }, { date: 'b', value: 1, avg7: -8_600 }])).toEqual([
-      -15_000, 30_000,
-    ]);
-  });
-
-  it('is null without a usable average', () => {
-    expect(averageFitDomain([{ date: 'a', value: 5 }])).toBeNull();
-    expect(averageFitDomain([{ date: 'a', value: 5, avg7: 0 }])).toBeNull();
   });
 });
 

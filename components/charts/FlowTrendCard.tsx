@@ -93,7 +93,6 @@ export function FlowTrendCard({
             color={color}
             seriesLabel={SERIES_LABEL[viewMode](noun)}
             derivative={derivative}
-            fitToAverage={viewMode === 'dailyChange'}
           />
         )}
       </CardContent>
