@@ -219,9 +219,18 @@ function rawToUsd(raw: string, decimals: number, priceUsd: number | null): numbe
   }
 }
 
+export type MidnightMarketList = {
+  markets: MidnightMarketListItem[];
+  /**
+   * Set when the list is incomplete (page cap hit). Never serve a cut list as
+   * complete (CLAUDE.md §8): the browser shows this and the route skips its cache.
+   */
+  warning: string | null;
+};
+
 export async function fetchMidnightMarkets(
   chainId: number = BASE_CHAIN_ID
-): Promise<MidnightMarketListItem[]> {
+): Promise<MidnightMarketList> {
   const rows: MidnightMarketRow[] = [];
   let cursor: string | null = null;
   for (let i = 0; i < MIDNIGHT_MARKETS_MAX_PAGES; i += 1) {
@@ -230,8 +239,10 @@ export async function fetchMidnightMarkets(
     cursor = page.cursor ?? null;
     if (!cursor) break;
   }
+  let warning: string | null = null;
   if (cursor) {
     logger.warn('Midnight market list exceeded page cap', { chainId, rows: rows.length });
+    warning = `Showing the first ${rows.length.toLocaleString('en-US')} Midnight markets by size; smaller ones are not listed.`;
   }
 
   const tokenAddrs = new Set<string>();
@@ -307,7 +318,7 @@ export async function fetchMidnightMarkets(
 
   mapped.sort((a, b) => (b.sizeUsd ?? 0) - (a.sizeUsd ?? 0));
   logger.debug('Fetched Midnight markets', { chainId, count: mapped.length });
-  return mapped;
+  return { markets: mapped, warning };
 }
 
 export type MidnightBookLevelView = {

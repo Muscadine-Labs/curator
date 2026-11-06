@@ -7,7 +7,6 @@ interface ChartRevenueProps {
   dailyData?: Array<{ date: string; value: number }>;
   cumulativeData?: Array<{ date: string; value: number }>;
   treasuryDailyData?: Array<{ date: string; value: number }>;
-  treasuryCumulativeData?: Array<{ date: string; value: number }>;
   isLoading?: boolean;
   isTreasuryLoading?: boolean;
   title?: string;
@@ -18,7 +17,6 @@ export function ChartRevenue({
   dailyData,
   cumulativeData,
   treasuryDailyData,
-  treasuryCumulativeData,
   isLoading = false,
   isTreasuryLoading = false,
   title = 'Revenue',
@@ -31,7 +29,9 @@ export function ChartRevenue({
       noun="revenue"
       color="#8b5cf6"
       dailyData={treasury ? treasuryDailyData : dailyData}
-      cumulativeData={treasury ? treasuryCumulativeData : cumulativeData}
+      // Treasury has daily income only; the chart builds its running total
+      // (`cumulativeFromDaily` in `flowViewSeries`).
+      cumulativeData={treasury ? undefined : cumulativeData}
       isLoading={treasury ? isTreasuryLoading : isLoading}
     />
   );

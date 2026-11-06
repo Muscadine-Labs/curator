@@ -62,13 +62,19 @@ export interface RateAverage {
   coveredDays: number | null;
 }
 
-/** Days from the oldest point with a finite timestamp to now; `null` for an empty series. */
+/**
+ * Days from the oldest **usable sample** (finite timestamp and rate, positive
+ * weight when weighted) to now; `null` when there is none. Not the oldest
+ * point: a complete Midnight history emits all 180 days, no-fill days with a
+ * null rate included, so a market whose fills began 10 days ago would
+ * otherwise read as fully covering 90D.
+ */
 export function seriesCoverageDays(
   points: ReadonlyArray<RatePoint>,
   nowSec: number = Date.now() / 1000
 ): number | null {
   let oldest = Number.POSITIVE_INFINITY;
-  for (const p of points) if (Number.isFinite(p.x) && p.x < oldest) oldest = p.x;
+  for (const p of points) if (sampleWeight(p) != null && p.x < oldest) oldest = p.x;
   if (!Number.isFinite(oldest)) return null;
   return Math.max(0, (nowSec - oldest) / DAY_SECONDS);
 }

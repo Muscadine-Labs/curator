@@ -88,6 +88,19 @@ describe('rateAverages', () => {
 });
 
 describe('seriesCoverageDays', () => {
+  it('starts at the oldest usable sample, not the oldest point', () => {
+    // Complete 180-day Midnight history whose fills began 10 days ago.
+    const points = Array.from({ length: 180 }, (_, i) => ({
+      x: NOW - (179 - i) * DAY,
+      y: i >= 170 ? 5 : null,
+      weight: i >= 170 ? 100 : 0,
+    }));
+    expect(seriesCoverageDays(points, NOW)).toBe(9);
+    const [, , d90] = rateAverages(points, NOW);
+    expect(d90.value).toBe(5);
+    expect(d90.coveredDays).toBe(9);
+  });
+
   it('ignores non-finite timestamps and is null for an empty series', () => {
     expect(seriesCoverageDays([{ x: Number.NaN, y: 1 }, { x: NOW - 3 * DAY, y: 1 }], NOW)).toBe(3);
     expect(seriesCoverageDays([], NOW)).toBeNull();

@@ -624,6 +624,9 @@ chains, so with Base-only config it stays 8453 and the hint would never show. Th
   and stay visible when that range is empty. A window the series does not reach
   back to shows its real span (`(20D data)`) — never present a partial history
   as a full 90D average. Points with a non-finite timestamp are skipped.
+  Coverage starts at the oldest **usable sample** (finite rate, positive
+  weight), not the oldest point: a complete Midnight history has 180 daily
+  points, no-fill days included, so a 10-day-old market read as full 90D.
 - **Price per share** uses `UsdTokenModeFilter`: **Tokens** = underlying per share;
   **USD** = dollar per share. Y-axis tick precision is **adaptive**
   (`axisFractionDigits` in `VaultOverviewHistoryChart.tsx`): fraction digits are
@@ -901,7 +904,9 @@ outlier price cannot move the average. As of 2026-11-06 the Midnight API has no 
 history / oracle endpoint, so history stays transactions-derived and collateral
 oracles stay on-chain. The list request uses `sort_by` / `sort_direction`
 (`sort` / `order` are ignored) with `limit=1000` (API max). Base had 1,281
-markets on 2026-11-06, so keep the cursor loop (cap 5 pages, warning past it).
+markets on 2026-11-06, so keep the cursor loop (cap 5 pages). Past the cap
+`fetchMidnightMarkets` returns `warning` with the cut list; the route serves
+it uncached and the browser shows it — never present a cut list as complete.
 Outstanding at each UTC midnight is the live total units minus later changes.
 **Unit changes (do not regress, `historyUnitChange`):** count `total_units_delta`
 on the unit-buying leg of each fill — `lend` and `exit_borrow_secondary` — so a
@@ -1951,12 +1956,25 @@ expose at most two filter dropdowns:
 - `SourceModeFilter` — `Total / By Vault / 1st derivative / 2nd derivative`
   (single button). Used by `ChartTvl`; the breakdown option appears only with
   `vaultData`, the two derivative options apply to the total.
-- **Live intraday points (do not regress):** DefiLlama appends a "so far
-  today" point (e.g. `…T20:16:23Z`) after today's midnight point.
-  `dropPartialDayPoints` removes it from derivative views when the rest of the
-  series is midnight-stamped — kept, two points share a day and the 1st
-  derivative merged both steps (today showed $50.99 instead of $26.58), and a
-  partial day reads as a drop. Cumulative views still show it.
+- **Live intraday points (do not regress):** DefiLlama's protocol endpoint
+  appends a "so far today" snapshot (e.g. `…T20:16:23Z`) after today's
+  midnight point on TVL, by-token TVL and the inflows built from them. It is
+  tagged **at the source**, `live: true` via `tagLivePoint` in
+  `lib/defillama/service.ts`, so no consumer re-guesses it from timestamps.
+  Derivative views drop it (`dropLivePoints`) — kept, two points share a day
+  and the 1st derivative merged both steps (today showed $50.99 instead of
+  $26.58). Latest-value reads (`getLatestTvl`) keep it. The cumulative view is
+  one point per day, the live total replacing today's midnight point
+  (`onePointPerDay`), so no date appears twice.
+- **Gaps:** flow cumulatives carry the total forward (`fillCumulativeDays`);
+  level series (TVL) interpolate a missing day linearly (`fillLevelDays`), so
+  every day has a derivative point and the 2nd-derivative trend (which looks
+  the mean up exactly N days back) has no holes. `cumulativeFromDaily` (treasury
+  revenue) **sums** same-day entries.
+- **Shared wiring:** `useDerivativeSeries` (`lib/hooks/useDerivativeSeries.ts`)
+  holds smoothing state and computes the derivative over the whole series in
+  one memo and the range cut in another, so a range change only re-filters.
+  `FlowTrendCard` and `ChartTvl` both use it, with `derivativeSeriesLabel`.
 
 Derivative views (`lib/utils/series-derivative.ts`, `TrendLineChart`): the
 change is per day (a missing day does not double a step), derivatives are
@@ -1969,7 +1987,7 @@ drawn bold and shown on its own by default:
   telescopes to (dₜ − dₜ₋ₙ) / N — two single raw days — and flipped sign 57× in
   240 days on Fees (118× on TVL) vs 6× (17×) for the 30D slope.
 - N is the **Smoothing 7D | 30D** control above the chart (default **30D**,
-  `DEFAULT_SMOOTHING_DAYS`), held per chart card. `trend` is undefined until
+  `DEFAULT_SMOOTHING_DAYS`), held per chart card in `useDerivativeSeries`. `trend` is undefined until
   its window is full (2nd derivative: two windows of history).
 A **Daily changes** switch (`components/ui/switch.tsx`, derivative views only)
 adds each day's actual value faintly underneath, at full scale. Both controls

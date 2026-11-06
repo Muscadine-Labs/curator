@@ -19,11 +19,13 @@
  * Derivatives are taken over the whole series and only then cut to the
  * selected range, so the first in-range point still has its predecessor.
  */
-import { utcDayStartMs } from '@/lib/utils/utc-calendar';
+import { utcDayKeyFromTimestamp, utcDayStartMs } from '@/lib/utils/utc-calendar';
 
 export interface SeriesPoint {
   date: string;
   value: number;
+  /** DefiLlama's "so far today" snapshot, tagged at the source (`tagLivePoint`). */
+  live?: boolean;
 }
 
 export interface DerivativePoint extends SeriesPoint {
@@ -50,22 +52,47 @@ function normalize(points: ReadonlyArray<SeriesPoint>): Array<SeriesPoint & { ms
   return [...byDay.values()].sort((a, b) => a.ms - b.ms);
 }
 
-function isIntradayStamp(date: string): boolean {
-  if (date.length <= 10) return false;
-  const ms = Date.parse(date);
-  return Number.isFinite(ms) && ms % DAY_MS !== 0;
+const dayKey = (ms: number) => utcDayKeyFromTimestamp(ms / 1000);
+
+/**
+ * Drops a live "so far today" snapshot (`live: true`, tagged where the data is
+ * built — `lib/defillama/service.ts`). Kept in a per-day derivative, today
+ * would hold two steps (26.58 + 24.41 shown as 50.99) and a partial day would
+ * read as a drop.
+ */
+export function dropLivePoints<T extends SeriesPoint>(points: ReadonlyArray<T>): T[] {
+  return points.filter((p) => !p.live);
+}
+
+/** One point per UTC day (the latest of the day wins), oldest first. */
+export function onePointPerDay(points: ReadonlyArray<SeriesPoint>): SeriesPoint[] {
+  return normalize(points).map(({ date, value }) => ({ date, value }));
 }
 
 /**
- * Drops live "so far today" points (stamped mid-day, e.g. `…T20:16:23Z`) from a
- * series whose other points sit at UTC midnight. DefiLlama appends one after
- * today's midnight point: kept, two points share a day and the 1st derivative
- * merges both steps (26.58 + 24.41 shown as 50.99), and a partial day compared
- * with a full one reads as a drop. Series stamped only intraday are kept whole.
+ * A level series (TVL) as one point per UTC day: a missing day is linearly
+ * interpolated. The per-day change across the gap is unchanged (the step is
+ * split evenly either way), but every day now has a derivative point, so the
+ * trend — which looks up the mean exactly N days back — has no holes.
  */
-export function dropPartialDayPoints<T extends SeriesPoint>(points: ReadonlyArray<T>): T[] {
-  const hasMidnight = points.some((p) => !isIntradayStamp(p.date));
-  return hasMidnight ? points.filter((p) => !isIntradayStamp(p.date)) : [...points];
+export function fillLevelDays(points: ReadonlyArray<SeriesPoint>): SeriesPoint[] {
+  const sorted = normalize(points);
+  const out: SeriesPoint[] = [];
+  for (let i = 0; i < sorted.length; i += 1) {
+    const cur = sorted[i];
+    const prev = sorted[i - 1];
+    if (prev) {
+      const gap = (cur.ms - prev.ms) / DAY_MS;
+      for (let d = 1; d < gap; d += 1) {
+        out.push({
+          date: dayKey(prev.ms + d * DAY_MS),
+          value: prev.value + ((cur.value - prev.value) * d) / gap,
+        });
+      }
+    }
+    out.push({ date: cur.date, value: cur.value });
+  }
+  return out;
 }
 
 /** Per-day change of a daily series. */
@@ -109,16 +136,15 @@ export function withTrailingAverage(
 }
 
 /**
- * `order` derivatives of `points` with a `days`-day trend (see module doc).
- * `order` 0 returns the series with its trailing mean.
+ * 1st or 2nd derivative of a level series with a `days`-day trend (see module
+ * doc). The live snapshot is dropped and missing days are interpolated first.
  */
 export function derivativeView(
   points: ReadonlyArray<SeriesPoint>,
-  order: 0 | 1 | 2,
+  order: 1 | 2,
   days: number = DEFAULT_SMOOTHING_DAYS
 ): DerivativePoint[] {
-  if (order === 0) return withTrailingAverage(points, days);
-  const first = seriesDerivative(dropPartialDayPoints(points));
+  const first = seriesDerivative(fillLevelDays(dropLivePoints(points)));
   const smoothedFirst = withTrailingAverage(first, days);
   if (order === 1) return smoothedFirst;
 
@@ -151,7 +177,6 @@ export function fillCumulativeDays(points: ReadonlyArray<SeriesPoint>): SeriesPo
   const sorted = normalize(points);
   if (sorted.length === 0) return [];
   const out: SeriesPoint[] = [];
-  const dayKey = (ms: number) => new Date(ms).toISOString().slice(0, 10);
   out.push({ date: dayKey(sorted[0].ms - DAY_MS), value: 0 });
   let last = 0;
   let i = 0;
@@ -165,13 +190,25 @@ export function fillCumulativeDays(points: ReadonlyArray<SeriesPoint>): SeriesPo
   return out;
 }
 
-/** Running total of a daily flow, for when only the daily series is available. */
+/**
+ * Running total of a daily flow, for when only the daily series is available
+ * (treasury revenue). Entries on the same UTC day are **summed** — they are
+ * separate flows, unlike level points where the latest wins.
+ */
 export function cumulativeFromDaily(points: ReadonlyArray<SeriesPoint>): SeriesPoint[] {
+  const byDay = new Map<number, number>();
+  for (const p of points) {
+    const ms = utcDayStartMs(p.date);
+    if (!Number.isFinite(ms) || !Number.isFinite(p.value)) continue;
+    byDay.set(ms, (byDay.get(ms) ?? 0) + p.value);
+  }
   let sum = 0;
-  return normalize(points).map((p) => {
-    sum += p.value;
-    return { date: p.date, value: sum };
-  });
+  return [...byDay.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([ms, value]) => {
+      sum += value;
+      return { date: dayKey(ms), value: sum };
+    });
 }
 
 /**
@@ -194,6 +231,8 @@ export function flowViewSeries(
     series.cumulative && series.cumulative.length > 0
       ? series.cumulative
       : cumulativeFromDaily(series.daily ?? []);
-  if (order === 0) return cumulative.map((p) => ({ date: p.date.slice(0, 10), value: p.value }));
-  return derivativeView(fillCumulativeDays(dropPartialDayPoints(cumulative)), order, days);
+  // One point per day: the live snapshot replaces today's midnight point, so a
+  // date never appears twice (it carries the freshest total).
+  if (order === 0) return onePointPerDay(cumulative);
+  return derivativeView(fillCumulativeDays(dropLivePoints(cumulative)), order, days);
 }

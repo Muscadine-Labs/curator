@@ -4,6 +4,15 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-06 — Code review fixes (PR #82)
+
+- Midnight "(nD data)" label: coverage starts at the oldest usable sample, so a young market's 90D average no longer reads as complete.
+- Midnight list past the page cap returns `warning` (shown in the browser, served uncached).
+- DefiLlama live "so far today" point tagged at the source (`tagLivePoint`, `live: true`); charts drop it by flag (`dropLivePoints`) instead of a timestamp heuristic. Cumulative view is one point per day.
+- TVL gaps interpolated (`fillLevelDays`) so the 2nd-derivative trend has no holes.
+- `useDerivativeSeries` shares FlowTrendCard / ChartTvl wiring; derivative and range cut memoized separately.
+- Removed dead order-0 `derivativeView` branch, the page's duplicate treasury running sum (now `cumulativeFromDaily`, which sums same-day flows), and an inline day-key helper.
+
 ## 2026-11-06 — Smoother derivative trends (PR #82)
 
 - 2nd-derivative trend is now the slope of the smoothed 1st derivative, not the mean of the raw 2nd derivative (which telescoped to two single raw days). Sign flips over 240 days: Fees 57 → 6, Revenue 21 → 3, TVL 118 → 17 at 30D.

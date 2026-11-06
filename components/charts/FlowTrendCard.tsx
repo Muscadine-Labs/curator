@@ -1,15 +1,11 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { filterDataByRange, type TimeRange } from '@/lib/utils/date-filter';
-import {
-  DEFAULT_SMOOTHING_DAYS,
-  flowViewSeries,
-  type SeriesPoint,
-  type SmoothingDays,
-} from '@/lib/utils/series-derivative';
+import type { TimeRange } from '@/lib/utils/date-filter';
+import type { SeriesPoint } from '@/lib/utils/series-derivative';
+import { derivativeSeriesLabel, useDerivativeSeries } from '@/lib/hooks/useDerivativeSeries';
 import { TimeRangeFilter } from '@/components/charts/TimeRangeFilter';
 import {
   ViewModeFilter,
@@ -28,12 +24,6 @@ interface FlowTrendCardProps {
   isLoading?: boolean;
 }
 
-const SERIES_LABEL: Record<ChartViewMode, (noun: string) => string> = {
-  cumulative: (noun) => `Cumulative ${noun}`,
-  daily: (noun) => `Daily ${noun} (1st derivative)`,
-  dailyChange: (noun) => `Change in daily ${noun} (2nd derivative)`,
-};
-
 /**
  * Dashboard flow chart (inflows, fees, revenue): time range + view
  * (Cumulative / 1st derivative / 2nd derivative of the cumulative series).
@@ -50,19 +40,11 @@ export function FlowTrendCard({
 }: FlowTrendCardProps) {
   const [viewMode, setViewMode] = useState<ChartViewMode>('cumulative');
   const [range, setRange] = useState<TimeRange>('all');
-  const [smoothing, setSmoothing] = useState<SmoothingDays>(DEFAULT_SMOOTHING_DAYS);
-
-  const data = useMemo(
-    () =>
-      filterDataByRange(
-        flowViewSeries(
-          flowViewOrder(viewMode),
-          { daily: dailyData, cumulative: cumulativeData },
-          smoothing
-        ),
-        range
-      ),
-    [viewMode, dailyData, cumulativeData, range, smoothing]
+  const order = flowViewOrder(viewMode);
+  const { data, smoothing, setSmoothing } = useDerivativeSeries(
+    { kind: 'flow', daily: dailyData, cumulative: cumulativeData },
+    order,
+    range
   );
 
   const hasData = Boolean(dailyData?.length || cumulativeData?.length);
@@ -101,7 +83,7 @@ export function FlowTrendCard({
           <TrendLineChart
             data={data}
             color={color}
-            seriesLabel={SERIES_LABEL[viewMode](noun)}
+            seriesLabel={order === 0 ? `Cumulative ${noun}` : derivativeSeriesLabel(order, noun)}
             derivative={derivative}
             smoothingDays={smoothing}
             onSmoothingChange={setSmoothing}

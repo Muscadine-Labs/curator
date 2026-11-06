@@ -44,6 +44,31 @@ export interface DefiLlamaProtocolResponse {
 export interface ChartData {
   date: string;
   value: number;
+  /**
+   * DefiLlama's protocol endpoint (`tvl`, `tokens`, `tokensInUsd`) appends a
+   * "so far today" snapshot after today's UTC-midnight point. It is tagged
+   * here, once, so consumers do not re-guess it from timestamps: a per-day
+   * view that keeps it counts today's step twice (26.58 + 24.41 shown as
+   * 50.99) and reads a partial day as a drop. Latest-value reads keep it.
+   */
+  live?: true;
+}
+
+const DAY_SEC = 86_400;
+
+/**
+ * Tags the trailing live snapshot: the last point, when it is not at UTC
+ * midnight and an earlier point is (a series stamped only intraday has no
+ * daily points to protect).
+ */
+export function tagLivePoint(points: ChartData[]): ChartData[] {
+  if (points.length < 2) return points;
+  const lastSec = Date.parse(points[points.length - 1].date) / 1000;
+  const intraday = (sec: number) => Number.isFinite(sec) && sec % DAY_SEC !== 0;
+  if (!intraday(lastSec)) return points;
+  const hasMidnight = points.slice(0, -1).some((p) => !intraday(Date.parse(p.date) / 1000));
+  if (!hasMidnight) return points;
+  return [...points.slice(0, -1), { ...points[points.length - 1], live: true }];
 }
 
 /**
@@ -310,7 +335,7 @@ export function getDailyInflowsChart(
       });
     }
     
-    return result;
+    return tagLivePoint(result);
   }
   
   // Fallback to TVL-based calculation if token data not available
@@ -348,7 +373,7 @@ export function getDailyInflowsChart(
     });
   }
 
-  return result;
+  return tagLivePoint(result);
 }
 
 /**
@@ -378,6 +403,7 @@ export function getCumulativeInflowsChart(
     result.push({
       date: daily.date,
       value: cumulativeInflow,
+      ...(daily.live ? { live: true as const } : {}),
     });
   }
   
@@ -389,10 +415,12 @@ export function getTvlChart(response: DefiLlamaProtocolResponse): ChartData[] {
   if (!response.tvl || response.tvl.length === 0) {
     return [];
   }
-  return response.tvl.map((point) => ({
-    date: new Date(point.date * 1000).toISOString(),
-    value: point.totalLiquidityUSD || 0,
-  }));
+  return tagLivePoint(
+    response.tvl.map((point) => ({
+      date: new Date(point.date * 1000).toISOString(),
+      value: point.totalLiquidityUSD || 0,
+    }))
+  );
 }
 
 export function getLatestTvl(response: DefiLlamaProtocolResponse): number {
@@ -420,10 +448,12 @@ export function getTvlByTokenSeries(
     .map((name) => ({
       name,
       address: name,
-      data: sortedSnaps.map((snap) => ({
-        date: new Date(snap.date * 1000).toISOString(),
-        value: snap.tokens?.[name] ?? 0,
-      })),
+      data: tagLivePoint(
+        sortedSnaps.map((snap) => ({
+          date: new Date(snap.date * 1000).toISOString(),
+          value: snap.tokens?.[name] ?? 0,
+        }))
+      ),
     }))
     .filter((series) => series.data.some((point) => point.value > 0));
 }

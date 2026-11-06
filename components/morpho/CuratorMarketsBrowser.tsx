@@ -637,6 +637,9 @@ export function CuratorMarketsBrowser({
             : 'Failed to load Midnight markets'}
         </p>
       ) : null}
+      {showMidnight && !midnightError && midnightData?.warning ? (
+        <p className="text-sm text-amber-700 dark:text-amber-400">{midnightData.warning}</p>
+      ) : null}
 
       {/* Clears the sticky top bar when a page change scrolls back up. */}
       <div ref={tableTopRef} className="scroll-mt-28" />

@@ -56,13 +56,12 @@ export function TrendLineChart({
   const trendLabel = smoothingDays ? `${smoothingDays}D trend` : 'Trend';
   const [showDaily, setShowDaily] = useState(false);
   const hasAverage = derivative && data.some((p) => p.trend != null);
-  const drawAverage = hasAverage;
   const drawDaily = !derivative || !hasAverage || showDaily;
 
   // Signs only where a drawn series goes negative ("+$28" daily fees reads oddly).
   const signed =
     derivative &&
-    data.some((p) => (drawDaily && p.value < 0) || (drawAverage && (p.trend ?? 0) < 0));
+    data.some((p) => (drawDaily && p.value < 0) || (hasAverage && (p.trend ?? 0) < 0));
   const format = signed ? formatSignedCompactUSD : formatCompactUSD;
 
   return (
@@ -127,13 +126,13 @@ export function TrendLineChart({
               dataKey="value"
               name="value"
               stroke={color}
-              strokeWidth={drawAverage ? 1 : 2}
-              strokeOpacity={drawAverage ? 0.35 : 1}
+              strokeWidth={hasAverage ? 1 : 2}
+              strokeOpacity={hasAverage ? 0.35 : 1}
               dot={false}
               isAnimationActive={false}
             />
           )}
-          {drawAverage && (
+          {hasAverage && (
             <Line
               type="monotone"
               dataKey="trend"

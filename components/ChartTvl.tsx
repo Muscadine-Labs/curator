@@ -14,11 +14,7 @@ import {
   type ChartSourceMode,
 } from '@/components/charts/SourceModeFilter';
 import { TrendLineChart } from '@/components/charts/TrendLineChart';
-import {
-  DEFAULT_SMOOTHING_DAYS,
-  derivativeView,
-  type SmoothingDays,
-} from '@/lib/utils/series-derivative';
+import { derivativeSeriesLabel, useDerivativeSeries } from '@/lib/hooks/useDerivativeSeries';
 
 interface ChartTvlProps {
   totalData?: Array<{ date: string; value: number }>;
@@ -66,16 +62,11 @@ export function ChartTvl({
   }, [vaultData, range]);
 
   const derivativeOrder = sourceModeOrder(viewMode);
-  const [smoothing, setSmoothing] = useState<SmoothingDays>(DEFAULT_SMOOTHING_DAYS);
-  // Derivatives over the whole series, then cut to the range, so the first
-  // in-range day keeps its predecessor.
-  const derivativeData = useMemo(
-    () =>
-      derivativeOrder === 0
-        ? []
-        : filterDataByRange(derivativeView(totalData || [], derivativeOrder, smoothing), range),
-    [derivativeOrder, totalData, range, smoothing]
-  );
+  const {
+    data: derivativeData,
+    smoothing,
+    setSmoothing,
+  } = useDerivativeSeries({ kind: 'level', points: totalData }, derivativeOrder, range);
 
   const chartData = useMemo(() => {
     if (viewMode !== 'byVault' || !filteredVaultData || filteredVaultData.length === 0) {
@@ -239,11 +230,7 @@ export function ChartTvl({
           <TrendLineChart
             data={derivativeData}
             color="#3b82f6"
-            seriesLabel={
-              derivativeOrder === 1
-                ? 'Daily TVL change (1st derivative)'
-                : 'Change in daily TVL change (2nd derivative)'
-            }
+            seriesLabel={derivativeSeriesLabel(derivativeOrder === 1 ? 1 : 2, 'TVL change')}
             derivative
             smoothingDays={smoothing}
             onSmoothingChange={setSmoothing}
