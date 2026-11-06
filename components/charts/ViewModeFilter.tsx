@@ -12,8 +12,8 @@ export type ChartViewMode = 'cumulative' | 'daily' | 'dailyChange';
 
 const OPTIONS: ReadonlyArray<ChartModeOption<ChartViewMode>> = [
   { value: 'cumulative', label: 'Cumulative' },
-  { value: 'daily', label: '1st derivative', hint: 'Daily amount · 7D avg' },
-  { value: 'dailyChange', label: '2nd derivative', hint: 'Change in daily amount · 7D avg' },
+  { value: 'daily', label: '1st derivative', hint: 'Daily amount' },
+  { value: 'dailyChange', label: '2nd derivative', hint: 'Change in daily amount' },
 ];
 
 /** Derivative order of a flow view relative to the cumulative series. */

@@ -14,7 +14,12 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { formatCompactUSD, formatSignedCompactUSD } from '@/lib/format/number';
 import { formatUtcChartTick, formatUtcTooltipDate } from '@/lib/utils/utc-calendar';
-import type { DerivativePoint } from '@/lib/utils/series-derivative';
+import { cn } from '@/lib/utils';
+import {
+  SMOOTHING_OPTIONS,
+  type DerivativePoint,
+  type SmoothingDays,
+} from '@/lib/utils/series-derivative';
 
 interface TrendLineChartProps {
   data: ReadonlyArray<DerivativePoint>;
@@ -26,40 +31,78 @@ interface TrendLineChartProps {
    * zero line; the **Daily changes** switch adds each day's actual value.
    */
   derivative?: boolean;
+  /** Smoothing window the `trend` values were built with (derivative views). */
+  smoothingDays?: SmoothingDays;
+  onSmoothingChange?: (days: SmoothingDays) => void;
 }
-
-const AVERAGE_LABEL = '7D avg';
 
 /**
  * Single-series USD trend line shared by the dashboard charts.
  *
- * Derivative views default to the 7D average alone: day-to-day changes swing
- * far past the trend, so drawing both by default buried the rate of change.
- * The switch draws the daily values faintly underneath, at full scale.
- * With too little history for a 7-day average the daily values always show.
+ * Derivative views default to the smoothed trend alone: day-to-day changes
+ * swing far past it, so drawing both by default buried the rate of change.
+ * The switch draws the daily values faintly underneath, at full scale; the
+ * 7D / 30D control picks the smoothing window. With too little history for a
+ * trend, the daily values always show.
  */
-export function TrendLineChart({ data, color, seriesLabel, derivative = false }: TrendLineChartProps) {
+export function TrendLineChart({
+  data,
+  color,
+  seriesLabel,
+  derivative = false,
+  smoothingDays,
+  onSmoothingChange,
+}: TrendLineChartProps) {
+  const trendLabel = smoothingDays ? `${smoothingDays}D trend` : 'Trend';
   const [showDaily, setShowDaily] = useState(false);
-  const hasAverage = derivative && data.some((p) => p.avg7 != null);
+  const hasAverage = derivative && data.some((p) => p.trend != null);
   const drawAverage = hasAverage;
   const drawDaily = !derivative || !hasAverage || showDaily;
 
   // Signs only where a drawn series goes negative ("+$28" daily fees reads oddly).
   const signed =
     derivative &&
-    data.some((p) => (drawDaily && p.value < 0) || (drawAverage && (p.avg7 ?? 0) < 0));
+    data.some((p) => (drawDaily && p.value < 0) || (drawAverage && (p.trend ?? 0) < 0));
   const format = signed ? formatSignedCompactUSD : formatCompactUSD;
 
   return (
     <>
       {derivative && (
-        <div className="mb-1 flex justify-end">
+        <div className="mb-1 flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
+          {smoothingDays && onSmoothingChange && (
+            <div
+              role="radiogroup"
+              aria-label="Smoothing"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+            >
+              <span>Smoothing</span>
+              <span className="inline-flex rounded-md border border-border p-0.5">
+                {SMOOTHING_OPTIONS.map((days) => (
+                  <button
+                    key={days}
+                    type="button"
+                    role="radio"
+                    aria-checked={smoothingDays === days}
+                    onClick={() => onSmoothingChange(days)}
+                    className={cn(
+                      'min-h-8 touch-manipulation rounded px-2 tabular-nums sm:min-h-6',
+                      smoothingDays === days
+                        ? 'bg-muted font-medium text-foreground'
+                        : 'hover:text-foreground'
+                    )}
+                  >
+                    {days}D
+                  </button>
+                ))}
+              </span>
+            </div>
+          )}
           <Switch
             checked={drawDaily}
             onCheckedChange={setShowDaily}
             label="Daily changes"
             disabled={!hasAverage}
-            title={hasAverage ? undefined : 'Under 7 days of data: showing daily values'}
+            title={hasAverage ? undefined : 'Not enough history for a trend: showing daily values'}
           />
         </div>
       )}
@@ -71,12 +114,12 @@ export function TrendLineChart({ data, color, seriesLabel, derivative = false }:
           {derivative && <ReferenceLine y={0} stroke="currentColor" strokeOpacity={0.35} />}
           <Tooltip
             formatter={(value, name) => {
-              const label = name === 'avg7' ? AVERAGE_LABEL : seriesLabel;
+              const label = name === 'trend' ? trendLabel : seriesLabel;
               const num = typeof value === 'number' ? value : Number(value);
               return [Number.isFinite(num) ? format(num) : 'N/A', label];
             }}
             labelFormatter={(label) => formatUtcTooltipDate(String(label ?? ''))}
-            itemSorter={(item) => (item.dataKey === 'avg7' ? 1 : 0)}
+            itemSorter={(item) => (item.dataKey === 'trend' ? 1 : 0)}
           />
           {drawDaily && (
             <Line
@@ -93,8 +136,8 @@ export function TrendLineChart({ data, color, seriesLabel, derivative = false }:
           {drawAverage && (
             <Line
               type="monotone"
-              dataKey="avg7"
-              name="avg7"
+              dataKey="trend"
+              name="trend"
               stroke={color}
               strokeWidth={2}
               dot={false}

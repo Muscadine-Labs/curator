@@ -1961,13 +1961,21 @@ expose at most two filter dropdowns:
 Derivative views (`lib/utils/series-derivative.ts`, `TrendLineChart`): the
 change is per day (a missing day does not double a step), derivatives are
 taken over the **whole** series and then cut to the time range (so the first
-in-range day keeps its predecessor). They show the **7D trailing average**
-(the rate of change; undefined until a full 7-day window exists) on its own
-by default. A **Daily changes** switch (`components/ui/switch.tsx`, above the
-chart, derivative views only) adds each day's actual value faintly
-underneath, at full scale. The switch keeps its state across 1st ↔ 2nd
-derivative on the same chart. With under 7 days of data there is no average,
-so the daily values always show and the switch is disabled. Signed `+$/−$`
+in-range day keeps its predecessor). Each point carries a smoothed `trend`,
+drawn bold and shown on its own by default:
+- 1st derivative: trailing N-day mean of the daily change.
+- 2nd derivative: the **slope of that smoothed 1st derivative**,
+  (mₜ − mₜ₋ₙ) / N. **Do not regress** to averaging the raw 2nd derivative: that
+  telescopes to (dₜ − dₜ₋ₙ) / N — two single raw days — and flipped sign 57× in
+  240 days on Fees (118× on TVL) vs 6× (17×) for the 30D slope.
+- N is the **Smoothing 7D | 30D** control above the chart (default **30D**,
+  `DEFAULT_SMOOTHING_DAYS`), held per chart card. `trend` is undefined until
+  its window is full (2nd derivative: two windows of history).
+A **Daily changes** switch (`components/ui/switch.tsx`, derivative views only)
+adds each day's actual value faintly underneath, at full scale. Both controls
+keep their state across 1st ↔ 2nd derivative on the same chart. With too
+little history for a trend the daily values always show and the switch is
+disabled. Signed `+$/−$`
 labels (`formatSignedCompactUSD`) only when a drawn series goes negative. Derivative options live **in each chart's existing view
 dropdown**, not a page-level or settings toggle — keeps the two-control rule.
 

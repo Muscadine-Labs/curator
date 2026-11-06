@@ -4,6 +4,11 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-06 — Smoother derivative trends (PR #82)
+
+- 2nd-derivative trend is now the slope of the smoothed 1st derivative, not the mean of the raw 2nd derivative (which telescoped to two single raw days). Sign flips over 240 days: Fees 57 → 6, Revenue 21 → 3, TVL 118 → 17 at 30D.
+- **Smoothing 7D | 30D** control on derivative views (default 30D). `avg7` → `trend`. Remaining TVL cliffs are single large deposit/withdrawal days entering and leaving the 30D window.
+
 ## 2026-11-06 — Daily changes switch on derivative views (PR #82)
 
 - Derivative views now show only the 7D average (the rate of change) by default; a **Daily changes** switch adds each day's actual value at full scale. Replaces the fit-to-average axis + clipping note (`averageFitDomain` removed). New `components/ui/switch.tsx`.

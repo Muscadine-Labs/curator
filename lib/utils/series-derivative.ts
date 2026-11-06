@@ -5,12 +5,16 @@
  * - `seriesDerivative` is the per-day change: (vₜ − vₜ₋₁) / days between them,
  *   so a missing day does not double a step. The first point has no
  *   predecessor and is dropped.
- * - `withTrailingAverage` adds `avg7`, the mean of the samples in the trailing
- *   7 calendar days. It is left undefined until a full window exists, so the
- *   start of the series is never a 1-sample "average". Raw second derivatives
- *   of daily flows are mostly noise; the chart draws them faintly under the
- *   bold `avg7`. (A 7-day mean of daily differences telescopes to
- *   (vₜ − vₜ₋₇) / 7: the average daily change over the past week.)
+ * - Each derivative point carries `trend`, the smoothed line the chart draws
+ *   bold (the raw `value` is the optional faint "Daily changes" line).
+ *   - 1st derivative: trailing N-day mean of the daily change.
+ *   - 2nd derivative: the **slope of that smoothed 1st derivative**,
+ *     (mₜ − mₜ₋ₙ) / N. Averaging the raw 2nd derivative instead telescopes to
+ *     (dₜ − dₜ₋ₙ) / N — two single raw days — which flipped sign 57× in 240
+ *     days on Fees (118× on TVL); the slope of the 7D mean flips 31× (35×),
+ *     of the 30D mean 6× (17×).
+ *   `trend` is undefined until its window is full, so the series never opens
+ *   on a 1-sample "average".
  *
  * Derivatives are taken over the whole series and only then cut to the
  * selected range, so the first in-range point still has its predecessor.
@@ -23,12 +27,17 @@ export interface SeriesPoint {
 }
 
 export interface DerivativePoint extends SeriesPoint {
-  /** Trailing 7-day mean of `value`; undefined until a full window exists. */
-  avg7?: number;
+  /** Smoothed rate of change (see module doc); undefined until its window is full. */
+  trend?: number;
 }
 
+/** Smoothing window for derivative trends, in days. */
+export type SmoothingDays = 7 | 30;
+export const SMOOTHING_OPTIONS: ReadonlyArray<SmoothingDays> = [7, 30];
+/** 30D: the calm default. 7D turns sooner but wiggles more. */
+export const DEFAULT_SMOOTHING_DAYS: SmoothingDays = 30;
+
 const DAY_MS = 86_400_000;
-export const DERIVATIVE_AVERAGE_DAYS = 7;
 
 /** Finite points with a parseable date, one per UTC day (last wins), oldest first. */
 function normalize(points: ReadonlyArray<SeriesPoint>): Array<SeriesPoint & { ms: number }> {
@@ -71,10 +80,10 @@ export function seriesDerivative(points: ReadonlyArray<SeriesPoint>): SeriesPoin
   return out;
 }
 
-/** Adds `avg7` (trailing `days`-day mean) to each point. */
+/** Adds `trend` = trailing `days`-day mean of `value` (calendar days). */
 export function withTrailingAverage(
   points: ReadonlyArray<SeriesPoint>,
-  days: number = DERIVATIVE_AVERAGE_DAYS
+  days: number = DEFAULT_SMOOTHING_DAYS
 ): DerivativePoint[] {
   const sorted = normalize(points);
   if (sorted.length === 0) return [];
@@ -93,23 +102,41 @@ export function withTrailingAverage(
     out.push({
       date: sorted[i].date,
       value: sorted[i].value,
-      avg7: full ? sum / (i - start + 1) : undefined,
+      trend: full ? sum / (i - start + 1) : undefined,
     });
   }
   return out;
 }
 
 /**
- * `order` derivatives of `points`, each with its trailing average.
- * `order` 0 returns the series itself (with `avg7`).
+ * `order` derivatives of `points` with a `days`-day trend (see module doc).
+ * `order` 0 returns the series with its trailing mean.
  */
 export function derivativeView(
   points: ReadonlyArray<SeriesPoint>,
-  order: 0 | 1 | 2
+  order: 0 | 1 | 2,
+  days: number = DEFAULT_SMOOTHING_DAYS
 ): DerivativePoint[] {
-  let series: ReadonlyArray<SeriesPoint> = order > 0 ? dropPartialDayPoints(points) : points;
-  for (let i = 0; i < order; i += 1) series = seriesDerivative(series);
-  return withTrailingAverage(series);
+  if (order === 0) return withTrailingAverage(points, days);
+  const first = seriesDerivative(dropPartialDayPoints(points));
+  const smoothedFirst = withTrailingAverage(first, days);
+  if (order === 1) return smoothedFirst;
+
+  // Slope of the smoothed 1st derivative over the same window.
+  const meanByMs = new Map<number, number>();
+  for (const p of smoothedFirst) {
+    if (p.trend != null) meanByMs.set(utcDayStartMs(p.date), p.trend);
+  }
+  return seriesDerivative(first).map((p) => {
+    const ms = utcDayStartMs(p.date);
+    const now = meanByMs.get(ms);
+    const before = meanByMs.get(ms - days * DAY_MS);
+    return {
+      date: p.date,
+      value: p.value,
+      trend: now != null && before != null ? (now - before) / days : undefined,
+    };
+  });
 }
 
 /**
@@ -153,19 +180,20 @@ export function cumulativeFromDaily(points: ReadonlyArray<SeriesPoint>): SeriesP
  * daily flow), 2 → its 2nd derivative (the per-day change in the daily flow).
  * Both derivatives come from the cumulative line itself, so they always agree
  * with it; when only daily data exists, the cumulative is its running total.
- * Orders 1 and 2 carry `avg7`.
+ * Orders 1 and 2 carry `trend`.
  */
 export function flowViewSeries(
   order: 0 | 1 | 2,
   series: {
     daily?: ReadonlyArray<SeriesPoint> | null;
     cumulative?: ReadonlyArray<SeriesPoint> | null;
-  }
+  },
+  days: number = DEFAULT_SMOOTHING_DAYS
 ): DerivativePoint[] {
   const cumulative =
     series.cumulative && series.cumulative.length > 0
       ? series.cumulative
       : cumulativeFromDaily(series.daily ?? []);
   if (order === 0) return cumulative.map((p) => ({ date: p.date.slice(0, 10), value: p.value }));
-  return derivativeView(fillCumulativeDays(dropPartialDayPoints(cumulative)), order);
+  return derivativeView(fillCumulativeDays(dropPartialDayPoints(cumulative)), order, days);
 }

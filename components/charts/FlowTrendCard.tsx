@@ -4,7 +4,12 @@ import { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { filterDataByRange, type TimeRange } from '@/lib/utils/date-filter';
-import { flowViewSeries, type SeriesPoint } from '@/lib/utils/series-derivative';
+import {
+  DEFAULT_SMOOTHING_DAYS,
+  flowViewSeries,
+  type SeriesPoint,
+  type SmoothingDays,
+} from '@/lib/utils/series-derivative';
 import { TimeRangeFilter } from '@/components/charts/TimeRangeFilter';
 import {
   ViewModeFilter,
@@ -45,14 +50,19 @@ export function FlowTrendCard({
 }: FlowTrendCardProps) {
   const [viewMode, setViewMode] = useState<ChartViewMode>('cumulative');
   const [range, setRange] = useState<TimeRange>('all');
+  const [smoothing, setSmoothing] = useState<SmoothingDays>(DEFAULT_SMOOTHING_DAYS);
 
   const data = useMemo(
     () =>
       filterDataByRange(
-        flowViewSeries(flowViewOrder(viewMode), { daily: dailyData, cumulative: cumulativeData }),
+        flowViewSeries(
+          flowViewOrder(viewMode),
+          { daily: dailyData, cumulative: cumulativeData },
+          smoothing
+        ),
         range
       ),
-    [viewMode, dailyData, cumulativeData, range]
+    [viewMode, dailyData, cumulativeData, range, smoothing]
   );
 
   const hasData = Boolean(dailyData?.length || cumulativeData?.length);
@@ -93,6 +103,8 @@ export function FlowTrendCard({
             color={color}
             seriesLabel={SERIES_LABEL[viewMode](noun)}
             derivative={derivative}
+            smoothingDays={smoothing}
+            onSmoothingChange={setSmoothing}
           />
         )}
       </CardContent>

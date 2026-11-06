@@ -54,27 +54,60 @@ describe('seriesDerivative', () => {
 
 describe('withTrailingAverage', () => {
   it('starts the 7-day average only once a full window exists', () => {
-    const out = withTrailingAverage(days([1, 2, 3, 4, 5, 6, 7, 8]));
-    expect(out.slice(0, 6).every((p) => p.avg7 === undefined)).toBe(true);
-    expect(out[6].avg7).toBe(4);
-    expect(out[7].avg7).toBe(5);
+    const out = withTrailingAverage(days([1, 2, 3, 4, 5, 6, 7, 8]), 7);
+    expect(out.slice(0, 6).every((p) => p.trend === undefined)).toBe(true);
+    expect(out[6].trend).toBe(4);
+    expect(out[7].trend).toBe(5);
   });
 
   it('averages over calendar days, not sample count', () => {
     const points = [...days([1, 1, 1, 1, 1, 1, 1]), { date: '2026-10-20', value: 9 }];
-    expect(withTrailingAverage(points).at(-1)?.avg7).toBe(9);
+    expect(withTrailingAverage(points, 7).at(-1)?.trend).toBe(9);
   });
 });
 
 describe('derivativeView', () => {
-  it('second derivative of a quadratic is constant', () => {
-    const quad = days([0, 1, 4, 9, 16, 25, 36, 49, 64, 81]);
-    const second = derivativeView(quad, 2);
+  const quad = days(Array.from({ length: 20 }, (_, i) => i * i));
+
+  it('second derivative of a quadratic is constant, and so is its trend', () => {
+    const second = derivativeView(quad, 2, 7);
     expect(second.every((p) => p.value === 2)).toBe(true);
-    expect(second.at(-1)?.avg7).toBe(2);
+    expect(second.at(-1)?.trend).toBeCloseTo(2, 10);
   });
 
-  it('order 0 keeps the series and adds the average', () => {
+  it('1st-derivative trend is the trailing mean of the daily change', () => {
+    const first = derivativeView(quad, 1, 7);
+    // Daily change on day i is 2i − 1; mean of the last 7 (i = 13..19) is 31.
+    expect(first.at(-1)?.trend).toBe(31);
+  });
+
+  it('2nd-derivative trend is the slope of the smoothed 1st derivative', () => {
+    // Needs a full window for the mean and another window of history behind it.
+    const second = derivativeView(quad, 2, 7);
+    const firstDefined = second.findIndex((p) => p.trend != null);
+    expect(second[firstDefined].date).toBe(quad[14].date);
+    expect(second.slice(0, firstDefined).every((p) => p.trend === undefined)).toBe(true);
+  });
+
+  it('stays steady on noisy daily data where the averaged raw 2nd derivative flips', () => {
+    // Steady growth of 1/day in the daily amount, plus alternating ±20 noise.
+    let cum = 0;
+    const cumulative = days(
+      Array.from({ length: 120 }, (_, i) => (cum += 100 + i + (i % 2 === 0 ? 20 : -20)))
+    );
+    const trend = derivativeView(cumulative, 2, 30)
+      .map((p) => p.trend)
+      .filter((v): v is number => v != null);
+    expect(trend.length).toBeGreaterThan(0);
+    expect(trend.every((v) => Math.abs(v - 1) < 0.1)).toBe(true);
+    // The old method (7D mean of the raw 2nd derivative) swings far from 1.
+    const old = withTrailingAverage(seriesDerivative(seriesDerivative(cumulative)), 7)
+      .map((p) => p.trend)
+      .filter((v): v is number => v != null);
+    expect(Math.max(...old.map((v) => Math.abs(v - 1)))).toBeGreaterThan(5);
+  });
+
+  it('order 0 keeps the series', () => {
     expect(derivativeView(days([3, 3]), 0).map((p) => p.value)).toEqual([3, 3]);
   });
 });
@@ -105,10 +138,10 @@ describe('flowViewSeries', () => {
   });
 
   it('order 1 is the derivative of cumulative, first day included', () => {
-    const out = flowViewSeries(1, { daily, cumulative });
+    const out = flowViewSeries(1, { daily, cumulative }, 7);
     expect(out.map((p) => p.value)).toEqual(daily.map((p) => p.value));
     expect(out[0].date).toBe('2026-10-01');
-    expect(out.at(-1)?.avg7).toBe(40);
+    expect(out.at(-1)?.trend).toBe(40);
   });
 
   it('order 1 follows the cumulative line when daily disagrees with it', () => {
@@ -130,9 +163,10 @@ describe('flowViewSeries', () => {
   });
 
   it('order 2 is the 2nd derivative of cumulative', () => {
-    const out = flowViewSeries(2, { daily, cumulative });
+    const out = flowViewSeries(2, { daily, cumulative }, 7);
     expect(out.map((p) => p.value)).toEqual([5, 10, 10, 10, 10, 10, 10]);
-    expect(out.at(-1)?.avg7).toBeCloseTo(65 / 7);
+    // Eight days is less than two 7-day windows: no trend yet, not a guess.
+    expect(out.every((p) => p.trend === undefined)).toBe(true);
   });
 });
 

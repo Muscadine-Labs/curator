@@ -35,8 +35,8 @@ export function SourceModeFilter({
   const options: Array<ChartModeOption<ChartSourceMode>> = [
     { value: 'total', label: 'Total' },
     ...(showBreakdown ? [{ value: 'byVault' as const, label: breakdownLabel }] : []),
-    { value: 'change', label: '1st derivative', hint: 'Daily TVL change · 7D avg' },
-    { value: 'acceleration', label: '2nd derivative', hint: 'Change in daily change · 7D avg' },
+    { value: 'change', label: '1st derivative', hint: 'Daily TVL change' },
+    { value: 'acceleration', label: '2nd derivative', hint: 'Change in daily change' },
   ];
   return <ChartModeFilter value={value} onChange={onChange} options={options} icon={Layers} />;
 }
