@@ -28,12 +28,15 @@ import {
   type BrowseSortDir,
   type BrowseSortKey,
   matchesListedFilter,
+  paginateBrowseRows,
+  BROWSE_PAGE_SIZE,
   type BrowseListedFilter,
   type MarketsBrowseRow,
 } from '@/lib/morpho/markets-browse-rows';
 import { useCuratorNetwork } from '@/lib/network/CuratorNetworkContext';
 import { cn } from '@/lib/utils';
 import { CuratorTableShell } from '@/components/morpho/CuratorChrome';
+import { PaginationBar } from '@/components/ui/pagination-bar';
 
 type ListedFilter = BrowseListedFilter;
 type MuscadineFilter = 'all' | 'muscadine';
@@ -461,6 +464,20 @@ export function CuratorMarketsBrowser({
     return rows;
   }, [filtered, filteredMidnight, showBlue, showMidnight, sortKey, sortDir]);
 
+  // Page resets to 1 whenever the visible list changes (filters, sort,
+  // product). Keyed state instead of an effect, so there is no render with a
+  // stale page before the reset.
+  const pageKey = `${productFilter}|${sortKey}|${sortDir}|${search}|${loanFilter}|${collateralFilter}|${listedFilter}|${muscadineFilter}|${midnightStatus}`;
+  const [pageState, setPageState] = useState({ key: pageKey, page: 0 });
+  const requestedPage = pageState.key === pageKey ? pageState.page : 0;
+  const paged = useMemo(() => paginateBrowseRows(sorted, requestedPage), [sorted, requestedPage]);
+  const tableTopRef = useRef<HTMLDivElement>(null);
+  const goToPage = (page: number) => {
+    setPageState({ key: pageKey, page });
+    // The pager sits under the table; bring the new page's first row into view.
+    tableTopRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  };
+
   const toggleSort = (key: BrowseSortKey) => {
     if (sortKey === key) {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -621,6 +638,8 @@ export function CuratorMarketsBrowser({
         </p>
       ) : null}
 
+      {/* Clears the sticky top bar when a page change scrolls back up. */}
+      <div ref={tableTopRef} className="scroll-mt-28" />
       <CuratorTableShell className="overflow-x-auto">
         <Table>
           <TableHeader>
@@ -660,7 +679,7 @@ export function CuratorMarketsBrowser({
             )}
 
             {!tableLoading &&
-              sorted.map((row) => {
+              paged.rows.map((row) => {
                 const muscadine = (row.blue?.muscadineVaults.length ?? 0) > 0;
                 return (
                   <TableRow
@@ -698,8 +717,19 @@ export function CuratorMarketsBrowser({
       </CuratorTableShell>
 
       {!tableLoading && (
+        <PaginationBar
+          page={paged.page}
+          totalPages={paged.totalPages}
+          total={sorted.length}
+          pageSize={BROWSE_PAGE_SIZE}
+          onPage={goToPage}
+          showEdges
+        />
+      )}
+
+      {!tableLoading && (
         <p className="text-xs text-muted-foreground">
-          Showing {sorted.length} markets on {networkName}
+          {sorted.length.toLocaleString('en-US')} markets on {networkName}
           {showBlue ? ` · ${sorted.filter((row) => row.product === 'blue').length} Blue` : ''}
           {showMidnight
             ? ` · ${sorted.filter((row) => row.product === 'midnight').length} Midnight${

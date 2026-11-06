@@ -6,6 +6,7 @@ import {
   compareBrowseRows,
   matchesListedFilter,
   midnightBrowseRow,
+  paginateBrowseRows,
   type MarketsBrowseRow,
 } from './markets-browse-rows';
 
@@ -91,5 +92,30 @@ describe('matchesListedFilter', () => {
     expect(matchesListedFilter(null, 'listed')).toBe(true);
     expect(matchesListedFilter(undefined, 'listed')).toBe(true);
     expect(matchesListedFilter(null, 'unlisted')).toBe(false);
+  });
+});
+
+describe('paginateBrowseRows', () => {
+  const rows = Array.from({ length: 250 }, (_, i) => i);
+
+  it('returns 100-row pages', () => {
+    const first = paginateBrowseRows(rows, 0);
+    expect(first.totalPages).toBe(3);
+    expect(first.rows).toHaveLength(100);
+    expect(first.rows[0]).toBe(0);
+    const last = paginateBrowseRows(rows, 2);
+    expect(last.rows).toEqual(rows.slice(200));
+  });
+
+  it('clamps a page past the end to the last page', () => {
+    const page = paginateBrowseRows(rows.slice(0, 120), 5);
+    expect(page.page).toBe(1);
+    expect(page.rows).toEqual(rows.slice(100, 120));
+  });
+
+  it('keeps one empty page for an empty list and clamps bad input', () => {
+    expect(paginateBrowseRows([], 3)).toEqual({ page: 0, totalPages: 1, rows: [] });
+    expect(paginateBrowseRows(rows, -2).page).toBe(0);
+    expect(paginateBrowseRows(rows, Number.NaN).page).toBe(0);
   });
 });

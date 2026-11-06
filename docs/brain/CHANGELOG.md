@@ -4,6 +4,10 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-06 — Markets browser pagination (PR #82)
+
+- `/markets` renders 100 rows per page with the shared `PaginationBar` (first / prev / next / last) under the table; page resets on filter / sort / product change and scrolls back to the table top. `paginateBrowseRows` + tests. Fetching is unchanged (filter/sort need both full lists).
+
 ## 2026-11-06 — Review fixes + dependency bumps (PR #82)
 
 - Deps (in-range): next / eslint-config-next 16.4.5, @tanstack/react-query(+devtools) 5.106.1, lucide-react 1.70.0, tailwindcss / @tailwindcss/postcss 4.3.5, graphql 17.1.0, vite 8.3.6, ox 0.14.63, @swc/helpers 0.5.24; `npm update` for transitive. Majors still held (§11).

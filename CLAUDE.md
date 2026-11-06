@@ -1020,6 +1020,14 @@ page's back link returns there; `safeReturnPath` rejects anything that is not a
 same-origin path (`//`, `/\host`, control characters).
 
 **List defaults** — filter **Listed** only (Blue and Midnight); sort **Market size** high → low.
+**Pagination** — the table renders **100 rows per page** (`BROWSE_PAGE_SIZE`,
+`paginateBrowseRows` in `markets-browse-rows.ts`) with the shared
+`PaginationBar` under it (`showEdges` adds first / last). The page resets to 1
+when filters, sort or product change (keyed state, not an effect), is clamped
+if a refetch shrinks the list, and a page change scrolls back to the table top
+(`scroll-mt-28` clears the sticky top bar). Filtering and sorting still run
+over the full Blue + Midnight lists client-side, so both lists are fetched in
+full; only rendering is paged.
 Midnight status defaults to **Active** (`maturity` omitted). **Matured** is
 `maturity=matured`; **All** is `maturity=all`. Active means `maturity` is still
 in the future (`isMidnightMarketActive`). The control is hidden on Blue-only
