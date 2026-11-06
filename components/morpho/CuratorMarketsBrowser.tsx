@@ -27,13 +27,15 @@ import {
   midnightBrowseRow,
   type BrowseSortDir,
   type BrowseSortKey,
+  matchesListedFilter,
+  type BrowseListedFilter,
   type MarketsBrowseRow,
 } from '@/lib/morpho/markets-browse-rows';
 import { useCuratorNetwork } from '@/lib/network/CuratorNetworkContext';
 import { cn } from '@/lib/utils';
 import { CuratorTableShell } from '@/components/morpho/CuratorChrome';
 
-type ListedFilter = 'all' | 'listed' | 'unlisted';
+type ListedFilter = BrowseListedFilter;
 type MuscadineFilter = 'all' | 'muscadine';
 type MidnightStatusFilter = 'active' | 'matured' | 'all';
 export type MarketsProductFilter = 'all' | 'blue' | 'midnight';
@@ -95,7 +97,7 @@ const BROWSE_COLUMNS: {
   { key: 'liquidity', label: 'Liquidity', align: 'right', products: ['blue'] },
   { key: 'apy', label: '6H net APY', align: 'right', products: ['blue'] },
   { key: 'maturity', label: 'Maturity', products: ['midnight'] },
-  { key: 'listed', label: 'Listed', products: ['blue'] },
+  { key: 'listed', label: 'Listed', products: ['blue', 'midnight'] },
   { key: 'muscadine', label: 'Muscadine', products: ['blue'] },
 ];
 
@@ -272,9 +274,9 @@ function BrowseCell({
     case 'listed':
       return (
         <TableCell>
-          {blue ? (
-            <Badge variant={blue.listed ? 'default' : 'secondary'}>
-              {blue.listed ? 'Listed' : 'No'}
+          {row.listed != null ? (
+            <Badge variant={row.listed ? 'default' : 'secondary'}>
+              {row.listed ? 'Listed' : 'No'}
             </Badge>
           ) : (
             <BlankCell />
@@ -399,8 +401,7 @@ export function CuratorMarketsBrowser({
     const markets = data?.markets ?? [];
 
     return markets.filter((m) => {
-      if (listedFilter === 'listed' && !m.listed) return false;
-      if (listedFilter === 'unlisted' && m.listed) return false;
+      if (!matchesListedFilter(m.listed, listedFilter)) return false;
       if (muscadineFilter === 'muscadine' && m.muscadineVaults.length === 0) return false;
       return marketMatchesPairFilters(
         {
@@ -417,6 +418,7 @@ export function CuratorMarketsBrowser({
     const markets = midnightData?.markets ?? [];
     const nowSec = Math.floor(Date.now() / 1000);
     return markets.filter((m) => {
+      if (!matchesListedFilter(m.listed, listedFilter)) return false;
       const active = isMidnightMarketActive(m.maturity, nowSec);
       if (midnightStatus === 'active' && !active) return false;
       if (midnightStatus === 'matured' && active) return false;
@@ -429,7 +431,7 @@ export function CuratorMarketsBrowser({
         pairFilters
       );
     });
-  }, [midnightData?.markets, pairFilters, midnightStatus]);
+  }, [midnightData?.markets, pairFilters, midnightStatus, listedFilter]);
 
   const showBlue = productFilter === 'all' || productFilter === 'blue';
   const showMidnight = productFilter === 'all' || productFilter === 'midnight';
@@ -526,7 +528,7 @@ export function CuratorMarketsBrowser({
           </div>
         )}
 
-        {showBlue && (
+        {(showBlue || showMidnight) && (
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground">Listed</label>
             <select
@@ -575,7 +577,7 @@ export function CuratorMarketsBrowser({
           'market size'}{' '}
         ({sortDir === 'desc' ? 'high → low' : 'low → high'}). Tap a column header to re-sort.
         {productFilter === 'all'
-          ? ' Blue and Midnight share one table. A blank cell means that column does not apply. Listed and Muscadine filter Blue rows only.'
+          ? ' Blue and Midnight share one table. A blank cell means that column does not apply. Listed filters both; Muscadine filters Blue rows only.'
           : ''}{' '}
         {showBlue ? ' Rows highlighted in blue have a Muscadine vault market cap enabled.' : ''}
       </p>

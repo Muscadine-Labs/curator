@@ -56,6 +56,11 @@ export type MidnightMarketListItem = {
   sizeUsd: number | null;
   /** Primary collateral LLTV as a 0–1 ratio, for sorting. */
   lltvRatio: number | null;
+  /**
+   * Morpho app trust-layer listing (`listed` on `GET /v0/midnight/markets`).
+   * `null` when the API omits it — unknown, not unlisted.
+   */
+  listed: boolean | null;
 };
 
 type MidnightBookCollateral = {
@@ -171,6 +176,7 @@ type MidnightMarketRow = {
   loan_token?: string;
   maturity?: number | string;
   total_units?: string;
+  listed?: boolean | null;
   collaterals?: MidnightBookCollateral[];
 };
 
@@ -288,6 +294,7 @@ export async function fetchMidnightMarkets(
         loanMeta.decimals,
         loanPrices.get(loanAddress.toLowerCase()) ?? null
       ),
+      listed: typeof row.listed === 'boolean' ? row.listed : null,
     });
   }
 

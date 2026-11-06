@@ -939,7 +939,7 @@ External app: [Morpho Markets](https://markets.morpho.org/fixed/base/0x549cd072d
 (`morphoMidnightMarketHref`). In-app: `curatorMidnightMarketHref`.
 Tenor = remaining time to `maturity`. `/markets` (All products) puts Blue and Midnight
 in one table with one column set. A blank cell means that product has no value
-there: Midnight leaves Liquidity, 6H net APY, Listed, and Muscadine blank; Blue
+there: Midnight leaves Liquidity, 6H net APY, and Muscadine blank; Blue
 leaves Maturity blank. Blue-only and Midnight-only browse keep the columns that
 product fills. Market size is filled loan-token units
 (`total_units` from `GET /v0/midnight/markets`, sorted largest first). The pair
@@ -951,7 +951,11 @@ they are book offers, not filled deposits or borrows.
 Midnight (`lib/morpho/market-pair-filter.ts`). Pair queries (`cbBTC/USDC`,
 `WETH USDC`) match if every token is a symbol word or prefix (order-independent;
 `ETH` does not match `WETH`). A Blue collateral/loan search still hits Midnight
-books whose loan + collaterals contain those symbols. Listed / Muscadine stay Blue-only.
+books whose loan + collaterals contain those symbols. **Listed** applies to
+both: Midnight rows carry `listed` from `GET /v0/midnight/markets` (Morpho app
+trust layer). `matchesListedFilter` (`markets-browse-rows.ts`) treats a missing
+flag (`null`) as unknown — kept under Listed, never under Not listed — so a
+dropped API field cannot hide every Midnight market. Muscadine stays Blue-only.
 Detail KPIs: filled size (`total_units`), lender credit and borrower debt
 (summed from `/positions`), open lend/borrow offers, best lend/borrow rates, per-collateral
 LLTV / liquidation cursor / oracle panel (price, freshness, Chainlink feeds on Base),
@@ -1005,7 +1009,7 @@ resets the filters, and typing writes the URL with `window.history.replaceState`
 page's back link returns there; `safeReturnPath` rejects anything that is not a
 same-origin path (`//`, `/\host`, control characters).
 
-**List defaults** — filter **Listed** only; sort **Market size** high → low.
+**List defaults** — filter **Listed** only (Blue and Midnight); sort **Market size** high → low.
 Midnight status defaults to **Active** (`maturity` omitted). **Matured** is
 `maturity=matured`; **All** is `maturity=all`. Active means `maturity` is still
 in the future (`isMidnightMarketActive`). The control is hidden on Blue-only

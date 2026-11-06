@@ -59,7 +59,7 @@ export function midnightBrowseRow(market: MidnightMarketListItem): MarketsBrowse
     liquidityUsd: null,
     apy: null,
     maturity: market.maturity > 0 ? market.maturity : null,
-    listed: null,
+    listed: market.listed ?? null,
     muscadineCount: null,
     blue: null,
     midnight: market,
@@ -107,4 +107,20 @@ export function compareBrowseRows(
       ? left.localeCompare(right)
       : (left as number) - (right as number);
   return dir === 'asc' ? cmp : -cmp;
+}
+
+export type BrowseListedFilter = 'all' | 'listed' | 'unlisted';
+
+/**
+ * Listed filter for Blue and Midnight rows. `null` (flag missing from the
+ * API) is unknown: kept under "Listed" so a dropped Morpho field never hides
+ * every Midnight market; only an explicit `false` counts as "Not listed".
+ */
+export function matchesListedFilter(
+  listed: boolean | null | undefined,
+  filter: BrowseListedFilter
+): boolean {
+  if (filter === 'listed') return listed !== false;
+  if (filter === 'unlisted') return listed === false;
+  return true;
 }

@@ -8,3 +8,4 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 
 - 2026-11-06 — APY averages (7D/30D/90D) on vault APY + Midnight APR history charts.
 - 2026-11-06 — Midnight API check: no price / APR / history / oracle endpoints yet; book already REST. Re-check later.
+- 2026-11-06 — Midnight markets carry `listed`; Listed column + filter apply to Midnight.

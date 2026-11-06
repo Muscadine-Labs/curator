@@ -4,6 +4,7 @@ import type { MidnightMarketListItem } from '@/lib/morpho/midnight-markets';
 import {
   blueBrowseRow,
   compareBrowseRows,
+  matchesListedFilter,
   midnightBrowseRow,
   type MarketsBrowseRow,
 } from './markets-browse-rows';
@@ -64,5 +65,30 @@ describe('compareBrowseRows', () => {
     expect(midnight().liquidityUsd).toBeNull();
     expect(midnight().listed).toBeNull();
     expect(blue().maturity).toBeNull();
+  });
+
+  it('carries the Midnight listed flag and sorts it with Blue', () => {
+    expect(midnight({ listed: true }).listed).toBe(true);
+    expect(midnight({ listed: false }).listed).toBe(false);
+    const rows = [blue({ listed: true }), midnight({ listed: false })].sort((a, b) =>
+      compareBrowseRows(a, b, 'listed', 'asc')
+    );
+    expect(rows.map((row) => row.product)).toEqual(['midnight', 'blue']);
+  });
+});
+
+describe('matchesListedFilter', () => {
+  it('splits listed and unlisted on the explicit flag', () => {
+    expect(matchesListedFilter(true, 'listed')).toBe(true);
+    expect(matchesListedFilter(false, 'listed')).toBe(false);
+    expect(matchesListedFilter(false, 'unlisted')).toBe(true);
+    expect(matchesListedFilter(true, 'unlisted')).toBe(false);
+    expect(matchesListedFilter(false, 'all')).toBe(true);
+  });
+
+  it('keeps an unknown flag under Listed, never under Not listed', () => {
+    expect(matchesListedFilter(null, 'listed')).toBe(true);
+    expect(matchesListedFilter(undefined, 'listed')).toBe(true);
+    expect(matchesListedFilter(null, 'unlisted')).toBe(false);
   });
 });
