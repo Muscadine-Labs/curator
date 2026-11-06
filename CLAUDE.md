@@ -1938,17 +1938,31 @@ expose at most two filter dropdowns:
 
 - `TimeRangeFilter` — `All Time / 90D / 30D / 7D` (shared `TIME_RANGE_OPTIONS`
   in `lib/utils/date-filter.ts`; used on dashboard charts and vault history).
-- `ViewModeFilter` — `Cumulative / Daily` (single button). Used by
-  `ChartInflows`, `ChartRevenue`, `ChartFees` where daily-vs-cumulative is
-  meaningful.
-- `SourceModeFilter` — `Total / By Vault` (single button). Used by
-  `ChartTvl` when both `totalData` and `vaultData` are supplied; gates the
-  TVL chart between the aggregate line and per-vault breakdown lines.
+- `ViewModeFilter` — `Cumulative / Daily / Daily change` (single button).
+  Used by `ChartInflows`, `ChartRevenue`, `ChartFees`, which all render
+  through `components/charts/FlowTrendCard.tsx`. **Daily** is the 1st
+  derivative of Cumulative; **Daily change** is the 2nd (per-day change in
+  the daily flow).
+- `SourceModeFilter` — `Total / By Vault / Daily change / Change in daily
+  change` (single button). Used by `ChartTvl`; the breakdown option appears
+  only with `vaultData`, the two derivative options apply to the total.
 
-All three follow the same pattern: a small outline button with an icon, a
-label, and a `ChevronDown`, opening a popover of options. Keep it consistent
-— don't regress to a row of inline buttons; it breaks the header density
-we're aiming for.
+Derivative views (`lib/utils/series-derivative.ts`, `TrendLineChart`): the
+change is per day (a missing day does not double a step), derivatives are
+taken over the **whole** series and then cut to the time range (so the first
+in-range day keeps its predecessor), and the raw series is drawn faintly under
+a bold **7D trailing average** (undefined until a full 7-day window exists).
+2nd-derivative views fit the axis to that average and clip larger one-day
+moves, with a note under the chart — otherwise a few spikes flatten the trend
+to 0. Signed `+$/−$` labels (`formatSignedCompactUSD`) only when the series
+goes negative. Derivative options live **in each chart's existing view
+dropdown**, not a page-level or settings toggle — keeps the two-control rule.
+
+All of these are `ChartModeFilter` (`components/charts/ChartModeFilter.tsx`):
+a small outline button with an icon, a label, and a `ChevronDown`, opening a
+popover of options (with an optional hint line). Keep it consistent — don't
+regress to a row of inline buttons; it breaks the header density we're aiming
+for.
 
 ### 16.4 Holders & transactions pagination
 

@@ -4,6 +4,13 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-06 — Dashboard derivative views (PR #82)
+
+- Overview charts: Inflows / Fees / Revenue get **Daily change** (2nd derivative) beside Cumulative / Daily (1st); TVL gets **Daily change** and **Change in daily change**. Options live in each chart's existing view dropdown (two-control rule, §16.3).
+- `lib/utils/series-derivative.ts` (per-day derivative, 7D trailing average, flow view selection, average-fit axis) + tests; `formatSignedCompactUSD`.
+- Derivative views draw raw faintly under a bold 7D average; 2nd derivatives fit the axis to the average and clip spikes, with a note.
+- Shared `ChartModeFilter`, `TrendLineChart`, `FlowTrendCard`; `ChartInflows` / `ChartFees` / `ChartRevenue` are thin wrappers now. TVL empty state keeps its mode dropdown.
+
 ## 2026-11-06 — Markets browser pagination (PR #82)
 
 - `/markets` renders 100 rows per page with the shared `PaginationBar` (first / prev / next / last) under the table; page resets on filter / sort / product change and scrolls back to the table top. `paginateBrowseRows` + tests. Fetching is unchanged (filter/sort need both full lists).

@@ -11,3 +11,4 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 - 2026-11-06 — Midnight markets carry `listed`; Listed column + filter apply to Midnight.
 - 2026-11-06 — Review fixes (hidden-unlisted notice, partial/weighted averages) + in-range dependency bumps.
 - 2026-11-06 — Markets browser paginated at 100 rows per page.
+- 2026-11-06 — Overview charts: 1st / 2nd derivative views with 7D average.
