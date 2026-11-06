@@ -4,12 +4,19 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-06 — Review fixes + dependency bumps (PR #82)
+
+- Deps (in-range): next / eslint-config-next 16.4.5, @tanstack/react-query(+devtools) 5.106.1, lucide-react 1.70.0, tailwindcss / @tailwindcss/postcss 4.3.5, graphql 17.1.0, vite 8.3.6, ox 0.14.63, @swc/helpers 0.5.24; `npm update` for transitive. Majors still held (§11).
+- Listed filter: the browser says how many markets the Listed filter hides, with **Show all** (61 active Base Midnight markets are unlisted, including the largest).
+- Rate averages: a window the series does not reach back to shows its real span (`90D avg 4.1% (20D data)`); points with a non-finite timestamp are skipped; Midnight APR averages are weighted by units lent that day (`MidnightHistoryPoint.lendUnits`); vault APY averages stay visible when the selected range has no points.
+- `listed` normalized once, at the API boundary.
+
 ## 2026-11-06 — APY averages on history charts + Midnight API check
 
 - 7D / 30D / 90D trailing averages (`lib/morpho/rate-averages.ts`, `components/morpho/RateAverages.tsx`) on the vault history **APY** chart and the Midnight **APR** chart — same rule as the Blue market Rates breakdown, which now uses the shared helper. Vault averages use the whole series, not the selected range. Midnight averages skip days with no fills.
 - Midnight API check (2026-11-06): no history, price, APR or oracle endpoints yet (`/v0/midnight/markets/{id}/history|prices|apr|…` 404; GraphQL has no Midnight fields). History stays transactions-derived; collateral oracles stay on-chain. Book already comes from REST `/v0/midnight/books/{id}`.
 - Midnight **Listed**: list rows carry the API `listed` flag; the Listed column and filter (default Listed) now apply to Midnight too. A missing flag is unknown and stays under Listed (`matchesListedFilter`).
-- Midnight list: query used `sort` / `order`, which the API ignores — now `sort_by` / `sort_direction`; page size 100 → 1000 (API max), one round trip for Base.
+- Midnight list: query used `sort` / `order`, which the API ignores — now `sort_by` / `sort_direction`; page size 100 → 1000 (API max). Base had 1,281 markets on 2026-11-06, so two pages instead of 13+; cap 5 pages with a warning past it.
 
 ---
 

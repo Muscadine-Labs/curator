@@ -620,7 +620,10 @@ chains, so with Base-only config it stays 8453 and the hint would never show. Th
   **Price per share**, **APY**.
   APY shows 7D / 30D / 90D trailing averages above the chart (`RateAverages`,
   `lib/morpho/rate-averages.ts` — shared with the Blue Rates breakdown and the
-  Midnight APR chart). Averages use the whole series, not the selected range.
+  Midnight APR chart). Averages use the whole series, not the selected range,
+  and stay visible when that range is empty. A window the series does not reach
+  back to shows its real span (`(20D data)`) — never present a partial history
+  as a full 90D average. Points with a non-finite timestamp are skipped.
 - **Price per share** uses `UsdTokenModeFilter`: **Tokens** = underlying per share;
   **USD** = dollar per share. Y-axis tick precision is **adaptive**
   (`axisFractionDigits` in `VaultOverviewHistoryChart.tsx`): fraction digits are
@@ -892,10 +895,13 @@ loads market + state + full book + position totals
 are built from `GET /v0/midnight/markets/{id}/transactions` (180 days). A day's
 APR is the volume-weighted lend price over the time left until maturity. The APR
 chart shows 7D / 30D / 90D averages over days with fills (a no-fill day is
-skipped, not 0%). As of 2026-11-06 the Midnight API has no price / APR /
+skipped, not 0%), **weighted by units lent that day** (`lendUnits` on each
+history point — the same volume behind that day's VWAP), so a dust fill at an
+outlier price cannot move the average. As of 2026-11-06 the Midnight API has no price / APR /
 history / oracle endpoint, so history stays transactions-derived and collateral
 oracles stay on-chain. The list request uses `sort_by` / `sort_direction`
-(`sort` / `order` are ignored) with `limit=1000` (API max).
+(`sort` / `order` are ignored) with `limit=1000` (API max). Base had 1,281
+markets on 2026-11-06, so keep the cursor loop (cap 5 pages, warning past it).
 Outstanding at each UTC midnight is the live total units minus later changes.
 **Unit changes (do not regress, `historyUnitChange`):** count `total_units_delta`
 on the unit-buying leg of each fill — `lend` and `exit_borrow_secondary` — so a
@@ -955,7 +961,11 @@ books whose loan + collaterals contain those symbols. **Listed** applies to
 both: Midnight rows carry `listed` from `GET /v0/midnight/markets` (Morpho app
 trust layer). `matchesListedFilter` (`markets-browse-rows.ts`) treats a missing
 flag (`null`) as unknown — kept under Listed, never under Not listed — so a
-dropped API field cannot hide every Midnight market. Muscadine stays Blue-only.
+dropped API field cannot hide every Midnight market. The flag is normalized
+once, in `fetchMidnightMarkets`. Under the default Listed filter the browser
+says how many markets it hides, with **Show all** — the largest Base Midnight
+books are unlisted, so hiding them silently looked like missing data.
+Muscadine stays Blue-only.
 Detail KPIs: filled size (`total_units`), lender credit and borrower debt
 (summed from `/positions`), open lend/borrow offers, best lend/borrow rates, per-collateral
 LLTV / liquidation cursor / oracle panel (price, freshness, Chainlink feeds on Base),

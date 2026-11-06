@@ -32,6 +32,7 @@ function midnight(overrides: Partial<MidnightMarketListItem> = {}): MarketsBrows
     lltvRatio: 0.86,
     sizeUsd: 20,
     maturity: 1_800_000_000,
+    listed: null,
     ...overrides,
   } as MidnightMarketListItem);
 }

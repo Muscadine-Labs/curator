@@ -59,7 +59,7 @@ export function midnightBrowseRow(market: MidnightMarketListItem): MarketsBrowse
     liquidityUsd: null,
     apy: null,
     maturity: market.maturity > 0 ? market.maturity : null,
-    listed: market.listed ?? null,
+    listed: market.listed,
     muscadineCount: null,
     blue: null,
     midnight: market,

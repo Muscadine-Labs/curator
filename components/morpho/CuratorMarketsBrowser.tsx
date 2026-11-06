@@ -397,11 +397,11 @@ export function CuratorMarketsBrowser({
     [search, loanFilter, collateralFilter]
   );
 
-  const filtered = useMemo(() => {
+  // Every filter except Listed, so the notice can count what Listed alone hides.
+  const blueBeforeListed = useMemo(() => {
     const markets = data?.markets ?? [];
 
     return markets.filter((m) => {
-      if (!matchesListedFilter(m.listed, listedFilter)) return false;
       if (muscadineFilter === 'muscadine' && m.muscadineVaults.length === 0) return false;
       return marketMatchesPairFilters(
         {
@@ -412,13 +412,17 @@ export function CuratorMarketsBrowser({
         pairFilters
       );
     });
-  }, [data?.markets, pairFilters, listedFilter, muscadineFilter]);
+  }, [data?.markets, pairFilters, muscadineFilter]);
 
-  const filteredMidnight = useMemo(() => {
+  const filtered = useMemo(
+    () => blueBeforeListed.filter((m) => matchesListedFilter(m.listed, listedFilter)),
+    [blueBeforeListed, listedFilter]
+  );
+
+  const midnightBeforeListed = useMemo(() => {
     const markets = midnightData?.markets ?? [];
     const nowSec = Math.floor(Date.now() / 1000);
     return markets.filter((m) => {
-      if (!matchesListedFilter(m.listed, listedFilter)) return false;
       const active = isMidnightMarketActive(m.maturity, nowSec);
       if (midnightStatus === 'active' && !active) return false;
       if (midnightStatus === 'matured' && active) return false;
@@ -431,10 +435,20 @@ export function CuratorMarketsBrowser({
         pairFilters
       );
     });
-  }, [midnightData?.markets, pairFilters, midnightStatus, listedFilter]);
+  }, [midnightData?.markets, pairFilters, midnightStatus]);
+
+  const filteredMidnight = useMemo(
+    () => midnightBeforeListed.filter((m) => matchesListedFilter(m.listed, listedFilter)),
+    [midnightBeforeListed, listedFilter]
+  );
 
   const showBlue = productFilter === 'all' || productFilter === 'blue';
   const showMidnight = productFilter === 'all' || productFilter === 'midnight';
+  // The default Listed filter hides real markets (the largest Base Midnight
+  // books are unlisted), so say how many and offer a one-click way back.
+  const hiddenByListed =
+    (showBlue ? blueBeforeListed.length - filtered.length : 0) +
+    (showMidnight ? midnightBeforeListed.length - filteredMidnight.length : 0);
   const columns = columnsFor(productFilter);
   const tableLoading =
     (showBlue && loading && !error) || (showMidnight && midnightBusy && !midnightError);
@@ -528,20 +542,18 @@ export function CuratorMarketsBrowser({
           </div>
         )}
 
-        {(showBlue || showMidnight) && (
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">Listed</label>
-            <select
-              value={listedFilter}
-              onChange={(e) => setListedFilter(e.target.value as ListedFilter)}
-              className="h-9 rounded-md border border-border bg-background px-3 text-sm"
-            >
-              <option value="all">All</option>
-              <option value="listed">Listed</option>
-              <option value="unlisted">Not listed</option>
-            </select>
-          </div>
-        )}
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground">Listed</label>
+          <select
+            value={listedFilter}
+            onChange={(e) => setListedFilter(e.target.value as ListedFilter)}
+            className="h-9 rounded-md border border-border bg-background px-3 text-sm"
+          >
+            <option value="all">All</option>
+            <option value="listed">Listed</option>
+            <option value="unlisted">Not listed</option>
+          </select>
+        </div>
 
         {showBlue && (
           <div className="space-y-1">
@@ -581,6 +593,20 @@ export function CuratorMarketsBrowser({
           : ''}{' '}
         {showBlue ? ' Rows highlighted in blue have a Muscadine vault market cap enabled.' : ''}
       </p>
+
+      {listedFilter === 'listed' && hiddenByListed > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {hiddenByListed.toLocaleString('en-US')} unlisted{' '}
+          {hiddenByListed === 1 ? 'market is' : 'markets are'} hidden by the Listed filter.{' '}
+          <button
+            type="button"
+            onClick={() => setListedFilter('all')}
+            className="font-medium text-foreground underline underline-offset-2"
+          >
+            Show all
+          </button>
+        </p>
+      ) : null}
 
       {showBlue && error ? (
         <p className="text-sm text-red-600 dark:text-red-400">
