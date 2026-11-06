@@ -1938,14 +1938,25 @@ expose at most two filter dropdowns:
 
 - `TimeRangeFilter` — `All Time / 90D / 30D / 7D` (shared `TIME_RANGE_OPTIONS`
   in `lib/utils/date-filter.ts`; used on dashboard charts and vault history).
-- `ViewModeFilter` — `Cumulative / Daily / Daily change` (single button).
-  Used by `ChartInflows`, `ChartRevenue`, `ChartFees`, which all render
-  through `components/charts/FlowTrendCard.tsx`. **Daily** is the 1st
-  derivative of Cumulative; **Daily change** is the 2nd (per-day change in
-  the daily flow).
-- `SourceModeFilter` — `Total / By Vault / Daily change / Change in daily
-  change` (single button). Used by `ChartTvl`; the breakdown option appears
-  only with `vaultData`, the two derivative options apply to the total.
+- `ViewModeFilter` — `Cumulative / 1st derivative / 2nd derivative` (single
+  button; hints "Daily amount" / "Change in daily amount"). Used by
+  `ChartInflows`, `ChartRevenue`, `ChartFees`, which all render through
+  `components/charts/FlowTrendCard.tsx`. Both derivatives are computed **from
+  the cumulative series** (`flowViewSeries`), not the API's separate daily
+  series, so they always agree with the cumulative line. A missing day carries
+  the previous total forward (`fillCumulativeDays` — a jump is not smeared
+  across a gap) and the day before the series starts counts as 0 (the first
+  day's amount is kept). Treasury revenue only has daily data; its cumulative
+  is the running total.
+- `SourceModeFilter` — `Total / By Vault / 1st derivative / 2nd derivative`
+  (single button). Used by `ChartTvl`; the breakdown option appears only with
+  `vaultData`, the two derivative options apply to the total.
+- **Live intraday points (do not regress):** DefiLlama appends a "so far
+  today" point (e.g. `…T20:16:23Z`) after today's midnight point.
+  `dropPartialDayPoints` removes it from derivative views when the rest of the
+  series is midnight-stamped — kept, two points share a day and the 1st
+  derivative merged both steps (today showed $50.99 instead of $26.58), and a
+  partial day reads as a drop. Cumulative views still show it.
 
 Derivative views (`lib/utils/series-derivative.ts`, `TrendLineChart`): the
 change is per day (a missing day does not double a step), derivatives are

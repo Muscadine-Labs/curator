@@ -4,6 +4,11 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-06 — Derivatives of the cumulative series (PR #82)
+
+- Flow charts' derivative views are now computed from the cumulative series (`flowViewSeries`) and labelled **1st derivative** / **2nd derivative** (TVL too). Missing days carry the total forward; the first day's amount is kept.
+- Fixed: DefiLlama's live "so far today" point merged into today's derivative ($50.99 vs the real $26.58). `dropPartialDayPoints` keeps it out of derivative views.
+
 ## 2026-11-06 — Dashboard derivative views (PR #82)
 
 - Overview charts: Inflows / Fees / Revenue get **Daily change** (2nd derivative) beside Cumulative / Daily (1st); TVL gets **Daily change** and **Change in daily change**. Options live in each chart's existing view dropdown (two-control rule, §16.3).

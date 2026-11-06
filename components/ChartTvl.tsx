@@ -234,7 +234,11 @@ export function ChartTvl({
           <TrendLineChart
             data={derivativeData}
             color="#3b82f6"
-            seriesLabel={derivativeOrder === 1 ? 'Daily TVL change' : 'Change in daily TVL change'}
+            seriesLabel={
+              derivativeOrder === 1
+                ? 'Daily TVL change (1st derivative)'
+                : 'Change in daily TVL change (2nd derivative)'
+            }
             derivative
             fitToAverage={derivativeOrder === 2}
           />

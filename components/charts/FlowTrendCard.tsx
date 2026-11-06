@@ -23,17 +23,17 @@ interface FlowTrendCardProps {
   isLoading?: boolean;
 }
 
-const SERIES_LABEL: Record<ChartViewMode, string> = {
-  cumulative: 'Cumulative',
-  daily: 'Daily',
-  dailyChange: 'Daily change in',
+const SERIES_LABEL: Record<ChartViewMode, (noun: string) => string> = {
+  cumulative: (noun) => `Cumulative ${noun}`,
+  daily: (noun) => `Daily ${noun} (1st derivative)`,
+  dailyChange: (noun) => `Change in daily ${noun} (2nd derivative)`,
 };
 
 /**
  * Dashboard flow chart (inflows, fees, revenue): time range + view
- * (Cumulative / Daily / Daily change). Derivatives are taken over the whole
- * series, then cut to the range, so the first in-range day keeps its
- * predecessor.
+ * (Cumulative / 1st derivative / 2nd derivative of the cumulative series).
+ * Derivatives are taken over the whole series, then cut to the range, so the
+ * first in-range day keeps its predecessor.
  */
 export function FlowTrendCard({
   title,
@@ -91,7 +91,7 @@ export function FlowTrendCard({
           <TrendLineChart
             data={data}
             color={color}
-            seriesLabel={`${SERIES_LABEL[viewMode]} ${noun}`}
+            seriesLabel={SERIES_LABEL[viewMode](noun)}
             derivative={derivative}
             fitToAverage={viewMode === 'dailyChange'}
           />

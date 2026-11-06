@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   averageFitDomain,
   derivativeView,
+  dropPartialDayPoints,
+  fillCumulativeDays,
   flowViewSeries,
   seriesDerivative,
   withTrailingAverage,
@@ -78,30 +80,60 @@ describe('derivativeView', () => {
   });
 });
 
-describe('flowViewSeries', () => {
-  const cumulative = days([0, 10, 30, 60, 100, 150, 210, 280]);
-  const daily = days([0, 10, 20, 30, 40, 50, 60, 70]);
+describe('fillCumulativeDays', () => {
+  it('adds a zero day before the start and carries totals across gaps', () => {
+    expect(
+      fillCumulativeDays([
+        { date: '2026-10-01', value: 5 },
+        { date: '2026-10-04', value: 9 },
+      ])
+    ).toEqual([
+      { date: '2026-09-30', value: 0 },
+      { date: '2026-10-01', value: 5 },
+      { date: '2026-10-02', value: 5 },
+      { date: '2026-10-03', value: 5 },
+      { date: '2026-10-04', value: 9 },
+    ]);
+  });
+});
 
-  it('order 0 is the cumulative series, else daily', () => {
+describe('flowViewSeries', () => {
+  const cumulative = days([5, 15, 35, 65, 105, 155, 215, 285]);
+  const daily = days([5, 10, 20, 30, 40, 50, 60, 70]);
+
+  it('order 0 is the cumulative series', () => {
     expect(flowViewSeries(0, { daily, cumulative })).toEqual(cumulative);
-    expect(flowViewSeries(0, { daily, cumulative: [] })).toEqual(daily);
   });
 
-  it('order 1 is the provided daily series with a 7D average', () => {
+  it('order 1 is the derivative of cumulative, first day included', () => {
     const out = flowViewSeries(1, { daily, cumulative });
     expect(out.map((p) => p.value)).toEqual(daily.map((p) => p.value));
+    expect(out[0].date).toBe('2026-10-01');
     expect(out.at(-1)?.avg7).toBe(40);
   });
 
-  it('order 1 derives daily from cumulative when daily is missing', () => {
-    const out = flowViewSeries(1, { cumulative });
-    expect(out.map((p) => p.value)).toEqual([10, 20, 30, 40, 50, 60, 70]);
+  it('order 1 follows the cumulative line when daily disagrees with it', () => {
+    const staleDaily = [...daily.slice(0, -1), { date: daily.at(-1)!.date, value: 1 }];
+    expect(flowViewSeries(1, { daily: staleDaily, cumulative }).at(-1)?.value).toBe(70);
   });
 
-  it('order 2 is the per-day change in daily flow', () => {
+  it('does not smear a jump across days with no activity', () => {
+    const sparse = [
+      { date: '2026-10-01', value: 10 },
+      { date: '2026-10-05', value: 50 },
+    ];
+    expect(flowViewSeries(1, { cumulative: sparse }).map((p) => p.value)).toEqual([10, 0, 0, 0, 40]);
+  });
+
+  it('builds the cumulative from daily when it is missing', () => {
+    expect(flowViewSeries(0, { daily }).map((p) => p.value)).toEqual(cumulative.map((p) => p.value));
+    expect(flowViewSeries(1, { daily }).map((p) => p.value)).toEqual(daily.map((p) => p.value));
+  });
+
+  it('order 2 is the 2nd derivative of cumulative', () => {
     const out = flowViewSeries(2, { daily, cumulative });
-    expect(out.every((p) => p.value === 10)).toBe(true);
-    expect(out.at(-1)?.avg7).toBe(10);
+    expect(out.map((p) => p.value)).toEqual([5, 10, 10, 10, 10, 10, 10]);
+    expect(out.at(-1)?.avg7).toBeCloseTo(65 / 7);
   });
 });
 
@@ -125,5 +157,30 @@ describe('averageFitDomain', () => {
   it('is null without a usable average', () => {
     expect(averageFitDomain([{ date: 'a', value: 5 }])).toBeNull();
     expect(averageFitDomain([{ date: 'a', value: 5, avg7: 0 }])).toBeNull();
+  });
+});
+
+describe('dropPartialDayPoints', () => {
+  // Live DefiLlama inflows on 2026-11-06: midnight points plus a "so far today" point.
+  const cumulative = [
+    { date: '2026-11-05T00:00:00.000Z', value: 89753.34 },
+    { date: '2026-11-06T00:00:00.000Z', value: 89779.92 },
+    { date: '2026-11-06T20:16:23.000Z', value: 89804.33 },
+  ];
+
+  it('drops the live intraday point when the series is midnight-stamped', () => {
+    expect(dropPartialDayPoints(cumulative).map((p) => p.value)).toEqual([89753.34, 89779.92]);
+  });
+
+  it('keeps a series that is stamped only intraday, and date-only series', () => {
+    const intraday = [{ date: '2026-11-06T20:16:23.000Z', value: 1 }];
+    expect(dropPartialDayPoints(intraday)).toEqual(intraday);
+    expect(dropPartialDayPoints(days([1, 2]))).toHaveLength(2);
+  });
+
+  it('keeps the 1st derivative of cumulative equal to the full day, not two days merged', () => {
+    const last = flowViewSeries(1, { cumulative }).at(-1);
+    expect(last?.date).toBe('2026-11-06');
+    expect(last?.value).toBeCloseTo(26.58, 2);
   });
 });

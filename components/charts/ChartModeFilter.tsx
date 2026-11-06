@@ -67,7 +67,7 @@ export function ChartModeFilter<T extends string>({
           role="menu"
           className={cn(
             'absolute right-0 z-30 mt-1 rounded border bg-popover p-1 text-sm shadow-md',
-            hasHints ? 'w-52' : 'w-40'
+            hasHints ? 'w-60' : 'w-40'
           )}
         >
           {options.map((opt) => {

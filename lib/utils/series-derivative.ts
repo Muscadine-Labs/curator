@@ -41,6 +41,24 @@ function normalize(points: ReadonlyArray<SeriesPoint>): Array<SeriesPoint & { ms
   return [...byDay.values()].sort((a, b) => a.ms - b.ms);
 }
 
+function isIntradayStamp(date: string): boolean {
+  if (date.length <= 10) return false;
+  const ms = Date.parse(date);
+  return Number.isFinite(ms) && ms % DAY_MS !== 0;
+}
+
+/**
+ * Drops live "so far today" points (stamped mid-day, e.g. `…T20:16:23Z`) from a
+ * series whose other points sit at UTC midnight. DefiLlama appends one after
+ * today's midnight point: kept, two points share a day and the 1st derivative
+ * merges both steps (26.58 + 24.41 shown as 50.99), and a partial day compared
+ * with a full one reads as a drop. Series stamped only intraday are kept whole.
+ */
+export function dropPartialDayPoints<T extends SeriesPoint>(points: ReadonlyArray<T>): T[] {
+  const hasMidnight = points.some((p) => !isIntradayStamp(p.date));
+  return hasMidnight ? points.filter((p) => !isIntradayStamp(p.date)) : [...points];
+}
+
 /** Per-day change of a daily series. */
 export function seriesDerivative(points: ReadonlyArray<SeriesPoint>): SeriesPoint[] {
   const sorted = normalize(points);
@@ -89,18 +107,53 @@ export function derivativeView(
   points: ReadonlyArray<SeriesPoint>,
   order: 0 | 1 | 2
 ): DerivativePoint[] {
-  let series: ReadonlyArray<SeriesPoint> = points;
+  let series: ReadonlyArray<SeriesPoint> = order > 0 ? dropPartialDayPoints(points) : points;
   for (let i = 0; i < order; i += 1) series = seriesDerivative(series);
   return withTrailingAverage(series);
 }
 
 /**
- * Series for a flow chart (inflows, fees, revenue) at derivative `order`
- * relative to the cumulative series:
- * 0 → cumulative (falls back to daily when cumulative is missing),
- * 1 → daily (the provided daily series; else derived from cumulative),
- * 2 → per-day change in the daily series.
- * Orders 1 and 2 carry `avg7`; order 0 does not need one.
+ * A cumulative series as one point per UTC day from the day before it starts
+ * (0 — nothing had accumulated yet) to its last day. A day missing from the
+ * input carries the previous total forward: a cumulative total is flat on a
+ * day with no activity. Without this, a jump after a gap would be smeared
+ * across the gap by `seriesDerivative`, and the first day's amount would be
+ * dropped for lack of a predecessor.
+ */
+export function fillCumulativeDays(points: ReadonlyArray<SeriesPoint>): SeriesPoint[] {
+  const sorted = normalize(points);
+  if (sorted.length === 0) return [];
+  const out: SeriesPoint[] = [];
+  const dayKey = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  out.push({ date: dayKey(sorted[0].ms - DAY_MS), value: 0 });
+  let last = 0;
+  let i = 0;
+  for (let ms = sorted[0].ms; ms <= sorted[sorted.length - 1].ms; ms += DAY_MS) {
+    if (i < sorted.length && sorted[i].ms === ms) {
+      last = sorted[i].value;
+      i += 1;
+    }
+    out.push({ date: dayKey(ms), value: last });
+  }
+  return out;
+}
+
+/** Running total of a daily flow, for when only the daily series is available. */
+export function cumulativeFromDaily(points: ReadonlyArray<SeriesPoint>): SeriesPoint[] {
+  let sum = 0;
+  return normalize(points).map((p) => {
+    sum += p.value;
+    return { date: p.date, value: sum };
+  });
+}
+
+/**
+ * Series for a flow chart (inflows, fees, revenue) at derivative `order` of
+ * the **cumulative** series: 0 → cumulative, 1 → its 1st derivative (the
+ * daily flow), 2 → its 2nd derivative (the per-day change in the daily flow).
+ * Both derivatives come from the cumulative line itself, so they always agree
+ * with it; when only daily data exists, the cumulative is its running total.
+ * Orders 1 and 2 carry `avg7`.
  */
 export function flowViewSeries(
   order: 0 | 1 | 2,
@@ -109,14 +162,12 @@ export function flowViewSeries(
     cumulative?: ReadonlyArray<SeriesPoint> | null;
   }
 ): DerivativePoint[] {
-  const daily = series.daily ?? [];
-  const cumulative = series.cumulative ?? [];
-  if (order === 0) {
-    const base = cumulative.length > 0 ? cumulative : daily;
-    return base.map((p) => ({ date: p.date, value: p.value }));
-  }
-  const dailyBase = daily.length > 0 ? daily : seriesDerivative(cumulative);
-  return derivativeView(dailyBase, order === 1 ? 0 : 1);
+  const cumulative =
+    series.cumulative && series.cumulative.length > 0
+      ? series.cumulative
+      : cumulativeFromDaily(series.daily ?? []);
+  if (order === 0) return cumulative.map((p) => ({ date: p.date.slice(0, 10), value: p.value }));
+  return derivativeView(fillCumulativeDays(dropPartialDayPoints(cumulative)), order);
 }
 
 /**
