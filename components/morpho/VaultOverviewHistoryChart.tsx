@@ -21,7 +21,12 @@ import {
 } from '@/components/charts/MetricModeFilter';
 import { UsdTokenModeFilter, type AmountUnit } from '@/components/charts/UsdTokenModeFilter';
 import { filterDataByRange, type TimeRange } from '@/lib/utils/date-filter';
-import { formatUtcChartTick, formatUtcTooltipDate } from '@/lib/utils/utc-calendar';
+import {
+  formatUtcChartTick,
+  formatUtcTooltipDate,
+  utcDayStartMs,
+} from '@/lib/utils/utc-calendar';
+import { RateAverages } from '@/components/morpho/RateAverages';
 import {
   formatCompactNumber,
   formatCompactUSD,
@@ -178,6 +183,16 @@ export function VaultOverviewHistoryChart({
     return rawPointsToChart(series.supplied ?? [], range);
   }, [data, chartMetric, range, amountUnit]);
 
+  // Trailing averages use the whole series, not the selected range (same as
+  // the Blue market Rates breakdown), so 90D stays 90D when zoomed to 7D.
+  const apyAveragePoints = useMemo(
+    () =>
+      chartMetric === 'apy'
+        ? (data?.series.apy ?? []).map((p) => ({ x: utcDayStartMs(p.date) / 1000, y: p.value }))
+        : [],
+    [data?.series.apy, chartMetric]
+  );
+
   const yDomain = useMemo(
     () => computeZoomedYDomain(chartPoints),
     [chartPoints]
@@ -237,51 +252,54 @@ export function VaultOverviewHistoryChart({
       No historical data for this range
     </div>
   ) : (
-    <ResponsiveContainer width="100%" height={240}>
-      <LineChart data={chartPoints} margin={{ top: 8, right: 12, left: 4, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-        <XAxis
-          dataKey="date"
-          tickFormatter={formatXAxisLabel}
-          tick={{ fontSize: 10 }}
-          minTickGap={32}
-          axisLine={false}
-          tickLine={false}
-        />
-        <YAxis
-          domain={yDomain}
-          tickFormatter={(v) => yAxisFormatter(Number(v))}
-          tick={{ fontSize: 10 }}
-          width={72}
-          tickCount={5}
-          axisLine={false}
-          tickLine={false}
-        />
-        <Tooltip
-          content={({ active, payload, label }) => {
-            if (!active || !payload?.[0]) return null;
-            const entry = payload[0].payload as { value: number; raw?: string };
-            const value = entry.value;
-            const raw = entry.raw ?? String(value);
-            return (
-              <div className="rounded-lg border bg-background p-2 shadow-md">
-                <p className="mb-1 text-xs font-medium">
-                  {formatUtcTooltipDate(String(label ?? ''))}
-                </p>
-                <p className="text-xs">{formatTooltipValue(value, raw)}</p>
-              </div>
-            );
-          }}
-        />
-        <Line
-          type="monotone"
-          dataKey="value"
-          stroke="#3b82f6"
-          strokeWidth={2}
-          dot={false}
-        />
-      </LineChart>
-    </ResponsiveContainer>
+    <div className="space-y-2">
+      {chartMetric === 'apy' && <RateAverages points={apyAveragePoints} />}
+      <ResponsiveContainer width="100%" height={240}>
+        <LineChart data={chartPoints} margin={{ top: 8, right: 12, left: 4, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <XAxis
+            dataKey="date"
+            tickFormatter={formatXAxisLabel}
+            tick={{ fontSize: 10 }}
+            minTickGap={32}
+            axisLine={false}
+            tickLine={false}
+          />
+          <YAxis
+            domain={yDomain}
+            tickFormatter={(v) => yAxisFormatter(Number(v))}
+            tick={{ fontSize: 10 }}
+            width={72}
+            tickCount={5}
+            axisLine={false}
+            tickLine={false}
+          />
+          <Tooltip
+            content={({ active, payload, label }) => {
+              if (!active || !payload?.[0]) return null;
+              const entry = payload[0].payload as { value: number; raw?: string };
+              const value = entry.value;
+              const raw = entry.raw ?? String(value);
+              return (
+                <div className="rounded-lg border bg-background p-2 shadow-md">
+                  <p className="mb-1 text-xs font-medium">
+                    {formatUtcTooltipDate(String(label ?? ''))}
+                  </p>
+                  <p className="text-xs">{formatTooltipValue(value, raw)}</p>
+                </div>
+              );
+            }}
+          />
+          <Line
+            type="monotone"
+            dataKey="value"
+            stroke="#3b82f6"
+            strokeWidth={2}
+            dot={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   );
 
   const title = data ? METRIC_TITLES[chartMetric] : 'History';

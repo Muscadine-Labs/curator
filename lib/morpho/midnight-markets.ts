@@ -23,6 +23,7 @@ import { formatLltvWad, selectMidnightCollaterals } from '@/lib/morpho/midnight-
 
 /** Morpho REST normally answers in well under a second; a stall must not hang the route. */
 const MIDNIGHT_FETCH_TIMEOUT_MS = 15_000;
+const MIDNIGHT_MARKETS_PAGE_LIMIT = 1000;
 
 export type MidnightCollateral = {
   token: string;
@@ -179,9 +180,12 @@ async function fetchMarketsPage(
 ): Promise<{ cursor?: string | null; data?: MidnightMarketRow[] }> {
   const url = new URL(`${MORPHO_REST_ORIGIN}/v0/midnight/markets`);
   url.searchParams.set('chain_ids', String(chainId));
-  url.searchParams.set('limit', '100');
-  url.searchParams.set('sort', 'total_units');
-  url.searchParams.set('order', 'desc');
+  // API max page is 1000; Base has a few hundred markets, so one page usually
+  // covers the list instead of several sequential 100-row round trips.
+  url.searchParams.set('limit', String(MIDNIGHT_MARKETS_PAGE_LIMIT));
+  // The API reads `sort_by` / `sort_direction` (`sort` / `order` are ignored).
+  url.searchParams.set('sort_by', 'total_units');
+  url.searchParams.set('sort_direction', 'desc');
   if (cursor) url.searchParams.set('cursor', cursor);
 
   const res = await fetch(url.toString(), {

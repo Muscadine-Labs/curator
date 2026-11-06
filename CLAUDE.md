@@ -618,6 +618,9 @@ chains, so with Base-only config it stays 8453 and the hint would never show. Th
   timeseries). Spot withdrawable liquidity stays on the **Overview** metrics card.
 - History metrics (`MetricModeFilter`): **TVL** (label for tokens supplied),
   **Price per share**, **APY**.
+  APY shows 7D / 30D / 90D trailing averages above the chart (`RateAverages`,
+  `lib/morpho/rate-averages.ts` — shared with the Blue Rates breakdown and the
+  Midnight APR chart). Averages use the whole series, not the selected range.
 - **Price per share** uses `UsdTokenModeFilter`: **Tokens** = underlying per share;
   **USD** = dollar per share. Y-axis tick precision is **adaptive**
   (`axisFractionDigits` in `VaultOverviewHistoryChart.tsx`): fraction digits are
@@ -887,7 +890,12 @@ utilization, or variable APY). GraphQL does **not** expose it.
 loads market + state + full book + position totals
 (`https://api.morpho.org/v0/midnight/…`). Daily APR and outstanding-loan charts
 are built from `GET /v0/midnight/markets/{id}/transactions` (180 days). A day's
-APR is the volume-weighted lend price over the time left until maturity.
+APR is the volume-weighted lend price over the time left until maturity. The APR
+chart shows 7D / 30D / 90D averages over days with fills (a no-fill day is
+skipped, not 0%). As of 2026-11-06 the Midnight API has no price / APR /
+history / oracle endpoint, so history stays transactions-derived and collateral
+oracles stay on-chain. The list request uses `sort_by` / `sort_direction`
+(`sort` / `order` are ignored) with `limit=1000` (API max).
 Outstanding at each UTC midnight is the live total units minus later changes.
 **Unit changes (do not regress, `historyUnitChange`):** count `total_units_delta`
 on the unit-buying leg of each fill — `lend` and `exit_borrow_secondary` — so a

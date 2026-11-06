@@ -4,6 +4,14 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-06 — APY averages on history charts + Midnight API check
+
+- 7D / 30D / 90D trailing averages (`lib/morpho/rate-averages.ts`, `components/morpho/RateAverages.tsx`) on the vault history **APY** chart and the Midnight **APR** chart — same rule as the Blue market Rates breakdown, which now uses the shared helper. Vault averages use the whole series, not the selected range. Midnight averages skip days with no fills.
+- Midnight API check (2026-11-06): no history, price, APR or oracle endpoints yet (`/v0/midnight/markets/{id}/history|prices|apr|…` 404; GraphQL has no Midnight fields). History stays transactions-derived; collateral oracles stay on-chain. Book already comes from REST `/v0/midnight/books/{id}`.
+- Midnight list: query used `sort` / `order`, which the API ignores — now `sort_by` / `sort_direction`; page size 100 → 1000 (API max), one round trip for Base.
+
+---
+
 ## 2026-11-03 — Dependency minor/patch bumps
 
 - Bumped to latest within current majors: next / eslint-config-next 16.4.4, viem 2.57.16, @tanstack/react-query(+devtools) 5.105.3, lucide-react 1.67.0, tailwindcss / @tailwindcss/postcss 4.3.4, vitest 5.1.0, fake-indexeddb 6.2.7.

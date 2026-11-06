@@ -15,6 +15,7 @@ import {
 } from 'recharts';
 import { Button } from '@/components/ui/button';
 import { CuratorPanel } from '@/components/morpho/CuratorChrome';
+import { RateAverages } from '@/components/morpho/RateAverages';
 import {
   formatCompactAmount,
   formatCompactUSD,
@@ -104,6 +105,11 @@ export function MidnightHistoryCharts({ market }: { market: MidnightMarketDetail
     [market.history, market.loanDecimals]
   );
 
+  const aprAveragePoints = useMemo(
+    () => rows.map((row) => ({ x: row.x, y: row.apr })),
+    [rows]
+  );
+
   const latestApr = [...rows].reverse().find((row) => row.apr != null)?.apr ?? null;
   const latestPrice = [...rows].reverse().find((row) => row.price != null)?.price ?? null;
   // Points are each UTC day's opening balance (Morpho's DAY convention), so the
@@ -165,6 +171,11 @@ export function MidnightHistoryCharts({ market }: { market: MidnightMarketDetail
       >
         <div className="p-4">
           <p className="text-2xl font-semibold tabular-nums">{rateHeadline}</p>
+          {rateMode === 'apr' && rows.length > 0 && (
+            <div className="mt-1">
+              <RateAverages points={aprAveragePoints} note="Days with fills only" />
+            </div>
+          )}
           {rows.length === 0 ? (
             <p className="mt-6 text-sm text-muted-foreground">
               {market.historyAvailable
