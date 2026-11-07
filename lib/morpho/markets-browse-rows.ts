@@ -59,7 +59,7 @@ export function midnightBrowseRow(market: MidnightMarketListItem): MarketsBrowse
     liquidityUsd: null,
     apy: null,
     maturity: market.maturity > 0 ? market.maturity : null,
-    listed: null,
+    listed: market.listed,
     muscadineCount: null,
     blue: null,
     midnight: market,
@@ -107,4 +107,44 @@ export function compareBrowseRows(
       ? left.localeCompare(right)
       : (left as number) - (right as number);
   return dir === 'asc' ? cmp : -cmp;
+}
+
+export type BrowseListedFilter = 'all' | 'listed' | 'unlisted';
+
+/**
+ * Listed filter for Blue and Midnight rows. `null` (flag missing from the
+ * API) is unknown: kept under "Listed" so a dropped Morpho field never hides
+ * every Midnight market; only an explicit `false` counts as "Not listed".
+ */
+export function matchesListedFilter(
+  listed: boolean | null | undefined,
+  filter: BrowseListedFilter
+): boolean {
+  if (filter === 'listed') return listed !== false;
+  if (filter === 'unlisted') return listed === false;
+  return true;
+}
+
+/** Markets browser page size: render 100 rows at a time instead of every market. */
+export const BROWSE_PAGE_SIZE = 100;
+
+/**
+ * One page of rows. `page` is 0-based and clamped to the last page, so a list
+ * that shrinks under a refetch never strands the viewer on an empty page.
+ */
+export function paginateBrowseRows<T>(
+  rows: ReadonlyArray<T>,
+  page: number,
+  pageSize: number = BROWSE_PAGE_SIZE
+): { page: number; totalPages: number; rows: T[] } {
+  const size = Math.max(1, Math.floor(pageSize));
+  const totalPages = Math.max(1, Math.ceil(rows.length / size));
+  const safePage = Number.isFinite(page)
+    ? Math.min(Math.max(0, Math.floor(page)), totalPages - 1)
+    : 0;
+  return {
+    page: safePage,
+    totalPages,
+    rows: rows.slice(safePage * size, (safePage + 1) * size),
+  };
 }

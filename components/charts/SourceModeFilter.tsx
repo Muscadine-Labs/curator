@@ -1,85 +1,42 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Layers } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { Layers } from 'lucide-react';
+import { ChartModeFilter, type ChartModeOption } from '@/components/charts/ChartModeFilter';
 
-export type ChartSourceMode = 'total' | 'byVault';
+/**
+ * Level charts (TVL): the aggregate, the per-vault breakdown, or the
+ * aggregate's 1st / 2nd derivative.
+ */
+export type ChartSourceMode = 'total' | 'byVault' | 'change' | 'acceleration';
+
+/** Derivative order of the total series for a source mode (`byVault` is 0). */
+export function sourceModeOrder(mode: ChartSourceMode): 0 | 1 | 2 {
+  return mode === 'change' ? 1 : mode === 'acceleration' ? 2 : 0;
+}
 
 interface SourceModeFilterProps {
   value: ChartSourceMode;
   onChange: (value: ChartSourceMode) => void;
   breakdownLabel?: string;
+  /** Omit the breakdown option (no per-vault data). */
+  showBreakdown?: boolean;
 }
 
 /**
- * Single-button dropdown for switching a chart between an aggregate Total
- * series and per-vault breakdown lines. Mirrors `TimeRangeFilter` and
- * `ViewModeFilter` so all chart headers share the same filter affordance.
+ * View dropdown for the TVL chart: Total, per-vault breakdown, and the
+ * total's daily change (1st derivative) and change in daily change (2nd).
  */
 export function SourceModeFilter({
   value,
   onChange,
   breakdownLabel = 'By Vault',
+  showBreakdown = true,
 }: SourceModeFilterProps) {
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const options: Array<{ value: ChartSourceMode; label: string }> = [
+  const options: Array<ChartModeOption<ChartSourceMode>> = [
     { value: 'total', label: 'Total' },
-    { value: 'byVault', label: breakdownLabel },
+    ...(showBreakdown ? [{ value: 'byVault' as const, label: breakdownLabel }] : []),
+    { value: 'change', label: '1st derivative', hint: 'Daily TVL change' },
+    { value: 'acceleration', label: '2nd derivative', hint: 'Change in daily change' },
   ];
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      if (!containerRef.current) return;
-      if (!containerRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [open]);
-
-  const activeLabel = options.find((o) => o.value === value)?.label ?? 'Total';
-
-  return (
-    <div className="relative" ref={containerRef}>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5"
-      >
-        <Layers className="h-3.5 w-3.5" />
-        <span>{activeLabel}</span>
-        <ChevronDown className="h-3.5 w-3.5 opacity-70" />
-      </Button>
-
-      {open && (
-        <div className="absolute right-0 z-30 mt-1 w-40 rounded border bg-popover p-1 text-sm shadow-md">
-          {options.map((opt) => {
-            const active = opt.value === value;
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => {
-                  onChange(opt.value);
-                  setOpen(false);
-                }}
-                className={cn(
-                  'flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-xs hover:bg-muted',
-                  active && 'bg-muted font-medium'
-                )}
-              >
-                <span>{opt.label}</span>
-                {active && <Check className="h-3 w-3" />}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
+  return <ChartModeFilter value={value} onChange={onChange} options={options} icon={Layers} />;
 }

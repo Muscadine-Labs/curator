@@ -31,6 +31,7 @@ import {
   type HealthTone,
 } from '@/lib/morpho/market-activity-math';
 import type { MarketActivity } from '@/lib/morpho/market-activity.server';
+import { trailingRateAverage } from '@/lib/morpho/rate-averages';
 import { cn } from '@/lib/utils';
 
 const PAGE_SIZE = 10;
@@ -163,10 +164,8 @@ export function MarketRatesPanel({
 
   const avg = (days: number) => {
     const src = mode === 'borrow' ? activity.history.borrowApy : activity.history.supplyApy;
-    const since = Date.now() / 1000 - days * 86400;
-    const pts = src.filter((p) => p.x >= since);
-    if (pts.length === 0) return null;
-    return (pts.reduce((s, p) => s + p.y, 0) / pts.length) * 100;
+    const value = trailingRateAverage(src, days);
+    return value == null ? null : value * 100;
   };
 
   const curve = activity.irmCurve.map((p) => ({

@@ -4,6 +4,62 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-07 — Triangular smoothing, final review (PR #82)
+
+- Derivative trends use a triangular N-day average (`triangularTrend`, mean of means: 30 → 15 + 16). A plain mean stepped twice per large day; TVL 30D 2nd-derivative biggest one-day step 62% → 6.6% of range, steps > 10%: 8 → 0. EMA measured and rejected (only removes the exit step; Fees / Revenue got jumpier).
+- TVL Total view: one point per day (live snapshot replaces today's midnight point), like Cumulative.
+- Server-side markets paging measured and not adopted (~200 KB gzipped; cold time is the upstream fetch).
+
+## 2026-11-06 — Code review fixes (PR #82)
+
+- Midnight "(nD data)" label: coverage starts at the oldest usable sample, so a young market's 90D average no longer reads as complete.
+- Midnight list past the page cap returns `warning` (shown in the browser, served uncached).
+- DefiLlama live "so far today" point tagged at the source (`tagLivePoint`, `live: true`); charts drop it by flag (`dropLivePoints`) instead of a timestamp heuristic. Cumulative view is one point per day.
+- TVL gaps interpolated (`fillLevelDays`) so the 2nd-derivative trend has no holes.
+- `useDerivativeSeries` shares FlowTrendCard / ChartTvl wiring; derivative and range cut memoized separately.
+- Removed dead order-0 `derivativeView` branch, the page's duplicate treasury running sum (now `cumulativeFromDaily`, which sums same-day flows), and an inline day-key helper.
+
+## 2026-11-06 — Smoother derivative trends (PR #82)
+
+- 2nd-derivative trend is now the slope of the smoothed 1st derivative, not the mean of the raw 2nd derivative (which telescoped to two single raw days). Sign flips over 240 days: Fees 57 → 6, Revenue 21 → 3, TVL 118 → 17 at 30D.
+- **Smoothing 7D | 30D** control on derivative views (default 30D). `avg7` → `trend`. Remaining TVL cliffs are single large deposit/withdrawal days entering and leaving the 30D window.
+
+## 2026-11-06 — Daily changes switch on derivative views (PR #82)
+
+- Derivative views now show only the 7D average (the rate of change) by default; a **Daily changes** switch adds each day's actual value at full scale. Replaces the fit-to-average axis + clipping note (`averageFitDomain` removed). New `components/ui/switch.tsx`.
+
+## 2026-11-06 — Derivatives of the cumulative series (PR #82)
+
+- Flow charts' derivative views are now computed from the cumulative series (`flowViewSeries`) and labelled **1st derivative** / **2nd derivative** (TVL too). Missing days carry the total forward; the first day's amount is kept.
+- Fixed: DefiLlama's live "so far today" point merged into today's derivative ($50.99 vs the real $26.58). `dropPartialDayPoints` keeps it out of derivative views.
+
+## 2026-11-06 — Dashboard derivative views (PR #82)
+
+- Overview charts: Inflows / Fees / Revenue get **Daily change** (2nd derivative) beside Cumulative / Daily (1st); TVL gets **Daily change** and **Change in daily change**. Options live in each chart's existing view dropdown (two-control rule, §16.3).
+- `lib/utils/series-derivative.ts` (per-day derivative, 7D trailing average, flow view selection, average-fit axis) + tests; `formatSignedCompactUSD`.
+- Derivative views draw raw faintly under a bold 7D average; 2nd derivatives fit the axis to the average and clip spikes, with a note.
+- Shared `ChartModeFilter`, `TrendLineChart`, `FlowTrendCard`; `ChartInflows` / `ChartFees` / `ChartRevenue` are thin wrappers now. TVL empty state keeps its mode dropdown.
+
+## 2026-11-06 — Markets browser pagination (PR #82)
+
+- `/markets` renders 100 rows per page with the shared `PaginationBar` (first / prev / next / last) under the table; page resets on filter / sort / product change and scrolls back to the table top. `paginateBrowseRows` + tests. Fetching is unchanged (filter/sort need both full lists).
+
+## 2026-11-06 — Review fixes + dependency bumps (PR #82)
+
+- Deps (in-range): next / eslint-config-next 16.4.5, @tanstack/react-query(+devtools) 5.106.1, lucide-react 1.70.0, tailwindcss / @tailwindcss/postcss 4.3.5, graphql 17.1.0, vite 8.3.6, ox 0.14.63, @swc/helpers 0.5.24; `npm update` for transitive. Majors still held (§11).
+- Listed filter: the browser says how many markets the Listed filter hides, with **Show all** (61 active Base Midnight markets are unlisted, including the largest).
+- Rate averages: a window the series does not reach back to shows its real span (`90D avg 4.1% (20D data)`); points with a non-finite timestamp are skipped; Midnight APR averages are weighted by units lent that day (`MidnightHistoryPoint.lendUnits`); vault APY averages stay visible when the selected range has no points.
+- `listed` normalized once, at the API boundary.
+
+## 2026-11-06 — APY averages on history charts + Midnight API check
+
+- 7D / 30D / 90D trailing averages (`lib/morpho/rate-averages.ts`, `components/morpho/RateAverages.tsx`) on the vault history **APY** chart and the Midnight **APR** chart — same rule as the Blue market Rates breakdown, which now uses the shared helper. Vault averages use the whole series, not the selected range. Midnight averages skip days with no fills.
+- Midnight API check (2026-11-06): no history, price, APR or oracle endpoints yet (`/v0/midnight/markets/{id}/history|prices|apr|…` 404; GraphQL has no Midnight fields). History stays transactions-derived; collateral oracles stay on-chain. Book already comes from REST `/v0/midnight/books/{id}`.
+- Midnight **Listed**: list rows carry the API `listed` flag; the Listed column and filter (default Listed) now apply to Midnight too. A missing flag is unknown and stays under Listed (`matchesListedFilter`).
+- Midnight list: query used `sort` / `order`, which the API ignores — now `sort_by` / `sort_direction`; page size 100 → 1000 (API max). Base had 1,281 markets on 2026-11-06, so two pages instead of 13+; cap 5 pages with a warning past it.
+
+---
+
 ## 2026-11-03 — Dependency minor/patch bumps
 
 - Bumped to latest within current majors: next / eslint-config-next 16.4.4, viem 2.57.16, @tanstack/react-query(+devtools) 5.105.3, lucide-react 1.67.0, tailwindcss / @tailwindcss/postcss 4.3.4, vitest 5.1.0, fake-indexeddb 6.2.7.

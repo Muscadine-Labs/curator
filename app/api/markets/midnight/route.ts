@@ -42,14 +42,16 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const chainId = parseChainId(searchParams.get('chainId'));
-    const markets = await withServerResponseCache(
-      `midnight-markets-v4-${chainId}`,
+    const { markets, warning } = await withServerResponseCache(
+      `midnight-markets-v5-${chainId}`,
       API_CACHE_MAX_AGE_MS,
-      () => fetchMidnightMarkets(chainId)
+      () => fetchMidnightMarkets(chainId),
+      // A cut-off list is served uncached so the next request retries it in full.
+      (list) => list.warning == null
     );
 
     return NextResponse.json(
-      { chainId, markets, timestamp: new Date().toISOString() },
+      { chainId, markets, warning, timestamp: new Date().toISOString() },
       { headers: mergeApiCacheHeaders(rateLimitResult.headers, 30) }
     );
   } catch (error) {

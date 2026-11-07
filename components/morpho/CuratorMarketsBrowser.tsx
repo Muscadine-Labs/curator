@@ -27,13 +27,18 @@ import {
   midnightBrowseRow,
   type BrowseSortDir,
   type BrowseSortKey,
+  matchesListedFilter,
+  paginateBrowseRows,
+  BROWSE_PAGE_SIZE,
+  type BrowseListedFilter,
   type MarketsBrowseRow,
 } from '@/lib/morpho/markets-browse-rows';
 import { useCuratorNetwork } from '@/lib/network/CuratorNetworkContext';
 import { cn } from '@/lib/utils';
 import { CuratorTableShell } from '@/components/morpho/CuratorChrome';
+import { PaginationBar } from '@/components/ui/pagination-bar';
 
-type ListedFilter = 'all' | 'listed' | 'unlisted';
+type ListedFilter = BrowseListedFilter;
 type MuscadineFilter = 'all' | 'muscadine';
 type MidnightStatusFilter = 'active' | 'matured' | 'all';
 export type MarketsProductFilter = 'all' | 'blue' | 'midnight';
@@ -95,7 +100,7 @@ const BROWSE_COLUMNS: {
   { key: 'liquidity', label: 'Liquidity', align: 'right', products: ['blue'] },
   { key: 'apy', label: '6H net APY', align: 'right', products: ['blue'] },
   { key: 'maturity', label: 'Maturity', products: ['midnight'] },
-  { key: 'listed', label: 'Listed', products: ['blue'] },
+  { key: 'listed', label: 'Listed', products: ['blue', 'midnight'] },
   { key: 'muscadine', label: 'Muscadine', products: ['blue'] },
 ];
 
@@ -272,9 +277,9 @@ function BrowseCell({
     case 'listed':
       return (
         <TableCell>
-          {blue ? (
-            <Badge variant={blue.listed ? 'default' : 'secondary'}>
-              {blue.listed ? 'Listed' : 'No'}
+          {row.listed != null ? (
+            <Badge variant={row.listed ? 'default' : 'secondary'}>
+              {row.listed ? 'Listed' : 'No'}
             </Badge>
           ) : (
             <BlankCell />
@@ -395,12 +400,11 @@ export function CuratorMarketsBrowser({
     [search, loanFilter, collateralFilter]
   );
 
-  const filtered = useMemo(() => {
+  // Every filter except Listed, so the notice can count what Listed alone hides.
+  const blueBeforeListed = useMemo(() => {
     const markets = data?.markets ?? [];
 
     return markets.filter((m) => {
-      if (listedFilter === 'listed' && !m.listed) return false;
-      if (listedFilter === 'unlisted' && m.listed) return false;
       if (muscadineFilter === 'muscadine' && m.muscadineVaults.length === 0) return false;
       return marketMatchesPairFilters(
         {
@@ -411,9 +415,14 @@ export function CuratorMarketsBrowser({
         pairFilters
       );
     });
-  }, [data?.markets, pairFilters, listedFilter, muscadineFilter]);
+  }, [data?.markets, pairFilters, muscadineFilter]);
 
-  const filteredMidnight = useMemo(() => {
+  const filtered = useMemo(
+    () => blueBeforeListed.filter((m) => matchesListedFilter(m.listed, listedFilter)),
+    [blueBeforeListed, listedFilter]
+  );
+
+  const midnightBeforeListed = useMemo(() => {
     const markets = midnightData?.markets ?? [];
     const nowSec = Math.floor(Date.now() / 1000);
     return markets.filter((m) => {
@@ -431,8 +440,18 @@ export function CuratorMarketsBrowser({
     });
   }, [midnightData?.markets, pairFilters, midnightStatus]);
 
+  const filteredMidnight = useMemo(
+    () => midnightBeforeListed.filter((m) => matchesListedFilter(m.listed, listedFilter)),
+    [midnightBeforeListed, listedFilter]
+  );
+
   const showBlue = productFilter === 'all' || productFilter === 'blue';
   const showMidnight = productFilter === 'all' || productFilter === 'midnight';
+  // The default Listed filter hides real markets (the largest Base Midnight
+  // books are unlisted), so say how many and offer a one-click way back.
+  const hiddenByListed =
+    (showBlue ? blueBeforeListed.length - filtered.length : 0) +
+    (showMidnight ? midnightBeforeListed.length - filteredMidnight.length : 0);
   const columns = columnsFor(productFilter);
   const tableLoading =
     (showBlue && loading && !error) || (showMidnight && midnightBusy && !midnightError);
@@ -444,6 +463,20 @@ export function CuratorMarketsBrowser({
     rows.sort((a, b) => compareBrowseRows(a, b, sortKey, sortDir));
     return rows;
   }, [filtered, filteredMidnight, showBlue, showMidnight, sortKey, sortDir]);
+
+  // Page resets to 1 whenever the visible list changes (filters, sort,
+  // product). Keyed state instead of an effect, so there is no render with a
+  // stale page before the reset.
+  const pageKey = `${productFilter}|${sortKey}|${sortDir}|${search}|${loanFilter}|${collateralFilter}|${listedFilter}|${muscadineFilter}|${midnightStatus}`;
+  const [pageState, setPageState] = useState({ key: pageKey, page: 0 });
+  const requestedPage = pageState.key === pageKey ? pageState.page : 0;
+  const paged = useMemo(() => paginateBrowseRows(sorted, requestedPage), [sorted, requestedPage]);
+  const tableTopRef = useRef<HTMLDivElement>(null);
+  const goToPage = (page: number) => {
+    setPageState({ key: pageKey, page });
+    // The pager sits under the table; bring the new page's first row into view.
+    tableTopRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  };
 
   const toggleSort = (key: BrowseSortKey) => {
     if (sortKey === key) {
@@ -526,20 +559,18 @@ export function CuratorMarketsBrowser({
           </div>
         )}
 
-        {showBlue && (
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">Listed</label>
-            <select
-              value={listedFilter}
-              onChange={(e) => setListedFilter(e.target.value as ListedFilter)}
-              className="h-9 rounded-md border border-border bg-background px-3 text-sm"
-            >
-              <option value="all">All</option>
-              <option value="listed">Listed</option>
-              <option value="unlisted">Not listed</option>
-            </select>
-          </div>
-        )}
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground">Listed</label>
+          <select
+            value={listedFilter}
+            onChange={(e) => setListedFilter(e.target.value as ListedFilter)}
+            className="h-9 rounded-md border border-border bg-background px-3 text-sm"
+          >
+            <option value="all">All</option>
+            <option value="listed">Listed</option>
+            <option value="unlisted">Not listed</option>
+          </select>
+        </div>
 
         {showBlue && (
           <div className="space-y-1">
@@ -575,10 +606,24 @@ export function CuratorMarketsBrowser({
           'market size'}{' '}
         ({sortDir === 'desc' ? 'high → low' : 'low → high'}). Tap a column header to re-sort.
         {productFilter === 'all'
-          ? ' Blue and Midnight share one table. A blank cell means that column does not apply. Listed and Muscadine filter Blue rows only.'
+          ? ' Blue and Midnight share one table. A blank cell means that column does not apply. Listed filters both; Muscadine filters Blue rows only.'
           : ''}{' '}
         {showBlue ? ' Rows highlighted in blue have a Muscadine vault market cap enabled.' : ''}
       </p>
+
+      {listedFilter === 'listed' && hiddenByListed > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {hiddenByListed.toLocaleString('en-US')} unlisted{' '}
+          {hiddenByListed === 1 ? 'market is' : 'markets are'} hidden by the Listed filter.{' '}
+          <button
+            type="button"
+            onClick={() => setListedFilter('all')}
+            className="font-medium text-foreground underline underline-offset-2"
+          >
+            Show all
+          </button>
+        </p>
+      ) : null}
 
       {showBlue && error ? (
         <p className="text-sm text-red-600 dark:text-red-400">
@@ -592,7 +637,12 @@ export function CuratorMarketsBrowser({
             : 'Failed to load Midnight markets'}
         </p>
       ) : null}
+      {showMidnight && !midnightError && midnightData?.warning ? (
+        <p className="text-sm text-amber-700 dark:text-amber-400">{midnightData.warning}</p>
+      ) : null}
 
+      {/* Clears the sticky top bar when a page change scrolls back up. */}
+      <div ref={tableTopRef} className="scroll-mt-28" />
       <CuratorTableShell className="overflow-x-auto">
         <Table>
           <TableHeader>
@@ -632,7 +682,7 @@ export function CuratorMarketsBrowser({
             )}
 
             {!tableLoading &&
-              sorted.map((row) => {
+              paged.rows.map((row) => {
                 const muscadine = (row.blue?.muscadineVaults.length ?? 0) > 0;
                 return (
                   <TableRow
@@ -670,8 +720,19 @@ export function CuratorMarketsBrowser({
       </CuratorTableShell>
 
       {!tableLoading && (
+        <PaginationBar
+          page={paged.page}
+          totalPages={paged.totalPages}
+          total={sorted.length}
+          pageSize={BROWSE_PAGE_SIZE}
+          onPage={goToPage}
+          showEdges
+        />
+      )}
+
+      {!tableLoading && (
         <p className="text-xs text-muted-foreground">
-          Showing {sorted.length} markets on {networkName}
+          {sorted.length.toLocaleString('en-US')} markets on {networkName}
           {showBlue ? ` · ${sorted.filter((row) => row.product === 'blue').length} Blue` : ''}
           {showMidnight
             ? ` · ${sorted.filter((row) => row.product === 'midnight').length} Midnight${

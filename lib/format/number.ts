@@ -40,6 +40,18 @@ export const formatCompactUSD = (amount: number | bigint | null): string => {
   return formatter.format(numAmount);
 };
 
+/**
+ * Compact USD with an explicit sign, for rate-of-change charts:
+ * `+$1.20K`, `−$45.00K`, `$0.00`. `formatCompactUSD` is for non-negative
+ * amounts — below 1,000 it prints full precision and the compact branch is
+ * never reached for negatives.
+ */
+export const formatSignedCompactUSD = (amount: number | null): string => {
+  if (amount == null || !Number.isFinite(amount) || amount === 0) return '$0.00';
+  const sign = amount > 0 ? '+' : '−';
+  return `${sign}${formatCompactUSD(Math.abs(amount))}`;
+};
+
 // Format percentage
 export const formatPercentage = (value: number | null, decimals: number = 2): string => {
   if (value === null || value === undefined) return '0.00%';
