@@ -4,6 +4,12 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-07 — Triangular smoothing, final review (PR #82)
+
+- Derivative trends use a triangular N-day average (`triangularTrend`, mean of means: 30 → 15 + 16). A plain mean stepped twice per large day; TVL 30D 2nd-derivative biggest one-day step 62% → 6.6% of range, steps > 10%: 8 → 0. EMA measured and rejected (only removes the exit step; Fees / Revenue got jumpier).
+- TVL Total view: one point per day (live snapshot replaces today's midnight point), like Cumulative.
+- Server-side markets paging measured and not adopted (~200 KB gzipped; cold time is the upstream fetch).
+
 ## 2026-11-06 — Code review fixes (PR #82)
 
 - Midnight "(nD data)" label: coverage starts at the oldest usable sample, so a young market's 90D average no longer reads as complete.

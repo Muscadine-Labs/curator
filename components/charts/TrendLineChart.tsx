@@ -27,8 +27,9 @@ interface TrendLineChartProps {
   /** Tooltip name of the per-day series, e.g. "Daily revenue (1st derivative)". */
   seriesLabel: string;
   /**
-   * A rate-of-change view. Shows the 7D average (the rate of change) with a
-   * zero line; the **Daily changes** switch adds each day's actual value.
+   * A rate-of-change view. Shows the smoothed trend (the rate of change, 7D or
+   * 30D per `smoothingDays`) with a zero line; the **Daily changes** switch
+   * adds each day's actual value.
    */
   derivative?: boolean;
   /** Smoothing window the `trend` values were built with (derivative views). */

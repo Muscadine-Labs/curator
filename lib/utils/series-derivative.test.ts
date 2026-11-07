@@ -7,6 +7,7 @@ import {
   fillCumulativeDays,
   flowViewSeries,
   seriesDerivative,
+  triangularTrend,
   withTrailingAverage,
 } from './series-derivative';
 
@@ -77,9 +78,10 @@ describe('derivativeView', () => {
     expect(second.at(-1)?.trend).toBeCloseTo(2, 10);
   });
 
-  it('1st-derivative trend is the trailing mean of the daily change', () => {
+  it('1st-derivative trend is the triangular average of the daily change', () => {
     const first = derivativeView(quad, 1, 7);
-    // Daily change on day i is 2i − 1; mean of the last 7 (i = 13..19) is 31.
+    // Daily change on day i is 2i − 1 (linear), so any symmetric 7-day average
+    // centred 3 days back gives 2·16 − 1 = 31.
     expect(first.at(-1)?.trend).toBe(31);
   });
 
@@ -231,5 +233,26 @@ describe('cumulativeFromDaily', () => {
       { date: '2026-10-01', value: 3 },
       { date: '2026-10-02', value: 8 },
     ]);
+  });
+});
+
+describe('triangularTrend', () => {
+  it('has the same width as a plain mean: defined after N days', () => {
+    const out = triangularTrend(days(Array.from({ length: 10 }, () => 1)), 7);
+    expect(out.slice(0, 6).every((p) => p.trend === undefined)).toBe(true);
+    expect(out[6].trend).toBe(1);
+  });
+
+  it('fades a single large day in and out instead of stepping', () => {
+    // Flat daily change with one +3000 day (a big deposit).
+    const values = Array.from({ length: 120 }, (_, i) => (i === 60 ? 3000 : 0));
+    const steps = (trend: Array<number | undefined>) => {
+      const v = trend.filter((x): x is number => x != null);
+      return Math.max(...v.slice(1).map((x, i) => Math.abs(x - v[i])));
+    };
+    const plain = steps(withTrailingAverage(days(values), 30).map((p) => p.trend));
+    const tri = steps(triangularTrend(days(values), 30).map((p) => p.trend));
+    expect(plain).toBe(100); // 3000 / 30, on entry and again on exit
+    expect(tri).toBeLessThanOrEqual(3000 / (15 * 16) + 1e-9); // 12.5
   });
 });

@@ -1032,7 +1032,10 @@ when filters, sort or product change (keyed state, not an effect), is clamped
 if a refetch shrinks the list, and a page change scrolls back to the table top
 (`scroll-mt-28` clears the sticky top bar). Filtering and sorting still run
 over the full Blue + Midnight lists client-side, so both lists are fetched in
-full; only rendering is paged.
+full; only rendering is paged. Server-side paging was measured (2026-11-07) and
+not adopted: the two lists are ~106 KB + ~98 KB gzipped, and cold load time is
+the server's upstream Morpho fetch (Blue ~19s, Midnight ~6s), which paging
+cannot skip — the server still needs every market to filter and sort.
 Midnight status defaults to **Active** (`maturity` omitted). **Matured** is
 `maturity=matured`; **All** is `maturity=all`. Active means `maturity` is still
 in the future (`isMidnightMarketActive`). The control is hidden on Blue-only
@@ -1981,7 +1984,13 @@ change is per day (a missing day does not double a step), derivatives are
 taken over the **whole** series and then cut to the time range (so the first
 in-range day keeps its predecessor). Each point carries a smoothed `trend`,
 drawn bold and shown on its own by default:
-- 1st derivative: trailing N-day mean of the daily change.
+- Smoothing is a **triangular** N-day average (`triangularTrend`: a trailing
+  mean of a trailing mean, 30 → 15 + 16, 7 → 4 + 4). **Do not regress** to a
+  plain N-day mean: it steps twice for every large day (entering, and leaving
+  N days later) — on TVL's 30D 2nd derivative those steps reached 62% of the
+  chart's range vs 6.6% triangular. An EMA was measured too: it only removes
+  the exit step and made Fees / Revenue jumpier. Same width and lag either way.
+- 1st derivative: triangular N-day average of the daily change.
 - 2nd derivative: the **slope of that smoothed 1st derivative**,
   (mₜ − mₜ₋ₙ) / N. **Do not regress** to averaging the raw 2nd derivative: that
   telescopes to (dₜ − dₜ₋ₙ) / N — two single raw days — and flipped sign 57× in

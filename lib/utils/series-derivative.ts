@@ -7,7 +7,12 @@
  *   predecessor and is dropped.
  * - Each derivative point carries `trend`, the smoothed line the chart draws
  *   bold (the raw `value` is the optional faint "Daily changes" line).
- *   - 1st derivative: trailing N-day mean of the daily change.
+ *   Smoothing is a **triangular** N-day average (`triangularTrend`): a mean of
+ *   means, so a day's weight ramps in and out instead of switching on and off.
+ *   A plain N-day mean steps twice for every large day — when it enters and
+ *   when it leaves N days later; on TVL's 30D 2nd derivative those steps
+ *   reached 62% of the chart's range (6.6% triangular). Same width and lag.
+ *   - 1st derivative: triangular N-day average of the daily change.
  *   - 2nd derivative: the **slope of that smoothed 1st derivative**,
  *     (mₜ − mₜ₋ₙ) / N. Averaging the raw 2nd derivative instead telescopes to
  *     (dₜ − dₜ₋ₙ) / N — two single raw days — which flipped sign 57× in 240
@@ -136,6 +141,25 @@ export function withTrailingAverage(
 }
 
 /**
+ * Triangular `days`-day average as `trend`: a trailing mean of a trailing mean
+ * whose widths add up to `days` (30 → 15 + 16, 7 → 4 + 4). Defined once a
+ * full `days`-day span exists, like a plain mean, with the same (days − 1) / 2
+ * lag — but a single large day fades in and out instead of stepping.
+ * Expects one point per day (callers fill gaps first).
+ */
+export function triangularTrend(
+  points: ReadonlyArray<SeriesPoint>,
+  days: number = DEFAULT_SMOOTHING_DAYS
+): DerivativePoint[] {
+  const first = Math.floor((days + 1) / 2);
+  const second = days + 1 - first;
+  const pass1 = withTrailingAverage(points, first);
+  const defined = pass1.flatMap((p) => (p.trend != null ? [{ date: p.date, value: p.trend }] : []));
+  const pass2 = new Map(withTrailingAverage(defined, second).map((p) => [p.date, p.trend]));
+  return pass1.map((p) => ({ date: p.date, value: p.value, trend: pass2.get(p.date) }));
+}
+
+/**
  * 1st or 2nd derivative of a level series with a `days`-day trend (see module
  * doc). The live snapshot is dropped and missing days are interpolated first.
  */
@@ -145,7 +169,7 @@ export function derivativeView(
   days: number = DEFAULT_SMOOTHING_DAYS
 ): DerivativePoint[] {
   const first = seriesDerivative(fillLevelDays(dropLivePoints(points)));
-  const smoothedFirst = withTrailingAverage(first, days);
+  const smoothedFirst = triangularTrend(first, days);
   if (order === 1) return smoothedFirst;
 
   // Slope of the smoothed 1st derivative over the same window.

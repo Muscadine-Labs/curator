@@ -15,7 +15,11 @@ import {
 } from '@/components/charts/SourceModeFilter';
 import { TrendLineChart } from '@/components/charts/TrendLineChart';
 import { derivativeSeriesLabel, useDerivativeSeries } from '@/lib/hooks/useDerivativeSeries';
+import { onePointPerDay } from '@/lib/utils/series-derivative';
 
+
+/** One chart row: `value` for Total, or one key per vault name. */
+type TvlChartRow = { date: string; [series: string]: string | number };
 interface ChartTvlProps {
   totalData?: Array<{ date: string; value: number }>;
   vaultData?: Array<{
@@ -49,8 +53,11 @@ export function ChartTvl({
   const [viewMode, setViewMode] = useState<ChartSourceMode>('total');
   const [range, setRange] = useState<TimeRange>('all');
 
+  // One point per day, like the flow charts' Cumulative view: DefiLlama's live
+  // "so far today" snapshot replaces today's midnight point instead of
+  // drawing today twice.
   const filteredTotalData = useMemo(
-    () => filterDataByRange(totalData || [], range),
+    () => filterDataByRange(onePointPerDay(totalData || []), range),
     [totalData, range]
   );
   const filteredVaultData = useMemo(() => {
@@ -68,9 +75,10 @@ export function ChartTvl({
     setSmoothing,
   } = useDerivativeSeries({ kind: 'level', points: totalData }, derivativeOrder, range);
 
-  const chartData = useMemo(() => {
+  // Rows are `{ date, value }` (Total) or `{ date, [vaultName]: value }` (by vault).
+  const chartData = useMemo<TvlChartRow[]>(() => {
     if (viewMode !== 'byVault' || !filteredVaultData || filteredVaultData.length === 0) {
-      return filteredTotalData;
+      return filteredTotalData.map(({ date, value }) => ({ date, value }));
     }
 
     const normalizedVaultData = filteredVaultData.map((vault) => {
@@ -108,7 +116,7 @@ export function ChartTvl({
 
     return Array.from(dateMap.values()).sort((a, b) =>
       String(a.date).localeCompare(String(b.date))
-    ) as Array<{ date: string; [key: string]: number | string }>;
+    ) as TvlChartRow[];
   }, [viewMode, filteredTotalData, filteredVaultData]);
 
   const data = derivativeOrder === 0 ? chartData : derivativeData;
@@ -237,7 +245,7 @@ export function ChartTvl({
           />
         ) : (
           <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={data}>
+            <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="date" tickFormatter={formatXAxisLabel} tick={{ fontSize: 12 }} />
               <YAxis tickFormatter={(value) => formatCompactUSD(value)} tick={{ fontSize: 12 }} />
