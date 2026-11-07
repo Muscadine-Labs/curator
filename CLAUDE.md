@@ -618,6 +618,15 @@ chains, so with Base-only config it stays 8453 and the hint would never show. Th
   timeseries). Spot withdrawable liquidity stays on the **Overview** metrics card.
 - History metrics (`MetricModeFilter`): **TVL** (label for tokens supplied),
   **Price per share**, **APY**.
+  APY shows 7D / 30D / 90D trailing averages above the chart (`RateAverages`,
+  `lib/morpho/rate-averages.ts` — shared with the Blue Rates breakdown and the
+  Midnight APR chart). Averages use the whole series, not the selected range,
+  and stay visible when that range is empty. A window the series does not reach
+  back to shows its real span (`(20D data)`) — never present a partial history
+  as a full 90D average. Points with a non-finite timestamp are skipped.
+  Coverage starts at the oldest **usable sample** (finite rate, positive
+  weight), not the oldest point: a complete Midnight history has 180 daily
+  points, no-fill days included, so a 10-day-old market read as full 90D.
 - **Price per share** uses `UsdTokenModeFilter`: **Tokens** = underlying per share;
   **USD** = dollar per share. Y-axis tick precision is **adaptive**
   (`axisFractionDigits` in `VaultOverviewHistoryChart.tsx`): fraction digits are
@@ -887,7 +896,17 @@ utilization, or variable APY). GraphQL does **not** expose it.
 loads market + state + full book + position totals
 (`https://api.morpho.org/v0/midnight/…`). Daily APR and outstanding-loan charts
 are built from `GET /v0/midnight/markets/{id}/transactions` (180 days). A day's
-APR is the volume-weighted lend price over the time left until maturity.
+APR is the volume-weighted lend price over the time left until maturity. The APR
+chart shows 7D / 30D / 90D averages over days with fills (a no-fill day is
+skipped, not 0%), **weighted by units lent that day** (`lendUnits` on each
+history point — the same volume behind that day's VWAP), so a dust fill at an
+outlier price cannot move the average. As of 2026-11-06 the Midnight API has no price / APR /
+history / oracle endpoint, so history stays transactions-derived and collateral
+oracles stay on-chain. The list request uses `sort_by` / `sort_direction`
+(`sort` / `order` are ignored) with `limit=1000` (API max). Base had 1,281
+markets on 2026-11-06, so keep the cursor loop (cap 5 pages). Past the cap
+`fetchMidnightMarkets` returns `warning` with the cut list; the route serves
+it uncached and the browser shows it — never present a cut list as complete.
 Outstanding at each UTC midnight is the live total units minus later changes.
 **Unit changes (do not regress, `historyUnitChange`):** count `total_units_delta`
 on the unit-buying leg of each fill — `lend` and `exit_borrow_secondary` — so a
@@ -931,7 +950,7 @@ External app: [Morpho Markets](https://markets.morpho.org/fixed/base/0x549cd072d
 (`morphoMidnightMarketHref`). In-app: `curatorMidnightMarketHref`.
 Tenor = remaining time to `maturity`. `/markets` (All products) puts Blue and Midnight
 in one table with one column set. A blank cell means that product has no value
-there: Midnight leaves Liquidity, 6H net APY, Listed, and Muscadine blank; Blue
+there: Midnight leaves Liquidity, 6H net APY, and Muscadine blank; Blue
 leaves Maturity blank. Blue-only and Midnight-only browse keep the columns that
 product fills. Market size is filled loan-token units
 (`total_units` from `GET /v0/midnight/markets`, sorted largest first). The pair
@@ -943,7 +962,15 @@ they are book offers, not filled deposits or borrows.
 Midnight (`lib/morpho/market-pair-filter.ts`). Pair queries (`cbBTC/USDC`,
 `WETH USDC`) match if every token is a symbol word or prefix (order-independent;
 `ETH` does not match `WETH`). A Blue collateral/loan search still hits Midnight
-books whose loan + collaterals contain those symbols. Listed / Muscadine stay Blue-only.
+books whose loan + collaterals contain those symbols. **Listed** applies to
+both: Midnight rows carry `listed` from `GET /v0/midnight/markets` (Morpho app
+trust layer). `matchesListedFilter` (`markets-browse-rows.ts`) treats a missing
+flag (`null`) as unknown — kept under Listed, never under Not listed — so a
+dropped API field cannot hide every Midnight market. The flag is normalized
+once, in `fetchMidnightMarkets`. Under the default Listed filter the browser
+says how many markets it hides, with **Show all** — the largest Base Midnight
+books are unlisted, so hiding them silently looked like missing data.
+Muscadine stays Blue-only.
 Detail KPIs: filled size (`total_units`), lender credit and borrower debt
 (summed from `/positions`), open lend/borrow offers, best lend/borrow rates, per-collateral
 LLTV / liquidation cursor / oracle panel (price, freshness, Chainlink feeds on Base),
@@ -997,7 +1024,18 @@ resets the filters, and typing writes the URL with `window.history.replaceState`
 page's back link returns there; `safeReturnPath` rejects anything that is not a
 same-origin path (`//`, `/\host`, control characters).
 
-**List defaults** — filter **Listed** only; sort **Market size** high → low.
+**List defaults** — filter **Listed** only (Blue and Midnight); sort **Market size** high → low.
+**Pagination** — the table renders **100 rows per page** (`BROWSE_PAGE_SIZE`,
+`paginateBrowseRows` in `markets-browse-rows.ts`) with the shared
+`PaginationBar` under it (`showEdges` adds first / last). The page resets to 1
+when filters, sort or product change (keyed state, not an effect), is clamped
+if a refetch shrinks the list, and a page change scrolls back to the table top
+(`scroll-mt-28` clears the sticky top bar). Filtering and sorting still run
+over the full Blue + Midnight lists client-side, so both lists are fetched in
+full; only rendering is paged. Server-side paging was measured (2026-11-07) and
+not adopted: the two lists are ~106 KB + ~98 KB gzipped, and cold load time is
+the server's upstream Morpho fetch (Blue ~19s, Midnight ~6s), which paging
+cannot skip — the server still needs every market to filter and sort.
 Midnight status defaults to **Active** (`maturity` omitted). **Matured** is
 `maturity=matured`; **All** is `maturity=all`. Active means `maturity` is still
 in the future (`isMidnightMarketActive`). The control is hidden on Blue-only
@@ -1908,17 +1946,71 @@ expose at most two filter dropdowns:
 
 - `TimeRangeFilter` — `All Time / 90D / 30D / 7D` (shared `TIME_RANGE_OPTIONS`
   in `lib/utils/date-filter.ts`; used on dashboard charts and vault history).
-- `ViewModeFilter` — `Cumulative / Daily` (single button). Used by
-  `ChartInflows`, `ChartRevenue`, `ChartFees` where daily-vs-cumulative is
-  meaningful.
-- `SourceModeFilter` — `Total / By Vault` (single button). Used by
-  `ChartTvl` when both `totalData` and `vaultData` are supplied; gates the
-  TVL chart between the aggregate line and per-vault breakdown lines.
+- `ViewModeFilter` — `Cumulative / 1st derivative / 2nd derivative` (single
+  button; hints "Daily amount" / "Change in daily amount"). Used by
+  `ChartInflows`, `ChartRevenue`, `ChartFees`, which all render through
+  `components/charts/FlowTrendCard.tsx`. Both derivatives are computed **from
+  the cumulative series** (`flowViewSeries`), not the API's separate daily
+  series, so they always agree with the cumulative line. A missing day carries
+  the previous total forward (`fillCumulativeDays` — a jump is not smeared
+  across a gap) and the day before the series starts counts as 0 (the first
+  day's amount is kept). Treasury revenue only has daily data; its cumulative
+  is the running total.
+- `SourceModeFilter` — `Total / By Vault / 1st derivative / 2nd derivative`
+  (single button). Used by `ChartTvl`; the breakdown option appears only with
+  `vaultData`, the two derivative options apply to the total.
+- **Live intraday points (do not regress):** DefiLlama's protocol endpoint
+  appends a "so far today" snapshot (e.g. `…T20:16:23Z`) after today's
+  midnight point on TVL, by-token TVL and the inflows built from them. It is
+  tagged **at the source**, `live: true` via `tagLivePoint` in
+  `lib/defillama/service.ts`, so no consumer re-guesses it from timestamps.
+  Derivative views drop it (`dropLivePoints`) — kept, two points share a day
+  and the 1st derivative merged both steps (today showed $50.99 instead of
+  $26.58). Latest-value reads (`getLatestTvl`) keep it. The cumulative view is
+  one point per day, the live total replacing today's midnight point
+  (`onePointPerDay`), so no date appears twice.
+- **Gaps:** flow cumulatives carry the total forward (`fillCumulativeDays`);
+  level series (TVL) interpolate a missing day linearly (`fillLevelDays`), so
+  every day has a derivative point and the 2nd-derivative trend (which looks
+  the mean up exactly N days back) has no holes. `cumulativeFromDaily` (treasury
+  revenue) **sums** same-day entries.
+- **Shared wiring:** `useDerivativeSeries` (`lib/hooks/useDerivativeSeries.ts`)
+  holds smoothing state and computes the derivative over the whole series in
+  one memo and the range cut in another, so a range change only re-filters.
+  `FlowTrendCard` and `ChartTvl` both use it, with `derivativeSeriesLabel`.
 
-All three follow the same pattern: a small outline button with an icon, a
-label, and a `ChevronDown`, opening a popover of options. Keep it consistent
-— don't regress to a row of inline buttons; it breaks the header density
-we're aiming for.
+Derivative views (`lib/utils/series-derivative.ts`, `TrendLineChart`): the
+change is per day (a missing day does not double a step), derivatives are
+taken over the **whole** series and then cut to the time range (so the first
+in-range day keeps its predecessor). Each point carries a smoothed `trend`,
+drawn bold and shown on its own by default:
+- Smoothing is a **triangular** N-day average (`triangularTrend`: a trailing
+  mean of a trailing mean, 30 → 15 + 16, 7 → 4 + 4). **Do not regress** to a
+  plain N-day mean: it steps twice for every large day (entering, and leaving
+  N days later) — on TVL's 30D 2nd derivative those steps reached 62% of the
+  chart's range vs 6.6% triangular. An EMA was measured too: it only removes
+  the exit step and made Fees / Revenue jumpier. Same width and lag either way.
+- 1st derivative: triangular N-day average of the daily change.
+- 2nd derivative: the **slope of that smoothed 1st derivative**,
+  (mₜ − mₜ₋ₙ) / N. **Do not regress** to averaging the raw 2nd derivative: that
+  telescopes to (dₜ − dₜ₋ₙ) / N — two single raw days — and flipped sign 57× in
+  240 days on Fees (118× on TVL) vs 6× (17×) for the 30D slope.
+- N is the **Smoothing 7D | 30D** control above the chart (default **30D**,
+  `DEFAULT_SMOOTHING_DAYS`), held per chart card in `useDerivativeSeries`. `trend` is undefined until
+  its window is full (2nd derivative: two windows of history).
+A **Daily changes** switch (`components/ui/switch.tsx`, derivative views only)
+adds each day's actual value faintly underneath, at full scale. Both controls
+keep their state across 1st ↔ 2nd derivative on the same chart. With too
+little history for a trend the daily values always show and the switch is
+disabled. Signed `+$/−$`
+labels (`formatSignedCompactUSD`) only when a drawn series goes negative. Derivative options live **in each chart's existing view
+dropdown**, not a page-level or settings toggle — keeps the two-control rule.
+
+All of these are `ChartModeFilter` (`components/charts/ChartModeFilter.tsx`):
+a small outline button with an icon, a label, and a `ChevronDown`, opening a
+popover of options (with an optional hint line). Keep it consistent — don't
+regress to a row of inline buttons; it breaks the header density we're aiming
+for.
 
 ### 16.4 Holders & transactions pagination
 

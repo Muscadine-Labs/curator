@@ -8,8 +8,18 @@ import { formatCompactUSD } from '@/lib/format/number';
 import { filterDataByRange, type TimeRange } from '@/lib/utils/date-filter';
 import { formatUtcChartTick, formatUtcTooltipDate } from '@/lib/utils/utc-calendar';
 import { TimeRangeFilter } from '@/components/charts/TimeRangeFilter';
-import { SourceModeFilter, type ChartSourceMode } from '@/components/charts/SourceModeFilter';
+import {
+  SourceModeFilter,
+  sourceModeOrder,
+  type ChartSourceMode,
+} from '@/components/charts/SourceModeFilter';
+import { TrendLineChart } from '@/components/charts/TrendLineChart';
+import { derivativeSeriesLabel, useDerivativeSeries } from '@/lib/hooks/useDerivativeSeries';
+import { onePointPerDay } from '@/lib/utils/series-derivative';
 
+
+/** One chart row: `value` for Total, or one key per vault name. */
+type TvlChartRow = { date: string; [series: string]: string | number };
 interface ChartTvlProps {
   totalData?: Array<{ date: string; value: number }>;
   vaultData?: Array<{
@@ -43,8 +53,11 @@ export function ChartTvl({
   const [viewMode, setViewMode] = useState<ChartSourceMode>('total');
   const [range, setRange] = useState<TimeRange>('all');
 
+  // One point per day, like the flow charts' Cumulative view: DefiLlama's live
+  // "so far today" snapshot replaces today's midnight point instead of
+  // drawing today twice.
   const filteredTotalData = useMemo(
-    () => filterDataByRange(totalData || [], range),
+    () => filterDataByRange(onePointPerDay(totalData || []), range),
     [totalData, range]
   );
   const filteredVaultData = useMemo(() => {
@@ -55,9 +68,17 @@ export function ChartTvl({
     }));
   }, [vaultData, range]);
 
-  const chartData = useMemo(() => {
-    if (viewMode === 'total' || !filteredVaultData || filteredVaultData.length === 0) {
-      return filteredTotalData;
+  const derivativeOrder = sourceModeOrder(viewMode);
+  const {
+    data: derivativeData,
+    smoothing,
+    setSmoothing,
+  } = useDerivativeSeries({ kind: 'level', points: totalData }, derivativeOrder, range);
+
+  // Rows are `{ date, value }` (Total) or `{ date, [vaultName]: value }` (by vault).
+  const chartData = useMemo<TvlChartRow[]>(() => {
+    if (viewMode !== 'byVault' || !filteredVaultData || filteredVaultData.length === 0) {
+      return filteredTotalData.map(({ date, value }) => ({ date, value }));
     }
 
     const normalizedVaultData = filteredVaultData.map((vault) => {
@@ -95,11 +116,12 @@ export function ChartTvl({
 
     return Array.from(dateMap.values()).sort((a, b) =>
       String(a.date).localeCompare(String(b.date))
-    ) as Array<{ date: string; [key: string]: number | string }>;
+    ) as TvlChartRow[];
   }, [viewMode, filteredTotalData, filteredVaultData]);
 
-  const data = chartData;
-  const showToggle = totalData && vaultData && vaultData.length > 0;
+  const data = derivativeOrder === 0 ? chartData : derivativeData;
+  const hasBreakdown = Boolean(vaultData && vaultData.length > 0);
+  const showToggle = Boolean(totalData && totalData.length > 0);
 
   if (isLoading) {
     return (
@@ -120,7 +142,18 @@ export function ChartTvl({
         <CardHeader>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle>{title}</CardTitle>
-            <TimeRangeFilter value={range} onChange={setRange} />
+            <div className="flex flex-wrap items-center gap-2">
+              <TimeRangeFilter value={range} onChange={setRange} />
+              {/* Keep the mode control, or an empty derivative view is a dead end. */}
+              {showToggle && (
+                <SourceModeFilter
+                  value={viewMode}
+                  onChange={setViewMode}
+                  breakdownLabel={breakdownLabel}
+                  showBreakdown={hasBreakdown}
+                />
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -194,37 +227,49 @@ export function ChartTvl({
                 value={viewMode}
                 onChange={setViewMode}
                 breakdownLabel={breakdownLabel}
+                showBreakdown={hasBreakdown}
               />
             )}
           </div>
         </div>
       </CardHeader>
       <CardContent>
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="date" tickFormatter={formatXAxisLabel} tick={{ fontSize: 12 }} />
-            <YAxis tickFormatter={(value) => formatCompactUSD(value)} tick={{ fontSize: 12 }} />
-            <Tooltip content={customTooltipContent as never} />
-            {viewMode === 'total' ? (
-              <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={2} dot={false} />
-            ) : (
-              <>
-                {filteredVaultData?.map((vault, index) => (
-                  <Line
-                    key={vault.address}
-                    type="monotone"
-                    dataKey={vault.name}
-                    stroke={VAULT_COLORS[index % VAULT_COLORS.length]}
-                    strokeWidth={2}
-                    dot={false}
-                    name={vault.name}
-                  />
-                ))}
-              </>
-            )}
-          </LineChart>
-        </ResponsiveContainer>
+        {derivativeOrder > 0 ? (
+          <TrendLineChart
+            data={derivativeData}
+            color="#3b82f6"
+            seriesLabel={derivativeSeriesLabel(derivativeOrder === 1 ? 1 : 2, 'TVL change')}
+            derivative
+            smoothingDays={smoothing}
+            onSmoothingChange={setSmoothing}
+          />
+        ) : (
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="date" tickFormatter={formatXAxisLabel} tick={{ fontSize: 12 }} />
+              <YAxis tickFormatter={(value) => formatCompactUSD(value)} tick={{ fontSize: 12 }} />
+              <Tooltip content={customTooltipContent as never} />
+              {viewMode === 'total' ? (
+                <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={2} dot={false} />
+              ) : (
+                <>
+                  {filteredVaultData?.map((vault, index) => (
+                    <Line
+                      key={vault.address}
+                      type="monotone"
+                      dataKey={vault.name}
+                      stroke={VAULT_COLORS[index % VAULT_COLORS.length]}
+                      strokeWidth={2}
+                      dot={false}
+                      name={vault.name}
+                    />
+                  ))}
+                </>
+              )}
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </CardContent>
     </Card>
   );

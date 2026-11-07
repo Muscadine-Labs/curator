@@ -80,14 +80,6 @@ export default function Home() {
       .map((s) => ({ date: `${s.month}-01`, value: s.total.usd }));
   }, [monthlyData]);
 
-  const treasuryRevenueCumulative = useMemo(() => {
-    let sum = 0;
-    return treasuryRevenueDaily.map((d) => {
-      sum += d.value;
-      return { date: d.date, value: sum };
-    });
-  }, [treasuryRevenueDaily]);
-
   const treasuryRevenueTotal = useMemo(() => {
     const statements = monthlyData?.statements ?? [];
     return statements.reduce((sum, s) => sum + s.total.usd, 0);
@@ -265,7 +257,6 @@ export default function Home() {
             dailyData={stats?.revenueTrendDaily}
             cumulativeData={stats?.revenueTrendCumulative}
             treasuryDailyData={treasuryRevenueDaily}
-            treasuryCumulativeData={treasuryRevenueCumulative}
             isLoading={isLoading}
             isTreasuryLoading={isTreasuryLoading}
             title="Revenue"

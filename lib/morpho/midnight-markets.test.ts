@@ -153,6 +153,9 @@ describe('buildMidnightHistory', () => {
     expect(closed?.takePrice).toBeCloseTo(30825874984 / 31082864715, 12);
     expect(following?.takePrice).toBeNull();
     expect(closed?.apr).not.toBeNull();
+    // Only the lend leg is the APR's volume; the borrow leg of the same fill is not.
+    expect(closed?.lendUnits).toBe('31082864715');
+    expect(following?.lendUnits).toBe('0');
   });
 
   it('leaves off a partial first day when paging did not reach the window start', () => {

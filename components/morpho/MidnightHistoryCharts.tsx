@@ -15,6 +15,7 @@ import {
 } from 'recharts';
 import { Button } from '@/components/ui/button';
 import { CuratorPanel } from '@/components/morpho/CuratorChrome';
+import { RateAverages } from '@/components/morpho/RateAverages';
 import {
   formatCompactAmount,
   formatCompactUSD,
@@ -55,6 +56,17 @@ function priceAxisDomain(prices: number[]): [number, number] | ['auto', 'auto'] 
   // A take price sits near 1. Starting the axis at 0 flattens that line.
   const pad = span > 0 ? span * 0.2 : Math.max(Math.abs(min) * 0.001, 0.0005);
   return [min - pad, max + pad];
+}
+
+/** Raw lend units as a relative weight; 0 (skipped) when missing or unparsable. */
+function lendUnitsWeight(raw: string | null | undefined): number {
+  if (!raw) return 0;
+  try {
+    const weight = Number(BigInt(raw));
+    return Number.isFinite(weight) ? weight : 0;
+  } catch {
+    return 0;
+  }
 }
 
 function loanAmount(raw: string | null, decimals: number): number | null {
@@ -102,6 +114,17 @@ export function MidnightHistoryCharts({ market }: { market: MidnightMarketDetail
         loansUsd: point.outstandingUsd,
       })),
     [market.history, market.loanDecimals]
+  );
+
+  // Weighted by units filled, matching how each day's APR is volume-weighted.
+  const aprAveragePoints = useMemo(
+    () =>
+      market.history.map((point) => ({
+        x: point.timestamp,
+        y: point.apr == null ? null : point.apr * 100,
+        weight: lendUnitsWeight(point.lendUnits),
+      })),
+    [market.history]
   );
 
   const latestApr = [...rows].reverse().find((row) => row.apr != null)?.apr ?? null;
@@ -165,6 +188,14 @@ export function MidnightHistoryCharts({ market }: { market: MidnightMarketDetail
       >
         <div className="p-4">
           <p className="text-2xl font-semibold tabular-nums">{rateHeadline}</p>
+          {rateMode === 'apr' && rows.length > 0 && (
+            <div className="mt-1">
+              <RateAverages
+                points={aprAveragePoints}
+                note="Volume-weighted, days with fills only"
+              />
+            </div>
+          )}
           {rows.length === 0 ? (
             <p className="mt-6 text-sm text-muted-foreground">
               {market.historyAvailable

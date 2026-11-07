@@ -97,6 +97,8 @@ export function useMidnightMarketDetail(
 type MidnightMarketsResponse = {
   chainId: number;
   markets: MidnightMarketListItem[];
+  /** Set when the server cut the list short (page cap). */
+  warning?: string | null;
 };
 
 export function useMidnightMarkets(

@@ -23,6 +23,9 @@ import { formatLltvWad, selectMidnightCollaterals } from '@/lib/morpho/midnight-
 
 /** Morpho REST normally answers in well under a second; a stall must not hang the route. */
 const MIDNIGHT_FETCH_TIMEOUT_MS = 15_000;
+const MIDNIGHT_MARKETS_PAGE_LIMIT = 1000;
+/** Page cap: 5 × 1000 rows. Past it the list is cut and a warning is logged. */
+const MIDNIGHT_MARKETS_MAX_PAGES = 5;
 
 export type MidnightCollateral = {
   token: string;
@@ -55,6 +58,11 @@ export type MidnightMarketListItem = {
   sizeUsd: number | null;
   /** Primary collateral LLTV as a 0–1 ratio, for sorting. */
   lltvRatio: number | null;
+  /**
+   * Morpho app trust-layer listing (`listed` on `GET /v0/midnight/markets`).
+   * `null` when the API omits it — unknown, not unlisted.
+   */
+  listed: boolean | null;
 };
 
 type MidnightBookCollateral = {
@@ -110,6 +118,8 @@ export type MidnightHistoryPoint = {
   takePrice: number | null;
   /** APR as a fraction (0.056 = 5.6%). Null on days with no take. */
   apr: number | null;
+  /** Units bought by lenders that day (raw, `"0"` with no fills): the weight behind `apr`. */
+  lendUnits: string;
 };
 
 function takePriceNumber(priceWad: string | null | undefined): number | null {
@@ -170,6 +180,7 @@ type MidnightMarketRow = {
   loan_token?: string;
   maturity?: number | string;
   total_units?: string;
+  listed?: boolean | null;
   collaterals?: MidnightBookCollateral[];
 };
 
@@ -179,9 +190,12 @@ async function fetchMarketsPage(
 ): Promise<{ cursor?: string | null; data?: MidnightMarketRow[] }> {
   const url = new URL(`${MORPHO_REST_ORIGIN}/v0/midnight/markets`);
   url.searchParams.set('chain_ids', String(chainId));
-  url.searchParams.set('limit', '100');
-  url.searchParams.set('sort', 'total_units');
-  url.searchParams.set('order', 'desc');
+  // API max page is 1000 (Base had 1,281 markets on 2026-11-06, so two pages)
+  // instead of 13+ sequential 100-row round trips. Keep the cursor loop.
+  url.searchParams.set('limit', String(MIDNIGHT_MARKETS_PAGE_LIMIT));
+  // The API reads `sort_by` / `sort_direction` (`sort` / `order` are ignored).
+  url.searchParams.set('sort_by', 'total_units');
+  url.searchParams.set('sort_direction', 'desc');
   if (cursor) url.searchParams.set('cursor', cursor);
 
   const res = await fetch(url.toString(), {
@@ -205,16 +219,30 @@ function rawToUsd(raw: string, decimals: number, priceUsd: number | null): numbe
   }
 }
 
+export type MidnightMarketList = {
+  markets: MidnightMarketListItem[];
+  /**
+   * Set when the list is incomplete (page cap hit). Never serve a cut list as
+   * complete (CLAUDE.md §8): the browser shows this and the route skips its cache.
+   */
+  warning: string | null;
+};
+
 export async function fetchMidnightMarkets(
   chainId: number = BASE_CHAIN_ID
-): Promise<MidnightMarketListItem[]> {
+): Promise<MidnightMarketList> {
   const rows: MidnightMarketRow[] = [];
   let cursor: string | null = null;
-  for (let i = 0; i < 15; i += 1) {
+  for (let i = 0; i < MIDNIGHT_MARKETS_MAX_PAGES; i += 1) {
     const page = await fetchMarketsPage(chainId, cursor);
     rows.push(...(page.data ?? []));
     cursor = page.cursor ?? null;
     if (!cursor) break;
+  }
+  let warning: string | null = null;
+  if (cursor) {
+    logger.warn('Midnight market list exceeded page cap', { chainId, rows: rows.length });
+    warning = `Showing the first ${rows.length.toLocaleString('en-US')} Midnight markets by size; smaller ones are not listed.`;
   }
 
   const tokenAddrs = new Set<string>();
@@ -284,12 +312,13 @@ export async function fetchMidnightMarkets(
         loanMeta.decimals,
         loanPrices.get(loanAddress.toLowerCase()) ?? null
       ),
+      listed: typeof row.listed === 'boolean' ? row.listed : null,
     });
   }
 
   mapped.sort((a, b) => (b.sizeUsd ?? 0) - (a.sizeUsd ?? 0));
   logger.debug('Fetched Midnight markets', { chainId, count: mapped.length });
-  return mapped;
+  return { markets: mapped, warning };
 }
 
 export type MidnightBookLevelView = {
@@ -766,7 +795,8 @@ export function buildMidnightHistory(
     const thisDay = changeByDay.get(day) ?? 0n;
     const outstanding = totalUnits - later - thisDay;
     later += thisDay;
-    const priceWad = vwapPriceWad(assetsByDay.get(day) ?? 0n, unitsByDay.get(day) ?? 0n);
+    const lendUnits = unitsByDay.get(day) ?? 0n;
+    const priceWad = vwapPriceWad(assetsByDay.get(day) ?? 0n, lendUnits);
     points.push({
       timestamp: day,
       outstandingAssets: totalKnown ? outstanding.toString() : null,
@@ -776,6 +806,7 @@ export function buildMidnightHistory(
         : null,
       takePrice: takePriceNumber(priceWad),
       apr: midnightPriceToApr(priceWad, args.maturitySec - day),
+      lendUnits: lendUnits.toString(),
     });
   }
   points.reverse();
