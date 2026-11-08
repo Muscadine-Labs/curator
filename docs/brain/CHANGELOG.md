@@ -6,6 +6,7 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ## 2026-11-08 — Dependency bumps + review pass
 
+- Patched GHSA-g3hv-75wg-m249 (minimatch globparts DoS, dev-only via typescript-eslint): `overrides` pins `@typescript-eslint/typescript-estree` → `minimatch@^11.0.5`. `npm audit` (dev included) is clean.
 - Bumped `@tanstack/react-query` / devtools 5.107.1, `viem` 2.57.17, `fake-indexeddb` 6.2.8. Held majors stay held (ESLint 10, wagmi 3, TypeScript 7, ox 1); `@types/node` stays on 24 to match `engines`.
 - Review of auth/session, proxy, BFF auth coverage (every route but the three `/api/auth/*` calls `unauthorizedUnlessAdmin`) and `v2-rebalance-plan.ts` found no new defects. lint, tsc, 0-warning build and tests pass; `npm audit --omit=dev` is clean.
 
