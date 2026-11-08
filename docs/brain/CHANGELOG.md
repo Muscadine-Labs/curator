@@ -4,6 +4,11 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-08 — Dependency bumps + review pass
+
+- Bumped `@tanstack/react-query` / devtools 5.107.1, `viem` 2.57.17, `fake-indexeddb` 6.2.8. Held majors stay held (ESLint 10, wagmi 3, TypeScript 7, ox 1); `@types/node` stays on 24 to match `engines`.
+- Review of auth/session, proxy, BFF auth coverage (every route but the three `/api/auth/*` calls `unauthorizedUnlessAdmin`) and `v2-rebalance-plan.ts` found no new defects. lint, tsc, 0-warning build and tests pass; `npm audit --omit=dev` is clean.
+
 ## 2026-11-07 — Triangular smoothing, final review (PR #82)
 
 - Derivative trends use a triangular N-day average (`triangularTrend`, mean of means: 30 → 15 + 16). A plain mean stepped twice per large day; TVL 30D 2nd-derivative biggest one-day step 62% → 6.6% of range, steps > 10%: 8 → 0. EMA measured and rejected (only removes the exit step; Fees / Revenue got jumpier).
