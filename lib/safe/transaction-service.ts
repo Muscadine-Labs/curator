@@ -120,14 +120,40 @@ export type ServiceMultisigTx = {
   isExecuted?: boolean;
 };
 
+const PENDING_PAGE_SIZE = 100;
+const PENDING_MAX_PAGES = 10;
+
+/**
+ * Every unexecuted proposal at or above the Safe's nonce, all pages. Pass the
+ * on-chain nonce as `currentNonce` when the caller already has it: otherwise
+ * api-kit spends an extra request reading it from the service.
+ */
 export async function fetchPendingMultisigTransactions(
-  safeAddress: Address
+  safeAddress: Address,
+  options?: { currentNonce?: number }
 ): Promise<ServiceMultisigTx[]> {
   const apiKit = await loadApiKit();
-  const response = await withSafeTxServiceRateLimit(() =>
-    apiKit.getPendingTransactions(getAddress(safeAddress))
-  );
-  return (response.results ?? []) as ServiceMultisigTx[];
+  const address = getAddress(safeAddress);
+  let currentNonce = options?.currentNonce;
+  const all: ServiceMultisigTx[] = [];
+  for (let page = 0; page < PENDING_MAX_PAGES; page++) {
+    const response = await withSafeTxServiceRateLimit(() =>
+      apiKit.getPendingTransactions(address, {
+        // api-kit treats a 0 nonce as unset and re-reads it; that is harmless.
+        ...(currentNonce != null ? { currentNonce } : {}),
+        limit: PENDING_PAGE_SIZE,
+        offset: page * PENDING_PAGE_SIZE,
+      })
+    );
+    const results = (response.results ?? []) as ServiceMultisigTx[];
+    all.push(...results);
+    if (!response.next || results.length < PENDING_PAGE_SIZE) break;
+    // Pin the nonce from the first page so later pages use the same filter.
+    if (currentNonce == null && results.length > 0) {
+      currentNonce = Math.min(...results.map((r) => Number(r.nonce)).filter(Number.isFinite));
+    }
+  }
+  return all;
 }
 
 export type ServiceHistoryTx = ServiceMultisigTx & {

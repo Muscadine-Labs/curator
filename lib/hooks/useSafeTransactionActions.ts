@@ -30,6 +30,7 @@ import {
 } from '@/lib/safe/refetch-vault-after-safe-execute';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { safePendingWarnings } from '@/lib/safe/decode-vault-calldata-preview';
+import { safeExecutionOutcome } from '@/lib/safe/execution-outcome';
 import type { SafePendingTransaction } from '@/lib/safe/types';
 
 function errorMessage(e: unknown, fallback: string): string {
@@ -215,11 +216,21 @@ export function useSafeTransactionActions(threshold: number | undefined) {
           );
         }
 
-        updatePendingTransaction(tx.id, { status: 'executed' });
+        // The outer call can succeed while the Safe caught an inner revert
+        // (safeTxGas / gasPrice non-zero): the nonce is spent, nothing changed.
+        const outcome = safeExecutionOutcome(receipt.logs, tx.safeAddress, tx.safeTxHash);
+        updatePendingTransaction(tx.id, {
+          status: outcome === 'failure' ? 'stale' : 'executed',
+        });
         await Promise.allSettled([
           refetchVaultDataAfterSafeExecute(queryClient, tx),
           refetchSafeAfterExecute(queryClient, tx.safeAddress),
         ]);
+        if (outcome === 'failure') {
+          throw new Error(
+            `The Safe executed this nonce but the inner call failed (${hash}). Nothing changed; re-queue the action.`
+          );
+        }
         return hash;
       }),
     [runAction, prepareSigner, threshold, publicClient, queryClient, sendTransactionAsync]

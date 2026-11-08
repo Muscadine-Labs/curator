@@ -150,7 +150,10 @@ export async function resolveNextSafeNonce(safeAddress: Address): Promise<number
   }
   if (isTransactionServiceConfigured()) {
     try {
-      const serviceTxs = await fetchPendingMultisigTransactions(safeAddress);
+      // Pass the nonce we already read so the service is asked once, not twice.
+      const serviceTxs = await fetchPendingMultisigTransactions(safeAddress, {
+        currentNonce: onChain,
+      });
       for (const tx of serviceTxs) {
         const n = Number(tx.nonce);
         if (Number.isFinite(n)) highest = Math.max(highest, n);
@@ -301,14 +304,21 @@ export async function executeSafePendingTransaction(options: {
     options.expectedSafeTxHash
   );
 
+  const [threshold, owners] = await Promise.all([
+    protocolKit.getThreshold(),
+    protocolKit.getOwners(),
+  ]);
+  // Only current owners count: a removed owner's (or an imported non-owner's)
+  // signature makes execTransaction revert with GS026 after the executor pays gas.
+  const ownerSet = new Set(owners.map((o) => o.toLowerCase()));
   for (const sig of options.signatures) {
+    if (!ownerSet.has(sig.signer.toLowerCase())) continue;
     safeTransaction.addSignature(new EthSafeSignature(getAddress(sig.signer), sig.data));
   }
 
-  const threshold = await protocolKit.getThreshold();
   if (safeTransaction.signatures.size < threshold) {
     throw new Error(
-      `Need ${threshold} signature(s); have ${safeTransaction.signatures.size}.`
+      `Need ${threshold} owner signature(s); have ${safeTransaction.signatures.size}.`
     );
   }
 

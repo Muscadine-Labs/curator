@@ -9,6 +9,11 @@ export type SafeTransactionStatus =
   | 'cancelled'
   | 'stale';
 
+/** Executed, cancelled or stale: never back in the queue. */
+export function isTerminalSafeStatus(status: SafeTransactionStatus): boolean {
+  return status === 'executed' || status === 'cancelled' || status === 'stale';
+}
+
 export type SafeTransactionSource =
   | {
       type: 'allocation';

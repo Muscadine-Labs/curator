@@ -4,6 +4,12 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-08 — Safe flow + treasury review fixes
+
+- Safe: sync keeps executed/stale/cancelled rows out of the queue; execute checks `ExecutionSuccess` / `ExecutionFailure`; only current owners' signatures count; bundle import validated per row (role from config, status reset, bad rows skipped); pending service txs paginated with the known nonce; Safe App hash swap adopts all matching fields or keeps the local row; batch refuses a spent nonce; `upsertPendingTransaction` copies before writing.
+- Treasury statement: a day with shares but no `assets` sample is valued at the nearest assets-per-share (`fillMissingTokens`) instead of 0 tokens.
+- Tests: `execution-outcome`, `service-sync`, `compute-treasury-statement`, more `pending-store` / `queue-vault-write` cases.
+
 ## 2026-11-08 — Dependency bumps + review pass
 
 - Patched GHSA-g3hv-75wg-m249 (minimatch globparts DoS, dev-only via typescript-eslint): `overrides` pins `@typescript-eslint/typescript-estree` → `minimatch@^11.0.5`. `npm audit` (dev included) is clean.

@@ -15,7 +15,7 @@ import {
   upsertPendingTransaction,
 } from '@/lib/safe/pending-store';
 import { pendingStatusAfterSign } from '@/lib/safe/queue-vault-write';
-import type { SafePendingTransaction } from '@/lib/safe/types';
+import { isTerminalSafeStatus, type SafePendingTransaction } from '@/lib/safe/types';
 import type { ServiceMultisigTx } from '@/lib/safe/transaction-service';
 
 function newPendingId(): string {
@@ -50,10 +50,13 @@ function mergeServiceTx(
 
   if (existing) {
     const signatures = mergeSignatures(existing.signatures, incomingSignatures);
+    // The service indexer lags execution: a row this browser already saw execute
+    // (or marked stale / cancelled) must not be pulled back into the queue.
+    const terminal = isTerminalSafeStatus(existing.status);
     return withDecodedPendingPreview({
       ...existing,
       signatures,
-      status: pendingStatusAfterSign(signatures.length, threshold),
+      status: terminal ? existing.status : pendingStatusAfterSign(signatures.length, threshold),
       serviceSynced: true,
       serviceSyncError: null,
       updatedAt: now,

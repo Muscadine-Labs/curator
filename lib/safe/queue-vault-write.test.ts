@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { getAddress, type Hex } from 'viem';
-import { prepareSafeBatchSelection } from '@/lib/safe/queue-vault-write';
+import {
+  assertBatchNonceNotSpent,
+  countOwnerSignatures,
+  prepareSafeBatchSelection,
+} from '@/lib/safe/queue-vault-write';
 import type { SafePendingTransaction } from '@/lib/safe/types';
 
 const SAFE = getAddress('0x2Ed45BB3542d06d81D117acd8A561e910A17A618');
@@ -85,5 +89,22 @@ describe('prepareSafeBatchSelection', () => {
     expect(
       prepareSafeBatchSelection([five, six], [five, six, executed, otherSafe]).map((t) => t.nonce)
     ).toEqual(['5', '6']);
+  });
+});
+
+describe('countOwnerSignatures', () => {
+  const A = getAddress('0x00000000000000000000000000000000000000a1');
+  const B = getAddress('0x00000000000000000000000000000000000000b2');
+  it('counts only current owners, once each', () => {
+    const sigs = [{ signer: A }, { signer: B }, { signer: A }];
+    expect(countOwnerSignatures(sigs, [A.toLowerCase()])).toBe(1);
+    expect(countOwnerSignatures(sigs, [A, B])).toBe(2);
+  });
+});
+
+describe('assertBatchNonceNotSpent', () => {
+  it('refuses a nonce below the on-chain nonce', () => {
+    expect(() => assertBatchNonceNotSpent(4, 5)).toThrow(/already at nonce 5/);
+    expect(() => assertBatchNonceNotSpent(5, 5)).not.toThrow();
   });
 });

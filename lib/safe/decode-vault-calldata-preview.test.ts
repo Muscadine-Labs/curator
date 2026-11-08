@@ -189,8 +189,8 @@ describe('imported gate writes', () => {
       changes: [{ action: 'withdraw', label: 'USDC' }],
     };
     const cleaned = sanitizeImportedPending(tx);
-    expect(cleaned.preview).toBeNull();
-    expect(cleaned.source).toMatchObject({ type: 'gate', action: 'set_whitelisted' });
+    expect(cleaned?.preview).toBeNull();
+    expect(cleaned?.source).toMatchObject({ type: 'gate', action: 'set_whitelisted' });
   });
 });
 
