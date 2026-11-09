@@ -135,7 +135,9 @@ export async function fetchPendingMultisigTransactions(
   const apiKit = await loadApiKit();
   const address = getAddress(safeAddress);
   let currentNonce = options?.currentNonce;
-  const all: ServiceMultisigTx[] = [];
+  // Keyed by safeTxHash: a proposal added between page reads shifts the offset
+  // and can return the same row on two pages.
+  const byHash = new Map<string, ServiceMultisigTx>();
   for (let page = 0; page < PENDING_MAX_PAGES; page++) {
     const response = await withSafeTxServiceRateLimit(() =>
       apiKit.getPendingTransactions(address, {
@@ -146,14 +148,15 @@ export async function fetchPendingMultisigTransactions(
       })
     );
     const results = (response.results ?? []) as ServiceMultisigTx[];
-    all.push(...results);
+    for (const row of results) byHash.set(row.safeTxHash.toLowerCase(), row);
     if (!response.next || results.length < PENDING_PAGE_SIZE) break;
     // Pin the nonce from the first page so later pages use the same filter.
-    if (currentNonce == null && results.length > 0) {
-      currentNonce = Math.min(...results.map((r) => Number(r.nonce)).filter(Number.isFinite));
+    if (currentNonce == null) {
+      const nonces = results.map((r) => Number(r.nonce)).filter(Number.isSafeInteger);
+      if (nonces.length > 0) currentNonce = Math.min(...nonces);
     }
   }
-  return all;
+  return [...byHash.values()];
 }
 
 export type ServiceHistoryTx = ServiceMultisigTx & {

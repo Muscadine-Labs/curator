@@ -111,6 +111,13 @@ describe('bundle import validation', () => {
     expect(sanitizeImportedPending(tx)).toBeNull();
   });
 
+  it('rejects a non-integer value or nonce', async () => {
+    const { sanitizeImportedPending } = await import('@/lib/safe/pending-store');
+    expect(sanitizeImportedPending({ ...proposal([]), value: '1.5' })).toBeNull();
+    expect(sanitizeImportedPending({ ...proposal([]), nonce: 'abc' })).toBeNull();
+    expect(sanitizeImportedPending({ ...proposal([]), value: '' })?.value).toBe('0');
+  });
+
   it('skips a malformed row instead of failing the whole import', async () => {
     const store = await import('./pending-store');
     const good = { ...proposal([]), id: 'good' };

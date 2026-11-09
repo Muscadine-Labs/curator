@@ -178,12 +178,9 @@ export function useSafeTransactionActions(threshold: number | undefined) {
   const executePending = useCallback(
     (tx: SafePendingTransaction) =>
       runAction(tx, 'Failed to execute transaction.', async () => {
-        const effectiveThreshold = requireSafeThreshold(threshold);
-        if (tx.signatures.length < effectiveThreshold) {
-          throw new Error(
-            `Need ${effectiveThreshold} signature(s); have ${tx.signatures.length}.`
-          );
-        }
+        // Owner-signature threshold is enforced against on-chain owners in
+        // executeSafePendingTransaction; this only requires a known threshold.
+        requireSafeThreshold(threshold);
         if (!publicClient) {
           throw new Error('Base RPC client is unavailable. Reload and try again.');
         }
@@ -219,9 +216,13 @@ export function useSafeTransactionActions(threshold: number | undefined) {
         // The outer call can succeed while the Safe caught an inner revert
         // (safeTxGas / gasPrice non-zero): the nonce is spent, nothing changed.
         const outcome = safeExecutionOutcome(receipt.logs, tx.safeAddress, tx.safeTxHash);
-        updatePendingTransaction(tx.id, {
-          status: outcome === 'failure' ? 'stale' : 'executed',
-        });
+        // Unknown (no Safe execution event for this hash): keep the row queued
+        // with the hash linked so the user checks it, rather than claim success.
+        if (outcome !== 'unknown') {
+          updatePendingTransaction(tx.id, {
+            status: outcome === 'failure' ? 'stale' : 'executed',
+          });
+        }
         await Promise.allSettled([
           refetchVaultDataAfterSafeExecute(queryClient, tx),
           refetchSafeAfterExecute(queryClient, tx.safeAddress),
@@ -229,6 +230,11 @@ export function useSafeTransactionActions(threshold: number | undefined) {
         if (outcome === 'failure') {
           throw new Error(
             `The Safe executed this nonce but the inner call failed (${hash}). Nothing changed; re-queue the action.`
+          );
+        }
+        if (outcome === 'unknown') {
+          throw new Error(
+            `The transaction was mined (${hash}) but the Safe's execution event for this proposal was not found, so the result is unconfirmed. Check it on the explorer, then mark the row stale or sync from service.`
           );
         }
         return hash;

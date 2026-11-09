@@ -14,7 +14,7 @@ import { useSafeInfo } from '@/lib/hooks/useSafeInfo';
 import { useSafeTransactionActions } from '@/lib/hooks/useSafeTransactionActions';
 import { getScanUrlForChain, BASE_CHAIN_ID } from '@/lib/constants';
 import type { SafeAccountConfig } from '@/lib/safe/config';
-import type { SafePendingTransaction } from '@/lib/safe/types';
+import { isTerminalSafeStatus, type SafePendingTransaction } from '@/lib/safe/types';
 import { SafeVaultLink } from '@/components/safe/SafeOverviewPanel';
 import { txPreviewActionLabel } from '@/lib/morpho/tx-preview';
 import { updatePendingTransaction } from '@/lib/safe/pending-store';
@@ -122,6 +122,7 @@ function PendingTransactionCard({
   // Readiness comes from signatures, not the stored status (imports reset it).
   const canExecute =
     !warnings.blocking &&
+    !isTerminalSafeStatus(tx.status) &&
     threshold != null &&
     threshold >= 1 &&
     signatureCount >= threshold;

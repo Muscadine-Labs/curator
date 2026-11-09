@@ -1812,7 +1812,7 @@ guard, address book)
 ### 13.5 Do not regress
 
 - Rebuild Safe tx with stored nonce/gas before **sign and** execute; verify `safeTxHash`.
-- Execute marks a row **executed** only when the receipt also carries the Safe's `ExecutionSuccess` for that `safeTxHash` (`safeExecutionOutcome`, `lib/safe/execution-outcome.ts`). `ExecutionFailure` (inner revert caught because `safeTxGas` / `gasPrice` ≠ 0) spends the nonce: the row goes **stale** and the user is told nothing changed.
+- Execute marks a row **executed** only when the receipt also carries the Safe's `ExecutionSuccess` for that `safeTxHash` (`safeExecutionOutcome`, `lib/safe/execution-outcome.ts`). `ExecutionFailure` (inner revert caught because `safeTxGas` / `gasPrice` ≠ 0) spends the nonce: the row goes **stale** and the user is told nothing changed. With neither event for that hash (`unknown`) the row stays queued with the hash linked and the user is asked to check it — never reported as executed.
 - Sync from service never moves an executed / stale / cancelled row back into the queue (`isTerminalSafeStatus`): the service indexer lags execution.
 - Only **current owners'** signatures count toward the threshold — the queue's count and Execute button (`countOwnerSignatures`) and the execute pre-check (`getOwners()`). Execute readiness comes from that count, not the stored status.
 - Bundle import: a new row's role comes from `getSafeByAddress` (rows for Safes not in `lib/safe/config.ts` are skipped), status resets to `awaiting_signatures`, signatures are validated, and one malformed row is skipped (reported) instead of failing the import.

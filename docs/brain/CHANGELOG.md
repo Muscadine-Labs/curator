@@ -4,6 +4,11 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-09 — Review follow-ups (PR #83, Codex P2)
+
+- Execute: an `unknown` Safe outcome (no execution event for the hash) keeps the row queued and asks the user to check, instead of marking it executed. Duplicate raw-count pre-check removed (owner count is enforced in `executeSafePendingTransaction`); `canExecute` also refuses terminal rows.
+- Import rejects non-integer `value` / `nonce` and unknown `operation`; paged service reads dedupe by `safeTxHash` and never pin a non-finite nonce.
+
 ## 2026-11-08 — Safe flow + treasury review fixes
 
 - Safe: sync keeps executed/stale/cancelled rows out of the queue; execute checks `ExecutionSuccess` / `ExecutionFailure`; only current owners' signatures count; bundle import validated per row (role from config, status reset, bad rows skipped); pending service txs paginated with the known nonce; Safe App hash swap adopts all matching fields or keeps the local row; batch refuses a spent nonce; `upsertPendingTransaction` copies before writing.

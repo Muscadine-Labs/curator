@@ -190,6 +190,10 @@ export function sanitizeImportedPending(tx: SafePendingTransaction): SafePending
   if (!tx || typeof tx !== 'object') return null;
   if (!isAddress(String(tx.safeAddress)) || !isAddress(String(tx.to))) return null;
   if (typeof tx.data !== 'string' || !isHex(tx.data)) return null;
+  // value / nonce are later fed to BigInt / Number: only plain integers pass.
+  const value = tx.value == null || tx.value === '' ? '0' : String(tx.value);
+  if (!/^\d+$/.test(value) || !/^\d+$/.test(String(tx.nonce))) return null;
+  if (tx.operation !== 0 && tx.operation !== 1) return null;
   // The role comes from our own config, never from the bundle.
   const safe = getSafeByAddress(tx.safeAddress);
   if (!safe) return null;
@@ -199,13 +203,15 @@ export function sanitizeImportedPending(tx: SafePendingTransaction): SafePending
     safeRole: safe.role,
     safeAddress: getAddress(safe.address),
     to: getAddress(tx.to),
+    value,
+    nonce: String(tx.nonce),
     // Readiness is re-derived from owner signatures against the live threshold.
     status: 'awaiting_signatures',
     signatures: sanitizeImportedSignatures(tx.signatures),
     preview: null,
     // Curator writes this at queue time; text from another browser's bundle is not ours.
     simulationWarning: null,
-    source: inferSafeTxSource(getAddress(tx.to), tx.data, tx.value || '0', tx.operation),
+    source: inferSafeTxSource(getAddress(tx.to), tx.data, value, tx.operation),
   };
 }
 
