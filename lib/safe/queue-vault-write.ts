@@ -31,6 +31,7 @@ import {
 import {
   fetchPendingMultisigTransactions,
   isTransactionServiceConfigured,
+  type ServiceMultisigTx,
 } from '@/lib/safe/transaction-service';
 import { OperationType } from '@safe-global/types-kit';
 import type { RebalancePlanRow } from '@/lib/onchain/v2-rebalance-plan';
@@ -53,28 +54,45 @@ async function tryPublishViaSafeApp(
       value: (calldata.value ?? 0n).toString(),
     });
     if (appSafeTxHash.toLowerCase() !== tx.safeTxHash.toLowerCase()) {
-      const patch: Partial<SafePendingTransaction> = {
-        safeTxHash: appSafeTxHash,
-        serviceSynced: true,
-        serviceSyncError: null,
-      };
+      // The Safe App built its own proposal (different nonce or gas). Adopt its
+      // hash only together with every field that hashes to it; otherwise the
+      // row could never pass the sign/execute hash check.
+      let match: ServiceMultisigTx | undefined;
       if (isTransactionServiceConfigured()) {
         try {
           const pending = await fetchPendingMultisigTransactions(tx.safeAddress);
-          const match = pending.find(
+          match = pending.find(
             (row) => row.safeTxHash.toLowerCase() === appSafeTxHash.toLowerCase()
           );
-          if (match) {
-            patch.nonce = String(match.nonce);
-            patch.to = getAddress(match.to);
-            patch.value = match.value;
-            patch.data = (match.data ?? '0x') as Hex;
-            patch.operation = match.operation as 0 | 1;
-          }
         } catch {
-          // Hash is still the Safe App proposal; nonce fill is best-effort.
+          match = undefined;
         }
       }
+      if (!match) {
+        const message = `The Safe App queued this as ${appSafeTxHash}, which differs from the local copy. Use Sync from service to load it, then remove this row.`;
+        return (
+          updatePendingTransaction(tx.id, { serviceSynced: false, serviceSyncError: message }) ?? {
+            ...tx,
+            serviceSynced: false,
+            serviceSyncError: message,
+          }
+        );
+      }
+      const patch: Partial<SafePendingTransaction> = {
+        safeTxHash: appSafeTxHash,
+        to: getAddress(match.to),
+        value: match.value,
+        data: (match.data ?? '0x') as Hex,
+        operation: match.operation as 0 | 1,
+        safeTxGas: match.safeTxGas,
+        baseGas: match.baseGas,
+        gasPrice: match.gasPrice,
+        gasToken: getAddress(match.gasToken),
+        refundReceiver: getAddress(match.refundReceiver),
+        nonce: String(match.nonce),
+        serviceSynced: true,
+        serviceSyncError: null,
+      };
       return updatePendingTransaction(tx.id, patch) ?? { ...tx, ...patch };
     }
 
@@ -104,15 +122,23 @@ async function tryPublishViaSafeApp(
  */
 async function countQueuedAheadForSafe(role: SafeRole, safeAddress: Address): Promise<number> {
   const local = listPendingForRole(role);
-  const [serviceTxs, onChainNonce] = await Promise.all([
-    isTransactionServiceConfigured()
-      ? fetchPendingMultisigTransactions(safeAddress).catch(() => [])
-      : Promise.resolve([]),
-    initSafeProtocolKit({ safeAddress })
-      .then(async (kit) => Number(await kit.getNonce()))
-      .catch(() => null),
-  ]);
+  const onChainNonce = await readOnChainNonce(safeAddress);
+  const serviceTxs = isTransactionServiceConfigured()
+    ? await fetchPendingMultisigTransactions(
+        safeAddress,
+        onChainNonce != null ? { currentNonce: onChainNonce } : undefined
+      ).catch(() => [])
+    : [];
   return countDistinctQueuedProposals(local, serviceTxs, onChainNonce);
+}
+
+async function readOnChainNonce(safeAddress: Address): Promise<number | null> {
+  try {
+    const kit = await initSafeProtocolKit({ safeAddress });
+    return Number(await kit.getNonce());
+  } catch {
+    return null;
+  }
 }
 
 /** A Safe meta-tx target. `value` is native ETH in wei, defaulting to none. */
@@ -301,6 +327,15 @@ export function prepareSafeBatchSelection(
   return sorted;
 }
 
+/** Throws when the batch's nonce is already used on-chain. */
+export function assertBatchNonceNotSpent(batchNonce: number, onChainNonce: number): void {
+  if (batchNonce < onChainNonce) {
+    throw new Error(
+      `Cannot batch from nonce ${batchNonce}: the Safe is already at nonce ${onChainNonce}. Mark the executed rows stale (or Sync from service) and select again.`
+    );
+  }
+}
+
 export async function queueSafeBatch(options: {
   safeRole: SafeRole;
   txs: ReadonlyArray<SafePendingTransaction>;
@@ -310,8 +345,16 @@ export async function queueSafeBatch(options: {
 }): Promise<SafePendingTransaction> {
   const ordered = prepareSafeBatchSelection(options.txs, getSafePendingSnapshot());
   const nonce = Number(ordered[0]!.nonce);
+  const safeAddress = getAddress(getSafeByRole(options.safeRole).address);
+  // A row executed or replaced from another browser holds a spent nonce: the
+  // batch would take that nonce and the originals would already be gone.
+  const onChainNonce = await readOnChainNonce(safeAddress);
+  if (onChainNonce == null) {
+    throw new Error('Could not read the Safe nonce. Refresh and try again.');
+  }
+  assertBatchNonceNotSpent(nonce, onChainNonce);
   const { safeTxHash, transactionData } = await createSafeTransactionFromCalls({
-    safeAddress: getSafeByRole(options.safeRole).address,
+    safeAddress,
     calls: ordered.map((tx) => ({
       to: tx.to,
       data: tx.data,
@@ -329,7 +372,7 @@ export async function queueSafeBatch(options: {
   const tx: SafePendingTransaction = {
     id: newPendingId(),
     safeRole: options.safeRole,
-    safeAddress: getAddress(getSafeByRole(options.safeRole).address),
+    safeAddress,
     safeTxHash,
     ...transactionData,
     status: 'awaiting_signatures',
@@ -376,6 +419,20 @@ export function pendingStatusAfterSign(
 ): 'awaiting_signatures' | 'ready' {
   if (!Number.isFinite(threshold) || threshold < 1) return 'awaiting_signatures';
   return signatureCount >= threshold ? 'ready' : 'awaiting_signatures';
+}
+
+/** Signatures from current Safe owners, one per owner. */
+export function countOwnerSignatures(
+  signatures: ReadonlyArray<{ signer: Address }>,
+  owners: ReadonlyArray<string>
+): number {
+  const ownerSet = new Set(owners.map((o) => o.toLowerCase()));
+  const counted = new Set<string>();
+  for (const s of signatures) {
+    const key = s.signer.toLowerCase();
+    if (ownerSet.has(key)) counted.add(key);
+  }
+  return counted.size;
 }
 
 export function ownerHasSigned(

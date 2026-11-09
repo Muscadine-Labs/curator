@@ -64,7 +64,7 @@ describe('importPendingBundle', () => {
     const bundle = JSON.stringify({
       transactions: [{ ...proposal([OWNER_A]), id: 'theirs', description: 'theirs' }],
     });
-    expect(store.importPendingBundle(bundle)).toEqual({ ok: true, count: 1 });
+    expect(store.importPendingBundle(bundle)).toEqual({ ok: true, count: 1, skipped: 0 });
 
     const [merged] = store.getSafePendingSnapshot();
     expect(merged?.id).toBe('local');
@@ -77,6 +77,63 @@ describe('sanitizeImportedPending', () => {
   it('drops a simulation warning carried in an imported bundle', async () => {
     const { sanitizeImportedPending } = await import('@/lib/safe/pending-store');
     const tx = { ...proposal([]), simulationWarning: 'Verified safe' };
-    expect(sanitizeImportedPending(tx).simulationWarning).toBeNull();
+    expect(sanitizeImportedPending(tx)?.simulationWarning).toBeNull();
+  });
+});
+
+describe('bundle import validation', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllGlobals();
+    stubWindow();
+  });
+
+  it('takes the role from config and resets status, dropping junk signatures', async () => {
+    const { sanitizeImportedPending } = await import('@/lib/safe/pending-store');
+    const tx = {
+      ...proposal([OWNER_A]),
+      safeRole: 'treasury' as const,
+      status: 'ready' as const,
+      signatures: [
+        { signer: OWNER_A, data: '0x01' as Hex, signedAt: '' },
+        { signer: 'not-an-address', data: '0x02' as Hex, signedAt: '' },
+      ],
+    } as SafePendingTransaction;
+    const cleaned = sanitizeImportedPending(tx);
+    expect(cleaned?.safeRole).toBe('allocator');
+    expect(cleaned?.status).toBe('awaiting_signatures');
+    expect(cleaned?.signatures.map((s) => s.signer)).toEqual([OWNER_A]);
+  });
+
+  it('rejects a row for a Safe this app does not manage', async () => {
+    const { sanitizeImportedPending } = await import('@/lib/safe/pending-store');
+    const tx = { ...proposal([]), safeAddress: OWNER_B };
+    expect(sanitizeImportedPending(tx)).toBeNull();
+  });
+
+  it('rejects a non-integer value or nonce', async () => {
+    const { sanitizeImportedPending } = await import('@/lib/safe/pending-store');
+    expect(sanitizeImportedPending({ ...proposal([]), value: '1.5' })).toBeNull();
+    expect(sanitizeImportedPending({ ...proposal([]), nonce: 'abc' })).toBeNull();
+    expect(sanitizeImportedPending({ ...proposal([]), value: '' })?.value).toBe('0');
+  });
+
+  it('skips a malformed row instead of failing the whole import', async () => {
+    const store = await import('./pending-store');
+    const good = { ...proposal([]), id: 'good' };
+    const bad = { ...proposal([]), id: 'bad', safeTxHash: `0x${'cd'.repeat(32)}`, to: 'nope' };
+    const result = store.importPendingBundle(JSON.stringify({ transactions: [good, bad] }));
+    expect(result).toEqual({ ok: true, count: 1, skipped: 1 });
+    expect(store.getSafePendingSnapshot().map((t) => t.id)).toEqual(['good']);
+  });
+
+  it('does not mutate the previous snapshot on upsert', async () => {
+    const store = await import('./pending-store');
+    store.upsertPendingTransaction(proposal([]));
+    const before = store.getSafePendingSnapshot();
+    const first = before[0];
+    store.upsertPendingTransaction({ ...proposal([OWNER_A]) });
+    expect(before[0]).toBe(first);
+    expect(store.getSafePendingSnapshot()).not.toBe(before);
   });
 });

@@ -186,7 +186,7 @@ function humanFromRaw(raw: bigint, decimals: number): number {
   }
 }
 
-type DayPoint = {
+export type DayPoint = {
   x: number;
   shares: bigint;
   tokens: number;
@@ -214,21 +214,46 @@ function mergeDailySeries(
     usdByX.set(p.x, usd);
   }
 
-  const points: DayPoint[] = [];
+  const raw: Array<Omit<DayPoint, 'tokens'> & { tokens: number | null }> = [];
   for (const p of shares ?? []) {
     if (p.x == null) continue;
     const shareRaw = parseRaw(p.y);
     if (shareRaw == null) continue;
     const assetRaw = assetsByX.get(p.x);
-    points.push({
+    raw.push({
       x: p.x,
       shares: shareRaw,
-      tokens: assetRaw != null ? humanFromRaw(assetRaw, decimals) : 0,
+      tokens: assetRaw != null ? humanFromRaw(assetRaw, decimals) : null,
       usd: usdByX.get(p.x) ?? null,
     });
   }
-  points.sort((a, b) => a.x - b.x);
-  return points;
+  raw.sort((a, b) => a.x - b.x);
+  return fillMissingTokens(raw);
+}
+
+/**
+ * A day Morpho returned shares for but no `assets` sample: value its shares at
+ * the nearest day's assets-per-share (earlier first, else later). Leaving it at
+ * 0 booked that day's fee mint in USD with 0 tokens and dropped its price.
+ */
+export function fillMissingTokens(
+  points: ReadonlyArray<Omit<DayPoint, 'tokens'> & { tokens: number | null }>
+): DayPoint[] {
+  const perShare = (p: { shares: bigint; tokens: number | null }): number | null =>
+    p.tokens != null && p.shares > 0n ? p.tokens / Number(p.shares) : null;
+  const filled: DayPoint[] = [];
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i]!;
+    if (p.tokens != null) {
+      filled.push({ ...p, tokens: p.tokens });
+      continue;
+    }
+    let rate: number | null = null;
+    for (let j = i - 1; j >= 0 && rate == null; j--) rate = perShare(points[j]!);
+    for (let j = i + 1; j < points.length && rate == null; j++) rate = perShare(points[j]!);
+    filled.push({ ...p, tokens: rate != null ? rate * Number(p.shares) : 0 });
+  }
+  return filled;
 }
 
 type PositionIncome = {

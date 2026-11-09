@@ -4,6 +4,23 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-09 — Review follow-ups (PR #83, Codex P2)
+
+- Execute: an `unknown` Safe outcome (no execution event for the hash) keeps the row queued and asks the user to check, instead of marking it executed. Duplicate raw-count pre-check removed (owner count is enforced in `executeSafePendingTransaction`); `canExecute` also refuses terminal rows.
+- Import rejects non-integer `value` / `nonce` and unknown `operation`; paged service reads dedupe by `safeTxHash` and never pin a non-finite nonce.
+
+## 2026-11-08 — Safe flow + treasury review fixes
+
+- Safe: sync keeps executed/stale/cancelled rows out of the queue; execute checks `ExecutionSuccess` / `ExecutionFailure`; only current owners' signatures count; bundle import validated per row (role from config, status reset, bad rows skipped); pending service txs paginated with the known nonce; Safe App hash swap adopts all matching fields or keeps the local row; batch refuses a spent nonce; `upsertPendingTransaction` copies before writing.
+- Treasury statement: a day with shares but no `assets` sample is valued at the nearest assets-per-share (`fillMissingTokens`) instead of 0 tokens.
+- Tests: `execution-outcome`, `service-sync`, `compute-treasury-statement`, more `pending-store` / `queue-vault-write` cases.
+
+## 2026-11-08 — Dependency bumps + review pass
+
+- Patched GHSA-g3hv-75wg-m249 (minimatch globparts DoS, dev-only via typescript-eslint): `overrides` pins `@typescript-eslint/typescript-estree` → `minimatch@^11.0.5`. `npm audit` (dev included) is clean.
+- Bumped `@tanstack/react-query` / devtools 5.107.1, `viem` 2.57.17, `fake-indexeddb` 6.2.8. Held majors stay held (ESLint 10, wagmi 3, TypeScript 7, ox 1); `@types/node` stays on 24 to match `engines`.
+- Review of auth/session, proxy, BFF auth coverage (every route but the three `/api/auth/*` calls `unauthorizedUnlessAdmin`) and `v2-rebalance-plan.ts` found no new defects. lint, tsc, 0-warning build and tests pass; `npm audit --omit=dev` is clean.
+
 ## 2026-11-07 — Triangular smoothing, final review (PR #82)
 
 - Derivative trends use a triangular N-day average (`triangularTrend`, mean of means: 30 → 15 + 16). A plain mean stepped twice per large day; TVL 30D 2nd-derivative biggest one-day step 62% → 6.6% of range, steps > 10%: 8 → 0. EMA measured and rejected (only removes the exit step; Fees / Revenue got jumpier).

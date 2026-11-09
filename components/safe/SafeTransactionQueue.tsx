@@ -14,7 +14,7 @@ import { useSafeInfo } from '@/lib/hooks/useSafeInfo';
 import { useSafeTransactionActions } from '@/lib/hooks/useSafeTransactionActions';
 import { getScanUrlForChain, BASE_CHAIN_ID } from '@/lib/constants';
 import type { SafeAccountConfig } from '@/lib/safe/config';
-import type { SafePendingTransaction } from '@/lib/safe/types';
+import { isTerminalSafeStatus, type SafePendingTransaction } from '@/lib/safe/types';
 import { SafeVaultLink } from '@/components/safe/SafeOverviewPanel';
 import { txPreviewActionLabel } from '@/lib/morpho/tx-preview';
 import { updatePendingTransaction } from '@/lib/safe/pending-store';
@@ -27,7 +27,7 @@ import {
   isTransactionServiceConfigured,
   SAFE_TX_SERVICE_RATE_LIMITS,
 } from '@/lib/safe/transaction-service';
-import { queueSafeBatch } from '@/lib/safe/queue-vault-write';
+import { countOwnerSignatures, queueSafeBatch } from '@/lib/safe/queue-vault-write';
 import { getConnectorProvider } from '@/lib/wallet/connector-provider';
 import { syncPendingFromTransactionService } from '@/lib/safe/service-sync';
 import { useAccount } from 'wagmi';
@@ -115,12 +115,17 @@ function PendingTransactionCard({
   const signed = walletAddress ? ownerHasSigned(tx, walletAddress) : false;
   const busy = activeId === tx.id;
   const warnings = useMemo(() => safePendingWarnings(tx), [tx]);
+  // Only current owners count toward the threshold. Until the owner list loads,
+  // fall back to every signature; execute re-checks against on-chain owners.
+  const signatureCount =
+    owners.length > 0 ? countOwnerSignatures(tx.signatures, owners) : tx.signatures.length;
+  // Readiness comes from signatures, not the stored status (imports reset it).
   const canExecute =
     !warnings.blocking &&
-    tx.status === 'ready' &&
+    !isTerminalSafeStatus(tx.status) &&
     threshold != null &&
     threshold >= 1 &&
-    tx.signatures.length >= threshold;
+    signatureCount >= threshold;
   const canShare =
     serviceEnabled &&
     !warnings.blocking &&
@@ -170,7 +175,7 @@ function PendingTransactionCard({
         <span>
           Signatures:{' '}
           <span className="font-semibold text-foreground">
-            {tx.signatures.length} / {threshold != null && threshold >= 1 ? threshold : '—'}
+            {signatureCount} / {threshold != null && threshold >= 1 ? threshold : '—'}
           </span>
         </span>
         <span>Nonce: {tx.nonce}</span>
@@ -497,7 +502,11 @@ function QueueImportExport({ onError }: { onError: (msg: string | null) => void 
       const { importPendingBundle } = await import('@/lib/safe/pending-store');
       const result = importPendingBundle(text);
       if (!result.ok) onError(result.error);
-      else {
+      else if (result.skipped > 0) {
+        onError(
+          `Imported ${result.count} proposal(s); skipped ${result.skipped} that were malformed or for a Safe this app does not manage.`
+        );
+      } else {
         onError(null);
       }
     };
