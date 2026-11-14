@@ -158,8 +158,8 @@ export async function prefetchAssets(
       for (const address of chunk) {
         if (seen.has(address)) continue;
         const key = `${chainId}:${address}`;
+        // No price written: fetchAssetUsdPrice still asks Morpho per token for these.
         morphoMetaMiss.set(key, expiresAt);
-        if (options.prices) priceCache.set(key, { usd: null, expiresAt });
       }
     } catch {
       // Leave the caches alone: resolveTokenMeta / fetchAssetUsdPrice retry per token.

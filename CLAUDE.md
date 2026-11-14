@@ -790,7 +790,7 @@ its own row with “No strategy risk”; it does not dilute or improve the headl
 Adapter count KPI = `adapters.length + 1`. Total allocated display =
 `totalAdapterAssetsUsd + idleAssetsUsd`.
 
-**Server RPC batching:** `publicClient` (`lib/onchain/client.ts`) has `batch: { multicall: true }` and a JSON-RPC-batching transport, so reads made in the same tick share one Multicall3 `eth_call`; a revert or empty return still fails only its own read. Tab switches refetch with `cancelRefetch: false` (`JOIN_IN_FLIGHT` in `VaultPageShell.tsx`), so a tab's mount fetch and the tab refetch are one request.
+**Server RPC batching:** `publicClient` (`lib/onchain/client.ts`) has `batch: { multicall: { batchSize: 4_096 } }` (plain JSON-RPC transport, no batch arrays), so reads made in the same tick share one Multicall3 `eth_call`; one failed batch call fails the reads in it together; a revert or empty return still fails only its own read. Tab switches refetch with `cancelRefetch: false` (`JOIN_IN_FLIGHT` in `VaultPageShell.tsx`), so a tab's mount fetch and the tab refetch are one request.
 
 **Hooks / cache:** `useVaultV2Risk`, `useVaultV2Governance`; keys
 `['vault-v2-risk', address]` and `vaultV2GovernanceQueryKey(address)`. Risk and
