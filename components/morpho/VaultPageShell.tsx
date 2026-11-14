@@ -85,6 +85,13 @@ function vaultSegmentFromPath(pathname: string, address: string): string {
   return rest.split('/')[0] ?? '';
 }
 
+/**
+ * Tab switches refetch on-chain data, and the tab's components also refetch on mount. Join a
+ * fetch that is already running instead of cancelling it (cancelling still left the server
+ * doing both reads).
+ */
+const JOIN_IN_FLIGHT = { cancelRefetch: false } as const;
+
 export function VaultPageShell({ children }: { children: ReactNode }) {
   const params = useParams();
   const address = params.address as string;
@@ -110,19 +117,21 @@ export function VaultPageShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (activeSegment === 'fee-wrapper' && feeWrapperAddress) {
-      void queryClient.refetchQueries({ queryKey: ['vault', feeWrapperAddress] });
-      void queryClient.refetchQueries({
-        queryKey: vaultV2GovernanceQueryKey(feeWrapperAddress),
-      });
-      void queryClient.refetchQueries({
-        queryKey: vaultV2GatesQueryKey(feeWrapperAddress),
-      });
+      void queryClient.refetchQueries({ queryKey: ['vault', feeWrapperAddress] }, JOIN_IN_FLIGHT);
+      void queryClient.refetchQueries(
+        { queryKey: vaultV2GovernanceQueryKey(feeWrapperAddress) },
+        JOIN_IN_FLIGHT
+      );
+      void queryClient.refetchQueries(
+        { queryKey: vaultV2GatesQueryKey(feeWrapperAddress) },
+        JOIN_IN_FLIGHT
+      );
       return;
     }
     const meta = VAULT_NAV_SEGMENTS.find((s) => s.segment === activeSegment);
     if (!meta?.refreshOnEnter) return;
-    void queryClient.refetchQueries({ queryKey: vaultV2GovernanceQueryKey(address) });
-    void queryClient.refetchQueries({ queryKey: ['vault-v2-risk', address] });
+    void queryClient.refetchQueries({ queryKey: vaultV2GovernanceQueryKey(address) }, JOIN_IN_FLIGHT);
+    void queryClient.refetchQueries({ queryKey: ['vault-v2-risk', address] }, JOIN_IN_FLIGHT);
   }, [activeSegment, address, feeWrapperAddress, queryClient]);
 
   if (wrapperRedirectHref || vaultIsLoading) {

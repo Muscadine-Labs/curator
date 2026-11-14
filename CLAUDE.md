@@ -569,7 +569,11 @@ contracts are omitted from the user set.
 **Top nav + Sidebar** — Topbar areas: Overview · Vaults · Markets · Curator ·
 Business (`lib/nav/areas.ts`). Sidebar is **area-scoped**. Under **Vaults**: All
 vaults (`/vaults`), then underlying vaults grouped Prime → Frontier → Vineyard →
-Test. Fee wrappers are omitted from the sidebar and the catalog. The `/vaults`
+Test. Fee wrappers are omitted from the sidebar and the catalog. The tree comes
+from config (`getSidebarNavVaults`), so it renders before any fetch; once the
+vault list (`useVaultList(SIDEBAR_VAULT_LIST_FILTERS)`, same query as the
+catalog) loads, `withFetchedVaultNames` swaps each fallback name for the
+Morpho / on-chain name. The `/vaults`
 catalog (`VaultsCatalog`) uses `groupVaultsByKindAndCategory` on those
 underlyings. Legacy page/API paths still **redirect** via
 `next.config.ts` (`/vaults/transact` → `/vaults`). Catalog is `/vaults`; vault
@@ -785,6 +789,8 @@ its own row with “No strategy risk”; it does not dilute or improve the headl
 **Idle row (UI only):** `VaultRiskV2` renders idle from `idleAssets` / `idleAssetsUsd`.
 Adapter count KPI = `adapters.length + 1`. Total allocated display =
 `totalAdapterAssetsUsd + idleAssetsUsd`.
+
+**Server RPC batching:** `publicClient` (`lib/onchain/client.ts`) has `batch: { multicall: { batchSize: 4_096 } }` (plain JSON-RPC transport, no batch arrays), so reads made in the same tick share one Multicall3 `eth_call`; one failed batch call fails the reads in it together; a revert or empty return still fails only its own read. Tab switches refetch with `cancelRefetch: false` (`JOIN_IN_FLIGHT` in `VaultPageShell.tsx`), so a tab's mount fetch and the tab refetch are one request.
 
 **Hooks / cache:** `useVaultV2Risk`, `useVaultV2Governance`; keys
 `['vault-v2-risk', address]` and `vaultV2GovernanceQueryKey(address)`. Risk and
@@ -1264,6 +1270,11 @@ components.
   so junk never reaches GraphQL variables or cache keys.
 - `GET /api/vaults/[id]` returns **502** when Morpho GraphQL fails — only a vault
   that is genuinely not indexed gets the "Unknown V2 Vault" placeholder.
+- **Batched Morpho reads in `protocol-stats`:** every vault's TVL history is one aliased
+  `vaultV2ByAddress` query (`fetchVaultV2TvlSeriesBatch`, `v0:` / `v1:` … aliases), and every
+  vault's first depositor page is one more (`fetchDepositorAddressesBatch`); only vaults with a full
+  page keep paging. A failed batch falls back to per-vault requests, so a failure stays per vault.
+  Each 30s refresh is 2 Morpho calls + DefiLlama instead of 16 + DefiLlama.
 - **Never serve partial aggregates as complete.** `protocol-stats` records every
   failed per-vault TVL / depositor read in `warning` (shown on the dashboard)
   and skips the 30s cache for that result; `protocol-transactions` throws on a
@@ -1278,7 +1289,7 @@ components.
   (`rateLimitIdentifier`; hex ids collapse to `:id`): a single shared `api`
   bucket made ordinary vault-page fan-out and tab switches trip 429s, and a
   raw-path key let a caller mint a fresh budget per vault / market id.
-- **Token metadata / spot prices** (`lib/morpho/known-tokens.ts`): spot USD
+- **Token metadata / spot prices** (`lib/morpho/known-tokens.ts`): `prefetchAssets(addresses, chainId, { prices })` fills the metadata and price caches with one Morpho `assets(where: { address_in })` read per 500 tokens (the Midnight list used to send one `assetByAddress` per token: 62 + 8 calls); tokens Morpho does not index skip straight to the on-chain read until the 30s window ends. spot USD
   expires with the 30s TTL and failures are not cached; a failed Morpho metadata
   lookup falls back to on-chain `decimals()` / `symbol()`, and an unresolved
   18-decimal placeholder is held only 30s — never cached for the process.
@@ -1484,7 +1495,8 @@ components.
 
 ### Vault list empty or only V2 Prime in sidebar
 
-- The sidebar is config-only (`getSidebarNavVaults`). An empty tree means the
+- The sidebar tree is config-only (`getSidebarNavVaults`); only its names come
+  from the vault list. An empty tree means the
   vault is missing from `lib/config/vaults.ts`, not a failed V1 GraphQL batch.
 - Check server logs for `GraphQL Error: Cannot query field "whitelisted"` or
   `"uniqueKey"` on catalog/detail queries — update those queries per §4.4.1.
@@ -1523,7 +1535,7 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
   Do not upgrade to wagmi 3 until AppKit supports it.
 - **TypeScript 6** — installed `typescript-eslint` peers `typescript >=4.8.4 <6.1.0`;
   stay on `typescript@^6.0.3` (not 7).
-- **ox 0.14 / Vitest 5** — `ox@^0.14.60`, `vitest@^5.1.0`, with `vite@^8.3.5` because Vitest 5 imports Vite directly. ox 1 stays off.
+- **ox 0.14 / Vitest 5** — `ox@^0.14.65`, `vitest@^5.1.0`, with `vite@^8.3.5` because Vitest 5 imports Vite directly. ox 1 stays off.
 - **`sharp` override** — `>=0.35.4`, matching Next’s optional `sharp@^0.35.4`
   (libvips CVEs, GHSA-f88m-g3jw-g9cj).
 - **`eslint.config.mjs`** — official Next.js flat config:

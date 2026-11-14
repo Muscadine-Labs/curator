@@ -47,9 +47,7 @@ type VaultTvlSeries = {
   data: Array<{ date: string; value: number }>;
 };
 
-const VAULT_V2_TVL_QUERY = gql`
-  query VaultV2HistoricalTvl($address: String!, $chainId: Int!, $options: TimeseriesOptions) {
-    vaultV2ByAddress(address: $address, chainId: $chainId) {
+const VAULT_V2_TVL_FIELDS = `
       name
       address
       performanceFee
@@ -60,10 +58,48 @@ const VAULT_V2_TVL_QUERY = gql`
           x
           y
         }
-      }
+      }`;
+
+const VAULT_V2_TVL_QUERY = gql`
+  query VaultV2HistoricalTvl($address: String!, $chainId: Int!, $options: TimeseriesOptions) {
+    vaultV2ByAddress(address: $address, chainId: $chainId) {${VAULT_V2_TVL_FIELDS}
     }
   }
 `;
+
+type VaultTvlGraph = {
+  name?: string | null;
+  address?: string | null;
+  totalAssetsUsd?: number | null;
+  historicalState?: { totalAssetsUsd?: Array<{ x?: number; y?: number }> | null } | null;
+} | null;
+
+function tvlHistoryOptions() {
+  return {
+    startTimestamp: TVL_HISTORY_START,
+    endTimestamp: Math.floor(Date.now() / 1000),
+    interval: 'DAY' as const,
+  };
+}
+
+/** One query for every vault: `v0: vaultV2ByAddress(...)`, `v1: ...` (aliases keep the shape). */
+function aliasedVaultQuery(
+  name: string,
+  count: number,
+  fields: string,
+  extraVars: string
+): string {
+  const vars = Array.from({ length: count }, (_, i) => `$a${i}: String!`).join(', ');
+  const roots = Array.from(
+    { length: count },
+    (_, i) => `v${i}: vaultV2ByAddress(address: $a${i}, chainId: $chainId) {${fields}\n    }`
+  ).join('\n    ');
+  return `query ${name}(${vars}, $chainId: Int!${extraVars}) {\n    ${roots}\n  }`;
+}
+
+function aliasedVariables(addrs: readonly string[]): Record<string, string> {
+  return Object.fromEntries(addrs.map((address, i) => [`a${i}`, address]));
+}
 
 function normalizeDailyPoints(
   raw: Array<{ x?: number; y?: number }>
@@ -106,22 +142,50 @@ function appendCurrentTvlPoint(
 /** `'failed'` = the Morpho request errored (distinct from a vault with no TVL). */
 async function fetchVaultV2TvlSeries(address: string): Promise<VaultTvlSeries | null | 'failed'> {
   try {
-    const options = {
-      startTimestamp: TVL_HISTORY_START,
-      endTimestamp: Math.floor(Date.now() / 1000),
-      interval: 'DAY' as const,
-    };
+    const result = await morphoGraphQLClient.request<{ vaultV2ByAddress?: VaultTvlGraph }>(
+      VAULT_V2_TVL_QUERY,
+      { address, chainId: BASE_CHAIN_ID, options: tvlHistoryOptions() }
+    );
+    return tvlSeriesFromGraph(address, result.vaultV2ByAddress ?? null);
+  } catch (error) {
+    logger.warn('Failed to fetch V2 vault TVL history', {
+      address,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return 'failed';
+  }
+}
 
-    const result = await morphoGraphQLClient.request<{
-      vaultV2ByAddress?: {
-        name?: string | null;
-        address?: string | null;
-        totalAssetsUsd?: number | null;
-        historicalState?: { totalAssetsUsd?: Array<{ x?: number; y?: number }> | null } | null;
-      } | null;
-    }>(VAULT_V2_TVL_QUERY, { address, chainId: BASE_CHAIN_ID, options });
+/**
+ * TVL series for many vaults in one Morpho request. If the batch fails (one bad vault fails
+ * the whole query), fall back to one request per vault so each failure stays per vault.
+ */
+async function fetchVaultV2TvlSeriesBatch(
+  addrs: readonly string[]
+): Promise<Array<VaultTvlSeries | null | 'failed'>> {
+  if (addrs.length <= 1) return Promise.all(addrs.map((a) => fetchVaultV2TvlSeries(a)));
+  try {
+    const query = aliasedVaultQuery(
+      'VaultV2HistoricalTvlBatch',
+      addrs.length,
+      VAULT_V2_TVL_FIELDS,
+      ', $options: TimeseriesOptions'
+    );
+    const result = await morphoGraphQLClient.request<Record<string, VaultTvlGraph>>(query, {
+      ...aliasedVariables(addrs),
+      chainId: BASE_CHAIN_ID,
+      options: tvlHistoryOptions(),
+    });
+    return addrs.map((address, i) => tvlSeriesFromGraph(address, result[`v${i}`] ?? null));
+  } catch (error) {
+    logger.warn('Batched TVL history failed; fetching per vault', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return Promise.all(addrs.map((a) => fetchVaultV2TvlSeries(a)));
+  }
+}
 
-    const vault = result.vaultV2ByAddress;
+function tvlSeriesFromGraph(address: string, vault: VaultTvlGraph): VaultTvlSeries | null {
     if (vault == null) return null;
 
     const currentTvl = vault.totalAssetsUsd ?? 0;
@@ -144,33 +208,73 @@ async function fetchVaultV2TvlSeries(address: string): Promise<VaultTvlSeries | 
       address: address.toLowerCase(),
       data: dataPoints,
     };
-  } catch (error) {
-    logger.warn('Failed to fetch V2 vault TVL history', {
-      address,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return 'failed';
-  }
 }
 
-const DEPOSITORS_QUERY = gql`
-  query V2VaultDepositors($address: String!, $chainId: Int!, $first: Int!, $skip: Int!) {
-    vaultV2ByAddress(address: $address, chainId: $chainId) {
+const DEPOSITORS_FIELDS = `
       positions(first: $first, skip: $skip) {
         items {
           user {
             address
           }
         }
-      }
+      }`;
+
+const DEPOSITORS_QUERY = gql`
+  query V2VaultDepositors($address: String!, $chainId: Int!, $first: Int!, $skip: Int!) {
+    vaultV2ByAddress(address: $address, chainId: $chainId) {${DEPOSITORS_FIELDS}
     }
   }
 `;
 
+type DepositorsGraph = {
+  positions?: {
+    items?: Array<{ user?: { address?: string | null } | null } | null> | null;
+  } | null;
+} | null;
+
+/**
+ * Depositors for many vaults: the first page of every vault in one request, then the rest
+ * page by page only for vaults that filled it. Each entry is the addresses, or an Error when
+ * that vault's read failed. A failed batch falls back to one request per vault.
+ */
+async function fetchDepositorAddressesBatch(
+  addrs: readonly string[]
+): Promise<Array<string[] | Error>> {
+  const perVault = (address: string) =>
+    fetchAllDepositorAddresses(address).catch((error: unknown) =>
+      error instanceof Error ? error : new Error(String(error))
+    );
+  if (addrs.length <= 1) return Promise.all(addrs.map(perVault));
+  let firstPages: Record<string, DepositorsGraph>;
+  try {
+    firstPages = await morphoGraphQLClient.request<Record<string, DepositorsGraph>>(
+      aliasedVaultQuery('V2VaultDepositorsBatch', addrs.length, DEPOSITORS_FIELDS, ', $first: Int!, $skip: Int!'),
+      { ...aliasedVariables(addrs), chainId: BASE_CHAIN_ID, first: GRAPHQL_FIRST_LIMIT, skip: 0 }
+    );
+  } catch (error) {
+    logger.warn('Batched depositors read failed; fetching per vault', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return Promise.all(addrs.map(perVault));
+  }
+  return Promise.all(
+    addrs.map(async (address, i) => {
+      const items = firstPages[`v${i}`]?.positions?.items ?? [];
+      const first = items.flatMap((item) => (item?.user?.address ? [item.user.address] : []));
+      if (items.length < GRAPHQL_FIRST_LIMIT) return first;
+      try {
+        return [...first, ...(await fetchAllDepositorAddresses(address, GRAPHQL_FIRST_LIMIT))];
+      } catch (error) {
+        return error instanceof Error ? error : new Error(String(error));
+      }
+    })
+  );
+}
+
 /** Every depositor address, paging past the 1,000-row GraphQL limit. Throws on failure. */
-async function fetchAllDepositorAddresses(address: string): Promise<string[]> {
+async function fetchAllDepositorAddresses(address: string, startSkip = 0): Promise<string[]> {
   const out: string[] = [];
-  for (let skip = 0; skip < MAX_DEPOSITOR_ROWS; skip += GRAPHQL_FIRST_LIMIT) {
+  for (let skip = startSkip; skip < MAX_DEPOSITOR_ROWS; skip += GRAPHQL_FIRST_LIMIT) {
     const result = await morphoGraphQLClient.request<{
       vaultV2ByAddress?: {
         positions?: {
@@ -233,19 +337,15 @@ export async function GET(request: Request) {
         return v != null && v !== 'failed';
       });
 
-    const tvlByVaultResults = keepSeries(
-      await Promise.all(addresses.map((address) => fetchVaultV2TvlSeries(address))),
-      addresses
-    );
+    const wrapperConfigs = activeVaultsForStats.filter((v) => v.kind === 'feeWrapper');
+    const wrapperAddresses = wrapperConfigs.map((v) => getAddress(v.address));
+    // Business vaults and wrappers in one Morpho request (was one request per vault).
+    const allTvlResults = await fetchVaultV2TvlSeriesBatch([...addresses, ...wrapperAddresses]);
+    const tvlByVaultResults = keepSeries(allTvlResults.slice(0, addresses.length), addresses);
 
     const tvlByVault = tvlByVaultResults.map(padSinglePointSeries);
 
-    const wrapperConfigs = activeVaultsForStats.filter((v) => v.kind === 'feeWrapper');
-    const wrapperAddresses = wrapperConfigs.map((v) => getAddress(v.address));
-    const wrapperSeries = keepSeries(
-      await Promise.all(wrapperAddresses.map((address) => fetchVaultV2TvlSeries(address))),
-      wrapperAddresses
-    );
+    const wrapperSeries = keepSeries(allTvlResults.slice(addresses.length), wrapperAddresses);
 
     const tvlByAddress = new Map<string, VaultTvlSeries>();
     for (const series of [...tvlByVaultResults, ...wrapperSeries]) {
@@ -275,19 +375,16 @@ export async function GET(request: Request) {
     let totalInterestGenerated = 0;
 
     const uniqueUsers = new Set<string>();
-    const v2UserResults = await Promise.all(
-      activeAddresses.map(async (address) => {
-        try {
-          return await fetchAllDepositorAddresses(address);
-        } catch (error) {
-          failedSources.push(`users ${address}`);
-          logger.warn('Failed to fetch V2 vault depositors', {
-            address,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          return [];
-        }
-      })
+    const v2UserResults = (await fetchDepositorAddressesBatch(activeAddresses)).map(
+      (result, i) => {
+        if (!(result instanceof Error)) return result;
+        failedSources.push(`users ${activeAddresses[i]}`);
+        logger.warn('Failed to fetch V2 vault depositors', {
+          address: activeAddresses[i],
+          error: result.message,
+        });
+        return [];
+      }
     );
 
     for (const items of v2UserResults) {

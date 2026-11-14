@@ -328,6 +328,26 @@ export type SidebarNavVault = {
  * Instant sidebar rows from config — no Morpho round-trip.
  * Fee wrappers are omitted; they live on the underlying vault's Fee wrapper tab.
  */
+/**
+ * Swap each sidebar vault's configured fallback name for the Morpho / on-chain
+ * name from the vault list, once that list has loaded. Missing or placeholder
+ * names keep the fallback.
+ */
+export function withFetchedVaultNames<T extends { address: string; name: string }>(
+  configured: readonly T[],
+  fetched: ReadonlyArray<{ address: string; name?: string | null }> | undefined
+): T[] {
+  if (!fetched?.length) return [...configured];
+  const byAddress = new Map(
+    fetched.map((vault) => [vault.address.toLowerCase(), vault.name?.trim() ?? ''])
+  );
+  return configured.map((vault) => {
+    const name = byAddress.get(vault.address.toLowerCase());
+    if (!name || name === 'Unknown Vault') return vault;
+    return { ...vault, name };
+  });
+}
+
 export function getSidebarNavVaults(): SidebarNavVault[] {
   return getSidebarVaultAddresses()
     .filter((v) => v.kind !== 'feeWrapper')

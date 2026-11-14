@@ -5,7 +5,7 @@
  */
 import { API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
 import { BASE_CHAIN_ID, MORPHO_REST_ORIGIN, SECONDS_PER_YEAR } from '@/lib/constants';
-import { fetchAssetUsdPrice, resolveTokenMeta } from '@/lib/morpho/known-tokens';
+import { fetchAssetUsdPrice, prefetchAssets, resolveTokenMeta } from '@/lib/morpho/known-tokens';
 import { getOraclePriceSnapshot, type OraclePriceSnapshot } from '@/lib/morpho/oracle-price';
 import {
   getOracleTimestampData,
@@ -252,12 +252,15 @@ export async function fetchMidnightMarkets(
       if (c.token) tokenAddrs.add(c.token.toLowerCase());
     }
   }
-  await Promise.all(
-    Array.from(tokenAddrs).map((addr) => resolveTokenMeta(addr, chainId))
-  );
   const loanAddrs = [
     ...new Set(rows.map((row) => row.loan_token?.toLowerCase()).filter((addr): addr is string => Boolean(addr))),
   ];
+  // One Morpho read for every token's metadata and price (was one query per token, then one per
+  // loan-token price). Loan tokens are in `tokenAddrs`, so their prices come from the same read.
+  await prefetchAssets(Array.from(tokenAddrs), chainId, { prices: true });
+  await Promise.all(
+    Array.from(tokenAddrs).map((addr) => resolveTokenMeta(addr, chainId))
+  );
   const loanPrices = new Map<string, number | null>();
   await Promise.all(
     loanAddrs.map(async (addr) => {

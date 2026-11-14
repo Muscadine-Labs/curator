@@ -25,8 +25,16 @@ const baseChain = {
   },
 };
 
+/**
+ * `readContract` calls made in the same tick are folded into one Multicall3 `eth_call`
+ * (`batch.multicall`); a risk or governance read used to be ~25 separate HTTP calls. A reverting
+ * or missing function still fails only its own read. Batches are capped (`batchSize`, calldata
+ * bytes) so one huge call cannot hold many reads, and the transport sends plain JSON-RPC (no
+ * batch arrays), since some RPC plans reject or cap those. Calls with an `account` are not batched.
+ */
 export const publicClient = createPublicClient({
   chain: baseChain,
+  batch: { multicall: { batchSize: 4_096 } },
   transport: http(),
 });
 

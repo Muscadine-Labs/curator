@@ -47,9 +47,11 @@ npm run build   # next build
   Gate calldata / propose: muscadine-onchain CLI. In this app, `/curator/gates`
   + `GET /api/gates/[address]` read the live gate and queue `setIsWhitelisted` /
   `setIsWhitelister` through Allocator / Curator Safes.
+- **Request budget:** batch Morpho reads (aliased `vaultV2ByAddress` queries, `prefetchAssets` for token lists) instead of one query per item; the server `publicClient` multicall-batches same-tick reads; refetch with `cancelRefetch: false` when a mount fetch may already be running. See CLAUDE.md §8 and the changelog.
 - **React Query polling** — dashboard hooks poll every 30s; indexed vault data
   (history, reallocations, holders, vault list) does not background-poll. The
-  vaults sidebar is config-only (no Morpho fetch). On-chain vault
+  vaults sidebar tree is config-only; its names come from the
+  vault list query once it loads (`withFetchedVaultNames`). On-chain vault
   hooks (`risk`, `governance`) use `staleTime: 0` + `refetchOnMount: 'always'`.
   See `lib/data/query-config.ts`.
 - **V2 allocate/deallocate** is delta-based; idle is never in calldata;
