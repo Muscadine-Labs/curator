@@ -20,12 +20,14 @@ import {
 } from 'lucide-react';
 import {
   getSidebarNavVaults,
+  withFetchedVaultNames,
   getVaultPageHref,
   groupVaultsByKindAndCategory,
   type SidebarNavVault,
 } from '@/lib/config/vaults';
 import { Button } from '@/components/ui/button';
 import { SIDEBAR_NETWORKS } from '@/lib/constants';
+import { SIDEBAR_VAULT_LIST_FILTERS, useVaultList } from '@/lib/hooks/useProtocolStats';
 import { resolveCuratorNavArea, type CuratorNavArea } from '@/lib/nav/areas';
 import { cn } from '@/lib/utils';
 
@@ -78,7 +80,13 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 export function Sidebar({ onClose }: SidebarProps) {
   const pathname = usePathname();
   const area = resolveCuratorNavArea(pathname);
-  const vaults = useMemo(() => getSidebarNavVaults(), []);
+  const configuredVaults = useMemo(() => getSidebarNavVaults(), []);
+  // Same query as the /vaults catalog, so the names come from Morpho once it loads.
+  const { data: listedVaults } = useVaultList(SIDEBAR_VAULT_LIST_FILTERS);
+  const vaults = useMemo(
+    () => withFetchedVaultNames(configuredVaults, listedVaults),
+    [configuredVaults, listedVaults]
+  );
   const [expandedNetworks, setExpandedNetworks] = useState<Set<number>>(
     () => new Set(SIDEBAR_NETWORKS.map((n) => n.chainId))
   );

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  withFetchedVaultNames,
   getAllVaultAddresses,
   getConfiguredVaultDisplayName,
   getFeeWrapperForUnderlying,
@@ -148,5 +149,33 @@ describe('getSidebarNavVaults', () => {
     );
     const usdc = nav.find((v) => v.address.toLowerCase() === USDC_PRIME.toLowerCase());
     expect(usdc?.name).toBe('Muscadine USDC Prime');
+  });
+});
+
+describe('withFetchedVaultNames', () => {
+  const configured = [
+    { address: '0xAaA0000000000000000000000000000000000001', chainId: 8453, name: 'Fallback A' },
+    { address: '0xBbB0000000000000000000000000000000000002', chainId: 8453, name: 'Fallback B' },
+  ];
+
+  it('keeps fallback names until the list loads', () => {
+    expect(withFetchedVaultNames(configured, undefined)).toEqual(configured);
+    expect(withFetchedVaultNames(configured, [])).toEqual(configured);
+  });
+
+  it('uses the fetched name, matching addresses case-insensitively', () => {
+    const result = withFetchedVaultNames(configured, [
+      { address: '0xaaa0000000000000000000000000000000000001', name: '  Morpho A ' },
+    ]);
+    expect(result[0].name).toBe('Morpho A');
+    expect(result[1].name).toBe('Fallback B');
+  });
+
+  it('ignores missing, blank and placeholder names', () => {
+    const result = withFetchedVaultNames(configured, [
+      { address: configured[0].address, name: 'Unknown Vault' },
+      { address: configured[1].address, name: '   ' },
+    ]);
+    expect(result.map((v) => v.name)).toEqual(['Fallback A', 'Fallback B']);
   });
 });

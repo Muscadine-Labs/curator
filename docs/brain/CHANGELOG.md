@@ -4,6 +4,11 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-14 — Sidebar names from Morpho, dependency bumps
+
+- Sidebar shows the Morpho / on-chain vault name once the vault list loads (`withFetchedVaultNames` in `lib/config/vaults.ts`, tested); the configured fallback name renders first. Ported from the student curator.
+- Bumped next / eslint-config-next 16.4.6, viem 2.57.19, ox 0.14.65+, lucide-react 1.73, vite 8.3.8, postcss floor 8.5.33; hono override 4.13.18 for the new hono advisories (via wagmi → porto). `npm audit --omit=dev` is clean.
+
 ## 2026-11-09 — Review follow-ups (PR #83, Codex P2)
 
 - Execute: an `unknown` Safe outcome (no execution event for the hash) keeps the row queued and asks the user to check, instead of marking it executed. Duplicate raw-count pre-check removed (owner count is enforced in `executeSafePendingTransaction`); `canExecute` also refuses terminal rows.

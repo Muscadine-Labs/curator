@@ -49,7 +49,8 @@ npm run build   # next build
   `setIsWhitelister` through Allocator / Curator Safes.
 - **React Query polling** — dashboard hooks poll every 30s; indexed vault data
   (history, reallocations, holders, vault list) does not background-poll. The
-  vaults sidebar is config-only (no Morpho fetch). On-chain vault
+  vaults sidebar tree is config-only; its names come from the
+  vault list query once it loads (`withFetchedVaultNames`). On-chain vault
   hooks (`risk`, `governance`) use `staleTime: 0` + `refetchOnMount: 'always'`.
   See `lib/data/query-config.ts`.
 - **V2 allocate/deallocate** is delta-based; idle is never in calldata;

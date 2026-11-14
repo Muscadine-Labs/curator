@@ -569,7 +569,11 @@ contracts are omitted from the user set.
 **Top nav + Sidebar** — Topbar areas: Overview · Vaults · Markets · Curator ·
 Business (`lib/nav/areas.ts`). Sidebar is **area-scoped**. Under **Vaults**: All
 vaults (`/vaults`), then underlying vaults grouped Prime → Frontier → Vineyard →
-Test. Fee wrappers are omitted from the sidebar and the catalog. The `/vaults`
+Test. Fee wrappers are omitted from the sidebar and the catalog. The tree comes
+from config (`getSidebarNavVaults`), so it renders before any fetch; once the
+vault list (`useVaultList(SIDEBAR_VAULT_LIST_FILTERS)`, same query as the
+catalog) loads, `withFetchedVaultNames` swaps each fallback name for the
+Morpho / on-chain name. The `/vaults`
 catalog (`VaultsCatalog`) uses `groupVaultsByKindAndCategory` on those
 underlyings. Legacy page/API paths still **redirect** via
 `next.config.ts` (`/vaults/transact` → `/vaults`). Catalog is `/vaults`; vault
@@ -1484,7 +1488,8 @@ components.
 
 ### Vault list empty or only V2 Prime in sidebar
 
-- The sidebar is config-only (`getSidebarNavVaults`). An empty tree means the
+- The sidebar tree is config-only (`getSidebarNavVaults`); only its names come
+  from the vault list. An empty tree means the
   vault is missing from `lib/config/vaults.ts`, not a failed V1 GraphQL batch.
 - Check server logs for `GraphQL Error: Cannot query field "whitelisted"` or
   `"uniqueKey"` on catalog/detail queries — update those queries per §4.4.1.
@@ -1523,7 +1528,7 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
   Do not upgrade to wagmi 3 until AppKit supports it.
 - **TypeScript 6** — installed `typescript-eslint` peers `typescript >=4.8.4 <6.1.0`;
   stay on `typescript@^6.0.3` (not 7).
-- **ox 0.14 / Vitest 5** — `ox@^0.14.60`, `vitest@^5.1.0`, with `vite@^8.3.5` because Vitest 5 imports Vite directly. ox 1 stays off.
+- **ox 0.14 / Vitest 5** — `ox@^0.14.65`, `vitest@^5.1.0`, with `vite@^8.3.5` because Vitest 5 imports Vite directly. ox 1 stays off.
 - **`sharp` override** — `>=0.35.4`, matching Next’s optional `sharp@^0.35.4`
   (libvips CVEs, GHSA-f88m-g3jw-g9cj).
 - **`eslint.config.mjs`** — official Next.js flat config:
