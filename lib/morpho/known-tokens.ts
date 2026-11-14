@@ -82,6 +82,91 @@ const ASSET_PRICE_QUERY = gql`
   }
 `;
 
+const ASSETS_BATCH_QUERY = gql`
+  query TokenMetaBatch($addresses: [String!]!, $chainId: Int!, $first: Int!) {
+    assets(first: $first, where: { address_in: $addresses, chainId_in: [$chainId] }) {
+      items {
+        address
+        symbol
+        decimals
+        price {
+          usd
+        }
+      }
+    }
+  }
+`;
+
+/** Morpho said it has no metadata for this token (batch read); skip its per-token query until expiry. */
+const morphoMetaMiss = new Map<string, number>();
+
+/** Max addresses per batched `assets` read. */
+const ASSET_BATCH_SIZE = 500;
+
+/**
+ * Load metadata (and, with `prices`, USD spot) for many tokens in one Morpho request per
+ * 500 addresses, filling the same caches `resolveTokenMeta` / `fetchAssetUsdPrice` read.
+ * Call it before resolving a list of tokens; anything it cannot fill falls back per token.
+ */
+export async function prefetchAssets(
+  addresses: readonly string[],
+  chainId: number = BASE_CHAIN_ID,
+  options: { prices?: boolean } = {}
+): Promise<void> {
+  const now = Date.now();
+  const wanted = [...new Set(addresses.map((a) => a.toLowerCase()))].filter((address) => {
+    const key = `${chainId}:${address}`;
+    const needsMeta =
+      !knownTokenMeta(address) &&
+      !gqlCache.has(key) &&
+      !((fallbackCache.get(key)?.expiresAt ?? 0) > now) &&
+      !((morphoMetaMiss.get(key) ?? 0) > now);
+    const needsPrice = options.prices === true && !((priceCache.get(key)?.expiresAt ?? 0) > now);
+    return needsMeta || needsPrice;
+  });
+  for (let i = 0; i < wanted.length; i += ASSET_BATCH_SIZE) {
+    const chunk = wanted.slice(i, i + ASSET_BATCH_SIZE);
+    try {
+      const data = await morphoGraphQLClient.request<{
+        assets?: {
+          items?: Array<{
+            address?: string | null;
+            symbol?: string | null;
+            decimals?: number | null;
+            price?: { usd?: number | null } | null;
+          } | null> | null;
+        } | null;
+      }>(ASSETS_BATCH_QUERY, { addresses: chunk, chainId, first: chunk.length });
+      const expiresAt = Date.now() + API_CACHE_MAX_AGE_MS;
+      const seen = new Set<string>();
+      for (const item of data.assets?.items ?? []) {
+        const address = item?.address?.toLowerCase();
+        if (!address) continue;
+        seen.add(address);
+        const key = `${chainId}:${address}`;
+        const symbol = item?.symbol?.trim();
+        if (symbol && item?.decimals != null && !knownTokenMeta(address)) {
+          const meta: KnownTokenMeta = { address: item.address!, symbol, decimals: item.decimals };
+          gqlCache.set(key, meta);
+          gqlCache.set(address, meta);
+        }
+        if (options.prices) {
+          const usd = item?.price?.usd;
+          priceCache.set(key, { usd: usd != null && Number.isFinite(usd) ? usd : null, expiresAt });
+        }
+      }
+      for (const address of chunk) {
+        if (seen.has(address)) continue;
+        const key = `${chainId}:${address}`;
+        morphoMetaMiss.set(key, expiresAt);
+        if (options.prices) priceCache.set(key, { usd: null, expiresAt });
+      }
+    } catch {
+      // Leave the caches alone: resolveTokenMeta / fetchAssetUsdPrice retry per token.
+    }
+  }
+}
+
 function knownTokenMeta(address: string): KnownTokenMeta | null {
   return KNOWN[address.toLowerCase()] ?? gqlCache.get(address.toLowerCase()) ?? null;
 }
@@ -98,8 +183,11 @@ export async function resolveTokenMeta(
   if (hit) return hit;
   const held = fallbackCache.get(key);
   if (held && held.expiresAt > Date.now()) return held.meta;
+  // A batched read just said Morpho has nothing for this token: go straight to the chain.
+  const skipMorpho = (morphoMetaMiss.get(key) ?? 0) > Date.now();
 
   try {
+    if (skipMorpho) throw new Error('not indexed');
     const data = await morphoGraphQLClient.request<{
       assetByAddress?: {
         address?: string | null;

@@ -4,6 +4,14 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-14 — Fewer upstream calls (measured)
+
+Measured on the production build with server-side fetch logging and a browser driver.
+- `protocol-stats` (polled every 30s on the overview): TVL histories and first depositor pages are one aliased Morpho query each, with per-vault fallback. Overview: first load 21 → 6 upstream calls, idle 38 → 10 per minute. Response identical.
+- Markets: Midnight token metadata and loan prices come from one `assets(where: { address_in })` read (`prefetchAssets`). 78 → 9 upstream calls on a cold load. Tested in `known-tokens.test.ts`.
+- Server `publicClient` batches same-tick reads into Multicall3 + JSON-RPC batches: a vault tab's risk + governance reads ~25 → ~15 RPC requests. Responses structurally identical.
+- Tab switches join an in-flight on-chain refetch (`cancelRefetch: false`) instead of cancelling it; Caps / Overview no longer fetch governance twice.
+
 ## 2026-11-14 — Sidebar names from Morpho, dependency bumps
 
 - Sidebar shows the Morpho / on-chain vault name once the vault list loads (`withFetchedVaultNames` in `lib/config/vaults.ts`, tested); the configured fallback name renders first. Ported from the student curator.

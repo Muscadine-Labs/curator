@@ -25,9 +25,16 @@ const baseChain = {
   },
 };
 
+/**
+ * Reads made in the same tick go out together: `readContract` calls are folded into one
+ * Multicall3 `eth_call` (`batch.multicall`), and whatever is left (e.g. calls with a `from`)
+ * shares one JSON-RPC batch request. A risk or governance read used to be ~25 separate HTTP
+ * calls. A reverting or missing function still fails only its own read.
+ */
 export const publicClient = createPublicClient({
   chain: baseChain,
-  transport: http(),
+  batch: { multicall: true },
+  transport: http(undefined, { batch: true }),
 });
 
 export type SafeContractReadOptions = {

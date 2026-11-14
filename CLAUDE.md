@@ -790,6 +790,8 @@ its own row with “No strategy risk”; it does not dilute or improve the headl
 Adapter count KPI = `adapters.length + 1`. Total allocated display =
 `totalAdapterAssetsUsd + idleAssetsUsd`.
 
+**Server RPC batching:** `publicClient` (`lib/onchain/client.ts`) has `batch: { multicall: true }` and a JSON-RPC-batching transport, so reads made in the same tick share one Multicall3 `eth_call`; a revert or empty return still fails only its own read. Tab switches refetch with `cancelRefetch: false` (`JOIN_IN_FLIGHT` in `VaultPageShell.tsx`), so a tab's mount fetch and the tab refetch are one request.
+
 **Hooks / cache:** `useVaultV2Risk`, `useVaultV2Governance`; keys
 `['vault-v2-risk', address]` and `vaultV2GovernanceQueryKey(address)`. Risk and
 governance BFF routes use `mergeApiOnChainVaultHeaders()` (`no-store`). Other
@@ -1268,6 +1270,11 @@ components.
   so junk never reaches GraphQL variables or cache keys.
 - `GET /api/vaults/[id]` returns **502** when Morpho GraphQL fails — only a vault
   that is genuinely not indexed gets the "Unknown V2 Vault" placeholder.
+- **Batched Morpho reads in `protocol-stats`:** every vault's TVL history is one aliased
+  `vaultV2ByAddress` query (`fetchVaultV2TvlSeriesBatch`, `v0:` / `v1:` … aliases), and every
+  vault's first depositor page is one more (`fetchDepositorAddressesBatch`); only vaults with a full
+  page keep paging. A failed batch falls back to per-vault requests, so a failure stays per vault.
+  Each 30s refresh is 2 Morpho calls + DefiLlama instead of 16 + DefiLlama.
 - **Never serve partial aggregates as complete.** `protocol-stats` records every
   failed per-vault TVL / depositor read in `warning` (shown on the dashboard)
   and skips the 30s cache for that result; `protocol-transactions` throws on a
@@ -1282,7 +1289,7 @@ components.
   (`rateLimitIdentifier`; hex ids collapse to `:id`): a single shared `api`
   bucket made ordinary vault-page fan-out and tab switches trip 429s, and a
   raw-path key let a caller mint a fresh budget per vault / market id.
-- **Token metadata / spot prices** (`lib/morpho/known-tokens.ts`): spot USD
+- **Token metadata / spot prices** (`lib/morpho/known-tokens.ts`): `prefetchAssets(addresses, chainId, { prices })` fills the metadata and price caches with one Morpho `assets(where: { address_in })` read per 500 tokens (the Midnight list used to send one `assetByAddress` per token: 62 + 8 calls); tokens Morpho does not index skip straight to the on-chain read until the 30s window ends. spot USD
   expires with the 30s TTL and failures are not cached; a failed Morpho metadata
   lookup falls back to on-chain `decimals()` / `symbol()`, and an unresolved
   18-decimal placeholder is held only 30s — never cached for the process.
