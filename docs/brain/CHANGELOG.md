@@ -4,6 +4,13 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-15 — Env cleanup, ox pin, small fixes
+
+- Removed env keys nothing needs: `COINBASE_CDP_API_KEY`, `MORPHO_API_URL` (never read), Upstash (`UPSTASH_REDIS_REST_*`, login limits are in-memory), `BLOCKSCOUT_API_KEY` / `ETHERSCAN_API_KEY` (paid gate-roster sources removed), `CURATOR_OWNER_PASSWORD`, the 11 `NEXT_PUBLIC_VAULT_*` overrides, `SEND_ASSETS_GATE_ADDRESS` / `GATE_ADDRESS`, `ALLOCATOR_SAFE_8453`. Addresses are constants in config.
+- `ox` pinned to 0.14.65 (viem 2.57.19's version).
+- Probe reads use an unbatched client so a multicall-induced failure is not cached as a miss.
+- `protocol-stats` falls back per vault only on GraphQL errors; a timeout fails the refresh instead of a slower second round.
+
 ## 2026-11-14 — Fewer upstream calls (measured)
 
 Measured on the production build with server-side fetch logging and a browser driver.

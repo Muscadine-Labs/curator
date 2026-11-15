@@ -44,7 +44,7 @@ ALCHEMY_API_KEY=your_alchemy_api_key
 CURATOR_ADMIN_PASSWORD=your_login_password
 ```
 
-Get keys from [Reown Cloud](https://dashboard.reown.com/) (WalletConnect project ID) and [Alchemy](https://www.alchemy.com/). For server RPC you can use `ALCHEMY_API_KEY` or `COINBASE_CDP_API_KEY` instead of Alchemy.
+Get keys from [Reown Cloud](https://dashboard.reown.com/) (WalletConnect project ID) and [Alchemy](https://www.alchemy.com/).
 
 ### 4. Run the development server
 
@@ -67,7 +67,7 @@ Copy `.env.example` → `.env.local`. Summary:
 | Variable | Required? | Notes |
 |----------|-----------|-------|
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | **Yes in production** | Demo mode in local dev if unset |
-| `ALCHEMY_API_KEY` or `COINBASE_CDP_API_KEY` | Recommended | Server RPC; demo endpoints if both missing |
+| `ALCHEMY_API_KEY` | Recommended | Server RPC; public Base RPC if missing |
 | `NEXT_PUBLIC_ALCHEMY_API_KEY` | Recommended | Client RPC |
 | `NEXT_PUBLIC_APP_URL` | No | Default `http://localhost:3001` |
 | `NEXT_PUBLIC_SAFE_API_KEY` | **Yes for `/curator/gates`** | Safe Transaction Service sync and gate whitelist history (free tier) |
@@ -75,9 +75,6 @@ Copy `.env.example` → `.env.local`. Summary:
 | `CURATOR_SESSION_SECRET` | No | Dedicated session HMAC; login password is the fallback |
 | `CURATOR_SESSION_VERSION` | No | Bump to invalidate sessions |
 | `CURATOR_TRUSTED_PROXY_HOPS` | **Yes in production** | Proxy count for per-IP login rate limits |
-| `MORPHO_API_URL` | No | Morpho GraphQL override |
-| `NEXT_PUBLIC_VAULT_*` | No | Vault address overrides |
-| `SEND_ASSETS_GATE_ADDRESS` | No | Override the built-in send-assets gate |
 
 ## Scripts
 

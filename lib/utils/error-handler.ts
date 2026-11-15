@@ -29,17 +29,13 @@ export class AppError extends Error {
 /** Server-only values that must never appear in a response body. */
 const SECRET_ENV_KEYS = [
   'ALCHEMY_API_KEY',
-  'COINBASE_CDP_API_KEY',
-  'UPSTASH_REDIS_REST_TOKEN',
-  'UPSTASH_REDIS_REST_URL',
   'CURATOR_ADMIN_PASSWORD',
-  'CURATOR_OWNER_PASSWORD',
   'CURATOR_SESSION_SECRET',
 ] as const;
 
 /**
  * Message safe to return to the browser for an unexpected error. viem errors
- * embed the RPC request URL — which carries the server Alchemy / CDP key — in
+ * embed the RPC request URL — which carries the server Alchemy key — in
  * `message`, so prefer `shortMessage`, keep only the first line, drop URLs,
  * and scrub any configured secret that still slips through.
  */

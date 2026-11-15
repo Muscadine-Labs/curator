@@ -25,8 +25,8 @@ export interface VaultAddressConfig {
   /** Default `strategy`. Fee wrappers only allocate to one underlying Vault V2. */
   kind?: VaultKind;
   /**
-   * Child Vault V2 when `kind` is `feeWrapper`. Same env default as the
-   * strategy vault (e.g. `NEXT_PUBLIC_VAULT_USDC_V2`). GraphQL fallback when
+   * Child Vault V2 when `kind` is `feeWrapper` (the strategy vault constant
+   * above). GraphQL fallback when
    * Morpho `MorphoVaultV2Adapter.innerVault` is omitted.
    */
   underlyingAddress?: string;
@@ -47,21 +47,12 @@ export interface VaultAddressConfig {
   excludeFromSidebar?: boolean;
 }
 
-const VAULT_USDC_PRIME =
-  process.env.NEXT_PUBLIC_VAULT_USDC_V2 || '0x89712980Cb434eF5aE4AB29349419eb976B0b496';
-const VAULT_WETH_PRIME =
-  process.env.NEXT_PUBLIC_VAULT_WETH_V2 || '0xd6dcad2f7da91fbb27bda471540d9770c97a5a43';
-const VAULT_CBBTC_PRIME =
-  process.env.NEXT_PUBLIC_VAULT_CBBTC_V2 || '0x99dcd0d75822ba398f13b2a8852b07c7e137ec70';
-const VAULT_USDC_FRONTIER =
-  process.env.NEXT_PUBLIC_VAULT_USDC_V2_FRONTIER ||
-  '0x314fD07319ef645bA7D548915CCd91F4788A1839';
-const VAULT_CBBTC_TEST =
-  process.env.NEXT_PUBLIC_VAULT_CBBTC_V2_TEST ||
-  '0xB15a51F46a53CF7dBB378A459A552F342bC54815';
-const VAULT_USDC_TEST =
-  process.env.NEXT_PUBLIC_VAULT_USDC_V2_TEST ||
-  '0x7D09D53637c8A3511de0eF1509b8dC5C2108a0AD';
+const VAULT_USDC_PRIME = '0x89712980Cb434eF5aE4AB29349419eb976B0b496';
+const VAULT_WETH_PRIME = '0xd6dcad2f7da91fbb27bda471540d9770c97a5a43';
+const VAULT_CBBTC_PRIME = '0x99dcd0d75822ba398f13b2a8852b07c7e137ec70';
+const VAULT_USDC_FRONTIER = '0x314fD07319ef645bA7D548915CCd91F4788A1839';
+const VAULT_CBBTC_TEST = '0xB15a51F46a53CF7dBB378A459A552F342bC54815';
+const VAULT_USDC_TEST = '0x7D09D53637c8A3511de0eF1509b8dC5C2108a0AD';
 
 /** MorphoVaultV2Adapter for each fee wrapper (holder of the underlying vault). */
 const ADAPTER_USDC_PRIME_WRAPPER = '0x8B6E43CCE1961D3671a39Fe8D9E711E69ddD74ce';
@@ -116,9 +107,7 @@ const vaultAddresses: VaultAddressConfig[] = [
     excludeFromBusinessViews: true,
   },
   {
-    address:
-      process.env.NEXT_PUBLIC_VAULT_USDC_PRIME_WRAPPER ||
-      '0x036A01eFdDC87F6634FFDE0533EE528b90fc7A45',
+    address: '0x036A01eFdDC87F6634FFDE0533EE528b90fc7A45',
     chainId: BASE_CHAIN_ID,
     morphoVersion: 'v2',
     assetSymbol: 'USDC',
@@ -128,9 +117,7 @@ const vaultAddresses: VaultAddressConfig[] = [
     adapterAddress: ADAPTER_USDC_PRIME_WRAPPER,
   },
   {
-    address:
-      process.env.NEXT_PUBLIC_VAULT_USDC_FRONTIER_WRAPPER ||
-      '0x54D8417bD21C86A7806b58f5aa2e2E0bB88B856A',
+    address: '0x54D8417bD21C86A7806b58f5aa2e2E0bB88B856A',
     chainId: BASE_CHAIN_ID,
     morphoVersion: 'v2',
     assetSymbol: 'USDC',
@@ -140,9 +127,7 @@ const vaultAddresses: VaultAddressConfig[] = [
     adapterAddress: ADAPTER_USDC_FRONTIER_WRAPPER,
   },
   {
-    address:
-      process.env.NEXT_PUBLIC_VAULT_WETH_PRIME_WRAPPER ||
-      '0x548653b09b03A69f93B3890c382fE9DcD245cbc4',
+    address: '0x548653b09b03A69f93B3890c382fE9DcD245cbc4',
     chainId: BASE_CHAIN_ID,
     morphoVersion: 'v2',
     assetSymbol: 'WETH',
@@ -152,9 +137,7 @@ const vaultAddresses: VaultAddressConfig[] = [
     adapterAddress: ADAPTER_WETH_PRIME_WRAPPER,
   },
   {
-    address:
-      process.env.NEXT_PUBLIC_VAULT_CBBTC_PRIME_WRAPPER ||
-      '0x0e0a857d2AF1A2d43c82d1FA54766239CAb70147',
+    address: '0x0e0a857d2AF1A2d43c82d1FA54766239CAb70147',
     chainId: BASE_CHAIN_ID,
     morphoVersion: 'v2',
     assetSymbol: 'cbBTC',
@@ -164,9 +147,7 @@ const vaultAddresses: VaultAddressConfig[] = [
     adapterAddress: ADAPTER_CBBTC_PRIME_WRAPPER,
   },
   {
-    address:
-      process.env.NEXT_PUBLIC_VAULT_USDC_TEST_WRAPPER ||
-      '0x9efdc9986052e058ef717c02d500Ca0456d8c1cb',
+    address: '0x9efdc9986052e058ef717c02d500Ca0456d8c1cb',
     chainId: BASE_CHAIN_ID,
     morphoVersion: 'v2',
     assetSymbol: 'USDC',

@@ -20,7 +20,7 @@ npm run build   # next build
 ## Key invariants (do not regress)
 
 - **Auth:** the only login username is `admin` (role `'admin'`); password from
-  `CURATOR_ADMIN_PASSWORD` (legacy `CURATOR_OWNER_PASSWORD` accepted). BFF
+  `CURATOR_ADMIN_PASSWORD`. BFF
   routes require the HttpOnly `curator_session` cookie (`proxy.ts` plus
   a route-level check). `apiFetch` sends `credentials: 'same-origin'`.
   `POST /api/auth/verify` is IP rate-limited (`AUTH_LOGIN_MAX_ATTEMPTS`).

@@ -97,6 +97,15 @@ function aliasedVaultQuery(
   return `query ${name}(${vars}, $chainId: Int!${extraVars}) {\n    ${roots}\n  }`;
 }
 
+/**
+ * A GraphQL error (one bad vault fails the whole aliased query) is worth retrying per
+ * vault. A timeout or network failure is not: the per-vault round would only take longer
+ * and push the route past the 40s cache-loader limit.
+ */
+function isGraphQLError(error: unknown): error is Error {
+  return error instanceof Error && error.message.startsWith('GraphQL Error:');
+}
+
 function aliasedVariables(addrs: readonly string[]): Record<string, string> {
   return Object.fromEntries(addrs.map((address, i) => [`a${i}`, address]));
 }
@@ -178,9 +187,12 @@ async function fetchVaultV2TvlSeriesBatch(
     });
     return addrs.map((address, i) => tvlSeriesFromGraph(address, result[`v${i}`] ?? null));
   } catch (error) {
-    logger.warn('Batched TVL history failed; fetching per vault', {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    if (!isGraphQLError(error)) {
+      // A timeout or network failure would only repeat, slower, per vault.
+      logger.warn('Batched TVL history failed', { error: String(error) });
+      return addrs.map(() => 'failed' as const);
+    }
+    logger.warn('Batched TVL history failed; fetching per vault', { error: error.message });
     return Promise.all(addrs.map((a) => fetchVaultV2TvlSeries(a)));
   }
 }
@@ -252,9 +264,12 @@ async function fetchDepositorAddressesBatch(
       { ...aliasedVariables(addrs), chainId: BASE_CHAIN_ID, first: GRAPHQL_FIRST_LIMIT, skip: 0 }
     );
   } catch (error) {
-    logger.warn('Batched depositors read failed; fetching per vault', {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    if (!isGraphQLError(error)) {
+      logger.warn('Batched depositors read failed', { error: String(error) });
+      const failure = error instanceof Error ? error : new Error(String(error));
+      return addrs.map(() => failure);
+    }
+    logger.warn('Batched depositors read failed; fetching per vault', { error: error.message });
     return Promise.all(addrs.map(perVault));
   }
   return Promise.all(

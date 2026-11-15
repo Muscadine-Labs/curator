@@ -26,11 +26,9 @@ import { logger } from '@/lib/utils/logger';
  *     in `send-assets-gate-history.ts`. Decoded when `to` is this gate, or a
  *     canonical MultiSend batch (the queue's Batch button, the Safe UI's
  *     transaction builder) that calls it.
- *  2. Blockscout PRO API (`BLOCKSCOUT_API_KEY`). Base is a paid chain.
- *  3. Etherscan V2 (`ETHERSCAN_API_KEY`; Base needs a paid plan).
- *  4. Keyless `base.blockscout.com`. Cloudflare answers most server requests
+ *  2. Keyless `base.blockscout.com`. Cloudflare answers most server requests
  *     with a bot challenge (HTTP 403 HTML).
- *  5. The configured Base RPC, one `eth_getLogs` over the whole chain. Works on
+ *  3. The configured Base RPC, one `eth_getLogs` over the whole chain. Works on
  *     paid Alchemy / node plans; free Alchemy caps the span at 10 blocks.
  */
 const ROSTER_EVENTS = [
@@ -75,7 +73,6 @@ const FETCH_TIMEOUT_MS = 15_000;
  */
 export type GateLookupBudget = { totalMs: number; rpcReserveMs: number };
 const DEFAULT_LOOKUP_BUDGET: GateLookupBudget = { totalMs: 32_000, rpcReserveMs: 10_000 };
-const BASE_CHAIN_ID = 8453;
 const SAFE_TX_SERVICE_ORIGIN = 'https://api.safe.global';
 const SAFE_HISTORY_PAGE_LIMIT = 100;
 const MAX_SAFE_HISTORY_PAGES = 20;
@@ -309,35 +306,12 @@ async function scanSafeHistory(
 }
 
 function explorerSources(): ExplorerSource[] {
-  const sources: ExplorerSource[] = [];
-  const blockscoutKey = process.env.BLOCKSCOUT_API_KEY?.trim();
-  if (blockscoutKey) {
-    sources.push({
-      name: 'Blockscout API',
-      url: (gate, fromBlock) => {
-        const url = logsUrl(`https://api.blockscout.com/${BASE_CHAIN_ID}/api`, gate, fromBlock);
-        url.searchParams.set('apikey', blockscoutKey);
-        return url;
-      },
-    });
-  }
-  const etherscanKey = process.env.ETHERSCAN_API_KEY?.trim();
-  if (etherscanKey) {
-    sources.push({
-      name: 'Etherscan',
-      url: (gate, fromBlock) => {
-        const url = logsUrl('https://api.etherscan.io/v2/api', gate, fromBlock);
-        url.searchParams.set('chainid', String(BASE_CHAIN_ID));
-        url.searchParams.set('apikey', etherscanKey);
-        return url;
-      },
-    });
-  }
-  sources.push({
-    name: 'Blockscout (no key)',
-    url: (gate, fromBlock) => logsUrl('https://base.blockscout.com/api', gate, fromBlock),
-  });
-  return sources;
+  return [
+    {
+      name: 'Blockscout (no key)',
+      url: (gate, fromBlock) => logsUrl('https://base.blockscout.com/api', gate, fromBlock),
+    },
+  ];
 }
 
 function logsUrl(base: string, gate: Address, fromBlock: bigint): URL {
@@ -496,11 +470,7 @@ export async function scanGateLogs(
       failures.push(`${attempt.name}: ${message}`);
     }
   }
-  const hasKey = Boolean(
-    process.env.NEXT_PUBLIC_SAFE_API_KEY?.trim() ||
-      process.env.BLOCKSCOUT_API_KEY?.trim() ||
-      process.env.ETHERSCAN_API_KEY?.trim()
-  );
+  const hasKey = Boolean(process.env.NEXT_PUBLIC_SAFE_API_KEY?.trim());
   const hint = hasKey
     ? ''
     : ' Set NEXT_PUBLIC_SAFE_API_KEY to read whitelist calls from the Curator and Allocator Safes.';

@@ -27,48 +27,25 @@ function validateEnvVars(): EnvValidationResult {
     }
   }
 
-  // At least one RPC provider must be configured
-  const hasAlchemyKey = !!(process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || process.env.ALCHEMY_API_KEY);
-  const hasCoinbaseKey = !!process.env.COINBASE_CDP_API_KEY;
-  
-  if (!hasAlchemyKey && !hasCoinbaseKey) {
-    warnings.push('No RPC API key configured (ALCHEMY_API_KEY or COINBASE_CDP_API_KEY). Server RPC falls back to https://mainnet.base.org');
+  if (!process.env.ALCHEMY_API_KEY?.trim()) {
+    warnings.push('ALCHEMY_API_KEY is not set. Server RPC falls back to https://mainnet.base.org');
   }
 
-  // Server-side RPC key recommended
-  if (!process.env.ALCHEMY_API_KEY && !process.env.COINBASE_CDP_API_KEY) {
-    warnings.push('No server-side RPC API key configured. Server-side calls use https://mainnet.base.org');
-  }
-
-  // Client-side RPC key recommended
-  if (!process.env.NEXT_PUBLIC_ALCHEMY_API_KEY) {
+  if (!process.env.NEXT_PUBLIC_ALCHEMY_API_KEY?.trim()) {
     warnings.push('NEXT_PUBLIC_ALCHEMY_API_KEY is not set. Client wallet RPC uses public chain endpoints');
   }
 
   const isProductionRuntime =
     process.env.NODE_ENV === 'production' && process.env.NEXT_PHASE !== 'phase-production-build';
 
-  if (
-    !process.env.NEXT_PUBLIC_SAFE_API_KEY?.trim() &&
-    !process.env.BLOCKSCOUT_API_KEY?.trim() &&
-    !process.env.ETHERSCAN_API_KEY?.trim()
-  ) {
+  if (!process.env.NEXT_PUBLIC_SAFE_API_KEY?.trim()) {
     warnings.push(
       'NEXT_PUBLIC_SAFE_API_KEY is not set. /curator/gates cannot list whitelist calls from the Curator and Allocator Safes'
     );
   }
 
-  if (isProductionRuntime && !process.env.CURATOR_ADMIN_PASSWORD?.trim() && !process.env.CURATOR_OWNER_PASSWORD?.trim()) {
+  if (isProductionRuntime && !process.env.CURATOR_ADMIN_PASSWORD?.trim()) {
     errors.push('CURATOR_ADMIN_PASSWORD is required in production');
-  }
-
-  if (
-    isProductionRuntime &&
-    (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN)
-  ) {
-    warnings.push(
-      'UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN unset — login rate limits are per-instance, not global'
-    );
   }
 
   return {

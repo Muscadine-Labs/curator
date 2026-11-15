@@ -13,11 +13,8 @@ import {
   withFeeWrapperLabel,
 } from '@/lib/config/vaults';
 
-const USDC_PRIME =
-  process.env.NEXT_PUBLIC_VAULT_USDC_V2 || '0x89712980Cb434eF5aE4AB29349419eb976B0b496';
-const USDC_PRIME_WRAPPER =
-  process.env.NEXT_PUBLIC_VAULT_USDC_PRIME_WRAPPER ||
-  '0x036A01eFdDC87F6634FFDE0533EE528b90fc7A45';
+const USDC_PRIME = '0x89712980Cb434eF5aE4AB29349419eb976B0b496';
+const USDC_PRIME_WRAPPER = '0x036A01eFdDC87F6634FFDE0533EE528b90fc7A45';
 
 describe('withFeeWrapperLabel', () => {
   it('appends (wrapper) for configured fee-wrapper addresses', () => {

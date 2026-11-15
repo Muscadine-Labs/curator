@@ -1,7 +1,6 @@
 /**
- * Rate limiting. Login uses a shared Upstash REST store when
- * UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN are set; otherwise an
- * in-memory map (per serverless isolate — not global).
+ * In-memory rate limiting (per serverless isolate — not global). The login
+ * route pairs a per-client limit with a short global cap.
  */
 
 import { RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/constants';
@@ -68,104 +67,21 @@ function rateLimit(
   return true;
 }
 
-function upstashConfig(): { url: string; token: string } | null {
-  const url = process.env.UPSTASH_REDIS_REST_URL?.replace(/\/$/, '');
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) return null;
-  return { url, token };
-}
-
-export function hasSharedRateLimitStore(): boolean {
-  return upstashConfig() !== null;
-}
-
-async function upstashCommand(command: (string | number)[]): Promise<unknown> {
-  const cfg = upstashConfig();
-  if (!cfg) throw new Error('Upstash is not configured');
-  const res = await fetch(cfg.url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${cfg.token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(command),
-    cache: 'no-store',
-    // A stalled Redis must not hang login; callers fail closed on any error.
-    signal: AbortSignal.timeout(5_000),
-  });
-  if (!res.ok) {
-    throw new Error(`Upstash ${res.status}`);
-  }
-  const json = (await res.json()) as { result?: unknown };
-  return json.result;
-}
-
-function rateLimitKey(identifier: string): string {
-  return `curator:rl:${identifier}`;
-}
-
-async function consumeUpstash(
-  identifier: string,
-  maxRequests: number,
-  windowMs: number
-): Promise<boolean> {
-  const key = rateLimitKey(identifier);
-  const count = Number(await upstashCommand(['INCR', key]));
-  const ttlMs = Number(await upstashCommand(['PTTL', key]));
-  if (!Number.isFinite(ttlMs) || ttlMs < 0) {
-    await upstashCommand(['PEXPIRE', key, windowMs]);
-  }
-  return Number.isFinite(count) && count <= maxRequests;
-}
-
-async function peekUpstash(
-  identifier: string,
-  maxRequests: number
-): Promise<{ allowed: boolean; remaining: number; resetTime: number | null }> {
-  const key = rateLimitKey(identifier);
-  const raw = await upstashCommand(['GET', key]);
-  const ttlMs = Number(await upstashCommand(['PTTL', key]));
-  const count = raw == null ? 0 : Number(raw);
-  if (!Number.isFinite(count) || count <= 0 || !Number.isFinite(ttlMs) || ttlMs < 0) {
-    return { allowed: true, remaining: maxRequests, resetTime: null };
-  }
-  return {
-    allowed: count < maxRequests,
-    remaining: Math.max(0, maxRequests - count),
-    resetTime: Date.now() + ttlMs,
-  };
-}
-
 /**
- * Record a hit against a bucket. Login must await this: with Upstash the
- * counter is shared across isolates; without it this is per-instance memory.
- * Upstash errors fail closed (deny) so a Redis outage is not a brute-force window.
+ * Record a hit against a bucket and say whether it is still under the limit.
+ * Checks and increments in one synchronous step, so concurrent requests cannot
+ * all pass before any of them counts. Per-instance memory, not global.
  */
 export async function consumeRateLimit(
   identifier: string,
   maxRequests: number,
   windowMs: number
 ): Promise<boolean> {
-  if (upstashConfig()) {
-    try {
-      return await consumeUpstash(identifier, maxRequests, windowMs);
-    } catch {
-      return false;
-    }
-  }
   return rateLimit(identifier, maxRequests, windowMs);
 }
 
 /** Drop a bucket entirely, e.g. after a successful login. */
 export async function resetRateLimit(identifier: string): Promise<void> {
-  if (upstashConfig()) {
-    try {
-      await upstashCommand(['DEL', rateLimitKey(identifier)]);
-    } catch {
-      delete store[identifier];
-    }
-    return;
-  }
   delete store[identifier];
 }
 
@@ -174,13 +90,6 @@ export async function peekRateLimit(
   identifier: string,
   maxRequests: number
 ): Promise<{ allowed: boolean; remaining: number; resetTime: number | null }> {
-  if (upstashConfig()) {
-    try {
-      return await peekUpstash(identifier, maxRequests);
-    } catch {
-      return { allowed: false, remaining: 0, resetTime: Date.now() + 60_000 };
-    }
-  }
   const entry = store[identifier];
   if (!entry || entry.resetTime < Date.now()) {
     return { allowed: true, remaining: maxRequests, resetTime: null };

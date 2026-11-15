@@ -12,13 +12,5 @@ export function getAlchemyBaseRpcUrl(): string | null {
 }
 
 export function getBaseRpcUrl(): string {
-  const alchemy = getAlchemyBaseRpcUrl();
-  if (alchemy) return alchemy;
-
-  const cdp = process.env.COINBASE_CDP_API_KEY?.trim();
-  if (cdp) {
-    return `https://base-mainnet.cdp.coinbase.com/v1/${cdp}`;
-  }
-
-  return BASE_PUBLIC_RPC;
+  return getAlchemyBaseRpcUrl() ?? BASE_PUBLIC_RPC;
 }
