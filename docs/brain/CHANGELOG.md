@@ -4,6 +4,13 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-15 — Second review pass
+
+- `batchVaultV2ByAddress` single-vault retries map only GraphQL errors to null; a timeout / 429 / network error fails the read, so a list with a real vault missing is never cached.
+- `GET /api/markets/[marketId]` validates the id before the rate limiter (junk ids no longer mint buckets).
+- The Safe queue counts only signatures that recover to their signer, matching execute.
+- `%` input accepts a trailing `%` (`50%`).
+
 ## 2026-11-15 — Review fixes (Safe, parsing, batch fallbacks)
 
 - Safe execution outcome reads both event layouts: Safe v1.3.0 (`txHash` in `data`) and v1.4.1+ (`txHash` indexed in `topics[1]`). Tested.

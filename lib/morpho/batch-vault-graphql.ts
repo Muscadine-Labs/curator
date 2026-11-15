@@ -42,7 +42,12 @@ export async function batchVaultV2ByAddress<T>(
       vaults.map((v) =>
         batchVaultV2ByAddress<T>([v], selection).then(
           (m) => m.get(v.address.toLowerCase()) ?? null,
-          () => null
+          // Only a GraphQL error means "this vault reads null". A timeout, 429 or network error
+          // fails the whole read, so callers never cache a list with a real vault missing.
+          (singleError: unknown) => {
+            if (isGraphQLError(singleError)) return null;
+            throw singleError;
+          }
         )
       )
     );
