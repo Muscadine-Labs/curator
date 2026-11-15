@@ -32,4 +32,12 @@ describe('signatureMatchesSigner', () => {
     const approved = `0x${'00'.repeat(12)}${account.address.slice(2)}${'00'.repeat(32)}01` as Hex;
     expect(await signatureMatchesSigner(HASH, account.address, approved)).toBeNull();
   });
+
+  it('drops malformed ECDSA signatures instead of passing them to the chain', async () => {
+    const sig = await account.sign({ hash: HASH });
+    expect(await signatureMatchesSigner(HASH, account.address, sig.slice(0, 100) as Hex)).toBe(false);
+    expect(await signatureMatchesSigner(HASH, account.address, `${sig}00` as Hex)).toBe(false);
+    const contractSig = `0x${'00'.repeat(12)}${account.address.slice(2)}${'00'.repeat(31)}41${'00'}${'00'.repeat(32)}` as Hex;
+    expect(await signatureMatchesSigner(HASH, account.address, contractSig)).toBeNull();
+  });
 });

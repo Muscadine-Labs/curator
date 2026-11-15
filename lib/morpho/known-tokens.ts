@@ -35,6 +35,18 @@ const KNOWN: Record<string, KnownTokenMeta> = {
 };
 
 const gqlCache = new Map<string, KnownTokenMeta>();
+/** Token metadata never changes, but the server lives long: keep the newest entries only. */
+const GQL_CACHE_MAX_ENTRIES = 5_000;
+
+function rememberTokenMeta(key: string, meta: KnownTokenMeta): void {
+  gqlCache.delete(key);
+  gqlCache.set(key, meta);
+  while (gqlCache.size > GQL_CACHE_MAX_ENTRIES) {
+    const oldest = gqlCache.keys().next().value;
+    if (oldest === undefined) break;
+    gqlCache.delete(oldest);
+  }
+}
 /** Unresolved tokens keep a placeholder only for the cache window, then retry. */
 const fallbackCache = new Map<string, { meta: KnownTokenMeta; expiresAt: number }>();
 
@@ -147,8 +159,8 @@ export async function prefetchAssets(
         const symbol = item?.symbol?.trim();
         if (symbol && item?.decimals != null && !knownTokenMeta(address)) {
           const meta: KnownTokenMeta = { address: item.address!, symbol, decimals: item.decimals };
-          gqlCache.set(key, meta);
-          gqlCache.set(address, meta);
+          rememberTokenMeta(key, meta);
+          rememberTokenMeta(address, meta);
         }
         if (options.prices) {
           const usd = item?.price?.usd;
@@ -203,8 +215,8 @@ export async function resolveTokenMeta(
         symbol,
         decimals,
       };
-      gqlCache.set(key, meta);
-      gqlCache.set(address.toLowerCase(), meta);
+      rememberTokenMeta(key, meta);
+      rememberTokenMeta(address.toLowerCase(), meta);
       return meta;
     }
   } catch {
@@ -214,7 +226,7 @@ export async function resolveTokenMeta(
   // Decimals decide every amount on the page: never cache a guess for good.
   const onChain = chainId === BASE_CHAIN_ID ? await readTokenMetaOnChain(address) : null;
   if (onChain) {
-    gqlCache.set(key, onChain);
+    rememberTokenMeta(key, onChain);
     return onChain;
   }
   const fallback: KnownTokenMeta = {

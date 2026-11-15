@@ -10,7 +10,7 @@ Append-only session log. Newest first. Keep entries short; link files.
 - Execute drops owner signatures that do not recover to their signer (`lib/safe/verify-signature.ts`; EIP-712 v 27/28, eth_sign v 31/32, contract / approved-hash signatures left to the Safe). The error names the invalid signers.
 - MultiSend batching checks the Transaction Service too: a read failure, or any proposal outside the batch with a later nonce, refuses the batch (it would strand that nonce). Paged service reads no longer pin a nonce from page 1.
 - `parseHumanTokenInput`: empty → 0, a lone `.` or `-` throws. `% input` uses a strict decimal regex. Rebalance preview uses display amounts for before/after.
-- `batchVaultV2ByAddress` retries each vault alone on a batch error. `GET /api/markets/[marketId]` returns 400 for a malformed id.
+- `batchVaultV2ByAddress` retries each vault alone only on a GraphQL error; a 429 / timeout / network failure is not split into N requests. Malformed ECDSA signatures are dropped at execute (only v 0/1 go to the chain unchecked). Token metadata cache is capped at 5,000 entries. `GET /api/markets/[marketId]` returns 400 for a malformed id.
 
 ## 2026-11-15 — Env cleanup, ox pin, small fixes
 

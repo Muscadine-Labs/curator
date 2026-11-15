@@ -14,10 +14,13 @@ export async function signatureMatchesSigner(
   signer: Address,
   signature: Hex
 ): Promise<boolean | null> {
-  // r (32) + s (32) + v (1) bytes; anything longer is a contract signature with dynamic data.
-  if (signature.length !== 132) return null;
-  const v = hexToNumber(`0x${signature.slice(130)}`);
+  // Every Safe signature starts with r (32) + s (32) + v (1) bytes.
+  if (signature.length < 132) return false;
+  const v = hexToNumber(`0x${signature.slice(130, 132)}`);
+  // Contract signatures (v = 0) carry dynamic data after the 65 bytes; the Safe checks them.
   if (v === 0 || v === 1) return null;
+  // An ECDSA signature is exactly 65 bytes; anything else would fail GS026 on chain.
+  if (signature.length !== 132) return false;
   try {
     let recovered: Address;
     if (v === 27 || v === 28) {

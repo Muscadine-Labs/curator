@@ -3,6 +3,11 @@ import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
 
 type VaultRef = { address: string; chainId: number };
 
+/** `morphoGraphQLClient` prefixes GraphQL-level errors; transport failures do not have it. */
+function isGraphQLError(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith('GraphQL Error:');
+}
+
 function aliasName(prefix: string, index: number): string {
   return `${prefix}${index}`;
 }
@@ -30,7 +35,9 @@ export async function batchVaultV2ByAddress<T>(
   } catch (error) {
     // One unindexed or mistyped vault fails the whole aliased query (Morpho returns
     // data: null). Retry each vault alone so the others still load; that vault reads null.
-    if (vaults.length === 1) throw error;
+    // A 429, timeout or network failure is not split: N parallel retries would only
+    // deepen an upstream outage.
+    if (vaults.length === 1 || !isGraphQLError(error)) throw error;
     const single = await Promise.all(
       vaults.map((v) =>
         batchVaultV2ByAddress<T>([v], selection).then(
