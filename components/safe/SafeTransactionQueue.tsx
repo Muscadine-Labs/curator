@@ -118,7 +118,9 @@ function PendingTransactionCard({
   const warnings = useMemo(() => safePendingWarnings(tx), [tx]);
   // Signatures that do not recover to their signer (wrong hash, malformed) are dropped at
   // execute, so they must not count here either. Checked offline, off the render path.
-  const [invalidSigners, setInvalidSigners] = useState<ReadonlySet<string>>(() => new Set());
+  // Keyed by what was checked, so a new signature list counts as unchecked until verified.
+  const signatureKey = `${tx.safeTxHash}:${tx.signatures.map((sig) => `${sig.signer}:${sig.data}`).join(',')}`;
+  const [signatureCheck, setSignatureCheck] = useState<{ key: string; invalid: ReadonlySet<string> } | null>(null);
   useEffect(() => {
     let cancelled = false;
     void Promise.all(
@@ -128,14 +130,21 @@ function PendingTransactionCard({
           : null
       )
     ).then((bad) => {
-      if (!cancelled) setInvalidSigners(new Set(bad.filter((s): s is string => s !== null)));
+      if (!cancelled) {
+        setSignatureCheck({
+          key: signatureKey,
+          invalid: new Set(bad.filter((s): s is string => s !== null)),
+        });
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [tx.safeTxHash, tx.signatures]);
+  }, [tx.safeTxHash, tx.signatures, signatureKey]);
+  const signaturesChecked = signatureCheck?.key === signatureKey;
+  const invalidSigners = signaturesChecked ? signatureCheck.invalid : null;
   const validSignatures = useMemo(
-    () => tx.signatures.filter((sig) => !invalidSigners.has(sig.signer.toLowerCase())),
+    () => tx.signatures.filter((sig) => !invalidSigners?.has(sig.signer.toLowerCase())),
     [tx.signatures, invalidSigners]
   );
   // Only current owners count toward the threshold. Until the owner list loads,
@@ -148,6 +157,7 @@ function PendingTransactionCard({
     !isTerminalSafeStatus(tx.status) &&
     threshold != null &&
     threshold >= 1 &&
+    signaturesChecked &&
     signatureCount >= threshold;
   const canShare =
     serviceEnabled &&
