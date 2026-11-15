@@ -11,14 +11,18 @@ export function stripGroupingSeparators(value: string): string {
   return value.trim().replace(/,/g, '');
 }
 
-/** Parse a human-typed token amount (commas allowed). Returns 0n for empty/zero. */
+/**
+ * Parse a human-typed token amount (commas allowed). Returns 0n for empty input. A lone
+ * "." or "-" throws: read as 0 it became a valid "cap to 0" or a full deallocation.
+ */
 export function parseHumanTokenInput(
   value: string,
   symbol: string | null | undefined,
   apiDecimals: number
 ): bigint {
   const cleaned = stripGroupingSeparators(value);
-  if (!cleaned || cleaned === '.' || cleaned === '-') return 0n;
+  if (!cleaned) return 0n;
+  if (cleaned === '.' || cleaned === '-') throw new Error(`Invalid token amount: "${value}"`);
   const chain = resolveAssetDecimals(symbol, apiDecimals);
   return parseUnits(cleaned, chain);
 }

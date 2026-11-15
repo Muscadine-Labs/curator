@@ -24,7 +24,24 @@ export async function batchVaultV2ByAddress<T>(
   });
   const query = `query BatchVaultV2ByAddress {\n${fields.join('\n')}\n}`;
 
-  const data = await morphoGraphQLClient.request<Record<string, T | null>>(query);
+  let data: Record<string, T | null>;
+  try {
+    data = await morphoGraphQLClient.request<Record<string, T | null>>(query);
+  } catch (error) {
+    // One unindexed or mistyped vault fails the whole aliased query (Morpho returns
+    // data: null). Retry each vault alone so the others still load; that vault reads null.
+    if (vaults.length === 1) throw error;
+    const single = await Promise.all(
+      vaults.map((v) =>
+        batchVaultV2ByAddress<T>([v], selection).then(
+          (m) => m.get(v.address.toLowerCase()) ?? null,
+          () => null
+        )
+      )
+    );
+    vaults.forEach((v, i) => out.set(v.address.toLowerCase(), single[i]));
+    return out;
+  }
   vaults.forEach((v, i) => {
     out.set(v.address.toLowerCase(), data[aliasName('v', i)] ?? null);
   });

@@ -456,6 +456,18 @@ function rowSection(_r: TargetRow, t: AllocTarget): AllocationSection {
   return 'blue';
 }
 
+/** Before amount in display space for the rebalance preview (undefined for idle). */
+function displayBefore(r: RebalancePlanRow): bigint | undefined {
+  return r.target.isVaultIdle ? undefined : r.target.displayAssets;
+}
+
+/** After amount in display space: the display position moved by the booked delta. */
+function displayAfter(r: RebalancePlanRow): bigint | undefined {
+  if (r.target.isVaultIdle || r.target.displayAssets == null) return undefined;
+  const next = r.target.displayAssets + (r.assets - r.current);
+  return next > 0n ? next : 0n;
+}
+
 export function VaultV2Allocations({
   vaultAddress,
   chainId,
@@ -1570,8 +1582,11 @@ export function VaultV2Allocations({
             currentAssets: r.current,
             assets: r.assets,
             deallocateAssets: deallocate > 0n ? deallocate : undefined,
-            beforeAssets: throughInterest ? r.target.liveAssets! : undefined,
-            afterAssets: throughInterest ? r.displayTarget : undefined,
+            // Show before/after in the same space the curator typed in (the Allocated
+            // column), not booked allocation(id): booked 100 / display 105 typed to 150
+            // must read 105 → 150, not 100 → 145.
+            beforeAssets: throughInterest ? r.target.liveAssets! : displayBefore(r),
+            afterAssets: throughInterest ? r.displayTarget : displayAfter(r),
           };
         }),
         vaultSymbol

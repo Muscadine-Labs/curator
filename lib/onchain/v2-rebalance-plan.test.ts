@@ -150,3 +150,11 @@ describe('deallocateAmountForRow (accrued interest)', () => {
     expect(deallocateAmountForRow(moved)).toBe(90n);
   });
 });
+
+describe('percentInputToRaw strict parsing', () => {
+  it('rejects trailing junk and exponent notation', () => {
+    expect(percentInputToRaw('50abc', 1000n).error).not.toBeNull();
+    expect(percentInputToRaw('1e1', 1000n).error).not.toBeNull();
+    expect(percentInputToRaw('12.5', 1000n)).toEqual({ assets: 125n, error: null });
+  });
+});

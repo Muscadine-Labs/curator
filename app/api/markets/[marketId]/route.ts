@@ -48,6 +48,11 @@ export async function GET(
   try {
     const { marketId: rawMarketId } = await params;
     const marketId = decodeURIComponent(rawMarketId);
+    // A Blue market id is 32 bytes. Rejecting anything else keeps junk ids from minting
+    // fresh rate-limit buckets and cache keys (only 0x-hex segments collapse to :id).
+    if (!/^0x[0-9a-fA-F]{64}$/.test(marketId)) {
+      return NextResponse.json({ error: 'Invalid market id' }, { status: 400 });
+    }
     const { searchParams } = new URL(request.url);
     const chainId = parseChainId(searchParams.get('chainId'));
 
