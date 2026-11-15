@@ -36,7 +36,6 @@ describe('session HMAC secret', () => {
     vi.stubEnv('NODE_ENV', 'production');
     vi.stubEnv('CURATOR_SESSION_SECRET', '');
     vi.stubEnv('CURATOR_ADMIN_PASSWORD', '');
-    vi.stubEnv('CURATOR_OWNER_PASSWORD', '');
     await expect(createSessionToken()).rejects.toThrow('Auth not configured');
   });
 });

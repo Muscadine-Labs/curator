@@ -38,6 +38,16 @@ export const publicClient = createPublicClient({
   transport: http(),
 });
 
+/**
+ * Same RPC, no multicall batching. Probe reads (does this contract have `kink()`,
+ * oracle shape checks) cache a "miss" on a revert; inside a shared multicall a call
+ * can fail from gas starvation or `msg.sender` being Multicall3 and look like a miss.
+ */
+const unbatchedClient = createPublicClient({
+  chain: baseChain,
+  transport: http(),
+});
+
 export type SafeContractReadOptions = {
   /**
    * This call is a probe for a function the contract may not implement.
@@ -77,7 +87,8 @@ export async function readContractOutcome<T>(
   options?: SafeContractReadOptions
 ): Promise<ContractReadOutcome<T>> {
   try {
-    const result = await publicClient.readContract({
+    const client = options?.probe ? unbatchedClient : publicClient;
+    const result = await client.readContract({
       address: contractAddress,
       abi,
       functionName,

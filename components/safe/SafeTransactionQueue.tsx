@@ -28,6 +28,7 @@ import {
   SAFE_TX_SERVICE_RATE_LIMITS,
 } from '@/lib/safe/transaction-service';
 import { countOwnerSignatures, queueSafeBatch } from '@/lib/safe/queue-vault-write';
+import { signatureMatchesSigner } from '@/lib/safe/verify-signature';
 import { getConnectorProvider } from '@/lib/wallet/connector-provider';
 import { syncPendingFromTransactionService } from '@/lib/safe/service-sync';
 import { useAccount } from 'wagmi';
@@ -115,16 +116,48 @@ function PendingTransactionCard({
   const signed = walletAddress ? ownerHasSigned(tx, walletAddress) : false;
   const busy = activeId === tx.id;
   const warnings = useMemo(() => safePendingWarnings(tx), [tx]);
+  // Signatures that do not recover to their signer (wrong hash, malformed) are dropped at
+  // execute, so they must not count here either. Checked offline, off the render path.
+  // Keyed by what was checked, so a new signature list counts as unchecked until verified.
+  const signatureKey = `${tx.safeTxHash}:${tx.signatures.map((sig) => `${sig.signer}:${sig.data}`).join(',')}`;
+  const [signatureCheck, setSignatureCheck] = useState<{ key: string; invalid: ReadonlySet<string> } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all(
+      tx.signatures.map(async (sig) =>
+        (await signatureMatchesSigner(tx.safeTxHash, sig.signer, sig.data)) === false
+          ? sig.signer.toLowerCase()
+          : null
+      )
+    ).then((bad) => {
+      if (!cancelled) {
+        setSignatureCheck({
+          key: signatureKey,
+          invalid: new Set(bad.filter((s): s is string => s !== null)),
+        });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tx.safeTxHash, tx.signatures, signatureKey]);
+  const signaturesChecked = signatureCheck?.key === signatureKey;
+  const invalidSigners = signaturesChecked ? signatureCheck.invalid : null;
+  const validSignatures = useMemo(
+    () => tx.signatures.filter((sig) => !invalidSigners?.has(sig.signer.toLowerCase())),
+    [tx.signatures, invalidSigners]
+  );
   // Only current owners count toward the threshold. Until the owner list loads,
-  // fall back to every signature; execute re-checks against on-chain owners.
+  // fall back to every valid signature; execute re-checks against on-chain owners.
   const signatureCount =
-    owners.length > 0 ? countOwnerSignatures(tx.signatures, owners) : tx.signatures.length;
+    owners.length > 0 ? countOwnerSignatures(validSignatures, owners) : validSignatures.length;
   // Readiness comes from signatures, not the stored status (imports reset it).
   const canExecute =
     !warnings.blocking &&
     !isTerminalSafeStatus(tx.status) &&
     threshold != null &&
     threshold >= 1 &&
+    signaturesChecked &&
     signatureCount >= threshold;
   const canShare =
     serviceEnabled &&

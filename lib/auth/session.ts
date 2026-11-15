@@ -11,8 +11,8 @@ function sessionSecret(): string {
   const dedicated = process.env.CURATOR_SESSION_SECRET?.trim();
   if (dedicated) return dedicated;
   // Dedicated HMAC secret is optional. Production login uses the same env
-  // as local: CURATOR_ADMIN_PASSWORD (legacy CURATOR_OWNER_PASSWORD).
-  return process.env.CURATOR_ADMIN_PASSWORD || process.env.CURATOR_OWNER_PASSWORD || '';
+  // as local: CURATOR_ADMIN_PASSWORD.
+  return process.env.CURATOR_ADMIN_PASSWORD || '';
 }
 
 function bytesToB64Url(bytes: Uint8Array): string {

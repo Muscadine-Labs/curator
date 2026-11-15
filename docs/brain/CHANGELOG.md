@@ -4,6 +4,28 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-15 — Second review pass
+
+- `batchVaultV2ByAddress` single-vault retries map only GraphQL errors to null; a timeout / 429 / network error fails the read, so a list with a real vault missing is never cached.
+- `GET /api/markets/[marketId]` validates the id before the rate limiter (junk ids no longer mint buckets).
+- The Safe queue counts only signatures that recover to their signer, matching execute.
+- `%` input accepts a trailing `%` (`50%`).
+
+## 2026-11-15 — Review fixes (Safe, parsing, batch fallbacks)
+
+- Safe execution outcome reads both event layouts: Safe v1.3.0 (`txHash` in `data`) and v1.4.1+ (`txHash` indexed in `topics[1]`). Tested.
+- Execute drops owner signatures that do not recover to their signer (`lib/safe/verify-signature.ts`; EIP-712 v 27/28, eth_sign v 31/32, contract / approved-hash signatures left to the Safe). The error names the invalid signers.
+- MultiSend batching checks the Transaction Service too: a read failure, or any proposal outside the batch with a later nonce, refuses the batch (it would strand that nonce). Paged service reads no longer pin a nonce from page 1.
+- `parseHumanTokenInput`: empty → 0, a lone `.` or `-` throws. `% input` uses a strict decimal regex. Rebalance preview uses display amounts for before/after.
+- `batchVaultV2ByAddress` retries each vault alone only on a GraphQL error; a 429 / timeout / network failure is not split into N requests. Malformed ECDSA signatures are dropped at execute (only v 0/1 go to the chain unchecked). Token metadata cache is capped at 5,000 entries. `GET /api/markets/[marketId]` returns 400 for a malformed id.
+
+## 2026-11-15 — Env cleanup, ox pin, small fixes
+
+- Removed env keys nothing needs: `COINBASE_CDP_API_KEY`, `MORPHO_API_URL` (never read), Upstash (`UPSTASH_REDIS_REST_*`, login limits are in-memory), `BLOCKSCOUT_API_KEY` / `ETHERSCAN_API_KEY` (paid gate-roster sources removed), `CURATOR_OWNER_PASSWORD`, the 11 `NEXT_PUBLIC_VAULT_*` overrides, `SEND_ASSETS_GATE_ADDRESS` / `GATE_ADDRESS`, `ALLOCATOR_SAFE_8453`. Addresses are constants in config.
+- `ox` pinned to 0.14.65 (viem 2.57.19's version).
+- Probe reads use an unbatched client so a multicall-induced failure is not cached as a miss.
+- `protocol-stats` falls back per vault only on GraphQL errors; a timeout fails the refresh instead of a slower second round.
+
 ## 2026-11-14 — Fewer upstream calls (measured)
 
 Measured on the production build with server-side fetch logging and a browser driver.

@@ -82,8 +82,6 @@ describe('readGateRosterCandidates', () => {
   });
 
   it('explains a Cloudflare challenge instead of failing silently', async () => {
-    vi.stubEnv('BLOCKSCOUT_API_KEY', '');
-    vi.stubEnv('ETHERSCAN_API_KEY', '');
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => new Response('<!DOCTYPE html><title>Just a moment...</title>', { status: 403 }))
@@ -95,16 +93,15 @@ describe('readGateRosterCandidates', () => {
     expect(result.reason).not.toContain('secret-key');
   });
 
-  it('uses the keyed Blockscout API and re-reads the block a full page ended in', async () => {
-    vi.stubEnv('BLOCKSCOUT_API_KEY', 'test-key');
+  it('reads keyless Blockscout and re-reads the block a full page ended in', async () => {
     const other = '0x1111111111111111111111111111111111111111' as const;
     const firstPage = Array.from({ length: 1_000 }, () => whitelistedLog(ACCOUNT, 7));
     const fromBlocks: string[] = [];
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: URL) => {
-        expect(input.host).toBe('api.blockscout.com');
-        expect(input.searchParams.get('apikey')).toBe('test-key');
+        expect(input.host).toBe('base.blockscout.com');
+        expect(input.searchParams.get('apikey')).toBeNull();
         const fromBlock = input.searchParams.get('fromBlock') ?? '';
         fromBlocks.push(fromBlock);
         if (fromBlock === '0') return jsonResponse({ status: '1', result: firstPage });
@@ -121,8 +118,6 @@ describe('readGateRosterCandidates', () => {
 
   it('reads whitelist calls from the Curator and Allocator Safe histories', async () => {
     vi.stubEnv('NEXT_PUBLIC_SAFE_API_KEY', 'safe-key');
-    vi.stubEnv('BLOCKSCOUT_API_KEY', '');
-    vi.stubEnv('ETHERSCAN_API_KEY', '');
     const gate = '0x0000000000000000000000000000000000000005';
     const removed = '0x2222222222222222222222222222222222222222' as const;
     const allow = encodeFunctionData({
@@ -175,8 +170,6 @@ describe('readGateRosterCandidates', () => {
 
   it('stops at the checkpoint hashes and keeps the accounts already read', async () => {
     vi.stubEnv('NEXT_PUBLIC_SAFE_API_KEY', 'safe-key');
-    vi.stubEnv('BLOCKSCOUT_API_KEY', '');
-    vi.stubEnv('ETHERSCAN_API_KEY', '');
     const gate = '0x0000000000000000000000000000000000000006' as const;
     const known = '0x4444444444444444444444444444444444444444' as const;
     const fresh = '0x5555555555555555555555555555555555555555' as const;
@@ -240,9 +233,7 @@ describe('readGateRosterCandidates', () => {
     );
   });
 
-  it('keeps time for the RPC fallback when every explorer stalls', async () => {
-    vi.stubEnv('BLOCKSCOUT_API_KEY', 'test-key');
-    vi.stubEnv('ETHERSCAN_API_KEY', 'test-key');
+  it('keeps time for the RPC fallback when the explorer stalls', async () => {
     // Explorers never answer; they only stop when their abort signal fires.
     vi.stubGlobal(
       'fetch',
@@ -271,8 +262,6 @@ describe('readGateRosterCandidates', () => {
   });
 
   it('gives up on a stalled RPC at the overall deadline', async () => {
-    vi.stubEnv('BLOCKSCOUT_API_KEY', '');
-    vi.stubEnv('ETHERSCAN_API_KEY', '');
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => new Response('<html>Just a moment...</html>', { status: 403 }))

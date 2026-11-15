@@ -5,7 +5,7 @@
  * Who may deposit is whatever that gate returns (`isWhitelisted`), not a list in this
  * file. Fee-wrapper vaults stay open (`sendAssetsGate = 0x0`).
  *
- * Gate contract address is set after deployment via `SEND_ASSETS_GATE_ADDRESS` (or env).
+ * The gate contract address is `DEPOSIT_GATE_CONTRACT_ADDRESS` below; change it here after a redeploy.
  * See `docs/brain/deposit-gates.md`. Writes: muscadine-onchain `gate` commands.
  */
 import type { Address } from 'viem';
@@ -31,13 +31,9 @@ export type DepositGateWrapperAdapterPair = {
   underlyingLabel: string;
 };
 
-const DEFAULT_GATE_ADDRESS = '0xb7f2598ac79a3c6406dddb81edcc60ea72a134b9';
-
-/** Default production gate (Base, 2026-09-05 deploy). Override via env when redeploying. */
+/** Production gate (Base, 2026-09-05 deploy). Edit this constant when the gate is redeployed. */
 export const DEPOSIT_GATE_CONTRACT_ADDRESS: Address = getAddress(
-  process.env.SEND_ASSETS_GATE_ADDRESS ??
-    process.env.GATE_ADDRESS ??
-    DEFAULT_GATE_ADDRESS
+  '0xb7f2598ac79a3c6406dddb81edcc60ea72a134b9'
 );
 
 /**
@@ -45,11 +41,9 @@ export const DEPOSIT_GATE_CONTRACT_ADDRESS: Address = getAddress(
  * `setIsWhitelister`). Allocator can manage the deposit allowlist without Curator Safe.
  */
 export function depositGateGateWhitelisters(): AllowlistedAddress[] {
-  const allocatorEnv = process.env.ALLOCATOR_SAFE_8453?.trim();
-  const allocator = allocatorEnv ? getAddress(allocatorEnv) : getSafeByRole('allocator').address;
   return [
     { address: getAddress(getSafeByRole('curator').address), label: 'Curator Safe' },
-    { address: getAddress(allocator), label: 'Allocator Safe' },
+    { address: getAddress(getSafeByRole('allocator').address), label: 'Allocator Safe' },
   ];
 }
 

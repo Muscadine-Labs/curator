@@ -353,6 +353,30 @@ export async function queueSafeBatch(options: {
     throw new Error('Could not read the Safe nonce. Refresh and try again.');
   }
   assertBatchNonceNotSpent(nonce, onChainNonce);
+  // A proposal made in another browser lives only on the Transaction Service until a sync.
+  // If it sits above the batch, folding the range would strand it behind the freed nonces.
+  if (isTransactionServiceConfigured()) {
+    const lastNonce = Number(ordered[ordered.length - 1]!.nonce);
+    const selected = new Set(ordered.map((tx) => tx.safeTxHash.toLowerCase()));
+    const serviceTxs = await fetchPendingMultisigTransactions(safeAddress, {
+      currentNonce: onChainNonce,
+    }).catch(() => null);
+    if (serviceTxs == null) {
+      throw new Error('Could not read Transaction Service proposals. Try again before batching.');
+    }
+    const later = [
+      ...new Set(
+        serviceTxs
+          .filter((tx) => !selected.has(tx.safeTxHash.toLowerCase()) && Number(tx.nonce) > lastNonce)
+          .map((tx) => Number(tx.nonce))
+      ),
+    ].sort((x, y) => x - y);
+    if (later.length > 0) {
+      throw new Error(
+        `Batch must include the last queued nonce. Transaction Service proposals at nonce ${later.join(', ')} would be stranded behind the freed nonces — sync and include them, or remove them first.`
+      );
+    }
+  }
   const { safeTxHash, transactionData } = await createSafeTransactionFromCalls({
     safeAddress,
     calls: ordered.map((tx) => ({

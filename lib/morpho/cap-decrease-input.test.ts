@@ -64,4 +64,15 @@ describe('parseCapDecreaseInput', () => {
       value: 11_200_000_000_000_000n,
     });
   });
+  it('rejects a lone dot instead of reading it as a cap of 0', () => {
+    const result = parseCapDecreaseInput({
+      mode: 'absolute',
+      valueStr: '.',
+      currentAbsoluteRaw: '1000000',
+      currentRelativeRaw: '0',
+      assetSymbol: 'USDC',
+      chainDecimals: 6,
+    });
+    expect(result.ok).toBe(false);
+  });
 });

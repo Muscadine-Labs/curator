@@ -20,7 +20,25 @@ function safeLog(event: 'ExecutionSuccess' | 'ExecutionFailure', address = SAFE,
   } as Log;
 }
 
+/** Safe 1.4.1+ layout: `txHash` indexed in topics[1], only `payment` in data. */
+function indexedSafeLog(event: 'ExecutionSuccess' | 'ExecutionFailure', txHash = HASH): Log {
+  return {
+    ...safeLog(event),
+    topics: [keccak256(toHex(`${event}(bytes32,uint256)`)), txHash],
+    data: encodeAbiParameters([{ type: 'uint256' }], [0n]),
+  } as Log;
+}
+
 describe('safeExecutionOutcome', () => {
+  it('reads Safe 1.4.1+ logs, where txHash is indexed', () => {
+    expect(safeExecutionOutcome([indexedSafeLog('ExecutionSuccess')], SAFE, HASH)).toBe('success');
+    expect(safeExecutionOutcome([indexedSafeLog('ExecutionFailure')], SAFE, HASH)).toBe('failure');
+    const otherHash = `0x${'cd'.repeat(32)}` as Hex;
+    expect(safeExecutionOutcome([indexedSafeLog('ExecutionSuccess', otherHash)], SAFE, HASH)).toBe(
+      'unknown'
+    );
+  });
+
   it('reads success and failure for this Safe and hash', () => {
     expect(safeExecutionOutcome([safeLog('ExecutionSuccess')], SAFE, HASH)).toBe('success');
     expect(safeExecutionOutcome([safeLog('ExecutionFailure')], SAFE, HASH)).toBe('failure');

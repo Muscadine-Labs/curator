@@ -205,7 +205,13 @@ export function percentInputToRaw(
   pctStr: string,
   totalRaw: bigint
 ): { assets: bigint; error: string | null } {
-  const pct = Number.parseFloat(pctStr.trim());
+  // A trailing "%" is how people write a percent; anything else must be a plain decimal.
+  const trimmed = pctStr.trim().replace(/\s*%$/, '');
+  // Plain decimal only: parseFloat read "50abc" as 50 and "1e1" as 10.
+  if (!/^\d+(\.\d*)?$|^\.\d+$/.test(trimmed)) {
+    return { assets: BigInt(0), error: 'Invalid percentage' };
+  }
+  const pct = Number(trimmed);
   if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
     return { assets: BigInt(0), error: 'Invalid percentage' };
   }

@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   consumeRateLimit,
   rateLimitIdentifier,
-  hasSharedRateLimitStore,
   resolveClientIp,
 } from '@/lib/utils/rate-limit';
 
@@ -12,14 +11,10 @@ function req(headers: Record<string, string>): Request {
 
 const ORIGINAL_HOPS = process.env.CURATOR_TRUSTED_PROXY_HOPS;
 const ORIGINAL_VERCEL = process.env.VERCEL;
-const ORIGINAL_UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
-const ORIGINAL_UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 
 beforeEach(() => {
   delete process.env.CURATOR_TRUSTED_PROXY_HOPS;
   delete process.env.VERCEL;
-  delete process.env.UPSTASH_REDIS_REST_URL;
-  delete process.env.UPSTASH_REDIS_REST_TOKEN;
 });
 
 afterEach(() => {
@@ -28,10 +23,6 @@ afterEach(() => {
   else process.env.CURATOR_TRUSTED_PROXY_HOPS = ORIGINAL_HOPS;
   if (ORIGINAL_VERCEL === undefined) delete process.env.VERCEL;
   else process.env.VERCEL = ORIGINAL_VERCEL;
-  if (ORIGINAL_UPSTASH_URL === undefined) delete process.env.UPSTASH_REDIS_REST_URL;
-  else process.env.UPSTASH_REDIS_REST_URL = ORIGINAL_UPSTASH_URL;
-  if (ORIGINAL_UPSTASH_TOKEN === undefined) delete process.env.UPSTASH_REDIS_REST_TOKEN;
-  else process.env.UPSTASH_REDIS_REST_TOKEN = ORIGINAL_UPSTASH_TOKEN;
 });
 
 describe('resolveClientIp — trust rules', () => {
@@ -109,40 +100,14 @@ describe('resolveClientIp — trust rules', () => {
   });
 });
 
-describe('shared login rate-limit store', () => {
-  it('stays in-memory when Upstash env is unset', () => {
-    expect(hasSharedRateLimitStore()).toBe(false);
-  });
-
-  it('counts against Upstash when REST env is set', async () => {
-    process.env.UPSTASH_REDIS_REST_URL = 'https://example.upstash.io';
-    process.env.UPSTASH_REDIS_REST_TOKEN = 'token';
-    const replies = [1, -1, 'OK'];
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({ result: replies.shift() }),
-    }));
-    vi.stubGlobal('fetch', fetchMock);
-    expect(hasSharedRateLimitStore()).toBe(true);
-    expect(await consumeRateLimit('auth-verify:test', 10, 60_000)).toBe(true);
-    expect(fetchMock).toHaveBeenCalled();
-  });
-
-  it('fails closed when Upstash is unreachable', async () => {
-    process.env.UPSTASH_REDIS_REST_URL = 'https://example.upstash.io';
-    process.env.UPSTASH_REDIS_REST_TOKEN = 'token';
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({
-        ok: false,
-        status: 500,
-        json: async () => ({}),
-      }))
-    );
-    expect(await consumeRateLimit('auth-verify:test', 10, 60_000)).toBe(false);
+describe('login rate-limit store', () => {
+  it('counts in memory and denies past the limit', async () => {
+    const id = `auth-verify:test-${Math.random()}`;
+    expect(await consumeRateLimit(id, 2, 60_000)).toBe(true);
+    expect(await consumeRateLimit(id, 2, 60_000)).toBe(true);
+    expect(await consumeRateLimit(id, 2, 60_000)).toBe(false);
   });
 });
-
 
 describe('rateLimitIdentifier', () => {
   it('keys each endpoint path separately for the same client', () => {

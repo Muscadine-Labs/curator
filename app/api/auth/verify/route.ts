@@ -16,7 +16,7 @@ import {
 const GLOBAL_BUCKET = 'auth-verify:global';
 
 function adminPassword(): string {
-  return process.env.CURATOR_ADMIN_PASSWORD || process.env.CURATOR_OWNER_PASSWORD || '';
+  return process.env.CURATOR_ADMIN_PASSWORD || '';
 }
 
 function tooManyAttempts(resetTime: number | null) {

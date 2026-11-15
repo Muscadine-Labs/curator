@@ -5,6 +5,7 @@ import { OperationType } from '@safe-global/types-kit';
 import type Safe from '@safe-global/protocol-kit';
 import { EthSafeSignature } from '@safe-global/protocol-kit';
 import { BASE_CHAIN_ID } from '@/lib/constants';
+import { signatureMatchesSigner } from '@/lib/safe/verify-signature';
 import { getSafePendingSnapshot } from '@/lib/safe/pending-store';
 import {
   fetchPendingMultisigTransactions,
@@ -311,14 +312,26 @@ export async function executeSafePendingTransaction(options: {
   // Only current owners count: a removed owner's (or an imported non-owner's)
   // signature makes execTransaction revert with GS026 after the executor pays gas.
   const ownerSet = new Set(owners.map((o) => o.toLowerCase()));
+  // A signature that claims an owner but signs another hash (bad import, stale service row)
+  // would also revert with GS026, so it is dropped here instead of costing gas.
+  const invalidSigners: Address[] = [];
   for (const sig of options.signatures) {
     if (!ownerSet.has(sig.signer.toLowerCase())) continue;
+    const valid = await signatureMatchesSigner(options.expectedSafeTxHash, sig.signer, sig.data);
+    if (valid === false) {
+      invalidSigners.push(getAddress(sig.signer));
+      continue;
+    }
     safeTransaction.addSignature(new EthSafeSignature(getAddress(sig.signer), sig.data));
   }
 
   if (safeTransaction.signatures.size < threshold) {
+    const invalidNote =
+      invalidSigners.length > 0
+        ? ` ${invalidSigners.length} stored signature(s) do not sign this transaction (${invalidSigners.join(', ')}); ask those owners to sign again.`
+        : '';
     throw new Error(
-      `Need ${threshold} owner signature(s); have ${safeTransaction.signatures.size}.`
+      `Need ${threshold} owner signature(s); have ${safeTransaction.signatures.size}.${invalidNote}`
     );
   }
 

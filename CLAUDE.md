@@ -26,7 +26,7 @@ Copy `.env.example` → `.env.local`. See that file for the full list.
 | Variable | Required? | Purpose |
 |----------|-----------|---------|
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | **Yes in production** | WalletConnect / Reown |
-| `ALCHEMY_API_KEY` or `COINBASE_CDP_API_KEY` | Recommended | Server Base RPC |
+| `ALCHEMY_API_KEY` | Recommended | Server Base RPC (public Base RPC if unset) |
 | `NEXT_PUBLIC_ALCHEMY_API_KEY` | Recommended | Client Base RPC |
 | `NEXT_PUBLIC_APP_URL` | No | App origin (wallet metadata) |
 | `NEXT_PUBLIC_SAFE_API_KEY` | **Yes for `/curator/gates`** | Safe Transaction Service, including whitelist history |
@@ -34,9 +34,10 @@ Copy `.env.example` → `.env.local`. See that file for the full list.
 | `CURATOR_SESSION_SECRET` | No | Optional dedicated HMAC for `curator_session` |
 | `CURATOR_SESSION_VERSION` | No | Bump to invalidate all sessions |
 | `CURATOR_TRUSTED_PROXY_HOPS` | **Yes in production** | Proxy count in front of the app; required for per-IP login rate limiting |
-| `MORPHO_API_URL`, `NEXT_PUBLIC_VAULT_*` | No | Overrides |
-| `SEND_ASSETS_GATE_ADDRESS` (or `GATE_ADDRESS`) | No | Override the built-in send-assets gate |
-| `ALLOCATOR_SAFE_8453` | No | Override the Allocator Safe used as a gate whitelister |
+
+Vault addresses, the send-assets gate and the role Safes are constants in
+`lib/config/vaults.ts`, `lib/config/deposit-gates.ts` and `lib/safe/config.ts` —
+there are no env overrides for them.
 
 ---
 
@@ -124,7 +125,7 @@ lib/
   utils/               Logger, rate limit, env validation, error handler
   wallet/              Wagmi + Reown AppKit (`WagmiAdapter`, `createAppKit`), indexeddb polyfill
 
-.env / .env.local      Public env vars: NEXT_PUBLIC_VAULT_* addresses, RPC URL,
+.env / .env.local      Env vars: WalletConnect, Alchemy RPC, app URL, Safe API key,
                        Morpho API URL, auth secrets
 ```
 
@@ -313,7 +314,7 @@ Wrappers are **not listed** on app.morpho.org (`listed: false`). Keep the
 
 Config: `kind: 'feeWrapper'` + `underlyingAddress` in `lib/config/vaults.ts`.
 `underlyingAddress` uses the **same env default** as the child strategy vault
-(`NEXT_PUBLIC_VAULT_USDC_V2`, etc.) and is the GraphQL fallback when
+(the strategy vault constant) and is the GraphQL fallback when
 `innerVault` is omitted. Display names are Morpho/on-chain names (`USDC Prime`)
 with a ` (wrapper)` suffix on fee wrappers (`withFeeWrapperLabel`). GraphQL fragments must include `... on MorphoVaultV2Adapter` on
 list, governance, and risk queries — omitting them makes the adapter invisible
@@ -790,7 +791,7 @@ its own row with “No strategy risk”; it does not dilute or improve the headl
 Adapter count KPI = `adapters.length + 1`. Total allocated display =
 `totalAdapterAssetsUsd + idleAssetsUsd`.
 
-**Server RPC batching:** `publicClient` (`lib/onchain/client.ts`) has `batch: { multicall: { batchSize: 4_096 } }` (plain JSON-RPC transport, no batch arrays), so reads made in the same tick share one Multicall3 `eth_call`; one failed batch call fails the reads in it together; a revert or empty return still fails only its own read. Tab switches refetch with `cancelRefetch: false` (`JOIN_IN_FLIGHT` in `VaultPageShell.tsx`), so a tab's mount fetch and the tab refetch are one request.
+**Server RPC batching:** `publicClient` (`lib/onchain/client.ts`) has `batch: { multicall: { batchSize: 4_096 } }` (plain JSON-RPC transport, no batch arrays), so reads made in the same tick share one Multicall3 `eth_call`; one failed batch call fails the reads in it together; a revert or empty return still fails only its own read. Probe reads (`readContractOutcome(..., { probe: true })`, e.g. IRM `kink()` and oracle shape checks) use an unbatched client, because their "miss" is cached and a call inside a shared multicall can fail for reasons that look like a miss. Tab switches refetch with `cancelRefetch: false` (`JOIN_IN_FLIGHT` in `VaultPageShell.tsx`), so a tab's mount fetch and the tab refetch are one request.
 
 **Hooks / cache:** `useVaultV2Risk`, `useVaultV2Governance`; keys
 `['vault-v2-risk', address]` and `vaultV2GovernanceQueryKey(address)`. Risk and
@@ -1263,7 +1264,7 @@ components.
   JSON. `AppError` messages pass through; any other error goes through
   `publicErrorMessage` (viem `shortMessage`, first line only, URLs replaced,
   configured secrets redacted) because viem RPC errors embed the request URL —
-  which carries the server Alchemy / CDP key. The full error is logged server-side.
+  which carries the server Alchemy key. The full error is logged server-side.
 - Client hooks read failed BFF responses with `apiErrorMessage(res, fallback)`
   (`lib/data/api-fetch.ts`) — the `{ message | error }` field, not the raw body.
 - Integer query params go through `parseBoundedIntParam` (`lib/api/query-params.ts`)
@@ -1273,7 +1274,7 @@ components.
 - **Batched Morpho reads in `protocol-stats`:** every vault's TVL history is one aliased
   `vaultV2ByAddress` query (`fetchVaultV2TvlSeriesBatch`, `v0:` / `v1:` … aliases), and every
   vault's first depositor page is one more (`fetchDepositorAddressesBatch`); only vaults with a full
-  page keep paging. A failed batch falls back to per-vault requests, so a failure stays per vault.
+  page keep paging. A GraphQL error falls back to per-vault requests, so a failure stays per vault; a timeout or network failure marks every vault failed for that refresh (reported in `warning`, not cached) instead of a slower second round that would pass the 40s loader limit.
   Each 30s refresh is 2 Morpho calls + DefiLlama instead of 16 + DefiLlama.
 - **Never serve partial aggregates as complete.** `protocol-stats` records every
   failed per-vault TVL / depositor read in `warning` (shown on the dashboard)
@@ -1334,8 +1335,6 @@ components.
   proxies**, or the origin is reachable without passing through them, per-IP
   limits become forgeable again. The global cap is the backstop for that case
   and bounds guessing to ~50/min. Login rate limits are per-instance memory.
-  (The code still reads optional `UPSTASH_REDIS_REST_*` for a shared store,
-  but this deployment does not use Upstash and the env docs leave it out.)
 - HMAC uses `CURATOR_SESSION_SECRET` when set, otherwise
   `CURATOR_ADMIN_PASSWORD` (same in production and development).
   Bump `CURATOR_SESSION_VERSION` to invalidate sessions. `proxy.ts` requires the cookie on `/api/*` except
@@ -1344,8 +1343,8 @@ components.
   Each BFF also calls `unauthorizedUnlessAdmin` (proxy is not an auth
   boundary).
 - The **only** username is **`admin`** (case-sensitive, role `'admin'`);
-  password from env `CURATOR_ADMIN_PASSWORD` (legacy `CURATOR_OWNER_PASSWORD`
-  still accepted as fallback; must be uncommented in `.env.local`; server
+  password from env `CURATOR_ADMIN_PASSWORD` (must be uncommented in
+  `.env.local`; server
   restart required after changes).
 - Write UI (reallocate, caps, etc.) is gated on both wallet connection and
   curator role.
@@ -1421,7 +1420,7 @@ components.
 
 ### "Vault not found" on detail pages
 
-- Address missing from `lib/config/vaults.ts` or from env `NEXT_PUBLIC_VAULT_*`.
+- Address missing from `lib/config/vaults.ts`.
 - API route `/api/vaults/[id]` returns 404 if the vault isn't tracked.
 
 ### Vault liquidity vs idle vs deployed (Morpho API)
@@ -1535,7 +1534,7 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
   Do not upgrade to wagmi 3 until AppKit supports it.
 - **TypeScript 6** — installed `typescript-eslint` peers `typescript >=4.8.4 <6.1.0`;
   stay on `typescript@^6.0.3` (not 7).
-- **ox 0.14 / Vitest 5** — `ox@^0.14.65`, `vitest@^5.1.0`, with `vite@^8.3.5` because Vitest 5 imports Vite directly. ox 1 stays off.
+- **ox 0.14 / Vitest 5** — `ox@0.14.65` (exact: the version viem 2.57.19 depends on; bump both together), `vitest@^5.1.0`, with `vite@^8.3.5` because Vitest 5 imports Vite directly. ox 1 stays off.
 - **`sharp` override** — `>=0.35.4`, matching Next’s optional `sharp@^0.35.4`
   (libvips CVEs, GHSA-f88m-g3jw-g9cj).
 - **`eslint.config.mjs`** — official Next.js flat config:
@@ -1753,18 +1752,16 @@ client serializes calls with ≥210ms spacing.
   executed Curator and Allocator calls whose `to` is the gate or a canonical
   MultiSend batch that calls it (the queue's **Batch into MultiSend** and Safe's
   transaction builder both execute through MultiSend), newest first,
-  stopping at the hashes in `lib/morpho/send-assets-gate-history.ts`) → Blockscout
-  PRO API (`BLOCKSCOUT_API_KEY`; Base is paid as of 2026-10-01) → Etherscan V2
-  (`ETHERSCAN_API_KEY`, Base is paid-only) → keyless `base.blockscout.com` →
-  one full-range `eth_getLogs` on the server RPC. Muscadine pays for no log
-  subscription, so the two paid keys are unset and left out of the env docs;
-  in practice the Safe history is the source.
+  stopping at the hashes in `lib/morpho/send-assets-gate-history.ts`) → keyless
+  `base.blockscout.com` → one full-range `eth_getLogs` on the server RPC. The
+  paid Blockscout PRO / Etherscan sources were removed (Muscadine pays for no log
+  subscription); in practice the Safe history is the source.
   **Keyless Blockscout answers server requests with a Cloudflare bot challenge
   (HTTP 403 HTML)** and free Alchemy caps `eth_getLogs` at 10 blocks, so without
   the Safe key the lookup fails. A full
   1,000-log page restarts from its last block (not +1) so a page that ends
   mid-block does not skip logs. The chain shares one 32s budget (inside the 40s
-  cache loader timeout); explorers stop 10s early so the RPC fallback always
+  cache loader timeout); the explorer stops 10s early so the RPC fallback always
   gets its turn, and a stalled RPC is cut at the deadline. Results (failures
   too) are cached 30s, and a failure logs once per lookup. Status is
   `safeHistory` (read from the Safe history — the panel labels it **Safe
@@ -1824,8 +1821,11 @@ guard, address book)
 ### 13.5 Do not regress
 
 - Rebuild Safe tx with stored nonce/gas before **sign and** execute; verify `safeTxHash`.
-- Execute marks a row **executed** only when the receipt also carries the Safe's `ExecutionSuccess` for that `safeTxHash` (`safeExecutionOutcome`, `lib/safe/execution-outcome.ts`). `ExecutionFailure` (inner revert caught because `safeTxGas` / `gasPrice` ≠ 0) spends the nonce: the row goes **stale** and the user is told nothing changed. With neither event for that hash (`unknown`) the row stays queued with the hash linked and the user is asked to check it — never reported as executed.
+- Execute drops owner signatures that do not recover to their signer (`verify-signature.ts`; contract and approved-hash signatures are left to the Safe), so one bad signature cannot make the threshold look met.
+- MultiSend batching also reads the Transaction Service at the on-chain nonce and refuses when that read fails or a proposal outside the batch has a later nonce.
+- Execute marks a row **executed** only when the receipt also carries the Safe's `ExecutionSuccess` for that `safeTxHash` (both layouts: v1.3.0 `txHash` in `data`, v1.4.1+ indexed in `topics[1]`) (`safeExecutionOutcome`, `lib/safe/execution-outcome.ts`). `ExecutionFailure` (inner revert caught because `safeTxGas` / `gasPrice` ≠ 0) spends the nonce: the row goes **stale** and the user is told nothing changed. With neither event for that hash (`unknown`) the row stays queued with the hash linked and the user is asked to check it — never reported as executed.
 - Sync from service never moves an executed / stale / cancelled row back into the queue (`isTerminalSafeStatus`): the service indexer lags execution.
+- The queue's count also drops signatures that do not recover to their signer (`signatureMatchesSigner`, checked async), the same rule execute applies.
 - Only **current owners'** signatures count toward the threshold — the queue's count and Execute button (`countOwnerSignatures`) and the execute pre-check (`getOwners()`). Execute readiness comes from that count, not the stored status.
 - Bundle import: a new row's role comes from `getSafeByAddress` (rows for Safes not in `lib/safe/config.ts` are skipped), status resets to `awaiting_signatures`, signatures are validated, and one malformed row is skipped (reported) instead of failing the import.
 - `fetchPendingMultisigTransactions` reads every page; pass the known on-chain nonce as `currentNonce` to save the service's own nonce read.

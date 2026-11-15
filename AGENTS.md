@@ -20,7 +20,7 @@ npm run build   # next build
 ## Key invariants (do not regress)
 
 - **Auth:** the only login username is `admin` (role `'admin'`); password from
-  `CURATOR_ADMIN_PASSWORD` (legacy `CURATOR_OWNER_PASSWORD` accepted). BFF
+  `CURATOR_ADMIN_PASSWORD`. BFF
   routes require the HttpOnly `curator_session` cookie (`proxy.ts` plus
   a route-level check). `apiFetch` sends `credentials: 'same-origin'`.
   `POST /api/auth/verify` is IP rate-limited (`AUTH_LOGIN_MAX_ATTEMPTS`).
@@ -105,7 +105,7 @@ npm run build   # next build
 - **Multisig Safe** — Muscadine Allocator/Sentinel Safes (`lib/safe/config.ts`):
   queue from vault Allocation/Sentinel preview when governance lists the Safe as
   role holder; **owners sign** on `/safe/[role]`; **any connected wallet can
-  execute** once signatures ≥ threshold (Safe `execTransaction` is permissionless).
+  execute** once signatures ≥ threshold (Safe `execTransaction` is permissionless). Execute drops signatures that do not recover to their owner; outcome events are read in both Safe v1.3.0 and v1.4.1+ layouts.
   **localStorage is always kept** (export/import); optional Transaction Service
   sync via `NEXT_PUBLIC_SAFE_API_KEY` and `@safe-global/api-kit` ^5.x
   (`lib/safe/transaction-service.ts`, `service-sync.ts`, rate limit in
