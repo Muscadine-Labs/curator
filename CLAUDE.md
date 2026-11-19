@@ -648,6 +648,10 @@ chains, so with Base-only config it stays 8453 and the hint would never show. Th
 
 ### 4.4.1 Morpho GraphQL schema drift (do not regress)
 
+> **Deprecation:** Morpho shuts down `api.morpho.org/graphql` on **January 29, 2027**.
+> The REST migration plan (endpoint map, file-by-file, gaps) is in
+> [`docs/brain/morpho-rest-migration.md`](docs/brain/morpho-rest-migration.md).
+
 Morpho’s public GraphQL schema changed; invalid fields fail the **whole** query.
 Symptoms: empty `GET /api/vaults`, “Unknown V2 Vault” detail fallbacks, 500s on
 V1 detail.

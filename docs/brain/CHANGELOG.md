@@ -4,6 +4,10 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-19 — Morpho REST migration plan
+
+- Morpho GraphQL (`api.morpho.org/graphql`) shuts down 2027-01-29. Added `docs/brain/morpho-rest-migration.md`: REST endpoint map (checked against the OpenAPI spec and live mpUSDC), file-by-file plan, and gaps (holders, vault txs, allocation txs, liquidations / suppliers, bad debt, USD history). No code change.
+
 ## 2026-11-15 — Second review pass
 
 - `batchVaultV2ByAddress` single-vault retries map only GraphQL errors to null; a timeout / 429 / network error fails the read, so a list with a real vault missing is never cached.

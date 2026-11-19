@@ -117,6 +117,8 @@ npm run build   # next build
   manifest at `public/manifest.json` (`muscadinelogo.svg`). Post-execute refetch
   via `refetch-vault-after-safe-execute.ts`; queue previews always shown (stored
   or decoded calldata in `decode-vault-calldata-preview.ts`). See `CLAUDE.md` §13.
+- **Morpho GraphQL shuts down Jan 29, 2027.** REST migration plan:
+  `docs/brain/morpho-rest-migration.md`.
 - **Morpho GraphQL** — use `marketId` → app `marketKey` (not `uniqueKey`);
   `oracle.address` (not `Market.oracleAddress`); V2 overview txs use
   `vaultV2transactions`. Client logs `extensions.warnings` via
