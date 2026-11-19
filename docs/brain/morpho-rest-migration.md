@@ -149,8 +149,18 @@ already runs (`overlay-v2-onchain-caps.ts`).
 | Round | Reads (every vault in the same multicall) |
 | --- | --- |
 | 1 | `totalAssets`, `totalSupply`, `asset`, fees, `maxRate`, owner, curator, `liquidityAdapter` / `liquidityData`, adapter list, idle (`asset.balanceOf(vault)`) |
-| 2 | Each adapter's markets; `absoluteCap` / `relativeCap` / `allocation` per cap id; live adapter position (`expectedSupplyAssets` / `realAssets`) |
+| 2 | Each adapter's funded markets (`marketIds(i)`); `absoluteCap` / `relativeCap` / `allocation` per cap id (ids from REST `/allocations`, see below); live adapter position (`expectedSupplyAssets` / `realAssets`) |
 | 3 | `Morpho.market(id)` (totals, fee) + IRM `borrowRateView` per market; oracle reads (existing decoder); Chainlink USD for vault assets |
+
+
+Verified on chain (mpUSDC, 2026-11-19): `adaptersLength` / `adapters(i)`,
+`liquidityAdapter`, `timelock(selector)`, `abdicated(selector)` and the
+adapter's `realAssets` all read fine. The Blue market adapter lists markets
+with `marketIds(i)` / `marketIdsLength()`, but **only markets that hold funds**
+(2 of the vault's 5 market caps). Capped-but-empty markets and collateral caps
+cannot be enumerated on chain, so the **cap id list comes from REST
+`/allocations`** (cached about 1h). Values are then read on chain, and market
+params from `Morpho.idToMarketParams(id)`.
 
 What it computes:
 - TVL, liquidity and idle.
