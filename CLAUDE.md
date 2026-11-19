@@ -1538,7 +1538,7 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
   Do not upgrade to wagmi 3 until AppKit supports it.
 - **TypeScript 6** — installed `typescript-eslint` peers `typescript >=4.8.4 <6.1.0`;
   stay on `typescript@^6.0.3` (not 7).
-- **ox 0.14 / Vitest 5** — `ox@0.14.65` (exact: the version viem 2.57.19 depends on; bump both together), `vitest@^5.1.0`, with `vite@^8.3.5` because Vitest 5 imports Vite directly. ox 1 stays off.
+- **ox 0.14 / Vitest 5** — `ox@0.14.67` (exact: the version viem 2.58.1 depends on; bump both together), `vitest@^5.1.1`, with `vite@^8.3.5` because Vitest 5 imports Vite directly. ox 1 stays off.
 - **`sharp` override** — `>=0.35.4`, matching Next’s optional `sharp@^0.35.4`
   (libvips CVEs, GHSA-f88m-g3jw-g9cj).
 - **`eslint.config.mjs`** — official Next.js flat config:

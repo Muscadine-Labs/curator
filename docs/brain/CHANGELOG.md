@@ -4,6 +4,10 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-19 — Dependency update
+
+- viem 2.58.1 with ox 0.14.67 (viem's own ox version), @tanstack/react-query(+devtools) 5.108.1, recharts 3.11.0, lucide-react 1.76.0, vitest 5.1.1; lockfile refreshed. Held on purpose: wagmi 2 and Reown AppKit 1.8.24 (AppKit 2.0 needs wagmi 3), ESLint 9, TypeScript 6, ox 0.14, @types/node 24. Lint, tests and build pass.
+
 ## 2026-11-19 — Morpho REST migration plan
 
 - Morpho GraphQL (`api.morpho.org/graphql`) shuts down 2027-01-29. Added `docs/brain/morpho-rest-migration.md`: REST endpoint map (checked against the OpenAPI spec and live mpUSDC), file-by-file plan, and gaps (holders, vault txs, allocation txs, liquidations / suppliers, bad debt, USD history). No code change.
