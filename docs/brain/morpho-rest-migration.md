@@ -127,3 +127,77 @@ or an indexer), (b) ask Morpho whether a route is coming, or (c) drop the featur
 
 Each step: compare old vs new responses on every business vault, then run
 `npm test`, `npm run lint` and `npm run build`.
+
+---
+
+## 6. Proposed approach: hybrid on-chain + REST (under consideration)
+
+> **Not decided.** This is the direction we are leaning toward. Morpho is
+> still adding fields to the REST API (instant APY, USD, holders or vault-wide
+> transactions may arrive before the shutdown), so re-check the OpenAPI spec
+> before building and move anything REST starts covering back to REST if that
+> is simpler.
+
+Idea: read **current state on chain** in a few batched multicalls, cache it on
+the server (30s, `withServerResponseCache`), and share it across routes. Use
+**Morpho REST only for history, per-wallet history, pending and roles**.
+Goal: as few calls as possible. This extends the on-chain overlay curator
+already runs (`overlay-v2-onchain-caps.ts`).
+
+### 6.1 On-chain vault snapshot (all configured vaults, about 3 `eth_call`s)
+
+| Round | Reads (every vault in the same multicall) |
+| --- | --- |
+| 1 | `totalAssets`, `totalSupply`, `asset`, fees, `maxRate`, owner, curator, `liquidityAdapter` / `liquidityData`, adapter list, idle (`asset.balanceOf(vault)`) |
+| 2 | Each adapter's markets; `absoluteCap` / `relativeCap` / `allocation` per cap id; live adapter position (`expectedSupplyAssets` / `realAssets`) |
+| 3 | `Morpho.market(id)` (totals, fee) + IRM `borrowRateView` per market; oracle reads (existing decoder); Chainlink USD for vault assets |
+
+What it computes:
+- TVL, liquidity and idle.
+- Instant supply and borrow APY, utilization.
+- Vault net APY (rewards excluded).
+- Caps, allocations and adapter rollups.
+- The inputs for `computeBlueMarketRiskScores`.
+
+The vault detail, governance, risk and vault list routes all read this one object.
+
+Call efficiency:
+- **Split cache by how often data changes.** Market params, adapter lists, decimals and timelocks are cached for about an hour, or cleared after a governance write / Safe execute. Totals are cached for 30s.
+- `publicClient` already batches same-tick reads into one Multicall3 call (`batchSize: 4_096`).
+- `eth_call` is billed per request, not per inner call.
+
+### 6.2 Markets browser
+
+- Market ids come from `/v0/blue/markets?chain_id=8453&listed=true` (cache about 1h; new listings are rare).
+- Size, liquidity, utilization and instant APY come from `Morpho.market(id)` for every listed market in a couple of batched multicalls, plus a second round of `idToMarketParams` / `borrowRateView`.
+- USD comes from `/v0/tokens/{t}/price` for each **distinct loan token** (about 20), cached 5 min.
+- This replaces about 3 REST calls per market, which would not fit the rate limit.
+
+### 6.3 Morpho REST only for what the chain cannot give
+
+| Data | Endpoint | Cache |
+| --- | --- | --- |
+| Vault TVL / APY / share-price history | `state/history`, `apy/history` | Daily lookbacks about 1h; hourly 5 min |
+| Allocation over time | `caps/history` | 5 min |
+| Market rate history | `blue/markets/{m}/apy/history`, `state/history` | About 1h for daily |
+| Borrower health (collateral at risk) | `blue/markets/{m}/positions/health?ltv_wad_gte=` | 30s |
+| Pending changes, roles | `pending-governance-actions`, `sentinels`, `allocators` | 30s, plus an on-chain recheck |
+| Treasury statement | `users/{treasury}/positions`, `position/history`, `position/activity` + DefiLlama daily prices | 30s (existing) |
+| Token metadata (unknown tokens) | `/v0/tokens/{t}` | Long; the on-chain fallback stays |
+
+Use a server-only Morpho API key.
+
+### 6.4 List features (holders, vault txs, allocation txs, liquidations, suppliers)
+
+Neither multicall nor REST covers these today. Options, in order of preference:
+1. **Defer.** They are internal-only. Ship without them, or keep them on GraphQL until Jan 29, 2027, and see whether they are missed or whether Morpho adds routes.
+2. **If needed, one small indexer** (Ponder or Envio) over our vaults' Deposit / Withdraw / Transfer / Allocate / Deallocate events and Blue liquidations in our markets. One indexer covers all of these plus the treasury statement. It costs a database and a host.
+
+Do not page `eth_getLogs` per request: free Alchemy caps it at 10 blocks.
+
+### 6.5 Order if adopted
+
+1. Snapshot module + REST helper (`rest-client.ts`). Switch vault detail / governance / risk / vault list.
+2. Markets browser on multicall + loan-token prices.
+3. History, pending, roles, bots and treasury to REST.
+4. Indexer decision. Remove `graphql-request` and `batch-vault-graphql.ts`.

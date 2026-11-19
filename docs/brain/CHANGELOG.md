@@ -7,6 +7,7 @@ Append-only session log. Newest first. Keep entries short; link files.
 ## 2026-11-19 — Morpho REST migration plan
 
 - Morpho GraphQL (`api.morpho.org/graphql`) shuts down 2027-01-29. Added `docs/brain/morpho-rest-migration.md`: REST endpoint map (checked against the OpenAPI spec and live mpUSDC), file-by-file plan, and gaps (holders, vault txs, allocation txs, liquidations / suppliers, bad debt, USD history). No code change.
+- Added §6 to that doc: proposed hybrid approach (shared on-chain multicall snapshot for current state, REST only for history / wallet history / pending / roles), marked under consideration.
 
 ## 2026-11-15 — Second review pass
 
