@@ -6,7 +6,7 @@
  * file. Fee-wrapper vaults stay open (`sendAssetsGate = 0x0`).
  *
  * The gate contract address is `DEPOSIT_GATE_CONTRACT_ADDRESS` below; change it here after a redeploy.
- * See `docs/brain/deposit-gates.md`. Writes: muscadine-onchain `gate` commands.
+ * See `docs/deposit-gates.md`. Writes: muscadine-onchain `gate` commands.
  */
 import type { Address } from 'viem';
 import { getAddress } from 'viem';

@@ -4,6 +4,10 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-20 — `docs/brain/` flattened to `docs/`
+
+- Every file in `docs/` lived under `docs/brain/`, so they moved up one level (`docs/README.md`, `CHANGELOG.md`, `MCP.md`, `deposit-gates.md`, `morpho-rest-migration.md`). References in `CLAUDE.md`, `AGENTS.md`, `TODO.md`, `lib/config/deposit-gates.ts` and app `CLAUDE.md` updated; `MCP.md` relative links now go up one level.
+
 ## 2026-11-20 — Repo review: smaller vault pages, viem pin
 
 - Vault pages no longer bundle the Safe SDK + ethers (892 KB chunk): seven vault components queue through `lib/safe/queue-vault-write-lazy.ts`, which imports `queue-vault-write` on first use. The chunk now loads only on `/safe/*`.
@@ -17,7 +21,7 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ## 2026-11-19 — Morpho REST migration plan
 
-- Morpho GraphQL (`api.morpho.org/graphql`) shuts down 2027-01-29. Added `docs/brain/morpho-rest-migration.md`: REST endpoint map (checked against the OpenAPI spec and live mpUSDC), file-by-file plan, and gaps (holders, vault txs, allocation txs, liquidations / suppliers, bad debt, USD history). No code change.
+- Morpho GraphQL (`api.morpho.org/graphql`) shuts down 2027-01-29. Added `docs/morpho-rest-migration.md`: REST endpoint map (checked against the OpenAPI spec and live mpUSDC), file-by-file plan, and gaps (holders, vault txs, allocation txs, liquidations / suppliers, bad debt, USD history). No code change.
 - Added §6 to that doc: proposed hybrid approach (shared on-chain multicall snapshot for current state, REST only for history / wallet history / pending / roles), marked under consideration.
 
 ## 2026-11-15 — Second review pass
@@ -330,7 +334,7 @@ Measured on the production build with server-side fetch logging and a browser dr
 
 ## 2026-10-31 — Morpho MCP is the hosted server
 
-- `docs/brain/MCP.md` now points at Morpho's public MCP (`https://mcp.morpho.org/`), not the community `mcp-morpho-server` package. No account and no API key. Cursor config is `.cursor/mcp.json`; Claude Code config is `.mcp.json`. Prepare tools are not a write path for this app.
+- `docs/MCP.md` now points at Morpho's public MCP (`https://mcp.morpho.org/`), not the community `mcp-morpho-server` package. No account and no API key. Cursor config is `.cursor/mcp.json`; Claude Code config is `.mcp.json`. Prepare tools are not a write path for this app.
 
 ---
 
@@ -633,13 +637,13 @@ Measured on the production build with server-side fetch logging and a browser dr
 ## 2026-09-05 — Gate verify CLI + app config-only allowlist
 
 - `npm run gates:verify` — RPC read of `sendAssetsGate`, gate `isWhitelisted`, vault `canSendAssets` vs config.
-- Docs: app never calls gate RPC; run verify after every allowlist change (`docs/brain/deposit-gates.md`).
+- Docs: app never calls gate RPC; run verify after every allowlist change (`docs/deposit-gates.md`).
 
 ## 2026-09-05 — Send-assets gate config (no deploy)
 
 - `lib/config/deposit-gates.ts`: underlying-only gate on four strategy vaults; gate whitelist = 4 adapters + 5 partner/Treasury depositors (9 total). Wrappers stay open.
 - Gate ABI + `npm run gates:calldata` (requires `SEND_ASSETS_GATE_ADDRESS` after external deploy).
-- Docs: `docs/brain/deposit-gates.md`.
+- Docs: `docs/deposit-gates.md`.
 
 ## 2026-09-04 — Wrapper adapters + treasury migration
 
