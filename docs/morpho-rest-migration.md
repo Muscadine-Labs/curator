@@ -165,7 +165,7 @@ params from `Morpho.idToMarketParams(id)`.
 
 What it computes:
 - TVL, liquidity and idle.
-- Instant supply and borrow APY, utilization.
+- Instant APY and utilization: borrow APY = e^(`borrowRateView` × 31,536,000) − 1 (`borrowRateView` is a per-second WAD rate); supply APY = borrow APY × utilization × (1 − fee).
 - Vault net APY (rewards excluded).
 - Caps, allocations and adapter rollups.
 - The inputs for `computeBlueMarketRiskScores`.
