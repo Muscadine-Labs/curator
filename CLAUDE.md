@@ -15,7 +15,7 @@ vault mechanics, contract wiring, or the data flow.
   directs otherwise; leave "Later" items alone unless asked.
 - **Closed-loop brain:** [`docs/README.md`](docs/README.md) — session
   protocol, changelog, Morpho MCP. Append `docs/CHANGELOG.md` when you
-  finish substantive work. Cursor rule: `.cursor/rules/muscadine-brain.mdc`.
+  finish substantive work.
 - **Before pushing:** run `npm run lint` and `npm run build` and make sure all pass.
 - **Git, branches and PRs:** AI assistants may commit, create branches, push those branches, and open pull requests without asking first. **Never push to, commit directly on, force-push, or merge into `main`** — every change reaches `main` only through a PR that the user merges. Work on a feature branch (create one if you are on `main`).
 
@@ -1625,7 +1625,7 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
 | Amount MAX (Safe send/receive)   | `components/morpho/AmountMaxInput.tsx` |
 | Nav areas                        | `lib/nav/areas.ts`, `components/layout/Topbar.tsx`, `Sidebar.tsx` |
 | Oracle Portal link               | `MORPHO_ORACLE_PORTAL_URL` in `lib/constants/links.ts` → https://oracles.morpho.dev/ |
-| Brain / session loop             | `docs/`, `.cursor/rules/muscadine-brain.mdc`, `.cursor/mcp.json` |
+| Brain / session loop             | `docs/`, `.cursor/mcp.json` |
 | V2 on-chain allocation overlay   | `lib/morpho/overlay-v2-onchain-caps.ts` |
 | V2 tx user resolution            | `lib/morpho/vault-v2-transaction-utils.ts` |
 | Vault addresses                  | `lib/config/vaults.ts`                                   |
