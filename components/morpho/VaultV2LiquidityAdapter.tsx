@@ -33,7 +33,7 @@ import { curatorWriteToCalldata } from '@/lib/morpho/vault-v2-curator-write';
 import type { VaultV2GovernanceResponse } from '@/app/api/vaults/[id]/governance/route';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/[id]/risk/route';
 import { vaultV2GovernanceQueryKey } from '@/lib/hooks/useVaultV2Governance';
-import { queueSafeTransaction } from '@/lib/safe/queue-vault-write';
+import { queueSafeTransaction } from '@/lib/safe/queue-vault-write-lazy';
 import { getConnectorProvider } from '@/lib/wallet/connector-provider';
 import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import { ALLOCATION_SAFE_ROLE, type SafeRole } from '@/lib/safe/config';

@@ -13,9 +13,9 @@ vault mechanics, contract wiring, or the data flow.
 - **Review `TODO.md` at the start of every session.** It is the running task list
   for the repo. Work the "Today" section top-to-bottom unless the user
   directs otherwise; leave "Later" items alone unless asked.
-- **Closed-loop brain:** [`docs/brain/README.md`](docs/brain/README.md) — session
-  protocol, changelog, Morpho MCP. Append `docs/brain/CHANGELOG.md` when you
-  finish substantive work. Cursor rule: `.cursor/rules/muscadine-brain.mdc`.
+- **Closed-loop brain:** [`docs/README.md`](docs/README.md) — session
+  protocol, changelog, Morpho MCP. Append `docs/CHANGELOG.md` when you
+  finish substantive work.
 - **Before pushing:** run `npm run lint` and `npm run build` and make sure all pass.
 - **Git, branches and PRs:** AI assistants may commit, create branches, push those branches, and open pull requests without asking first. **Never push to, commit directly on, force-push, or merge into `main`** — every change reaches `main` only through a PR that the user merges. Work on a feature branch (create one if you are on `main`).
 
@@ -647,6 +647,10 @@ chains, so with Base-only config it stays 8453 and the hint would never show. Th
   `computeSharePriceUsdSeries`, `VAULT_SHARE_DECIMALS = 18`).
 
 ### 4.4.1 Morpho GraphQL schema drift (do not regress)
+
+> **Deprecation:** Morpho shuts down `api.morpho.org/graphql` on **January 29, 2027**.
+> The REST migration plan (endpoint map, file-by-file, gaps) is in
+> [`docs/morpho-rest-migration.md`](docs/morpho-rest-migration.md).
 
 Morpho’s public GraphQL schema changed; invalid fields fail the **whole** query.
 Symptoms: empty `GET /api/vaults`, “Unknown V2 Vault” detail fallbacks, 500s on
@@ -1534,7 +1538,7 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
   Do not upgrade to wagmi 3 until AppKit supports it.
 - **TypeScript 6** — installed `typescript-eslint` peers `typescript >=4.8.4 <6.1.0`;
   stay on `typescript@^6.0.3` (not 7).
-- **ox 0.14 / Vitest 5** — `ox@0.14.65` (exact: the version viem 2.57.19 depends on; bump both together), `vitest@^5.1.0`, with `vite@^8.3.5` because Vitest 5 imports Vite directly. ox 1 stays off.
+- **ox 0.14 / Vitest 5** — `ox@0.14.67` (exact: the version viem 2.58.1 depends on; bump both together — `viem` is pinned exact too, so `npm update` cannot pull a viem that needs a newer ox), `vitest@^5.1.1`, with `vite@^8.3.5` because Vitest 5 imports Vite directly. ox 1 stays off.
 - **`sharp` override** — `>=0.35.4`, matching Next’s optional `sharp@^0.35.4`
   (libvips CVEs, GHSA-f88m-g3jw-g9cj).
 - **`eslint.config.mjs`** — official Next.js flat config:
@@ -1621,7 +1625,7 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
 | Amount MAX (Safe send/receive)   | `components/morpho/AmountMaxInput.tsx` |
 | Nav areas                        | `lib/nav/areas.ts`, `components/layout/Topbar.tsx`, `Sidebar.tsx` |
 | Oracle Portal link               | `MORPHO_ORACLE_PORTAL_URL` in `lib/constants/links.ts` → https://oracles.morpho.dev/ |
-| Brain / session loop             | `docs/brain/`, `.cursor/rules/muscadine-brain.mdc`, `.cursor/mcp.json` |
+| Brain / session loop             | `docs/`, `.cursor/mcp.json` |
 | V2 on-chain allocation overlay   | `lib/morpho/overlay-v2-onchain-caps.ts` |
 | V2 tx user resolution            | `lib/morpho/vault-v2-transaction-utils.ts` |
 | Vault addresses                  | `lib/config/vaults.ts`                                   |
@@ -1801,7 +1805,7 @@ guard, address book)
 
 | Concern | File |
 | ------- | ---- |
-| Queue any Safe tx | `lib/safe/queue-vault-write.ts` (`queueSafeTransaction`, `queueSafeBatch`) |
+| Queue any Safe tx | `lib/safe/queue-vault-write.ts` (`queueSafeTransaction`, `queueSafeBatch`). Vault components import `lib/safe/queue-vault-write-lazy.ts` instead, so the Safe SDK + ethers (~900 KB) load on first queue, not with every vault page. Keep new vault-page imports on the lazy module. |
 | Queue from vault | `lib/safe/build-vault-calldata.ts` |
 | Queue a transfer | `lib/safe/queue-transfer.ts`, `build-transfer-calldata.ts` |
 | Token registry + balances | `lib/safe/tokens.ts`, `read-balances.ts`, `custom-token-store.ts` |
@@ -2112,5 +2116,5 @@ preview, client fetch/cache (§4.3), app/API route paths (§2, §4.7, `next.conf
 redirects), Morpho GraphQL field names (§4.4.1), Curator markets browser (§4.7),
 vault list/sidebar (§4.3.1), vault overview/history (share price in §4.4), risk scoring (§4.5), V2 idle/Blue/fee-wrapper display (§3.2.1), pending/emergency
 tabs, wallet stack, Multisig Safe (§13), formatting, CCTP status (§14 removed), global
-density (§16), brain/MCP (`docs/brain/`), or add a new vault interaction, update Sections 3–6, 4.2–4.7, 9–10,
-13–14, 16–18 accordingly, and append `docs/brain/CHANGELOG.md`._
+density (§16), brain/MCP (`docs/`), or add a new vault interaction, update Sections 3–6, 4.2–4.7, 9–10,
+13–14, 16–18 accordingly, and append `docs/CHANGELOG.md`._

@@ -1,12 +1,12 @@
 # AGENTS.md — Working Instructions for AI Assistants
 
-**Brain hub (closed loop):** [`docs/brain/README.md`](docs/brain/README.md) — session protocol, changelog, Morpho MCP.  
+**Brain hub (closed loop):** [`docs/README.md`](docs/README.md) — session protocol, changelog, Morpho MCP.  
 This file is the **invariants contract**. Deep architecture: **`CLAUDE.md`**. Intent queue: **`TODO.md`**.
 
 ## Session checklist
 
 1. **Read `TODO.md` first.** Work "Today" top-to-bottom unless directed otherwise. "Later" is out of scope unless asked.
-2. **Follow the brain loop** (`docs/brain/README.md`): load context → use Morpho MCP for live Morpho data when needed → implement → close loop (TODO + `docs/brain/CHANGELOG.md` + docs).
+2. **Follow the brain loop** (`docs/README.md`): load context → use Morpho MCP for live Morpho data when needed → implement → close loop (TODO + `docs/CHANGELOG.md` + docs).
 3. **Read relevant `CLAUDE.md` sections** (especially §3 vault mental model and §5 reallocation UX) before changing allocation logic. Create-market: §18.
 4. After substantive changes, run and pass:
 
@@ -43,7 +43,7 @@ npm run build   # next build
   wrapper adapter contracts. Catalog lists underlying and test vaults using
   Morpho/on-chain names. `underlyingAddress` is
   the GraphQL fallback for the child vault. Send-assets gate (underlying strategy
-  vaults only): `lib/config/deposit-gates.ts` (`docs/brain/deposit-gates.md`).
+  vaults only): `lib/config/deposit-gates.ts` (`docs/deposit-gates.md`).
   Gate calldata / propose: muscadine-onchain CLI. In this app, `/curator/gates`
   + `GET /api/gates/[address]` read the live gate and queue `setIsWhitelisted` /
   `setIsWhitelister` through Allocator / Curator Safes.
@@ -102,6 +102,10 @@ npm run build   # next build
   `CURATOR_REFETCH_INTERVAL_MS` and default `staleTime` are **30s** (capped via
   `API_CACHE_MAX_AGE_MS` in `lib/api/response-cache.ts`).
 - **No server-side private keys** — all writes go through the connected wallet.
+- **Safe queue on vault pages** — vault components import `queueSafeTransaction` /
+  `queueVaultRebalanceInSafe` from `lib/safe/queue-vault-write-lazy.ts`, not
+  `queue-vault-write`, so the Safe SDK + ethers (~900 KB) load on first queue
+  instead of with every vault page.
 - **Multisig Safe** — Muscadine Allocator/Sentinel Safes (`lib/safe/config.ts`):
   queue from vault Allocation/Sentinel preview when governance lists the Safe as
   role holder; **owners sign** on `/safe/[role]`; **any connected wallet can
@@ -117,6 +121,8 @@ npm run build   # next build
   manifest at `public/manifest.json` (`muscadinelogo.svg`). Post-execute refetch
   via `refetch-vault-after-safe-execute.ts`; queue previews always shown (stored
   or decoded calldata in `decode-vault-calldata-preview.ts`). See `CLAUDE.md` §13.
+- **Morpho GraphQL shuts down Jan 29, 2027.** REST migration plan:
+  `docs/morpho-rest-migration.md`.
 - **Morpho GraphQL** — use `marketId` → app `marketKey` (not `uniqueKey`);
   `oracle.address` (not `Market.oracleAddress`); V2 overview txs use
   `vaultV2transactions`. Client logs `extensions.warnings` via
@@ -181,5 +187,5 @@ npm run build   # next build
 - **Dependency pins** — ESLint **9.39.x**, wagmi **2.19.x**, TypeScript **6.0.x**
   (`typescript-eslint` peers `<6.1.0`), ox **0.14.x**, Vitest **5.0.x**. Do not
   bump ESLint 10, wagmi 3, TypeScript 7, or ox 1 (§11).
-- Keep `docs/brain/` (changelog + MCP), `CLAUDE.md`, `AGENTS.md`, and `TODO.md`
+- Keep `docs/` (changelog + MCP), `CLAUDE.md`, `AGENTS.md`, and `TODO.md`
   in sync with behavior changes (closed loop).

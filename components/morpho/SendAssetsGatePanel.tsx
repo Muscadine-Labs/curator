@@ -27,7 +27,7 @@ import {
 } from '@/lib/morpho/vault-v2-gates';
 import type { TxPreview } from '@/lib/morpho/tx-preview';
 import type { SafeRole } from '@/lib/safe/config';
-import { queueSafeTransaction } from '@/lib/safe/queue-vault-write';
+import { queueSafeTransaction } from '@/lib/safe/queue-vault-write-lazy';
 import { getConnectorProvider } from '@/lib/wallet/connector-provider';
 import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import {

@@ -10,8 +10,8 @@ The server is experimental and pre-v1.0. Tool names and schemas can change. Do n
 
 | Client | File |
 |--------|------|
-| Cursor | [`.cursor/mcp.json`](../../.cursor/mcp.json) |
-| Claude Code | [`.mcp.json`](../../.mcp.json) |
+| Cursor | [`.cursor/mcp.json`](../.cursor/mcp.json) |
+| Claude Code | [`.mcp.json`](../.mcp.json) |
 
 ```json
 {

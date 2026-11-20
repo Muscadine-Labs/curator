@@ -57,7 +57,7 @@ import {
   publicAllocatorWriteConfig,
 } from '@/lib/onchain/public-allocator-calldata';
 import { ALLOCATION_SAFE_ROLE } from '@/lib/safe/config';
-import { queueSafeTransaction } from '@/lib/safe/queue-vault-write';
+import { queueSafeTransaction } from '@/lib/safe/queue-vault-write-lazy';
 import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import {
   canConfirmVaultWriteDestination,

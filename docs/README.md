@@ -19,7 +19,7 @@ Single entry for AI sessions. Deep architecture stays in **`CLAUDE.md`**. This f
 4. **Implement** — match existing patterns; no server private keys; wallet writes only.
 5. **Close the loop** before ending:
    - Mark items in `TODO.md` (move to Done or check off).
-   - Append `docs/brain/CHANGELOG.md`.
+   - Append `docs/CHANGELOG.md`.
    - Update `AGENTS.md` / `CLAUDE.md` if behavior or routes changed.
    - Run `npm run lint` (and `npm run build` before push).
 
@@ -28,7 +28,7 @@ Single entry for AI sessions. Deep architecture stays in **`CLAUDE.md`**. This f
 | Doc | Role | Edit when |
 |-----|------|-----------|
 | **`TODO.md`** | Intent queue | Starting/finishing work |
-| **`docs/brain/`** | Closed-loop hub + changelog + MCP | Every substantive session |
+| **`docs/`** | Closed-loop hub + changelog + MCP | Every substantive session |
 | **`AGENTS.md`** | Short invariants contract | Routes, auth, write rules, polling |
 | **`CLAUDE.md`** | Deep architecture | Vault mechanics, GraphQL, Safe, formatting |
 | **`.cursor/rules/*.mdc`** | Always-on Cursor rules | Session protocol changes |
@@ -60,4 +60,4 @@ Single entry for AI sessions. Deep architecture stays in **`CLAUDE.md`**. This f
 
 ## Refactor status
 
-Brain hub + Morpho MCP + session rule are **in use** (closed loop). `TODO.md` has no Later items. Optional next, only if asked: thin `AGENTS.md` further, or split oversized `CLAUDE.md` chapters into `docs/brain/topics/` when a section is edited often.
+Brain hub + Morpho MCP + session rule are **in use** (closed loop). `TODO.md` has no Later items. Optional next, only if asked: thin `AGENTS.md` further, or split oversized `CLAUDE.md` chapters into `docs/topics/` when a section is edited often.

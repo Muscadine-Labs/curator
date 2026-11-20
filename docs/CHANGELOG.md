@@ -4,6 +4,26 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-20 — `docs/brain/` flattened to `docs/`
+
+- Every file in `docs/` lived under `docs/brain/`, so they moved up one level (`docs/README.md`, `CHANGELOG.md`, `MCP.md`, `deposit-gates.md`, `morpho-rest-migration.md`). References in `CLAUDE.md`, `AGENTS.md`, `TODO.md`, `lib/config/deposit-gates.ts` and app `CLAUDE.md` updated; `MCP.md` relative links now go up one level.
+
+## 2026-11-20 — Repo review: smaller vault pages, viem pin
+
+- Vault pages no longer bundle the Safe SDK + ethers (892 KB chunk): seven vault components queue through `lib/safe/queue-vault-write-lazy.ts`, which imports `queue-vault-write` on first use. The chunk now loads only on `/safe/*`.
+- `viem` pinned exact (2.58.1) to match the exact `ox` pin.
+- Review sweep found nothing else to fix: tsc, lint, 376 tests, build and `npm audit` clean; no stray console calls, no server keys in client files, every interval / listener cleaned up, every server fetch has a timeout. knip findings are known false positives (config-alias files, `$ox` / root `valtio`, eslint config packages, test-only exports).
+
+## 2026-11-19 — Dependency update
+
+- viem 2.58.1 with ox 0.14.67 (viem's own ox version), @tanstack/react-query(+devtools) 5.108.1, recharts 3.11.0, lucide-react 1.76.0, vitest 5.1.1; lockfile refreshed. Held on purpose: wagmi 2 and Reown AppKit 1.8.24 (AppKit 2.0 needs wagmi 3), ESLint 9, TypeScript 6, ox 0.14, @types/node 24. Lint, tests and build pass.
+- Independent review fixes to `morpho-rest-migration.md`: history sampling per lookback (`one_year` weekly), `apy/history` points are trailing averages, `/v0/vaults-v2` lists listed vaults only (ours are unlisted), adapter kind `morpho_market_v1_v2`, pending `parameters` are not calldata, sustained rate limit ~333/min.
+
+## 2026-11-19 — Morpho REST migration plan
+
+- Morpho GraphQL (`api.morpho.org/graphql`) shuts down 2027-01-29. Added `docs/morpho-rest-migration.md`: REST endpoint map (checked against the OpenAPI spec and live mpUSDC), file-by-file plan, and gaps (holders, vault txs, allocation txs, liquidations / suppliers, bad debt, USD history). No code change.
+- Added §6 to that doc: proposed hybrid approach (shared on-chain multicall snapshot for current state, REST only for history / wallet history / pending / roles), marked under consideration.
+
 ## 2026-11-15 — Second review pass
 
 - `batchVaultV2ByAddress` single-vault retries map only GraphQL errors to null; a timeout / 429 / network error fails the read, so a list with a real vault missing is never cached.
@@ -314,7 +334,7 @@ Measured on the production build with server-side fetch logging and a browser dr
 
 ## 2026-10-31 — Morpho MCP is the hosted server
 
-- `docs/brain/MCP.md` now points at Morpho's public MCP (`https://mcp.morpho.org/`), not the community `mcp-morpho-server` package. No account and no API key. Cursor config is `.cursor/mcp.json`; Claude Code config is `.mcp.json`. Prepare tools are not a write path for this app.
+- `docs/MCP.md` now points at Morpho's public MCP (`https://mcp.morpho.org/`), not the community `mcp-morpho-server` package. No account and no API key. Cursor config is `.cursor/mcp.json`; Claude Code config is `.mcp.json`. Prepare tools are not a write path for this app.
 
 ---
 
@@ -617,13 +637,13 @@ Measured on the production build with server-side fetch logging and a browser dr
 ## 2026-09-05 — Gate verify CLI + app config-only allowlist
 
 - `npm run gates:verify` — RPC read of `sendAssetsGate`, gate `isWhitelisted`, vault `canSendAssets` vs config.
-- Docs: app never calls gate RPC; run verify after every allowlist change (`docs/brain/deposit-gates.md`).
+- Docs: app never calls gate RPC; run verify after every allowlist change (`docs/deposit-gates.md`).
 
 ## 2026-09-05 — Send-assets gate config (no deploy)
 
 - `lib/config/deposit-gates.ts`: underlying-only gate on four strategy vaults; gate whitelist = 4 adapters + 5 partner/Treasury depositors (9 total). Wrappers stay open.
 - Gate ABI + `npm run gates:calldata` (requires `SEND_ASSETS_GATE_ADDRESS` after external deploy).
-- Docs: `docs/brain/deposit-gates.md`.
+- Docs: `docs/deposit-gates.md`.
 
 ## 2026-09-04 — Wrapper adapters + treasury migration
 
