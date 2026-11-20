@@ -20,7 +20,7 @@ import { TxPreviewDialog } from '@/components/morpho/TxPreviewDialog';
 import { isBroadcastTxHash, isWalletRejection } from '@/lib/utils/wallet-error';
 import { buildAllocationRebalancePreview } from '@/lib/morpho/tx-preview';
 import type { TxPreview } from '@/lib/morpho/tx-preview';
-import { queueVaultRebalanceInSafe } from '@/lib/safe/queue-vault-write';
+import { queueVaultRebalanceInSafe } from '@/lib/safe/queue-vault-write-lazy';
 import { getConnectorProvider } from '@/lib/wallet/connector-provider';
 import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import {

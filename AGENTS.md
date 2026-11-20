@@ -102,6 +102,10 @@ npm run build   # next build
   `CURATOR_REFETCH_INTERVAL_MS` and default `staleTime` are **30s** (capped via
   `API_CACHE_MAX_AGE_MS` in `lib/api/response-cache.ts`).
 - **No server-side private keys** — all writes go through the connected wallet.
+- **Safe queue on vault pages** — vault components import `queueSafeTransaction` /
+  `queueVaultRebalanceInSafe` from `lib/safe/queue-vault-write-lazy.ts`, not
+  `queue-vault-write`, so the Safe SDK + ethers (~900 KB) load on first queue
+  instead of with every vault page.
 - **Multisig Safe** — Muscadine Allocator/Sentinel Safes (`lib/safe/config.ts`):
   queue from vault Allocation/Sentinel preview when governance lists the Safe as
   role holder; **owners sign** on `/safe/[role]`; **any connected wallet can

@@ -1538,7 +1538,7 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
   Do not upgrade to wagmi 3 until AppKit supports it.
 - **TypeScript 6** — installed `typescript-eslint` peers `typescript >=4.8.4 <6.1.0`;
   stay on `typescript@^6.0.3` (not 7).
-- **ox 0.14 / Vitest 5** — `ox@0.14.67` (exact: the version viem 2.58.1 depends on; bump both together), `vitest@^5.1.1`, with `vite@^8.3.5` because Vitest 5 imports Vite directly. ox 1 stays off.
+- **ox 0.14 / Vitest 5** — `ox@0.14.67` (exact: the version viem 2.58.1 depends on; bump both together — `viem` is pinned exact too, so `npm update` cannot pull a viem that needs a newer ox), `vitest@^5.1.1`, with `vite@^8.3.5` because Vitest 5 imports Vite directly. ox 1 stays off.
 - **`sharp` override** — `>=0.35.4`, matching Next’s optional `sharp@^0.35.4`
   (libvips CVEs, GHSA-f88m-g3jw-g9cj).
 - **`eslint.config.mjs`** — official Next.js flat config:
@@ -1805,7 +1805,7 @@ guard, address book)
 
 | Concern | File |
 | ------- | ---- |
-| Queue any Safe tx | `lib/safe/queue-vault-write.ts` (`queueSafeTransaction`, `queueSafeBatch`) |
+| Queue any Safe tx | `lib/safe/queue-vault-write.ts` (`queueSafeTransaction`, `queueSafeBatch`). Vault components import `lib/safe/queue-vault-write-lazy.ts` instead, so the Safe SDK + ethers (~900 KB) load on first queue, not with every vault page. Keep new vault-page imports on the lazy module. |
 | Queue from vault | `lib/safe/build-vault-calldata.ts` |
 | Queue a transfer | `lib/safe/queue-transfer.ts`, `build-transfer-calldata.ts` |
 | Token registry + balances | `lib/safe/tokens.ts`, `read-balances.ts`, `custom-token-store.ts` |

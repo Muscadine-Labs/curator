@@ -76,7 +76,7 @@ import { parseCapDecreaseInput } from '@/lib/morpho/cap-decrease-input';
 import type { TxPreview } from '@/lib/morpho/tx-preview';
 import type { Address, Hex } from 'viem';
 import { getAddress } from 'viem';
-import { queueSafeTransaction } from '@/lib/safe/queue-vault-write';
+import { queueSafeTransaction } from '@/lib/safe/queue-vault-write-lazy';
 import { getConnectorProvider } from '@/lib/wallet/connector-provider';
 import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import type { SafeRole } from '@/lib/safe/config';

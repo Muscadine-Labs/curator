@@ -40,7 +40,7 @@
     "recharts": "^3.11.0",
     "tailwind-merge": "^3.7.0",
     "valtio": "^2.3.2",
-    "viem": "^2.58.1",
+    "viem": "2.58.1",
     "wagmi": "^2.19.5"
   },
   "devDependencies": {

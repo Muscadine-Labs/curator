@@ -47,7 +47,7 @@ import {
   walletCanRevokePending,
   type VaultWriteDestination,
 } from '@/lib/safe/vault-write-destination';
-import { queueSafeTransaction } from '@/lib/safe/queue-vault-write';
+import { queueSafeTransaction } from '@/lib/safe/queue-vault-write-lazy';
 import { getConnectorProvider } from '@/lib/wallet/connector-provider';
 import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import { vaultV2GovernanceQueryKey } from '@/lib/hooks/useVaultV2Governance';

@@ -4,6 +4,12 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-20 — Repo review: smaller vault pages, viem pin
+
+- Vault pages no longer bundle the Safe SDK + ethers (892 KB chunk): seven vault components queue through `lib/safe/queue-vault-write-lazy.ts`, which imports `queue-vault-write` on first use. The chunk now loads only on `/safe/*`.
+- `viem` pinned exact (2.58.1) to match the exact `ox` pin.
+- Review sweep found nothing else to fix: tsc, lint, 376 tests, build and `npm audit` clean; no stray console calls, no server keys in client files, every interval / listener cleaned up, every server fetch has a timeout. knip findings are known false positives (config-alias files, `$ox` / root `valtio`, eslint config packages, test-only exports).
+
 ## 2026-11-19 — Dependency update
 
 - viem 2.58.1 with ox 0.14.67 (viem's own ox version), @tanstack/react-query(+devtools) 5.108.1, recharts 3.11.0, lucide-react 1.76.0, vitest 5.1.1; lockfile refreshed. Held on purpose: wagmi 2 and Reown AppKit 1.8.24 (AppKit 2.0 needs wagmi 3), ESLint 9, TypeScript 6, ox 0.14, @types/node 24. Lint, tests and build pass.

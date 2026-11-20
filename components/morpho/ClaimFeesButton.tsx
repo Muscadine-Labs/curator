@@ -15,7 +15,7 @@ import type { TxPreview } from '@/lib/morpho/tx-preview';
 import { isBroadcastTxHash, isWalletRejection } from '@/lib/utils/wallet-error';
 import { getConnectorProvider } from '@/lib/wallet/connector-provider';
 import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
-import { queueSafeTransaction } from '@/lib/safe/queue-vault-write';
+import { queueSafeTransaction } from '@/lib/safe/queue-vault-write-lazy';
 import {
   canConfirmPendingAcceptDestination,
   defaultPendingAcceptDestination,
