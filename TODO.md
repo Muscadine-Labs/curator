@@ -4,4 +4,4 @@ Running task list for agents and humans. Work **Today** top-to-bottom unless dir
 
 ## Today
 
-- **Migrate Morpho GraphQL → REST before Jan 29, 2027** (GraphQL shuts down then). Plan, endpoint map and gaps (holders, vault txs, liquidations, USD history): `docs/brain/morpho-rest-migration.md`.
+- **Migrate Morpho GraphQL → REST before Jan 29, 2027** (GraphQL shuts down then). Plan (work in progress), endpoint map and gaps (holders, vault txs, liquidations, USD history): `docs/brain/morpho-rest-migration.md`.

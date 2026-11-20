@@ -1,4 +1,4 @@
-# Morpho GraphQL → REST migration (curator)
+# Morpho GraphQL → REST migration (curator) — work in progress
 
 Morpho is shutting down `https://api.morpho.org/graphql` on **January 29, 2027**.
 Curator's vault, market, history, statement and activity routes all use it
@@ -15,7 +15,8 @@ Sources (reviewed 2026-11-19):
 The paths and fields below come from that spec. They were also called live
 against mpUSDC (`8453:0x8971…b496`) on 2026-11-19.
 
-Status: **plan only. No code has changed yet.**
+> **Work in progress.** This plan is a draft and will change: Morpho is still
+> adding REST fields, and nothing below is decided. No code has changed yet.
 
 ---
 
