@@ -71,7 +71,10 @@ Muscadine for managing and reporting on Morpho-style vaults on Base (chainId
   `coinbaseWallet` so AppKit lists it and adds no second one) are lazy
   (`lib/wallet/lazy-connectors.ts`: kept out of wagmi's mount-time reconnect, so
   each SDK and its COOP `HEAD` request run only once it is used; a disconnect, from
-  the app or the wallet, is remembered). `@coinbase/wallet-sdk` is pinned at 4.4
+  the app or the wallet, is remembered, and cleared only after a successful connect).
+  `preloadWalletSdks()` fetches both SDK chunks when Connect is opened
+  (`ConnectWalletButton`, `TransactionButton`; same-origin, starts no SDK) so the
+  first connect does not import between the click and the wallet popup. `@coinbase/wallet-sdk` is pinned at 4.4
   (no telemetry) and the `@reown/appkit-utils` override dedupes AppKit's nested SDK
   copies onto ours.
   npm scripts set `NEXT_TELEMETRY_DISABLED=1`. AppKit's font variables are
