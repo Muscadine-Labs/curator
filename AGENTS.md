@@ -185,7 +185,7 @@ npm run build   # next build
 - **Token display decimals** — `getTokenDisplayDecimals`: WETH/cbBTC → 6, USDC → 3
   (holders, txs, allocation history, markets token lines).
 - **Dependency pins** — ESLint **9.39.x**, wagmi **3.7.x** + Reown AppKit **2.0.x** (bump together), TypeScript **6.0.x**
-  (`typescript-eslint` peers `<6.1.0`), ox **0.14.x**, Vitest **5.0.x**. Do not
+  (`typescript-eslint` peers `<6.1.0`), ox **0.14.x**, Vitest **5.1.x**. Do not
   bump ESLint 10, TypeScript 7, or ox 1 (§11).
 - Keep `docs/` (changelog + MCP), `CLAUDE.md`, `AGENTS.md`, and `TODO.md`
   in sync with behavior changes (closed loop).

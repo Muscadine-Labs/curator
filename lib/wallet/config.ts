@@ -59,8 +59,9 @@ export const wagmiAdapter = new WagmiAdapter({
   networks,
   /**
    * Register Base Account and Coinbase here so AppKit does not add its defaults.
-   * Defaults post telemetry to as.coinbase.com, which tracker blockers reject.
-   * Coinbase's id is rewritten to `coinbaseWallet` in coinbaseWalletForAppKit.
+   * AppKit's default Base Account connector posts telemetry to as.coinbase.com, which
+   * tracker blockers reject; ours turns it off. Coinbase's id is rewritten to
+   * `coinbaseWallet` in coinbaseWalletForAppKit so AppKit does not add a second one.
    */
   connectors: [
     baseAccount({

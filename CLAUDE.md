@@ -1257,7 +1257,7 @@ Rules:
 - `v2WriteConfigs.increase/decreaseAbsoluteCap`, relative cap variants
 
 `lib/hooks/useVaultWrite.ts` wraps `wagmi`'s write hooks to expose
-`{ write, isPending, isSuccess, error, txHash }`. Always pass a fully-built
+`{ write, txHash, receipt, isLoading, isWriting, isConfirming, isSuccess, error, reset }`. Always pass a fully-built
 config object produced by the helpers above — do **not** hand-roll ABIs in
 components.
 
@@ -1536,7 +1536,7 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
 - **ESLint 9** — `eslint@^9.39.5` and `@eslint/js@^9.39.5`. Do **not** upgrade to
   ESLint 10 while using `eslint-config-next`; transitive plugins (`eslint-plugin-react`,
   etc.) still break on removed ESLint 10 APIs.
-- **wagmi 3 / AppKit 2** — `wagmi@^3.7.11`, `@reown/appkit*@^2.0.0`,
+- **wagmi 3 / AppKit 2** — `wagmi@3.7.11` (exact: it pins `@wagmi/core` / `@wagmi/connectors` exactly, so a looser range would let `npm update` mismatch them against the overrides), `@reown/appkit*@^2.0.0`,
   `@wagmi/connectors@8.2.4` (direct, `$` override) and `@wagmi/core` 3.6.9
   (override). AppKit 2 peers wagmi / `@wagmi/core` ≥3 and `@wagmi/connectors`
   ≥8, so bump them together. Connector SDKs are optional peers in connectors 8:
@@ -1546,10 +1546,16 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
   `wagmi/connectors` barrel: the barrel pulls in MetaMask / WalletConnect /
   Tempo connectors whose SDKs are not installed, and webpack warns on every
   build. wagmi 3 API names: `useConnection` (not `useAccount`), `useConnectors` (not `useConnect().connectors`), and `mutate` / `mutateAsync` on mutation hooks (`useConnect`, `useSwitchChain`, `useWriteContract`, `useSendTransaction`) instead of `connectAsync` / `switchChainAsync` / `writeContractAsync` / `sendTransactionAsync`; the old names are deprecated aliases. `useBalance` has no `formatted` field (use viem `formatUnits(value, decimals)`).
+- **`npm ls` noise** — `@x402/*` 2.27.0 (pinned by `@reown/appkit-utils`) shows as
+  invalid for `@coinbase/cdp-sdk`'s optional `^2.29.0` peer. Never bundled
+  (`next.config.ts` aliases the client paths); `.npmrc` `legacy-peer-deps=true`
+  keeps `npm ci` passing. Overrides for packages no longer in the tree (`uuid`,
+  `lodash`, `hono`, `socket.io-parser`, `decode-uri-component`) were removed; `qr`
+  stays as a WalletConnect QR crash guard.
 - **TypeScript 6** — installed `typescript-eslint` peers `typescript >=4.8.4 <6.1.0`;
   stay on `typescript@^6.0.3` (not 7).
-- **ox 0.14 / Vitest 5** — `ox@0.14.67` (exact: the version viem 2.58.6 depends on; bump both together — `viem` is pinned exact too, so `npm update` cannot pull a viem that needs a newer ox), `vitest@^5.1.1`, with `vite@^8.3.5` because Vitest 5 imports Vite directly. ox 1 stays off.
-- **`sharp` override** — `>=0.35.4`, matching Next’s optional `sharp@^0.35.4`
+- **ox 0.14 / Vitest 5** — `ox@0.14.67` (exact: the version viem 2.58.6 depends on; bump both together — `viem` is pinned exact too, so `npm update` cannot pull a viem that needs a newer ox), `vitest@^5.1.1`, with `vite@^8.3.8` because Vitest 5 imports Vite directly. ox 1 stays off.
+- **`sharp` override** — `>=0.35.5`, at or above Next’s optional `sharp@^0.35.4`
   (libvips CVEs, GHSA-f88m-g3jw-g9cj).
 - **`eslint.config.mjs`** — official Next.js flat config:
   `eslint-config-next/core-web-vitals` + `eslint-config-next/typescript` (lints all

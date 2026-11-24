@@ -30,7 +30,6 @@ const appKit = createAppKit({
   enableInjected: true,
   enableCoinbase: true,
   enableBaseAccount: true,
-  enableWalletConnect: true,
   enableWallets: true,
   allWallets: 'SHOW',
   featuredWalletIds: [
