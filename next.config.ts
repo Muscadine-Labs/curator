@@ -56,8 +56,8 @@ const nextConfig: NextConfig = {
       "lokijs",
       "encoding",
     ];
-    // viem → ox (Tempo chain) via @safe-global/api-kit: dynamic require in a dependency.
-    // Harmless for our Safe proposer route; silences "Compiled with warnings" on Vercel.
+    // ox's Tempo chain module (pulled in through viem) has a dynamic require; harmless.
+    // Silences "Compiled with warnings" on Vercel.
     config.ignoreWarnings = [
       ...(Array.isArray(config.ignoreWarnings) ? config.ignoreWarnings : []),
       {

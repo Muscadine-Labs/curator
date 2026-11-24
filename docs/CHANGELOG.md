@@ -4,6 +4,14 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-24 — Safe Queue Service migration
+
+- Safe moved the off-chain queue (proposals, signatures, pending list, delegates) from the Transaction Service to the Safe Queue Service (https://docs.safe.global/core-api/safe-queue-service-migration). `lib/safe/transaction-service.ts` now calls `https://api.safe.global/queue/api/v1` over REST: propose `POST /multisig-transactions` (response safeTxHash must match ours), sign `POST /multisig-transactions/{hash}/signatures`, pending `GET /multisig-transactions/queue?safes={safe}:8453`, proposers `GET /delegates?safe=…&chainId=8453`. 409 (already there, e.g. copied between services while both run) counts as done. Responses are normalized to Curator's shape (null zero addresses → zero address, null data → `0x`, lowercase → checksummed).
+- `@safe-global/api-kit` removed: 5.0.4 (latest) does not support the Queue Service, and nothing else used it. The `currentNonce` option is gone (the queue endpoint filters by the Safe's nonce itself).
+- Executed history (activity feed, bot watcher, gate roster, Safe History tab) stays on the Transaction Service, which keeps on-chain data.
+- Verified against the live service for every role Safe on Base (queue, delegates, proposal history reads). 10 new tests in `transaction-service.test.ts`. Not exercised: a live propose / sign (needs an owner key).
+- The Morpho GraphQL → REST migration (`docs/morpho-rest-migration.md`) is still work in progress and is not part of this change.
+
 ## 2026-11-24 — Review follow-ups: lazy Base Account, AppKit font
 
 - Base Account connector wrapped in `lazyBaseAccount` (`lib/wallet/lazy-base-account.ts`, tests beside it). wagmi's mount-time `reconnect()` calls `getProvider()` on every configured connector, so the Base Account SDK (and its COOP `HEAD` request) loaded on every page. It now wakes only when used, or when it was the last connector and was not disconnected; a disconnect is remembered and tolerates a provider without `disconnect`.

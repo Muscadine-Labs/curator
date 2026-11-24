@@ -381,11 +381,11 @@ export function SafeTransactionQueue({ account }: { account: SafeAccountConfig }
       setSyncCooldownUntil(Date.now() + 3_000);
       setSyncMessage(
         result.imported + result.updated > 0
-          ? `Synced ${result.imported} new and ${result.updated} updated proposal(s) from Transaction Service.`
-          : 'No pending proposals on Transaction Service for this Safe.'
+          ? `Synced ${result.imported} new and ${result.updated} updated proposal(s) from the Safe Queue Service.`
+          : 'No pending proposals on the Safe Queue Service for this Safe.'
       );
     } catch (error) {
-      setSyncError(error instanceof Error ? error.message : 'Failed to sync from Transaction Service.');
+      setSyncError(error instanceof Error ? error.message : 'Failed to sync from the Safe Queue Service.');
     } finally {
       setSyncing(false);
     }
@@ -454,7 +454,7 @@ export function SafeTransactionQueue({ account }: { account: SafeAccountConfig }
         )}
         {serviceEnabled && (
           <p className="text-xs text-muted-foreground">
-            Transaction Service: {SAFE_TX_SERVICE_RATE_LIMITS.requestsPerSecond} req/s max (client
+            Safe API: {SAFE_TX_SERVICE_RATE_LIMITS.requestsPerSecond} req/s max (client
             throttled); {SAFE_TX_SERVICE_RATE_LIMITS.requestsPerMonth.toLocaleString()} req/month
             on your API tier.
           </p>

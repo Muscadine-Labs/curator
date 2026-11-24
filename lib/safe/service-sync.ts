@@ -105,7 +105,7 @@ export async function syncPendingFromTransactionService(options: {
 }): Promise<{ imported: number; updated: number }> {
   if (!isTransactionServiceConfigured()) {
     throw new Error(
-      'Safe Transaction Service is not configured. Set NEXT_PUBLIC_SAFE_API_KEY in .env.'
+      'Safe API is not configured. Set NEXT_PUBLIC_SAFE_API_KEY in .env.'
     );
   }
 

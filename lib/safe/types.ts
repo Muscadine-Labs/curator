@@ -93,7 +93,7 @@ export type SafePendingTransaction = {
   createdAt: string;
   updatedAt: string;
   executedTxHash?: Hex;
-  /** Posted to Safe Transaction Service for other owners. */
+  /** Posted to the Safe Queue Service for other owners. */
   serviceSynced?: boolean;
   serviceSyncError?: string | null;
   /**
@@ -112,7 +112,7 @@ export type SafeOnChainInfo = {
   ethBalance: bigint;
 };
 
-/** Transaction Service delegate — can propose txs without being a Safe owner. */
+/** Safe Queue Service delegate — can propose txs without being a Safe owner. */
 export type SafeProposer = {
   address: Address;
   delegator: Address;

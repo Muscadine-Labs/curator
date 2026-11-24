@@ -4,7 +4,7 @@ export const SAFE_TX_SERVICE_MIN_INTERVAL_MS = 210;
 let rateLimitTail: Promise<unknown> = Promise.resolve();
 let lastCallAt = 0;
 
-/** Serialize Transaction Service calls so bursts stay under 5 req/s. */
+/** Serialize Safe API calls (Queue + Transaction Service share one account quota) so bursts stay under 5 req/s. */
 export function withSafeTxServiceRateLimit<T>(fn: () => Promise<T>): Promise<T> {
   const run = async (): Promise<T> => {
     const now = Date.now();

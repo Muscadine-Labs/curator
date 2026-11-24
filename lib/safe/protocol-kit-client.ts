@@ -151,10 +151,7 @@ export async function resolveNextSafeNonce(safeAddress: Address): Promise<number
   }
   if (isTransactionServiceConfigured()) {
     try {
-      // Pass the nonce we already read so the service is asked once, not twice.
-      const serviceTxs = await fetchPendingMultisigTransactions(safeAddress, {
-        currentNonce: onChain,
-      });
+      const serviceTxs = await fetchPendingMultisigTransactions(safeAddress);
       for (const tx of serviceTxs) {
         const n = Number(tx.nonce);
         if (Number.isFinite(n)) highest = Math.max(highest, n);

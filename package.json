@@ -20,7 +20,6 @@
     "@radix-ui/react-tabs": "^1.2.1",
     "@reown/appkit": "^2.0.0",
     "@reown/appkit-adapter-wagmi": "^2.0.0",
-    "@safe-global/api-kit": "^5.0.4",
     "@safe-global/protocol-kit": "^8.0.11",
     "@safe-global/safe-apps-react-sdk": "^4.7.2",
     "@safe-global/safe-apps-sdk": "^9.1.0",

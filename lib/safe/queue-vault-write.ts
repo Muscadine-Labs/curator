@@ -116,7 +116,7 @@ async function tryPublishViaSafeApp(
 
 /**
  * Unexecuted proposals queued for this Safe: local rows and (when configured)
- * Transaction Service rows, both filtered to the on-chain nonce so a local row
+ * Safe Queue Service rows, both filtered to the on-chain nonce so a local row
  * another client already executed does not count. A failed service read uses
  * local rows only; a failed nonce read keeps every row.
  */
@@ -124,10 +124,7 @@ async function countQueuedAheadForSafe(role: SafeRole, safeAddress: Address): Pr
   const local = listPendingForRole(role);
   const onChainNonce = await readOnChainNonce(safeAddress);
   const serviceTxs = isTransactionServiceConfigured()
-    ? await fetchPendingMultisigTransactions(
-        safeAddress,
-        onChainNonce != null ? { currentNonce: onChainNonce } : undefined
-      ).catch(() => [])
+    ? await fetchPendingMultisigTransactions(safeAddress).catch(() => [])
     : [];
   return countDistinctQueuedProposals(local, serviceTxs, onChainNonce);
 }
@@ -251,7 +248,7 @@ export async function queueVaultRebalanceInSafe(options: {
 
 /**
  * MultiSend must occupy the earliest selected nonce as a contiguous range.
- * Any selected row already on Transaction Service is refused: wrapping it in a
+ * Any selected row already on the Safe Queue Service is refused: wrapping it in a
  * local MultiSend would leave the original service proposal executable at that
  * nonce. DelegateCall rows are refused because this UI cannot safely fold them
  * into a Call MultiSend.
@@ -314,7 +311,7 @@ export function prepareSafeBatchSelection(
   for (const tx of sorted) {
     if (tx.serviceSynced) {
       throw new Error(
-        `Cannot batch nonce ${tx.nonce}: it is already on Transaction Service. Cancel or replace that proposal on the service first, or batch only local-only rows.`
+        `Cannot batch nonce ${tx.nonce}: it is already on the Safe Queue Service. Cancel or replace that proposal on the service first, or batch only local-only rows.`
       );
     }
     if (tx.operation === 1) {
@@ -353,16 +350,14 @@ export async function queueSafeBatch(options: {
     throw new Error('Could not read the Safe nonce. Refresh and try again.');
   }
   assertBatchNonceNotSpent(nonce, onChainNonce);
-  // A proposal made in another browser lives only on the Transaction Service until a sync.
+  // A proposal made in another browser lives only on the Safe Queue Service until a sync.
   // If it sits above the batch, folding the range would strand it behind the freed nonces.
   if (isTransactionServiceConfigured()) {
     const lastNonce = Number(ordered[ordered.length - 1]!.nonce);
     const selected = new Set(ordered.map((tx) => tx.safeTxHash.toLowerCase()));
-    const serviceTxs = await fetchPendingMultisigTransactions(safeAddress, {
-      currentNonce: onChainNonce,
-    }).catch(() => null);
+    const serviceTxs = await fetchPendingMultisigTransactions(safeAddress).catch(() => null);
     if (serviceTxs == null) {
-      throw new Error('Could not read Transaction Service proposals. Try again before batching.');
+      throw new Error('Could not read Safe Queue Service proposals. Try again before batching.');
     }
     const later = [
       ...new Set(
@@ -373,7 +368,7 @@ export async function queueSafeBatch(options: {
     ].sort((x, y) => x - y);
     if (later.length > 0) {
       throw new Error(
-        `Batch must include the last queued nonce. Transaction Service proposals at nonce ${later.join(', ')} would be stranded behind the freed nonces — sync and include them, or remove them first.`
+        `Batch must include the last queued nonce. Safe Queue Service proposals at nonce ${later.join(', ')} would be stranded behind the freed nonces — sync and include them, or remove them first.`
       );
     }
   }
@@ -406,7 +401,7 @@ export async function queueSafeBatch(options: {
     preview: {
       title: `Batch ${ordered.length} proposals`,
       description:
-        'Wrapped as one Safe MultiSend at the earliest selected nonce. Rows already on Transaction Service, or DelegateCall rows, are refused so leftover proposals cannot stay executable after the batch.',
+        'Wrapped as one Safe MultiSend at the earliest selected nonce. Rows already on the Safe Queue Service, or DelegateCall rows, are refused so leftover proposals cannot stay executable after the batch.',
       changes: ordered.map((row) => ({
         action: 'batch' as const,
         label: row.description,
