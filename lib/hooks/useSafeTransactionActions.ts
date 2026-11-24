@@ -132,7 +132,7 @@ export function useSafeTransactionActions(threshold: number | undefined) {
           } catch (serviceError) {
             const message = errorMessage(
               serviceError,
-              'Signature saved locally but failed to post to Transaction Service.'
+              'Signature saved locally but failed to post to the Safe Queue Service.'
             );
             updatePendingTransaction(tx.id, { serviceSyncError: message });
           }
@@ -145,7 +145,7 @@ export function useSafeTransactionActions(threshold: number | undefined) {
     (tx: SafePendingTransaction) =>
       runAction(
         tx,
-        'Failed to share with Transaction Service.',
+        'Failed to share with the Safe Queue Service.',
         async () => {
           const { signer, provider } = await prepareSigner();
           const signature = await signSafeTransactionHash({

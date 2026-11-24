@@ -70,7 +70,7 @@ Copy `.env.example` → `.env.local`. Summary:
 | `ALCHEMY_API_KEY` | Recommended | Server RPC; public Base RPC if missing |
 | `NEXT_PUBLIC_ALCHEMY_API_KEY` | Recommended | Client RPC |
 | `NEXT_PUBLIC_APP_URL` | No | Default `http://localhost:3001` |
-| `NEXT_PUBLIC_SAFE_API_KEY` | **Yes for `/curator/gates`** | Safe Transaction Service sync and gate whitelist history (free tier) |
+| `NEXT_PUBLIC_SAFE_API_KEY` | **Yes for `/curator/gates`** | Safe API: Queue Service sync (proposals, signatures, proposers) and Transaction Service history incl. gate whitelist (free tier) |
 | `CURATOR_ADMIN_PASSWORD` | **Yes to log in** | Username is `admin` |
 | `CURATOR_SESSION_SECRET` | No | Dedicated session HMAC; login password is the fallback |
 | `CURATOR_SESSION_VERSION` | No | Bump to invalidate sessions |

@@ -3,6 +3,7 @@
 import { useCallback } from 'react';
 import { useConnection } from 'wagmi';
 import { useAppKit } from '@reown/appkit/react';
+import { preloadWalletSdks } from '@/lib/wallet/lazy-connectors';
 import { Button } from '@/components/ui/button';
 import { useIsClient } from '@/lib/hooks/useIsClient';
 import { useWalletDisplayName } from '@/lib/hooks/useWalletDisplayName';
@@ -25,6 +26,7 @@ export function ConnectWalletButton({
   const { displayName } = useWalletDisplayName(address);
 
   const handleClick = useCallback(() => {
+    if (!isConnected) preloadWalletSdks();
     void open({ view: isConnected ? 'Account' : 'Connect' });
   }, [isConnected, open]);
 

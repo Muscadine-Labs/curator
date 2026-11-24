@@ -101,7 +101,7 @@ export function SafeOverviewPanel({ account }: { account: SafeAccountConfig }) {
 
       <CuratorPanel
         title="Proposers"
-        description="Addresses authorized to propose transactions via the Safe Transaction Service"
+        description="Addresses authorized to propose transactions via the Safe Queue Service"
       >
         {infoLoading || !info ? (
           <div className="p-4">
@@ -114,7 +114,7 @@ export function SafeOverviewPanel({ account }: { account: SafeAccountConfig }) {
               <code className="rounded bg-muted px-1 py-0.5 text-xs">
                 NEXT_PUBLIC_SAFE_API_KEY
               </code>{' '}
-              to load proposers from the Transaction Service.
+              to load proposers from the Safe Queue Service.
             </CuratorEmptyText>
           </div>
         ) : info.proposersError ? (

@@ -49,7 +49,6 @@ import {
 } from '@/lib/safe/vault-write-destination';
 import { queueSafeTransaction } from '@/lib/safe/queue-vault-write-lazy';
 import { getConnectorProvider } from '@/lib/wallet/connector-provider';
-import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import { vaultV2GovernanceQueryKey } from '@/lib/hooks/useVaultV2Governance';
 import type { SafeRole } from '@/lib/safe/config';
 import { SENTINEL_SAFE_ROLE } from '@/lib/safe/config';
@@ -102,8 +101,6 @@ export function VaultV2Pending({
   const queryClient = useQueryClient();
   const router = useRouter();
   const { isConnected, address: walletAddress, connector } = useConnection();
-  const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
-    useCuratorSafeApps();
 
   const [acceptPreviewOpen, setAcceptPreviewOpen] = useState(false);
   const [acceptPreview, setAcceptPreview] = useState<TxPreview | null>(null);
@@ -184,16 +181,6 @@ export function VaultV2Pending({
     (revokeWrite.isLoading || queueingRevokeSafe) && activeRowId !== null;
   const acceptBusy =
     (acceptWrite.isLoading || queueingSafe) && activeRowId !== null;
-
-  const safeAppSdkForRole = useMemo(() => {
-    if (!safeAppConnected || !safeAppSdk || writeDestination.kind !== 'safe') return null;
-    return safeAppRole === writeDestination.role ? safeAppSdk : null;
-  }, [safeAppConnected, safeAppSdk, safeAppRole, writeDestination]);
-
-  const safeAppSdkForRevokeRole = useMemo(() => {
-    if (!safeAppConnected || !safeAppSdk || revokeDestination.kind !== 'safe') return null;
-    return safeAppRole === revokeDestination.role ? safeAppSdk : null;
-  }, [safeAppConnected, safeAppSdk, safeAppRole, revokeDestination]);
 
   useEffect(() => {
     if (!revokeWrite.isSuccess || activeRowId === null) return;
@@ -295,7 +282,6 @@ export function VaultV2Pending({
           },
           proposer: walletAddress ? getAddress(walletAddress) : undefined,
           provider: await getConnectorProvider(connector),
-          safeAppSdk: safeAppSdkForRevokeRole,
         });
         setRevokePreviewOpen(false);
         setRevokePreview(null);
@@ -309,7 +295,7 @@ export function VaultV2Pending({
         setQueueingRevokeSafe(false);
       }
     },
-    [revokeItem, revokePreview, router, safeAppSdkForRevokeRole, vaultAddress, vaultSymbol, walletAddress, connector]
+    [revokeItem, revokePreview, router, vaultAddress, vaultSymbol, walletAddress, connector]
   );
 
   const handleRevokeConfirm = useCallback(async () => {
@@ -410,7 +396,6 @@ export function VaultV2Pending({
           },
           proposer: walletAddress ? getAddress(walletAddress) : undefined,
           provider: await getConnectorProvider(connector),
-          safeAppSdk: safeAppSdkForRole,
         });
         setAcceptPreviewOpen(false);
         setAcceptPreview(null);
@@ -424,7 +409,7 @@ export function VaultV2Pending({
         setQueueingSafe(false);
       }
     },
-    [acceptItem, acceptPreview, router, safeAppSdkForRole, vaultAddress, vaultSymbol, walletAddress, connector]
+    [acceptItem, acceptPreview, router, vaultAddress, vaultSymbol, walletAddress, connector]
   );
 
   const handleAcceptConfirm = useCallback(async () => {

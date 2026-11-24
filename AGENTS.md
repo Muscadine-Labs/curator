@@ -110,15 +110,16 @@ npm run build   # next build
   queue from vault Allocation/Sentinel preview when governance lists the Safe as
   role holder; **owners sign** on `/safe/[role]`; **any connected wallet can
   execute** once signatures ≥ threshold (Safe `execTransaction` is permissionless). Execute drops signatures that do not recover to their owner; outcome events are read in both Safe v1.3.0 and v1.4.1+ layouts.
-  **localStorage is always kept** (export/import); optional Transaction Service
-  sync via `NEXT_PUBLIC_SAFE_API_KEY` and `@safe-global/api-kit` ^5.x
+  **localStorage is always kept** (export/import); optional **Safe Queue Service**
+  sync via `NEXT_PUBLIC_SAFE_API_KEY` (direct REST to `api.safe.global/queue/api/v1`;
+  api-kit removed — it does not support the queue; executed history stays on the
+  Transaction Service; see CLAUDE.md §13.2)
   (`lib/safe/transaction-service.ts`, `service-sync.ts`, rate limit in
   `transaction-service-rate-limit.ts` — manual sync only, no polling). Tabs:
   Home / Assets / Transactions / **History** (executed txs, on-demand) /
   **Settings** (modules, guard, address book). Queue several proposals into one
-  MultiSend via `queueSafeBatch`. Safe Apps
-  SDK embed via `CuratorSafeAppsProvider` (`lib/safe/safe-apps-context.tsx`);
-  manifest at `public/manifest.json` (`favicon.png`). Post-execute refetch
+  MultiSend via `queueSafeBatch`. Not a Safe App (no
+  Safe Apps SDK or manifest). Post-execute refetch
   via `refetch-vault-after-safe-execute.ts`; queue previews always shown (stored
   or decoded calldata in `decode-vault-calldata-preview.ts`). See `CLAUDE.md` §13.
 - **Morpho GraphQL shuts down Jan 29, 2027.** REST migration plan:

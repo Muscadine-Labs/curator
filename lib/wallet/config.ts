@@ -1,6 +1,5 @@
 import { cookieStorage, createStorage, fallback, http } from 'wagmi';
-import { baseAccount } from '@wagmi/connectors/baseAccount';
-import { coinbaseWalletForAppKit } from '@/lib/wallet/coinbase-connector';
+import { lazyBaseAccount, lazyCoinbaseWallet } from '@/lib/wallet/lazy-connectors';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import type { AppKitNetwork } from '@reown/appkit/networks';
 import { BASE_CHAIN_ID } from '@/lib/constants';
@@ -58,18 +57,18 @@ export const wagmiAdapter = new WagmiAdapter({
   projectId,
   networks,
   /**
-   * Register Base Account and Coinbase here so AppKit does not add its defaults.
-   * AppKit's default Base Account connector posts telemetry to as.coinbase.com, which
-   * tracker blockers reject; ours turns it off. Coinbase's id is rewritten to
-   * `coinbaseWallet` in coinbaseWalletForAppKit so AppKit does not add a second one.
+   * Register Base Account and Coinbase Wallet here so AppKit does not add its defaults.
+   * AppKit's default Base Account connector posts telemetry to as.coinbase.com; ours turns
+   * it off. Both stay out of the mount-time reconnect until they are used
+   * (lazy-connectors.ts), so neither SDK loads, nor sends its HEAD request, on every page.
    */
   connectors: [
-    baseAccount({
+    lazyBaseAccount({
       appName: metadata.name,
       appLogoUrl: metadata.icons[0],
       preference: { telemetry: false },
     }),
-    coinbaseWalletForAppKit({
+    lazyCoinbaseWallet({
       appName: metadata.name,
       appLogoUrl: metadata.icons[0],
     }),

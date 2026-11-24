@@ -58,7 +58,6 @@ import {
 } from '@/lib/onchain/public-allocator-calldata';
 import { ALLOCATION_SAFE_ROLE } from '@/lib/safe/config';
 import { queueSafeTransaction } from '@/lib/safe/queue-vault-write-lazy';
-import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import {
   canConfirmVaultWriteDestination,
   coerceVaultWriteDestination,
@@ -135,8 +134,6 @@ export function PublicAllocatorCaps({
   const router = useRouter();
   const queryClient = useQueryClient();
   const { address: walletAddress, isConnected, connector } = useConnection();
-  const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
-    useCuratorSafeApps();
   const write = useVaultWrite({ chainId });
   const settledWrite = useRef(false);
 
@@ -199,17 +196,6 @@ export function PublicAllocatorCaps({
     : !walletCanAllocate
       ? 'This wallet is not an allocator of the vault. Queue the change to the Allocator Safe.'
       : 'You are an allocator of this vault. These caps apply immediately.';
-
-  const safeApp = useMemo(
-    () =>
-      safeAppConnected &&
-      safeAppSdk &&
-      resolvedDestination.kind === 'safe' &&
-      safeAppRole === resolvedDestination.role
-        ? safeAppSdk
-        : null,
-    [safeAppConnected, safeAppSdk, safeAppRole, resolvedDestination]
-  );
 
   const writeSucceeded = write.isSuccess;
   const resetWrite = write.reset;
@@ -378,7 +364,6 @@ export function PublicAllocatorCaps({
           },
           proposer: walletAddress ? getAddress(walletAddress) : undefined,
           provider: await getConnectorProvider(connector),
-          safeAppSdk: safeApp,
         });
         setPreviewOpen(false);
         setEditing(false);

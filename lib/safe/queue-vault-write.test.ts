@@ -44,22 +44,22 @@ describe('prepareSafeBatchSelection', () => {
     expect(ordered.map((tx) => tx.nonce)).toEqual(['11', '12']);
   });
 
-  it('rejects when the earliest nonce is already on Transaction Service', () => {
+  it('rejects when the earliest nonce is already on the Safe Queue Service', () => {
     expect(() =>
       prepareSafeBatchSelection([
         queued({ nonce: '11', serviceSynced: true }),
         queued({ nonce: '12' }),
       ])
-    ).toThrow(/already on Transaction Service/);
+    ).toThrow(/already on the Safe Queue Service/);
   });
 
-  it('rejects when a later nonce is already on Transaction Service', () => {
+  it('rejects when a later nonce is already on the Safe Queue Service', () => {
     expect(() =>
       prepareSafeBatchSelection([
         queued({ nonce: '11' }),
         queued({ nonce: '12', serviceSynced: true }),
       ])
-    ).toThrow(/already on Transaction Service/);
+    ).toThrow(/already on the Safe Queue Service/);
   });
 
   it('rejects DelegateCall rows', () => {

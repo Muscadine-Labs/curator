@@ -3,6 +3,7 @@
 import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useConnection } from 'wagmi';
 import { useAppKit } from '@reown/appkit/react';
+import { preloadWalletSdks } from '@/lib/wallet/lazy-connectors';
 import { Button } from '@/components/ui/button';
 import { TxErrorBanner } from '@/components/TxErrorBanner';
 import { isBroadcastTxHash } from '@/lib/utils/wallet-error';
@@ -44,7 +45,10 @@ export function TransactionButton({
         <Button
           variant="outline"
           size={size}
-          onClick={() => void open({ view: 'Connect' })}
+          onClick={() => {
+            preloadWalletSdks();
+            void open({ view: 'Connect' });
+          }}
           title="Connect wallet in the top bar to submit"
         >
           Connect wallet
@@ -55,7 +59,10 @@ export function TransactionButton({
       <Button
         variant="outline"
         size={size}
-        onClick={() => void open({ view: 'Connect' })}
+        onClick={() => {
+            preloadWalletSdks();
+            void open({ view: 'Connect' });
+          }}
       >
         Connect Wallet
       </Button>

@@ -22,7 +22,7 @@ export const MUSCADINE_SAFE_LINKS: readonly ExternalLinkItem[] = [
   {
     name: 'Safe Developer',
     url: SAFE_DEVELOPER_DASHBOARD_URL,
-    description: 'API keys, Transaction Service, Safe App registration',
+    description: 'API keys (Queue + Transaction Service)',
     displayText: 'developer.safe.global',
   },
   {

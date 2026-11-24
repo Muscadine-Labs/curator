@@ -78,7 +78,6 @@ import type { Address, Hex } from 'viem';
 import { getAddress } from 'viem';
 import { queueSafeTransaction } from '@/lib/safe/queue-vault-write-lazy';
 import { getConnectorProvider } from '@/lib/wallet/connector-provider';
-import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import type { SafeRole } from '@/lib/safe/config';
 import { SENTINEL_SAFE_ROLE } from '@/lib/safe/config';
 import {
@@ -379,18 +378,6 @@ function DecreaseCapsPanel({
   const queryClient = useQueryClient();
   const router = useRouter();
   const { address: walletAddress, isConnected, connector } = useConnection();
-  const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
-    useCuratorSafeApps();
-  const sentinelSafeAppSdk = useMemo(
-    () =>
-      safeAppConnected &&
-      safeAppSdk &&
-      writeDestination.kind === 'safe' &&
-      safeAppRole === writeDestination.role
-        ? safeAppSdk
-        : null,
-    [safeAppConnected, safeAppSdk, safeAppRole, writeDestination]
-  );
 
   const walletCanUseSentinel = walletCanSignSentinel(walletAddress, sentinels);
   const walletReady = isConnected && walletCanUseSentinel;
@@ -618,7 +605,6 @@ function DecreaseCapsPanel({
           source,
           proposer: walletAddress ? getAddress(walletAddress) : undefined,
           provider: await getConnectorProvider(connector),
-          safeAppSdk: sentinelSafeAppSdk,
         });
         setPreviewOpen(false);
         setTxPreview(null);
@@ -633,7 +619,7 @@ function DecreaseCapsPanel({
         setQueueingSafe(false);
       }
     },
-    [router, sentinelSafeAppSdk, txPreview, walletAddress, connector]
+    [router, txPreview, walletAddress, connector]
   );
 
   const handlePreviewConfirm = useCallback(async () => {
@@ -979,18 +965,6 @@ function DeallocatePanel({
   const queryClient = useQueryClient();
   const router = useRouter();
   const { address: walletAddress, isConnected, connector } = useConnection();
-  const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
-    useCuratorSafeApps();
-  const sentinelSafeAppSdk = useMemo(
-    () =>
-      safeAppConnected &&
-      safeAppSdk &&
-      writeDestination.kind === 'safe' &&
-      safeAppRole === writeDestination.role
-        ? safeAppSdk
-        : null,
-    [safeAppConnected, safeAppSdk, safeAppRole, writeDestination]
-  );
 
   const walletCanUseSentinel = walletCanSignSentinel(walletAddress, sentinels);
   const walletReady = isConnected && walletCanUseSentinel;
@@ -1186,7 +1160,6 @@ function DeallocatePanel({
           source,
           proposer: walletAddress ? getAddress(walletAddress) : undefined,
           provider: await getConnectorProvider(connector),
-          safeAppSdk: sentinelSafeAppSdk,
         });
         setPreviewOpen(false);
         setTxPreview(null);
@@ -1201,7 +1174,7 @@ function DeallocatePanel({
         setQueueingSafe(false);
       }
     },
-    [router, sentinelSafeAppSdk, txPreview, walletAddress, connector]
+    [router, txPreview, walletAddress, connector]
   );
 
   const handlePreviewConfirm = useCallback(async () => {

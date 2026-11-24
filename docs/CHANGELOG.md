@@ -4,6 +4,28 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-24 — Not a Safe App; Coinbase SDK lazy
+
+- Safe Apps SDK removed (`@safe-global/safe-apps-sdk`, `@safe-global/safe-apps-react-sdk`, `lib/safe/safe-apps-context.tsx`, `safe-apps-send.ts`, the Safe App mode banner, `public/manifest.json` and its CORS headers). Queueing always goes to localStorage, then the Queue Service. CSP `frame-ancestors` is now `'none'` (it allowed `app.safe.global`).
+- Coinbase Wallet SDK no longer loads on every page (it sent 2 `HEAD` requests): the Coinbase connector (id `coinbaseWallet`, so AppKit adds no second one) now uses the same lazy wrapper as Base Account. `lib/wallet/lazy-base-account.ts` + `coinbase-connector.ts` → `lib/wallet/lazy-connectors.ts` (`lazyConnector`, `lazyBaseAccount`, `lazyCoinbaseWallet`). Coinbase Wallet and Base Account (smart wallet) both stay in the Reown modal.
+- The lazy wrapper also remembers a disconnect from the wallet side (`onDisconnect`).
+- Queue Service propose: a 409 now posts the sender's signature to the existing proposal (it was dropped). A 422 on that post is swallowed only when the sender is not an on-chain owner.
+
+## 2026-11-24 — Safe Queue Service migration
+
+- Safe moved the off-chain queue (proposals, signatures, pending list, delegates) from the Transaction Service to the Safe Queue Service (https://docs.safe.global/core-api/safe-queue-service-migration). `lib/safe/transaction-service.ts` now calls `https://api.safe.global/queue/api/v1` over REST: propose `POST /multisig-transactions` (response safeTxHash must match ours), sign `POST /multisig-transactions/{hash}/signatures`, pending `GET /multisig-transactions/queue?safes={safe}:8453`, proposers `GET /delegates?safe=…&chainId=8453`. 409 (already there) posts the sender's signature to `/signatures` instead of dropping it; a 422 there counts as done only for a non-owner (proposer) sender. Responses are normalized to Curator's shape (null zero addresses → zero address, null data → `0x`, lowercase → checksummed).
+- `@safe-global/api-kit` removed: 5.0.4 (latest) does not support the Queue Service, and nothing else used it. The `currentNonce` option is gone (the queue endpoint filters by the Safe's nonce itself).
+- Executed history (activity feed, bot watcher, gate roster, Safe History tab) stays on the Transaction Service, which keeps on-chain data.
+- Verified against the live service for every role Safe on Base (queue, delegates, proposal history reads). 10 new tests in `transaction-service.test.ts`. Not exercised: a live propose / sign (needs an owner key).
+- The Morpho GraphQL → REST migration (`docs/morpho-rest-migration.md`) is still work in progress and is not part of this change.
+
+## 2026-11-24 — Review follow-ups: lazy Base Account, AppKit font
+
+- Base Account connector wrapped in `lazyBaseAccount` (`lib/wallet/lazy-base-account.ts`, tests beside it). wagmi's mount-time `reconnect()` calls `getProvider()` on every configured connector, so the Base Account SDK (and its COOP `HEAD` request) loaded on every page. It now wakes only when used, or when it was the last connector and was not disconnected; a disconnect is remembered and tolerates a provider without `disconnect`.
+- AppKit `--apkt-font-family` / `--w3m-font-family` → `inherit`. `var(--font-geist-sans)` was invalid where AppKit declares it (`:root`; next/font sets the variable on `<body>`). Still skips the `fonts.reown.com` preloads.
+- `@base-org/account` / `@coinbase/wallet-sdk` pinned exact (2.6.0 / 4.4.0). Dead `qr` override removed.
+- Not changed, noted: `--font-geist-sans` is also undefined on `:root` for the app itself (Tailwind's `--default-font-family`), so the UI renders in the system font while Geist is preloaded. Moving the next/font variable classes to `<html>` would switch the app to Geist — a visible design change, left for a deliberate decision.
+
 ## 2026-11-24 — No optional analytics or telemetry
 
 - AppKit `features.analytics` `true` → `false`. Reown's mandatory `INITIALIZE` / `CONNECT_SUCCESS` events and wallet-list impressions cannot be turned off; nothing else is sent.
