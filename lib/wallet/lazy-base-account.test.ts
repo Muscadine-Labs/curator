@@ -24,6 +24,9 @@ vi.mock('@wagmi/connectors/baseAccount', () => ({
       calls.push('isAuthorized');
       return true;
     },
+    async onDisconnect() {
+      calls.push('onDisconnect');
+    },
   }),
 }));
 
@@ -79,5 +82,14 @@ describe('lazyBaseAccount', () => {
     await connector.connect({});
     expect(store.has('baseAccount.disconnected')).toBe(false);
     expect(await connector.isAuthorized()).toBe(true);
+  });
+
+  it('remembers a disconnect from the wallet side', async () => {
+    const { connector, store } = setup({ recentConnectorId: 'baseAccount' });
+    expect(await connector.isAuthorized()).toBe(true);
+    await connector.onDisconnect();
+    expect(calls).toContain('onDisconnect');
+    expect(store.get('baseAccount.disconnected')).toBe(true);
+    expect(await connector.isAuthorized()).toBe(false);
   });
 });

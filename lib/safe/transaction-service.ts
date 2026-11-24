@@ -168,8 +168,17 @@ export async function proposePendingToTransactionService(options: {
       );
     }
   } catch (error) {
-    if (error instanceof SafeApiError && error.status === 409) return;
-    throw error;
+    if (!(error instanceof SafeApiError && error.status === 409)) throw error;
+    // Already queued (another owner shared it, or it was copied over from the Transaction
+    // Service). The proposal exists but may not hold this signer's signature yet: add it.
+    try {
+      await confirmPendingOnTransactionService(options.tx.safeTxHash, options.senderSignature);
+    } catch (confirmError) {
+      // 422: the signer is a proposer (delegate), not an owner, so the service refuses the
+      // signature. The proposal is already there, which is all a delegate can add.
+      if (confirmError instanceof SafeApiError && confirmError.status === 422) return;
+      throw confirmError;
+    }
   }
 }
 

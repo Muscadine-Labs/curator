@@ -14,7 +14,6 @@ import { SafeModal } from '@/components/safe/SafeModal';
 import { stripGroupingSeparators } from '@/lib/format/allocation-display';
 import { formatRawTokenAmount } from '@/lib/format/number';
 import type { SafeAccountConfig } from '@/lib/safe/config';
-import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import { queueSafeTransfer } from '@/lib/safe/queue-transfer';
 import { getConnectorProvider } from '@/lib/wallet/connector-provider';
 import type { SafeTokenBalance } from '@/lib/safe/read-balances';
@@ -49,7 +48,6 @@ export function SafeSendDialog({
   initialToken?: string;
 }) {
   const { address: walletAddress, connector } = useConnection();
-  const { sdk: safeAppSdk } = useCuratorSafeApps();
   const router = useRouter();
   const addressBook = useSyncExternalStore(
     subscribeAddressBook,
@@ -112,7 +110,6 @@ export function SafeSendDialog({
         balance: selected.balance,
         proposer: walletAddress,
         provider: await getConnectorProvider(connector),
-        safeAppSdk,
       });
       upsertAddressBookEntry(normalizedRecipient, '');
       router.push(`/safe/${account.role}/transactions`);

@@ -69,8 +69,12 @@ Muscadine for managing and reporting on Morpho-style vaults on Base (chainId
   events and wallet-list impressions). Base Account connector sets
   `telemetry: false` and is lazy (`lib/wallet/lazy-base-account.ts`: kept out of
   wagmi's mount-time reconnect, so its SDK and COOP `HEAD` request run only once it
-  is used; a disconnect is remembered); `@coinbase/wallet-sdk` 4.4 has none; the
-  `@reown/appkit-utils` override dedupes AppKit's nested SDK copies onto ours.
+  is used; a disconnect, from the app or the wallet, is remembered). AppKit's
+  Coinbase Wallet SDK connector is off (`enableCoinbase: false`): it loaded the SDK
+  and sent `HEAD` requests on every page. The Coinbase Wallet extension still shows
+  through EIP-6963 and the app through WalletConnect. `@coinbase/wallet-sdk` stays
+  pinned at 4.4 (no telemetry) and the `@reown/appkit-utils` override dedupes
+  AppKit's nested SDK copies onto ours.
   npm scripts set `NEXT_TELEMETRY_DISABLED=1`. AppKit's font variables are
   `inherit` (the modal uses the page font; a `var(--font-…)` value is undefined on
   `:root` where AppKit declares it), which also stops it loading fonts from
@@ -1552,9 +1556,10 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
   (override). AppKit 2 peers wagmi / `@wagmi/core` ≥3 and `@wagmi/connectors`
   ≥8, so bump them together. Connector SDKs are optional peers in connectors 8:
   `@base-org/account` (2.6.0) and `@coinbase/wallet-sdk` (4.4.0) are exact direct
-  deps (the privacy claims depend on those versions) because
-  `lib/wallet/config.ts` registers those connectors. Import connectors from
-  their subpaths (`@wagmi/connectors/baseAccount`, `/coinbaseWallet`), never the
+  deps (the privacy claims depend on those versions): `lib/wallet/config.ts`
+  registers Base Account, and AppKit still bundles its Coinbase connector even
+  with `enableCoinbase: false`. Import connectors from their subpaths
+  (`@wagmi/connectors/baseAccount`), never the
   `wagmi/connectors` barrel: the barrel pulls in MetaMask / WalletConnect /
   Tempo connectors whose SDKs are not installed, and webpack warns on every
   build. wagmi 3 API names: `useConnection` (not `useAccount`), `useConnectors` (not `useConnect().connectors`), and `mutate` / `mutateAsync` on mutation hooks (`useConnect`, `useSwitchChain`, `useWriteContract`, `useSendTransaction`) instead of `connectAsync` / `switchChainAsync` / `writeContractAsync` / `sendTransactionAsync`; the old names are deprecated aliases. `useBalance` has no `formatted` field (use viem `formatUnits(value, decimals)`).
@@ -1671,7 +1676,6 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
 | Safe pending store (localStorage)| `lib/safe/pending-store.ts`, `lib/safe/queue-vault-write.ts` |
 | Safe Queue + Transaction Service | `lib/safe/transaction-service.ts`, `lib/safe/service-sync.ts` |
 | Safe API rate limit (client)     | `lib/safe/transaction-service-rate-limit.ts`             |
-| Safe Apps SDK                    | `lib/safe/safe-apps-context.tsx`, `public/manifest.json` |
 | Safe vault write routing         | `lib/safe/vault-role-match.ts`, `lib/safe/build-vault-calldata.ts` |
 | Safe calldata preview            | `lib/safe/decode-vault-calldata-preview.ts`              |
 | Safe post-execute refetch        | `lib/safe/refetch-vault-after-safe-execute.ts`           |
@@ -1704,7 +1708,7 @@ Workspace link: Muscadine on `app.safe.global` (`lib/safe/links.ts`).
    Queue builds a Safe meta-tx via Protocol Kit (RPC) and stores it in
    **browser localStorage** (`pending-store.ts`). With `NEXT_PUBLIC_SAFE_API_KEY`
    and a connected proposer wallet, auto-share also signs EIP-712 and proposes
-   to the Transaction Service; Safe App embed uses `sdk.txs.send` instead.
+   to the Safe Queue Service.
 2. **Sign** — On `/safe/[role]`, connect a **Safe owner** hot wallet in
    the topbar. **Sign (EIP-712)** adds owner signatures locally. Sign, Share and
    auto-share rebuild the Safe tx from its stored fields and check it hashes to
@@ -1743,8 +1747,11 @@ every chain: the chain goes in the body (`chainId: 8453`) or query
 - Propose: `POST /multisig-transactions` with the tx fields (wei / gas values as
   decimal strings), `signatures: [proposerSig]`, `originName: 'Curator'`. The
   service computes the safeTxHash itself; the response hash must equal ours or the
-  call throws. **409 = already queued** (e.g. copied from the Transaction Service
-  while both run) and counts as done.
+  call throws. **409 = already queued** (another owner shared it, or it was copied
+  from the Transaction Service): the sender's signature is then posted to
+  `/signatures` so it is not lost. A 422 there means the sender is a proposer
+  (delegate), whose signature the service refuses; the proposal is already shared,
+  so that counts as done.
 - Sign: `POST /multisig-transactions/{safeTxHash}/signatures` with
   `{ signatures: [sig] }`; 409 = already recorded.
 - Pending: `GET /multisig-transactions/queue?safes={safe}:8453&nonceOrder=asc`
@@ -1766,16 +1773,14 @@ every chain: the chain goes in the body (`chainId: 8453`) or query
 2. **Auto-share** (when `NEXT_PUBLIC_SAFE_API_KEY` is set and a proposer wallet is
    connected): signs EIP-712 and proposes to the Queue Service (same path for
    Allocation and Sentinel queue flows).
-3. **Safe App embed** (`CuratorSafeAppsProvider`): when opened inside
-   `app.safe.global`, queue can call `sdk.txs.send` after building the same
-   meta-tx locally; marks `serviceSynced`.
-4. **Sync from service** on `/safe/[role]` merges pending txs from the
+3. **Sync from service** on `/safe/[role]` merges pending txs from the
    Queue Service into localStorage (signatures included).
-5. **Share with owners** on unsynced rows re-proposes to the service.
-6. **Sign** posts the signature to the Queue Service when `serviceSynced` is true.
+4. **Share with owners** on unsynced rows re-proposes to the service.
+5. **Sign** posts the signature to the Queue Service when `serviceSynced` is true.
 
-`public/manifest.json` uses `iconPath`: `favicon.png` + CSP `frame-ancestors`
-allow Safe App listing. Env: `NEXT_PUBLIC_SAFE_API_KEY` (https://developer.safe.global).
+Curator is **not a Safe App** (the Safe Apps SDK, `public/manifest.json` and the
+`app.safe.global` framing allowance were removed); CSP is `frame-ancestors 'none'`.
+Env: `NEXT_PUBLIC_SAFE_API_KEY` (https://developer.safe.global).
 Free tier is **5 req/s** and **50K req/month** — Curator only calls the service on
 queue (propose), sign (confirm), share, and manual **Sync from service** (no polling);
 client serializes calls with ≥210ms spacing.
@@ -1874,7 +1879,6 @@ guard, address book)
 | Sign / execute | `lib/safe/protocol-kit-client.ts` |
 | Queue Service sync (+ Transaction Service history) | `lib/safe/transaction-service.ts`, `lib/safe/service-sync.ts` |
 | API rate limit | `lib/safe/transaction-service-rate-limit.ts` |
-| Safe Apps SDK | `lib/safe/safe-apps-context.tsx`, `public/manifest.json` |
 | UI queue | `components/safe/SafeTransactionQueue.tsx` |
 | Hooks | `useSafeInfo`, `useSafeBalances`, `useSafePending`, `useSafeTransactionActions` |
 
@@ -1889,7 +1893,7 @@ guard, address book)
 - Only **current owners'** signatures count toward the threshold — the queue's count and Execute button (`countOwnerSignatures`) and the execute pre-check (`getOwners()`). Execute readiness comes from that count, not the stored status.
 - Bundle import: a new row's role comes from `getSafeByAddress` (rows for Safes not in `lib/safe/config.ts` are skipped), status resets to `awaiting_signatures`, signatures are validated, and one malformed row is skipped (reported) instead of failing the import.
 - `fetchPendingMultisigTransactions` reads every page of the Queue Service `/multisig-transactions/queue` (the service filters to the Safe's current nonce itself).
-- Safe App queue with a different `safeTxHash`: adopt it only with every field from the matching service row; with no match keep the local row and tell the user to sync. Batching refuses a nonce below the on-chain nonce.
+- Batching refuses a nonce below the on-chain nonce.
 - Execute sends `value: 0`; mark executed only on a successful receipt.
 - DelegateCall hazards (`lib/safe/multisend.ts`, `safePendingWarnings`): a
   DelegateCall to anything but a canonical Base MultiSend / MultiSendCallOnly,

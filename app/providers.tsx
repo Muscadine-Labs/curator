@@ -13,7 +13,6 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { CuratorAuthProvider } from '@/lib/auth/CuratorAuthContext';
 import { AuthGuard } from '@/components/AuthGuard';
 import { RevenueSourceProvider } from '@/lib/RevenueSourceContext';
-import { CuratorSafeAppsProvider } from '@/lib/safe/safe-apps-context';
 import { CuratorNetworkProvider } from '@/lib/network/CuratorNetworkContext';
 
 const ReactQueryDevtools = dynamic(
@@ -66,11 +65,9 @@ export function Providers({
             <CuratorAuthProvider>
               <AuthGuard>
                 <RevenueSourceProvider>
-                  <CuratorSafeAppsProvider>
-                    <CopyFeedbackProvider>
-                      <ErrorBoundary>{children}</ErrorBoundary>
-                    </CopyFeedbackProvider>
-                  </CuratorSafeAppsProvider>
+                  <CopyFeedbackProvider>
+                    <ErrorBoundary>{children}</ErrorBoundary>
+                  </CopyFeedbackProvider>
                 </RevenueSourceProvider>
               </AuthGuard>
             </CuratorAuthProvider>

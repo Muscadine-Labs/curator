@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useConnection, usePublicClient } from 'wagmi';
 import { encodeFunctionData, getAddress } from 'viem';
@@ -14,7 +14,6 @@ import { getScanUrlForChain } from '@/lib/constants';
 import type { TxPreview } from '@/lib/morpho/tx-preview';
 import { isBroadcastTxHash, isWalletRejection } from '@/lib/utils/wallet-error';
 import { getConnectorProvider } from '@/lib/wallet/connector-provider';
-import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import { queueSafeTransaction } from '@/lib/safe/queue-vault-write-lazy';
 import {
   canConfirmPendingAcceptDestination,
@@ -56,8 +55,6 @@ export function ClaimFeesButton({
   const publicClient = usePublicClient({ chainId });
   const write = useVaultWrite({ chainId });
   const { isConnected, address: walletAddress, connector } = useConnection();
-  const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
-    useCuratorSafeApps();
   const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState<TxPreview | null>(null);
   const [assets, setAssets] = useState(0n);
@@ -71,11 +68,6 @@ export function ClaimFeesButton({
 
   const vault = getAddress(vaultAddress);
   const decimals = assetDecimals ?? 18;
-
-  const safeAppSdkForRole = useMemo(() => {
-    if (!safeAppConnected || !safeAppSdk || destination.kind !== 'safe') return null;
-    return safeAppRole === destination.role ? safeAppSdk : null;
-  }, [safeAppConnected, safeAppSdk, safeAppRole, destination]);
 
   const readQuote = useCallback(async (): Promise<FeeQuote> => {
     if (!publicClient) throw new Error('Vault network client is not ready.');
@@ -164,7 +156,6 @@ export function ClaimFeesButton({
           source: { type: 'manual' },
           proposer: walletAddress ? getAddress(walletAddress) : undefined,
           provider: await getConnectorProvider(connector),
-          safeAppSdk: safeAppSdkForRole,
         });
         setOpen(false);
         router.push(`/safe/${safeRole.role}/transactions`);
@@ -174,7 +165,7 @@ export function ClaimFeesButton({
         setQueueingSafe(false);
       }
     },
-    [connector, preview, router, safeAppSdkForRole, vault, vaultName, walletAddress]
+    [connector, preview, router, vault, vaultName, walletAddress]
   );
 
   const confirm = useCallback(async () => {

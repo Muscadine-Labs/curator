@@ -9,13 +9,13 @@ type BaseAccountParameters = Parameters<typeof baseAccount>[0];
  * default connector leaves the SDK default, telemetry on). But a connector in the wagmi
  * config is woken by the mount-time `reconnect()`, which calls `getProvider()` on every
  * connector: that would load the Base Account SDK and its cross-origin-opener HEAD request
- * on every page load for every visitor, and inside the Base App it could take over the
- * session from the injected wallet.
+ * on every page load for every visitor.
  *
  * So until the user connects with it, or it was the last connector used and was not
  * disconnected, `getProvider()` returns nothing and `isAuthorized()` is false: reconnect
- * skips it. `disconnect()` remembers the choice (like the injected connector's
- * `shimDisconnect`), so a disconnected Base Account does not come back on reload.
+ * skips it. `disconnect()`, and a disconnect from the wallet side, are remembered (like the
+ * injected connector's `shimDisconnect`), so a disconnected Base Account does not come back
+ * on reload.
  */
 export function lazyBaseAccount(parameters: BaseAccountParameters) {
   const create = baseAccount(parameters);
@@ -35,6 +35,20 @@ export function lazyBaseAccount(parameters: BaseAccountParameters) {
       } catch {
         return false;
       }
+    };
+
+    // A disconnect from the wallet side (the provider's `disconnect` event) counts as a
+    // disconnect too. The connector binds its own `onDisconnect` to the provider, so patch
+    // the original object, not just the copy returned below.
+    const onDisconnect = connector.onDisconnect.bind(connector);
+    connector.onDisconnect = async (error?: Error) => {
+      awake = false;
+      try {
+        await config.storage?.setItem(disconnectedKey, true);
+      } catch {
+        // Storage failure only means it may wake again on reload.
+      }
+      return onDisconnect(error);
     };
 
     return {

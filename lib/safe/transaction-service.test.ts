@@ -79,11 +79,34 @@ describe('Safe Queue Service: propose', () => {
     ).rejects.toThrow(/stored this proposal as/);
   });
 
-  it('treats 409 (already queued, e.g. copied from the Transaction Service) as done', async () => {
-    fetchMock.mockResolvedValueOnce(reply(409, { detail: 'Transaction already exists' }));
+  it('on 409 (already queued) adds the signer\'s signature to the existing proposal', async () => {
+    fetchMock
+      .mockResolvedValueOnce(reply(409, { detail: 'Transaction already exists' }))
+      .mockResolvedValueOnce(reply(201, []));
     await expect(
       proposePendingToTransactionService({ tx: pendingTx(), senderAddress: SAFE, senderSignature: SIG })
     ).resolves.toBeUndefined();
+    const [url, init] = fetchMock.mock.calls[1]!;
+    expect(String(url)).toBe(`${SAFE_QUEUE_SERVICE_BASE}/multisig-transactions/${HASH}/signatures`);
+    expect(JSON.parse(init.body)).toEqual({ signatures: [SIG] });
+  });
+
+  it('on 409 then 422 (delegate signer) treats the proposal as shared', async () => {
+    fetchMock
+      .mockResolvedValueOnce(reply(409, { detail: 'Transaction already exists' }))
+      .mockResolvedValueOnce(reply(422, { detail: 'Signer is not an owner' }));
+    await expect(
+      proposePendingToTransactionService({ tx: pendingTx(), senderAddress: SAFE, senderSignature: SIG })
+    ).resolves.toBeUndefined();
+  });
+
+  it('on 409 surfaces a failed signature post', async () => {
+    fetchMock
+      .mockResolvedValueOnce(reply(409, { detail: 'Transaction already exists' }))
+      .mockResolvedValueOnce(reply(500, { detail: 'boom' }));
+    await expect(
+      proposePendingToTransactionService({ tx: pendingTx(), senderAddress: SAFE, senderSignature: SIG })
+    ).rejects.toThrow();
   });
 
   it('surfaces validation errors from the detail list', async () => {

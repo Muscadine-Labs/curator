@@ -22,7 +22,6 @@ import { buildAllocationRebalancePreview } from '@/lib/morpho/tx-preview';
 import type { TxPreview } from '@/lib/morpho/tx-preview';
 import { queueVaultRebalanceInSafe } from '@/lib/safe/queue-vault-write-lazy';
 import { getConnectorProvider } from '@/lib/wallet/connector-provider';
-import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import {
   defaultAllocationDestination,
   eligibleSafeRolesForAddresses,
@@ -877,18 +876,6 @@ export function VaultV2Allocations({
   const publicClient = usePublicClient({ chainId: chainId ?? BASE_CHAIN_ID });
   const { address: walletAddress, isConnected, connector } = useConnection();
   const router = useRouter();
-  const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
-    useCuratorSafeApps();
-  const allocatorSafeAppSdk = useMemo(
-    () =>
-      safeAppConnected &&
-      safeAppSdk &&
-      writeDestination.kind === 'safe' &&
-      safeAppRole === writeDestination.role
-        ? safeAppSdk
-        : null,
-    [safeAppConnected, safeAppSdk, safeAppRole, writeDestination]
-  );
 
   const walletCanAllocate = walletCanSignAllocation(walletAddress, governance?.allocators);
   const walletReady = isConnected && walletCanAllocate;
@@ -1776,7 +1763,6 @@ export function VaultV2Allocations({
           safeRole,
           proposer: walletAddress ? getAddress(walletAddress) : undefined,
           provider: await getConnectorProvider(connector),
-          safeAppSdk: allocatorSafeAppSdk,
         });
         setRebalancePreviewOpen(false);
         setPreparedSubmit(null);
@@ -1792,7 +1778,6 @@ export function VaultV2Allocations({
       }
     },
     [
-      allocatorSafeAppSdk,
       connector,
       finalizePlanRows,
       preparedSubmit,

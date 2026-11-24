@@ -29,7 +29,6 @@ import type { TxPreview } from '@/lib/morpho/tx-preview';
 import type { SafeRole } from '@/lib/safe/config';
 import { queueSafeTransaction } from '@/lib/safe/queue-vault-write-lazy';
 import { getConnectorProvider } from '@/lib/wallet/connector-provider';
-import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import {
   canConfirmVaultWriteDestination,
   confirmLabelForDestination,
@@ -182,8 +181,6 @@ export function SendAssetsGatePanel({
 }) {
   const router = useRouter();
   const { address: walletAddress, connector } = useConnection();
-  const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
-    useCuratorSafeApps();
   const query = useQuery({
     queryKey: gateQueryKey(gateAddress),
     queryFn: async () => {
@@ -225,18 +222,6 @@ export function SendAssetsGatePanel({
     return destination;
   }, [destination, eligibleRoles]);
 
-  const gateSafeAppSdk = useMemo(() => {
-    if (
-      !safeAppConnected ||
-      !safeAppSdk ||
-      coercedDestination.kind !== 'safe' ||
-      safeAppRole !== coercedDestination.role
-    ) {
-      return null;
-    }
-    return safeAppSdk;
-  }, [safeAppConnected, safeAppSdk, safeAppRole, coercedDestination]);
-
   async function confirm() {
     if (!parsedAccount) return;
     setBusy(true);
@@ -261,7 +246,6 @@ export function SendAssetsGatePanel({
         },
         proposer: walletAddress,
         provider: await getConnectorProvider(connector),
-        safeAppSdk: gateSafeAppSdk,
       });
       router.push(`/safe/${coercedDestination.role}/transactions`);
     } catch (err) {

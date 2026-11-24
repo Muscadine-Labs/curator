@@ -35,7 +35,6 @@ import type { V2VaultRiskResponse } from '@/app/api/vaults/[id]/risk/route';
 import { vaultV2GovernanceQueryKey } from '@/lib/hooks/useVaultV2Governance';
 import { queueSafeTransaction } from '@/lib/safe/queue-vault-write-lazy';
 import { getConnectorProvider } from '@/lib/wallet/connector-provider';
-import { useCuratorSafeApps } from '@/lib/safe/safe-apps-context';
 import { ALLOCATION_SAFE_ROLE, type SafeRole } from '@/lib/safe/config';
 import {
   canConfirmVaultWriteDestination,
@@ -108,8 +107,6 @@ export function VaultV2LiquidityAdapter({
   const queryClient = useQueryClient();
   const router = useRouter();
   const { address: walletAddress, isConnected, connector } = useConnection();
-  const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
-    useCuratorSafeApps();
 
   useEffect(() => {
     if (!write.isSuccess) return;
@@ -135,17 +132,6 @@ export function VaultV2LiquidityAdapter({
   const eligibleAllocatorSafes = useMemo(
     () => eligibleSafeRolesForAddresses(allocators),
     [allocators]
-  );
-
-  const allocatorSafeAppSdk = useMemo(
-    () =>
-      safeAppConnected &&
-      safeAppSdk &&
-      writeDestination.kind === 'safe' &&
-      safeAppRole === writeDestination.role
-        ? safeAppSdk
-        : null,
-    [safeAppConnected, safeAppSdk, safeAppRole, writeDestination]
   );
 
   const dec = resolveAssetDecimals(assetSymbol, assetDecimals ?? risk.vaultAsset?.decimals);
@@ -258,7 +244,6 @@ export function VaultV2LiquidityAdapter({
           },
           proposer: walletAddress ? getAddress(walletAddress) : undefined,
           provider: await getConnectorProvider(connector),
-          safeAppSdk: allocatorSafeAppSdk,
         });
         setPreviewOpen(false);
         closePanel();
@@ -275,7 +260,6 @@ export function VaultV2LiquidityAdapter({
       buildWriteConfig,
       vaultAddress,
       assetSymbol,
-      allocatorSafeAppSdk,
       closePanel,
       connector,
       router,

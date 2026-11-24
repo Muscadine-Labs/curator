@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import { MuscadineSafeWorkspaceCard } from '@/components/safe/MuscadineSafeWorkspaceCard';
-import { SafeAppModeBanner } from '@/lib/safe/safe-apps-context';
 import { SAFE_ACCOUNTS, type SafeRole } from '@/lib/safe/config';
 import { useSafePendingCount } from '@/lib/hooks/useSafePending';
 import { cn } from '@/lib/utils';
@@ -49,7 +48,6 @@ export default function SafeLayout({ children }: { children: React.ReactNode }) 
       description="Muscadine Safes on Base — view multisigs, sign queued vault transactions, and open the Safe workspace."
     >
       <div className="space-y-6">
-        <SafeAppModeBanner />
         <MuscadineSafeWorkspaceCard />
         <nav className="flex w-fit flex-wrap items-center gap-1 rounded-lg bg-muted p-1">
           {SAFE_ACCOUNTS.map((account) => (

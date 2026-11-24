@@ -1,7 +1,6 @@
 'use client';
 
 import { getAddress, type Address, type EIP1193Provider, type Hex } from 'viem';
-import type SafeAppsSDK from '@safe-global/safe-apps-sdk';
 import type { TxPreview } from '@/lib/morpho/tx-preview';
 import {
   ALLOCATION_SAFE_ROLE,
@@ -14,7 +13,6 @@ import {
   createSafeTransactionFromCalls,
   initSafeProtocolKit,
 } from '@/lib/safe/protocol-kit-client';
-import { sendTransactionViaSafeApp } from '@/lib/safe/safe-apps-send';
 import { autoShareQueuedTransaction } from '@/lib/safe/auto-share';
 import {
   checkSafeCallBeforeQueue,
@@ -22,7 +20,6 @@ import {
 } from '@/lib/safe/simulate-safe-call';
 import {
   upsertPendingTransaction,
-  updatePendingTransaction,
   removePendingTransaction,
   getPendingById,
   getSafePendingSnapshot,
@@ -31,7 +28,6 @@ import {
 import {
   fetchPendingMultisigTransactions,
   isTransactionServiceConfigured,
-  type ServiceMultisigTx,
 } from '@/lib/safe/transaction-service';
 import { OperationType } from '@safe-global/types-kit';
 import type { RebalancePlanRow } from '@/lib/onchain/v2-rebalance-plan';
@@ -41,77 +37,6 @@ function newPendingId(): string {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-async function tryPublishViaSafeApp(
-  tx: SafePendingTransaction,
-  calldata: SafeCalldata,
-  safeAppSdk: SafeAppsSDK
-): Promise<SafePendingTransaction> {
-  try {
-    const appSafeTxHash = await sendTransactionViaSafeApp(safeAppSdk, {
-      ...calldata,
-      value: (calldata.value ?? 0n).toString(),
-    });
-    if (appSafeTxHash.toLowerCase() !== tx.safeTxHash.toLowerCase()) {
-      // The Safe App built its own proposal (different nonce or gas). Adopt its
-      // hash only together with every field that hashes to it; otherwise the
-      // row could never pass the sign/execute hash check.
-      let match: ServiceMultisigTx | undefined;
-      if (isTransactionServiceConfigured()) {
-        try {
-          const pending = await fetchPendingMultisigTransactions(tx.safeAddress);
-          match = pending.find(
-            (row) => row.safeTxHash.toLowerCase() === appSafeTxHash.toLowerCase()
-          );
-        } catch {
-          match = undefined;
-        }
-      }
-      if (!match) {
-        const message = `The Safe App queued this as ${appSafeTxHash}, which differs from the local copy. Use Sync from service to load it, then remove this row.`;
-        return (
-          updatePendingTransaction(tx.id, { serviceSynced: false, serviceSyncError: message }) ?? {
-            ...tx,
-            serviceSynced: false,
-            serviceSyncError: message,
-          }
-        );
-      }
-      const patch: Partial<SafePendingTransaction> = {
-        safeTxHash: appSafeTxHash,
-        to: getAddress(match.to),
-        value: match.value,
-        data: (match.data ?? '0x') as Hex,
-        operation: match.operation as 0 | 1,
-        safeTxGas: match.safeTxGas,
-        baseGas: match.baseGas,
-        gasPrice: match.gasPrice,
-        gasToken: getAddress(match.gasToken),
-        refundReceiver: getAddress(match.refundReceiver),
-        nonce: String(match.nonce),
-        serviceSynced: true,
-        serviceSyncError: null,
-      };
-      return updatePendingTransaction(tx.id, patch) ?? { ...tx, ...patch };
-    }
-
-    return (
-      updatePendingTransaction(tx.id, {
-        serviceSynced: true,
-        serviceSyncError: null,
-      }) ?? { ...tx, serviceSynced: true, serviceSyncError: null }
-    );
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : 'Failed to send through Safe App.';
-    return (
-      updatePendingTransaction(tx.id, {
-        serviceSynced: false,
-        serviceSyncError: message,
-      }) ?? { ...tx, serviceSynced: false, serviceSyncError: message }
-    );
-  }
 }
 
 /**
@@ -149,7 +74,6 @@ export async function queueSafeTransaction(options: {
   source: SafeTransactionSource;
   proposer?: Address;
   provider?: EIP1193Provider;
-  safeAppSdk?: SafeAppsSDK | null;
 }): Promise<SafePendingTransaction> {
   const safe = getSafeByRole(options.safeRole);
 
@@ -192,17 +116,6 @@ export async function queueSafeTransaction(options: {
 
   upsertPendingTransaction(tx);
 
-  if (options.safeAppSdk) {
-    const published = await tryPublishViaSafeApp(tx, options.calldata, options.safeAppSdk);
-    if (!published.serviceSynced) {
-      throw new Error(
-        published.serviceSyncError ??
-          'Safe App did not accept the transaction. It is saved locally — open the Safe queue to retry.'
-      );
-    }
-    return published;
-  }
-
   if (options.proposer && isTransactionServiceConfigured()) {
     await autoShareQueuedTransaction({
       txId: tx.id,
@@ -222,7 +135,6 @@ export async function queueVaultRebalanceInSafe(options: {
   safeRole?: SafeRole;
   proposer?: Address;
   provider?: EIP1193Provider;
-  safeAppSdk?: SafeAppsSDK | null;
 }): Promise<SafePendingTransaction> {
   const safeRole = options.safeRole ?? ALLOCATION_SAFE_ROLE;
   const calldata = buildVaultRebalanceCalldata(options.vaultAddress, options.submitRows);
@@ -242,7 +154,6 @@ export async function queueVaultRebalanceInSafe(options: {
     },
     proposer: options.proposer,
     provider: options.provider,
-    safeAppSdk: options.safeAppSdk,
   });
 }
 

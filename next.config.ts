@@ -76,36 +76,7 @@ const nextConfig: NextConfig = {
   },
   // Security headers
   async headers() {
-    const safeAppCorsHeaders = [
-      {
-        key: 'Access-Control-Allow-Origin',
-        value: '*',
-      },
-      {
-        key: 'Access-Control-Allow-Methods',
-        value: 'GET',
-      },
-      {
-        key: 'Access-Control-Allow-Headers',
-        value: 'X-Requested-With, content-type, Authorization',
-      },
-    ];
-
     return [
-      {
-        source: '/manifest.json',
-        headers: [
-          ...safeAppCorsHeaders,
-          {
-            key: 'Content-Security-Policy',
-            value: "frame-ancestors 'self' https://app.safe.global",
-          },
-        ],
-      },
-      {
-        source: '/favicon.png',
-        headers: safeAppCorsHeaders,
-      },
       {
         source: '/:path*',
         headers: [
@@ -118,8 +89,9 @@ const nextConfig: NextConfig = {
             value: 'max-age=63072000',
           },
           {
+            // Admin tool: nothing needs to embed it (it is no longer a Safe App), so no framing.
             key: 'Content-Security-Policy',
-            value: "frame-ancestors 'self' https://app.safe.global",
+            value: "frame-ancestors 'none'",
           },
           {
             key: 'X-Content-Type-Options',

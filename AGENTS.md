@@ -118,9 +118,8 @@ npm run build   # next build
   `transaction-service-rate-limit.ts` — manual sync only, no polling). Tabs:
   Home / Assets / Transactions / **History** (executed txs, on-demand) /
   **Settings** (modules, guard, address book). Queue several proposals into one
-  MultiSend via `queueSafeBatch`. Safe Apps
-  SDK embed via `CuratorSafeAppsProvider` (`lib/safe/safe-apps-context.tsx`);
-  manifest at `public/manifest.json` (`favicon.png`). Post-execute refetch
+  MultiSend via `queueSafeBatch`. Not a Safe App (no
+  Safe Apps SDK or manifest). Post-execute refetch
   via `refetch-vault-after-safe-execute.ts`; queue previews always shown (stored
   or decoded calldata in `decode-vault-calldata-preview.ts`). See `CLAUDE.md` §13.
 - **Morpho GraphQL shuts down Jan 29, 2027.** REST migration plan:
