@@ -55,7 +55,7 @@ Muscadine for managing and reporting on Morpho-style vaults on Base (chainId
 
 ### Tech stack
 
-- **Framework**: Next.js App Router (`app/`)
+- **Framework**: Next.js App Router (`src/app/`)
 - **Language**: TypeScript (strict)
 - **Styling**: Tailwind CSS + shadcn-style components in `components/ui/*`
 - **Data**: React Query (`@tanstack/react-query`) for client caches
@@ -96,7 +96,9 @@ Muscadine for managing and reporting on Morpho-style vaults on Base (chainId
 ## 2. Repository Layout
 
 ```
-app/
+src/proxy.ts           Auth proxy for /api/* (Next.js needs it next to src/app)
+
+src/app/
   api/                 Next.js route handlers (BFF for Morpho + onchain data)
     vaults/            GET /api/vaults, /api/vaults/[id], history, holders, …
     vaults/[id]/       On-chain vault endpoints (risk, governance, pending)
@@ -106,7 +108,8 @@ app/
     auth/              Session verify
     safe/[address]/    GET /api/safe/[address]/info (owners, threshold, nonce, ETH)
   markets/             Morpho Markets browser (`/markets`)
-  market/blue/[id]/    Blue market detail
+    blue/              Blue list (`/markets/blue`) and detail (`/markets/blue/[id]`)
+    midnight/          Midnight list (`/markets/midnight`) and detail (`/markets/midnight/[id]`)
   safe/                Multisig Safe workspace
   curator/             Curator tools hub (`/curator`)
   curator/bots/        Bot activity watch (`/curator/bots`)
@@ -114,14 +117,14 @@ app/
   muscadine-frontends/ Frontend links
   vault/[address]/     Vault detail page (Morpho V2)
 
-components/
+src/components/
   morpho/              VaultV2Allocations, VaultV2Caps, VaultV2Sentinel,
                        TxPreviewDialog, AllocationListView, …
   safe/                SafeOverviewPanel, SafeTransactionQueue, workspace link
   layout/              AppShell, Sidebar, Topbar
   ui/                  Primitive components (button, card, input, table, ...)
 
-lib/
+src/lib/
   auth/                Curator auth context + server helpers
   config/vaults.ts     Tracked vault addresses (V1 + V2)
   data/                api-fetch, query-config (30s refetch)
@@ -378,9 +381,9 @@ wrapper.
 
 `GET /api/vaults` and `GET /api/vaults/[id]` query **Morpho V2** vaults from
 `lib/config/vaults.ts` only. There is no V1 vault list batch and no
-`app/vault/v1/…` detail route.
+`src/app/vault/v1/…` detail route.
 
-### 4.2 V2 (`app/vault/[address]/page.tsx`)
+### 4.2 V2 (`src/app/vault/[address]/page.tsx`)
 
 **Rendering** — the vault page is `'use client'` and loads all tab data via React
 Query (`useVaultV2Complete` → BFF + on-chain hooks). Keep the `[address]` segment
@@ -563,7 +566,7 @@ vault data from components.
 
 ### 4.3.1 Vault list API and sidebar
 
-`GET /api/vaults` (`app/api/vaults/route.ts`) fans out V1 (`vaults { … }`) and
+`GET /api/vaults` (`src/app/api/vaults/route.ts`) fans out V1 (`vaults { … }`) and
 per-address V2 (`vaultV2ByAddress`) Morpho GraphQL queries. Each row is enriched
 from `lib/config/vaults.ts` with:
 
@@ -602,7 +605,7 @@ chains, so with Base-only config it stays 8453 and the hint would never show. Th
 
 ### 4.4 Vault overview, liquidity, and history (Morpho GraphQL)
 
-**Overview** — `VaultOverviewPanel` + `GET /api/vaults/[id]` (`app/api/vaults/[id]/route.ts`).
+**Overview** — `VaultOverviewPanel` + `GET /api/vaults/[id]` (`src/app/api/vaults/[id]/route.ts`).
 
 - **Metrics card** — token amount **primary**, USD **secondary** via
   `TokenUsdValue` (`components/morpho/TokenUsdValue.tsx`): Total Assets, Liquidity,
@@ -676,17 +679,17 @@ V1 detail.
 | `whitelisted` on `Vault` / `VaultV2` | `listed` | List + detail queries; map to UI `status` (`listed` → active) |
 | `uniqueKey` on `Market` | `marketId` | All market GraphQL selections; app JSON uses `marketKey` (not `uniqueKey`) |
 | `Market.oracleAddress` | `oracle.address` | Risk, governance, curator-markets, fetch-markets-by-id, `blue-market-data.ts` |
-| `Query.transactions` | `vaultV2transactions` | Vault overview snippet in `app/api/vaults/[id]/route.ts` |
+| `Query.transactions` | `vaultV2transactions` | Vault overview snippet in `src/app/api/vaults/[id]/route.ts` |
 | `VaultState.avgApy`, `monthlyNetApy`, `weeklyNetApy`, `dailyApy`, `netApyWithoutRewards`, … | Removed — use `apy`, `netApy`, `avgNetApy`, `netApyExcludingRewards` | V1 detail + list |
 | V2 spot `avgApy` on vault | Use `apy`, `avgNetApy`, `maxApy` | V2 detail + list |
-| `VaultV2Metadata.forumLink` | Removed — query `description` and `image` only | V2 detail (`app/api/vaults/[id]/route.ts`); its absence broke every vault page with "Failed to fetch vault" (502) |
+| `VaultV2Metadata.forumLink` | Removed — query `description` and `image` only | V2 detail (`src/app/api/vaults/[id]/route.ts`); its absence broke every vault page with "Failed to fetch vault" (502) |
 
 **GraphQL client** — `lib/morpho/graphql-client.ts` uses `rawRequest` and logs
 `extensions.warnings` (Morpho deprecation notices) via `lib/utils/logger.ts`.
 Monitor server logs when Morpho schedules field removals.
 
 **No client-side Morpho queries.** Every `morphoGraphQLClient` call runs in
-server code (`app/api/*`, `lib/morpho/*`); any new query must use `marketId`
+server code (`src/app/api/*`, `lib/morpho/*`); any new query must use `marketId`
 too.
 
 V1 list query must not use removed `VaultState` APY fields (`weeklyNetApy` /
@@ -711,7 +714,7 @@ V1 list query must not use removed `VaultState` APY fields (`weeklyNetApy` /
   `oracle.data.baseFeedOne` on **positions only** (not all four feeds, not on caps);
   cap-only markets rely on on-chain `BASE_FEED_*` fallback. **Do not add**
   `sizeUsd`, `totalLiquidityUsd`, or `supplyAssets` to `market.state` in
-  `app/api/vaults/[id]/risk/route.ts` — it triggers Morpho “Query is too complex”.
+  `src/app/api/vaults/[id]/risk/route.ts` — it triggers Morpho “Query is too complex”.
   Risk UI falls back to `supplyAssetsUsd` / `liquidityAssetsUsd` for USD display.
 
 ### 4.5 Risk management scoring (V1 & V2)
@@ -788,7 +791,7 @@ B+ ≥84, B ≥80, B− ≥77, C+ ≥74, C ≥70, C− ≥65, D ≥60, F &lt;60.
 **External links** — `lib/morpho/morpho-app-links.ts`:
 - Blue market → `morphoMarketHref(marketKey)` → `app.morpho.org/base/market/…`
 - Curator market detail → `curatorBlueMarketHref(marketKey, chainId)` →
-  `/market/blue/{marketKey}?chainId=…`
+  `/markets/blue/{marketKey}?chainId=…`
 
 #### V2 vault risk (Curator)
 
@@ -831,10 +834,10 @@ tab switch, post-tx, and Rebalance (`lib/data/query-config.ts`).
 
 ### 4.6 Monthly income statement (treasury wallet)
 
-**UI** — `app/monthly-statement/page.tsx` (tabs: **DefiLlama** (default) /
+**UI** — `src/app/monthly-statement/page.tsx` (tabs: **DefiLlama** (default) /
 **By Treasury Wallet**). Treasury view modes: **Total** (default), By Token, By Vault.
 Dashboard overview shows **Total Revenue** and **YTD Revenue** KPIs and the
-Revenue chart (`ChartRevenue`) from the selected source (`app/page.tsx`). Toggle
+Revenue chart (`ChartRevenue`) from the selected source (`src/app/page.tsx`). Toggle
 DefiLlama vs treasury via `lib/RevenueSourceContext.tsx` (default: **DefiLlama**;
 Treasury Wallet is the second option). Each source's query is `enabled` only
 while it is selected (statement tab or dashboard source), so the treasury
@@ -908,8 +911,9 @@ the treasury dashboard without restoring the tx-classification pipeline in
 
 ### 4.7 Curator Morpho Markets browser
 
-**Routes** — `/markets` (list), `/market/blue/[id]?chainId=` (Blue detail), and
-`/midnight/[id]?chainId=` (Midnight detail). Old `/markets/create` and
+**Routes** — `/markets` (list), `/markets/blue` and `/markets/blue/[id]?chainId=` (Blue), and
+`/markets/midnight` and `/markets/midnight/[id]?chainId=` (Midnight). Old `/market/blue/[id]`,
+`/midnight/[id]` and `/market/midnight/[id]` redirect into this tree. Old `/markets/create` and
 `/markets/positions` redirect to `/markets`.
 **Product toggle** on Browse: **All / Blue — variable rate / Midnight — fixed rate**
 (default All, listed-only). Blue is variable rate
@@ -1137,7 +1141,7 @@ oracles use the same panel.
 link to Morpho app. Invalid `?chainId=` falls back to Base (`parseCuratorMarketChainId`).
 
 **Allocation tab links** — Blue market row names link to
-`curatorBlueMarketHref(marketKey, chainId)` (in-app `/market/blue/…`), not the
+`curatorBlueMarketHref(marketKey, chainId)` (in-app `/markets/blue/…`), not the
 Morpho app directly.
 
 **Vault Risk tab links** — `MarketRiskDetailCard` market names link to
@@ -1330,8 +1334,8 @@ components.
 
 ## 9. Auth & Gating
 
-- Curator tools routes: `/markets`, `/market/blue/[id]`, `/midnight/[id]`, `/safe`, `/curator`,
-  `/monthly-statement`, etc. Entire app is behind `AuthGuard` in `app/providers.tsx`.
+- Curator tools routes: `/markets`, `/markets/blue/[id]`, `/markets/midnight/[id]`, `/safe`, `/curator`,
+  `/monthly-statement`, etc. Entire app is behind `AuthGuard` in `src/app/providers.tsx`.
 - Server auth: `POST /api/auth/verify` sets an HttpOnly `curator_session`
   cookie (HMAC). Two limits: `AUTH_LOGIN_MAX_ATTEMPTS` / 15 min per client, and
   `AUTH_LOGIN_GLOBAL_MAX_ATTEMPTS` / 1 min across all clients. Every attempt is
@@ -1360,7 +1364,7 @@ components.
   and bounds guessing to ~50/min. Login rate limits are per-instance memory.
 - HMAC uses `CURATOR_SESSION_SECRET` when set, otherwise
   `CURATOR_ADMIN_PASSWORD` (same in production and development).
-  Bump `CURATOR_SESSION_VERSION` to invalidate sessions. `proxy.ts` requires the cookie on `/api/*` except
+  Bump `CURATOR_SESSION_VERSION` to invalidate sessions. `src/proxy.ts` requires the cookie on `/api/*` except
   `/api/auth/verify`, `/api/auth/me`, `/api/auth/logout`.
   `GET /api/auth/me` is the session check. LocalStorage is not a session.
   Each BFF also calls `unauthorizedUnlessAdmin` (proxy is not an auth
@@ -1585,7 +1589,7 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
 
 - Keep components typed. Prefer `ReadonlyArray<T>` for inputs and explicit
   `interface` for props.
-- Server-side code goes in `app/api/*` route handlers or `lib/**/*.server.ts`
+- Server-side code goes in `src/app/api/*` route handlers or `lib/**/*.server.ts`
   modules; never import `wagmi`/viem-wallet code in server files.
 - Use `lib/format/number.ts` helpers for all numeric display.
 - Don't hardcode vault addresses in components — always import from
@@ -1612,16 +1616,16 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
 | V2 cap idData encoding           | `lib/morpho/v2-id-data.ts` (`resolveCapIdData`, …)       |
 | V2 cap display helpers           | `lib/morpho/v2-cap-format.ts`                            |
 | Market risk scoring (shared)     | `lib/morpho/compute-blue-market-risk.ts`, `lib/morpho/irm-utils.ts`, `lib/morpho/oracle-utils.ts` |
-| V2 risk API + UI                 | `app/api/vaults/[id]/risk/route.ts`, `VaultRiskV2.tsx`, `MarketRiskDetailCard.tsx` |
+| V2 risk API + UI                 | `src/app/api/vaults/[id]/risk/route.ts`, `VaultRiskV2.tsx`, `MarketRiskDetailCard.tsx` |
 | Morpho app deep links            | `lib/morpho/morpho-app-links.ts`                         |
 | V2 pending UI                    | `components/morpho/VaultV2Pending.tsx`                    |
-| V2 vault page (tabs)             | `app/vault/[address]/page.tsx`                            |
-| Fee wrapper tab                  | `app/vault/[address]/fee-wrapper/page.tsx`, `FeeWrapperPanel.tsx`, `GET /api/vaults/[id]/gates` |
+| V2 vault page (tabs)             | `src/app/vault/[address]/page.tsx`                            |
+| Fee wrapper tab                  | `src/app/vault/[address]/fee-wrapper/page.tsx`, `FeeWrapperPanel.tsx`, `GET /api/vaults/[id]/gates` |
 | Blue market types + normalize      | `lib/morpho/blue-market-data.ts` (`asBlueMarketData`) |
 | Client fetch + refetch interval  | `lib/data/api-fetch.ts`, `lib/data/query-config.ts`      |
 | BFF cache headers                | `lib/api/response-cache.ts`, `lib/api/server-response-cache.ts` |
 | Governance query key helper      | `vaultV2GovernanceQueryKey` in `lib/hooks/useVaultV2Governance.ts` |
-| Wallet / Reown AppKit config     | `lib/wallet/config.ts`, `lib/wallet/appkit.ts`, `app/providers.tsx`, `components/ConnectWalletButton.tsx` |
+| Wallet / Reown AppKit config     | `lib/wallet/config.ts`, `lib/wallet/appkit.ts`, `src/app/providers.tsx`, `components/ConnectWalletButton.tsx` |
 | Shared filters UI                | `components/morpho/AllocationFilters.tsx`               |
 | Number formatting                | `lib/format/number.ts`                                   |
 | ABIs                             | `lib/onchain/abis.ts` (V2 only)                          |
@@ -1630,20 +1634,20 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
 | Dust recipient UI                | `components/morpho/DustRecipientSelect.tsx`              |
 | Write hook                       | `lib/hooks/useVaultWrite.ts`                             |
 | V2 data hook                     | `lib/hooks/useVaultV2Complete.ts`                        |
-| V2 caps API                      | `app/api/vaults/[id]/governance/route.ts`             |
+| V2 caps API                      | `src/app/api/vaults/[id]/governance/route.ts`             |
 | Vault overview + history chart   | `components/morpho/VaultOverviewPanel.tsx`, `VaultOverviewHistoryChart.tsx`, `TokenUsdValue.tsx` |
-| Vault history BFF                | `app/api/vaults/[id]/history/route.ts`, `lib/morpho/vault-history.ts` |
-| Treasury monthly statement       | `app/api/monthly-statement-morphoql/route.ts`, `lib/morpho/compute-treasury-statement.ts`, `lib/morpho/treasury-statement.ts`, `app/monthly-statement/page.tsx` |
+| Vault history BFF                | `src/app/api/vaults/[id]/history/route.ts`, `lib/morpho/vault-history.ts` |
+| Treasury monthly statement       | `src/app/api/monthly-statement-morphoql/route.ts`, `lib/morpho/compute-treasury-statement.ts`, `lib/morpho/treasury-statement.ts`, `src/app/monthly-statement/page.tsx` |
 | V2 cap market enrichment         | `lib/morpho/fetch-markets-by-id.ts` (`enrichMarketCapParams`, `enrichCollateralCapSymbols`) |
 | Vault overview analytics         | `lib/morpho/vault-analytics.ts`                          |
 | Chart metric / unit filters      | `components/charts/MetricModeFilter.tsx`, `UsdTokenModeFilter.tsx` |
 | Asset decimals + allocation fmt  | `lib/format/asset-decimals.ts`, `allocation-display.ts` |
 | V2 cap helpers                   | `lib/morpho/cap-utils.ts`, `lib/morpho/vault-v2-governance-map.ts` |
-| Vault list API                   | `app/api/vaults/route.ts`, `app/api/vaults/[id]/route.ts`|
+| Vault list API                   | `src/app/api/vaults/route.ts`, `src/app/api/vaults/[id]/route.ts`|
 | Vault history + share price      | `lib/morpho/vault-history.ts`, `useVaultHistory.ts`, `VaultOverviewHistoryChart.tsx` |
 | Sidebar vault sections           | `components/layout/Sidebar.tsx`, `lib/config/vaults.ts` (`getSidebarNavVaults`) |
 | Market id helpers                | `lib/morpho/morpho-app-links.ts` (`marketKeyFromGraphQL`, `curatorBlueMarketHref`, `curatorMidnightMarketHref`, `morphoMidnightMarketHref`) |
-| Midnight markets                 | `lib/morpho/midnight-markets.ts`, `app/midnight/[id]/page.tsx`, `GET /api/markets/midnight`, `GET /api/markets/midnight/[id]` |
+| Midnight markets                 | `lib/morpho/midnight-markets.ts`, `src/app/markets/midnight/[id]/page.tsx`, `GET /api/markets/midnight`, `GET /api/markets/midnight/[id]` |
 | Oracle address from GraphQL      | `lib/morpho/market-oracle-address.ts` (`resolveMarketOracleAddress`) |
 | Explorer address / tx links      | `components/morpho/ExplorerAddressLink.tsx` |
 | Market activity (blue detail)    | `lib/morpho/market-activity.server.ts`, `market-activity-math.ts`, `components/morpho/MarketActivitySections.tsx`, `GET /api/markets/[marketId]/activity` |
@@ -1651,9 +1655,9 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
 | Adapter table rollups            | `lib/morpho/vault-adapter-summary.ts` |
 | Oracle decode + feed registry    | `lib/morpho/oracle-decode.server.ts`, `lib/morpho/chainlink-feed-registry.server.ts`, `lib/morpho/oracle-display.ts` |
 | Morpho GraphQL client + warnings | `lib/morpho/graphql-client.ts` |
-| Curator markets BFF + scoring    | `lib/morpho/curator-markets.ts`, `app/api/markets/` |
-| Markets browser UI               | `components/morpho/CuratorMarketsBrowser.tsx`, `lib/morpho/market-pair-filter.ts`, `app/markets/page.tsx` |
-| Market detail + oracle panel     | Blue: `app/market/blue/[id]/page.tsx`; Midnight: `MidnightMarketView` + `MarketOraclePanel`; `lib/morpho/oracle-price.ts` |
+| Curator markets BFF + scoring    | `lib/morpho/curator-markets.ts`, `src/app/api/markets/` |
+| Markets browser UI               | `components/morpho/CuratorMarketsBrowser.tsx`, `lib/morpho/market-pair-filter.ts`, `src/app/markets/page.tsx` |
+| Market detail + oracle panel     | Blue: `src/app/markets/blue/[id]/page.tsx`; Midnight: `MidnightMarketView` + `MarketOraclePanel`; `lib/morpho/oracle-price.ts` |
 | Create Blue market / vault deposit | muscadine-onchain CLI (not this dashboard) |
 | Amount MAX (Safe send/receive)   | `components/morpho/AmountMaxInput.tsx` |
 | Nav areas                        | `lib/nav/areas.ts`, `components/layout/Topbar.tsx`, `Sidebar.tsx` |
@@ -1664,15 +1668,15 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
 | Vault addresses                  | `lib/config/vaults.ts`                                   |
 | Theme context + migration        | `lib/theme/ThemeContext.tsx`                             |
 | Theme switcher UI                | `components/ThemeSwitcher.tsx`                           |
-| Global density + theme vars      | `app/globals.css`                                        |
+| Global density + theme vars      | `src/app/globals.css`                                        |
 | Chart time-range filter          | `components/charts/TimeRangeFilter.tsx`                  |
 | Chart cumulative/daily toggle    | `components/charts/ViewModeFilter.tsx`                   |
 | Chart total/by-vault toggle      | `components/charts/SourceModeFilter.tsx`                 |
 | Vault holders (paginated)        | `components/morpho/VaultHolders.tsx`                     |
 | Vault transactions (paginated)   | `components/morpho/VaultTransactions.tsx`                |
-| Holders API (V1/V2)              | `app/api/vaults/[id]/holders/route.ts`                   |
-| Transactions API                 | `app/api/vaults/[id]/transactions/route.ts`              |
-| Multisig Safe UI + queue         | `app/safe/`, `components/safe/*`                          |
+| Holders API (V1/V2)              | `src/app/api/vaults/[id]/holders/route.ts`                   |
+| Transactions API                 | `src/app/api/vaults/[id]/transactions/route.ts`              |
+| Multisig Safe UI + queue         | `src/app/safe/`, `components/safe/*`                          |
 | Safe config + Protocol Kit       | `lib/safe/config.ts`, `lib/safe/protocol-kit-client.ts`  |
 | Safe pending store (localStorage)| `lib/safe/pending-store.ts`, `lib/safe/queue-vault-write.ts` |
 | Safe Queue + Transaction Service | `lib/safe/transaction-service.ts`, `lib/safe/service-sync.ts` |
@@ -1680,7 +1684,7 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
 | Safe vault write routing         | `lib/safe/vault-role-match.ts`, `lib/safe/build-vault-calldata.ts` |
 | Safe calldata preview            | `lib/safe/decode-vault-calldata-preview.ts`              |
 | Safe post-execute refetch        | `lib/safe/refetch-vault-after-safe-execute.ts`           |
-| Safe on-chain info API           | `app/api/safe/[address]/info/route.ts`, `lib/safe/onchain-reads.ts` |
+| Safe on-chain info API           | `src/app/api/safe/[address]/info/route.ts`, `lib/safe/onchain-reads.ts` |
 
 ---
 
@@ -1874,7 +1878,7 @@ guard, address book)
 | Token registry + balances | `lib/safe/tokens.ts`, `read-balances.ts`, `custom-token-store.ts` |
 | Assets / send / receive UI | `components/safe/SafeAssetsPanel.tsx`, `SafeSendDialog.tsx`, `SafeReceiveDialog.tsx`, `SafeModal.tsx` |
 | History / settings UI | `components/safe/SafeHistoryPanel.tsx`, `SafeSettingsPanel.tsx`, `lib/safe/address-book.ts` |
-| Safe page shell | `app/safe/[role]/layout.tsx`, `components/safe/SafeAccountHeader.tsx`, `SafeRoleSubnav.tsx` |
+| Safe page shell | `src/app/safe/[role]/layout.tsx`, `components/safe/SafeAccountHeader.tsx`, `SafeRoleSubnav.tsx` |
 | Fund a Safe from a wallet | `lib/hooks/useSafeFunding.ts` |
 | Calldata preview decode | `lib/safe/decode-vault-calldata-preview.ts` |
 | Post-execute refetch | `lib/safe/refetch-vault-after-safe-execute.ts` |
@@ -2002,7 +2006,7 @@ future retired themes.
 ### 16.2 Global compactness
 
 The density that used to be scoped to the Y2K theme is now applied to every
-theme through global CSS in `app/globals.css`:
+theme through global CSS in `src/app/globals.css`:
 
 - `html { font-size: 13.5px }` — intentionally smaller than shadcn's default
   16px, intentionally larger than the old Y2K `12.5px`. Tweak this single
@@ -2167,14 +2171,14 @@ npx tsx src/cli.ts blue dead-deposit --market 0x… --approve
 
 Or Morpho’s curator UI: https://curator.morpho.org/markets/create
 
-Hub still links those Morpho pages (`app/curator/page.tsx`). Markets browse stays
+Hub still links those Morpho pages (`src/app/curator/page.tsx`). Markets browse stays
 at `/markets`. Old `/markets/create` and `/markets/positions` redirect to `/markets`.
 
 ---
 
 _Last updated: 2026-11-02. When you change reallocation logic, allocation
 list/filters (§5), caps/adapters display, V2 idData/Sentinel (§3.2, §4.2), tx
-preview, client fetch/cache (§4.3), app/API route paths (§2, §4.7, `next.config.ts`
+preview, client fetch/cache (§4.3), src/app/API route paths (§2, §4.7, `next.config.ts`
 redirects), Morpho GraphQL field names (§4.4.1), Curator markets browser (§4.7),
 vault list/sidebar (§4.3.1), vault overview/history (share price in §4.4), risk scoring (§4.5), V2 idle/Blue/fee-wrapper display (§3.2.1), pending/emergency
 tabs, wallet stack, Multisig Safe (§13), formatting, CCTP status (§14 removed), global

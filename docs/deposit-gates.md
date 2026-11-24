@@ -90,11 +90,11 @@ Gate UI is **always active** in the app (config allowlist only; no env toggle, n
 
 After **any** allowlist or gate change:
 
-1. Curator picks up gate membership from chain. Update `app/src/lib/deposit-gate-config.ts` only if the app's own copy should change.
+1. Curator picks up gate membership from chain. Update `src/app/src/lib/deposit-gate-config.ts` only if the app's own copy should change.
 2. **`npx tsx src/cli.ts gate verify`** in muscadine-onchain — RPC read-only; must pass before shipping app config.
 3. Redeploy app when depositor list or gate-active flag changes.
 
-Optional backlog: revert app to live `canSendAssets` RPC — see `app/TODO.md`.
+Optional backlog: revert app to live `canSendAssets` RPC — see `src/app/TODO.md`.
 
 ## On-chain verification (muscadine-onchain)
 

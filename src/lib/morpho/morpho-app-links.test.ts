@@ -26,13 +26,13 @@ describe('safeReturnPath', () => {
 describe('curatorBlueMarketHref', () => {
   it('drops an unsafe return path', () => {
     expect(curatorBlueMarketHref('0x01', 8453, '/\\evil.com')).toBe(
-      '/market/blue/0x01?chainId=8453'
+      '/markets/blue/0x01?chainId=8453'
     );
   });
 
   it('keeps a safe return path', () => {
     expect(curatorBlueMarketHref('0x01', 8453, '/markets?q=USDC')).toBe(
-      '/market/blue/0x01?chainId=8453&from=%2Fmarkets%3Fq%3DUSDC'
+      '/markets/blue/0x01?chainId=8453&from=%2Fmarkets%3Fq%3DUSDC'
     );
   });
 });
