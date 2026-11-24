@@ -56,13 +56,15 @@ const appKit = createAppKit({
     '--apkt-accent': 'var(--primary)',
     '--apkt-border-radius-master': '4px',
     '--apkt-z-index': 100000,
-    // Our self-hosted font. Any custom font family also stops AppKit preloading its own
-    // fonts from fonts.reown.com on every page load (an IP-visible third-party request).
-    '--apkt-font-family': 'var(--font-geist-sans), system-ui, sans-serif',
+    // `inherit`: the modal is mounted under <body> and uses the page font. A var(--font-…)
+    // value would not work (AppKit declares it on :root, where next/font's variable is
+    // undefined). Any custom value also stops AppKit preloading its own fonts from
+    // fonts.reown.com on every page load (an IP-visible third-party request).
+    '--apkt-font-family': 'inherit',
     '--w3m-accent': 'var(--primary)',
     '--w3m-border-radius-master': '4px',
     '--w3m-z-index': 100000,
-    '--w3m-font-family': 'var(--font-geist-sans), system-ui, sans-serif',
+    '--w3m-font-family': 'inherit',
   },
 });
 

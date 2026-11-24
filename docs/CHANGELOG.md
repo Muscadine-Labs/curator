@@ -4,6 +4,13 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-24 — Review follow-ups: lazy Base Account, AppKit font
+
+- Base Account connector wrapped in `lazyBaseAccount` (`lib/wallet/lazy-base-account.ts`, tests beside it). wagmi's mount-time `reconnect()` calls `getProvider()` on every configured connector, so the Base Account SDK (and its COOP `HEAD` request) loaded on every page. It now wakes only when used, or when it was the last connector and was not disconnected; a disconnect is remembered and tolerates a provider without `disconnect`.
+- AppKit `--apkt-font-family` / `--w3m-font-family` → `inherit`. `var(--font-geist-sans)` was invalid where AppKit declares it (`:root`; next/font sets the variable on `<body>`). Still skips the `fonts.reown.com` preloads.
+- `@base-org/account` / `@coinbase/wallet-sdk` pinned exact (2.6.0 / 4.4.0). Dead `qr` override removed.
+- Not changed, noted: `--font-geist-sans` is also undefined on `:root` for the app itself (Tailwind's `--default-font-family`), so the UI renders in the system font while Geist is preloaded. Moving the next/font variable classes to `<html>` would switch the app to Geist — a visible design change, left for a deliberate decision.
+
 ## 2026-11-24 — No optional analytics or telemetry
 
 - AppKit `features.analytics` `true` → `false`. Reown's mandatory `INITIALIZE` / `CONNECT_SUCCESS` events and wallet-list impressions cannot be turned off; nothing else is sent.

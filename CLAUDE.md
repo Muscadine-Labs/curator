@@ -67,10 +67,13 @@ Muscadine for managing and reporting on Morpho-style vaults on Base (chainId
 - **Privacy**: no optional analytics or telemetry. AppKit `features.analytics:
   false` (Reown still receives its mandatory `INITIALIZE` / `CONNECT_SUCCESS`
   events and wallet-list impressions). Base Account connector sets
-  `telemetry: false`; `@coinbase/wallet-sdk` 4.4 has none; the
+  `telemetry: false` and is lazy (`lib/wallet/lazy-base-account.ts`: kept out of
+  wagmi's mount-time reconnect, so its SDK and COOP `HEAD` request run only once it
+  is used; a disconnect is remembered); `@coinbase/wallet-sdk` 4.4 has none; the
   `@reown/appkit-utils` override dedupes AppKit's nested SDK copies onto ours.
-  npm scripts set `NEXT_TELEMETRY_DISABLED=1`. AppKit's font variables use our
-  self-hosted Geist (`--font-geist-sans`), which also stops it loading fonts from
+  npm scripts set `NEXT_TELEMETRY_DISABLED=1`. AppKit's font variables are
+  `inherit` (the modal uses the page font; a `var(--font-…)` value is undefined on
+  `:root` where AppKit declares it), which also stops it loading fonts from
   `fonts.reown.com` on every page. Do not add analytics.
 - **GraphQL**: Morpho Blue API (`https://api.morpho.org/graphql`) via
   `graphql-request` in `lib/morpho/graphql-client.ts`. **Vault list, detail,
@@ -1548,7 +1551,8 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
   `@wagmi/connectors@8.2.4` (direct, `$` override) and `@wagmi/core` 3.6.9
   (override). AppKit 2 peers wagmi / `@wagmi/core` ≥3 and `@wagmi/connectors`
   ≥8, so bump them together. Connector SDKs are optional peers in connectors 8:
-  `@base-org/account` and `@coinbase/wallet-sdk` are direct deps because
+  `@base-org/account` (2.6.0) and `@coinbase/wallet-sdk` (4.4.0) are exact direct
+  deps (the privacy claims depend on those versions) because
   `lib/wallet/config.ts` registers those connectors. Import connectors from
   their subpaths (`@wagmi/connectors/baseAccount`, `/coinbaseWallet`), never the
   `wagmi/connectors` barrel: the barrel pulls in MetaMask / WalletConnect /
@@ -1558,8 +1562,7 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
   invalid for `@coinbase/cdp-sdk`'s optional `^2.29.0` peer. Never bundled
   (`next.config.ts` aliases the client paths); `.npmrc` `legacy-peer-deps=true`
   keeps `npm ci` passing. Overrides for packages no longer in the tree (`uuid`,
-  `lodash`, `hono`, `socket.io-parser`, `decode-uri-component`) were removed; `qr`
-  stays as a WalletConnect QR crash guard.
+  `lodash`, `hono`, `socket.io-parser`, `decode-uri-component`, `qr`) were removed.
 - **TypeScript 6** — installed `typescript-eslint` peers `typescript >=4.8.4 <6.1.0`;
   stay on `typescript@^6.0.3` (not 7).
 - **ox 0.14 / Vitest 5** — `ox@0.14.67` (exact: the version viem 2.58.6 depends on; bump both together — `viem` is pinned exact too, so `npm update` cannot pull a viem that needs a newer ox), `vitest@^5.1.1`, with `vite@^8.3.8` because Vitest 5 imports Vite directly. ox 1 stays off.
