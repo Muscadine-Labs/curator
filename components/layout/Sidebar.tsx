@@ -116,7 +116,7 @@ export function Sidebar({ onClose }: SidebarProps) {
           className="flex items-center gap-2 text-lg font-semibold text-slate-900 dark:text-slate-100"
         >
           <Image
-            src="/muscadinelogo.jpg"
+            src="/favicon.png"
             alt="Muscadine"
             width={36}
             height={36}

@@ -47,7 +47,7 @@ export const metadata = {
   name: 'Muscadine Curator',
   description: 'Explore Muscadine vaults and track performance',
   url: appUrl,
-  icons: [`${appUrl}/muscadinelogo.jpg`],
+  icons: [`${appUrl}/favicon.png`],
 };
 
 export const wagmiAdapter = new WagmiAdapter({

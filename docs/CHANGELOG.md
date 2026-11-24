@@ -4,6 +4,12 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-23 — Favicon and dependency floors, repo 1.6.9
+
+- Google Search favicon is `public/favicon.png` (real 512×512 PNG). Homepage, Apple, sidebar, wallet metadata, and the Safe manifest `iconPath` all use it. Removed `public/muscadinelogo.jpg` and `public/muscadinelogo.svg`.
+- Direct ranges now match the installed versions: `@tanstack/react-query` and devtools `^5.108.4`, `lucide-react` `^1.78.0`, `recharts` `^3.11.1`, `tailwind-merge` `^3.7.1`. Override floors match what the tree resolved (`uuid` 14.0.3, `h3` 2.0.8, `js-yaml` 5.5.0, `nanoid` 6.0.2, and the other floors in `package.json`). Still held: wagmi 2, Reown AppKit 1.8.24, viem 2.58.1, ox 0.14.67, ESLint 9, TypeScript 6.
+- Repo version `1.6.8` → `1.6.9`.
+
 ## 2026-11-20 — `docs/brain/` flattened to `docs/`
 
 - Every file in `docs/` lived under `docs/brain/`, so they moved up one level (`docs/README.md`, `CHANGELOG.md`, `MCP.md`, `deposit-gates.md`, `morpho-rest-migration.md`). References in `CLAUDE.md`, `AGENTS.md`, `TODO.md`, `lib/config/deposit-gates.ts` and app `CLAUDE.md` updated; `MCP.md` relative links now go up one level.

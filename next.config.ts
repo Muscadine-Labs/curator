@@ -103,11 +103,7 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        source: '/muscadinelogo.svg',
-        headers: safeAppCorsHeaders,
-      },
-      {
-        source: '/muscadinelogo.jpg',
+        source: '/favicon.png',
         headers: safeAppCorsHeaders,
       },
       {

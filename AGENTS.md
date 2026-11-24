@@ -118,7 +118,7 @@ npm run build   # next build
   **Settings** (modules, guard, address book). Queue several proposals into one
   MultiSend via `queueSafeBatch`. Safe Apps
   SDK embed via `CuratorSafeAppsProvider` (`lib/safe/safe-apps-context.tsx`);
-  manifest at `public/manifest.json` (`muscadinelogo.svg`). Post-execute refetch
+  manifest at `public/manifest.json` (`favicon.png`). Post-execute refetch
   via `refetch-vault-after-safe-execute.ts`; queue previews always shown (stored
   or decoded calldata in `decode-vault-calldata-preview.ts`). See `CLAUDE.md` §13.
 - **Morpho GraphQL shuts down Jan 29, 2027.** REST migration plan:

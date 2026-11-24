@@ -1717,8 +1717,7 @@ Transaction Service is an optional sync layer:
 5. **Share with owners** on unsynced rows re-proposes to the service.
 6. **Sign** posts `confirmTransaction` to the service when `serviceSynced` is true.
 
-`public/manifest.json` uses `iconPath`: `muscadinelogo.svg` (embedded JPEG, same
-pixels as `muscadinelogo.jpg`) + CSP `frame-ancestors`
+`public/manifest.json` uses `iconPath`: `favicon.png` + CSP `frame-ancestors`
 allow Safe App listing. Env: `NEXT_PUBLIC_SAFE_API_KEY` (https://developer.safe.global).
 Free tier is **5 req/s** and **50K req/month** — Curator only calls the service on
 queue (propose), sign (confirm), share, and manual **Sync from service** (no polling);
