@@ -174,11 +174,36 @@ export async function proposePendingToTransactionService(options: {
     try {
       await confirmPendingOnTransactionService(options.tx.safeTxHash, options.senderSignature);
     } catch (confirmError) {
-      // 422: the signer is a proposer (delegate), not an owner, so the service refuses the
-      // signature. The proposal is already there, which is all a delegate can add.
-      if (confirmError instanceof SafeApiError && confirmError.status === 422) return;
+      // 422 has several causes (not an owner, invalid signature, already executed, …). Only
+      // a proposer (delegate) is expected to land here: the service refuses its signature,
+      // and the proposal it shared is already there. For an owner the rejection is real.
+      if (
+        confirmError instanceof SafeApiError &&
+        confirmError.status === 422 &&
+        (await isNotSafeOwner(options.tx.safeAddress, options.senderAddress))
+      ) {
+        return;
+      }
       throw confirmError;
     }
+  }
+}
+
+/**
+ * True only when the Safe's current on-chain owners (via our `/api/safe/[address]/info`
+ * route) are known and do not include `sender`. Any read failure counts as "might be an
+ * owner", so the caller surfaces the error instead of dropping a signature.
+ */
+async function isNotSafeOwner(safeAddress: string, sender: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/safe/${getAddress(safeAddress)}/info`, { cache: 'no-store' });
+    if (!res.ok) return false;
+    const info = (await res.json()) as { owners?: unknown };
+    if (!Array.isArray(info.owners)) return false;
+    const me = sender.toLowerCase();
+    return !info.owners.some((o) => typeof o === 'string' && o.toLowerCase() === me);
+  } catch {
+    return false;
   }
 }
 

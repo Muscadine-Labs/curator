@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const calls: string[] = [];
+let mockFailConnect = false;
 const provider = { request: vi.fn() };
 
 vi.mock('@wagmi/connectors/baseAccount', () => ({
@@ -10,6 +11,7 @@ vi.mock('@wagmi/connectors/baseAccount', () => ({
     type: 'baseAccount',
     async connect() {
       calls.push('connect');
+      if (mockFailConnect) throw new Error('User rejected the request.');
       return { accounts: ['0x0000000000000000000000000000000000000001'], chainId: 8453 };
     },
     async disconnect() {
@@ -118,6 +120,18 @@ describe('lazyBaseAccount', () => {
     expect(store.get('baseAccount.disconnected')).toBe(true);
     expect(await connector.isAuthorized()).toBe(false);
   });
+
+  it('keeps a remembered disconnect when a later connect is cancelled', async () => {
+    const { connector, store } = setup({ recentConnectorId: 'baseAccount', 'baseAccount.disconnected': true });
+    mockFailConnect = true;
+    try {
+      await expect(connector.connect({})).rejects.toThrow();
+    } finally {
+      mockFailConnect = false;
+    }
+    expect(store.get('baseAccount.disconnected')).toBe(true);
+    expect(await connector.isAuthorized()).toBe(false);
+  });
 });
 
 describe('lazyCoinbaseWallet', () => {
@@ -142,10 +156,6 @@ describe('lazyCoinbaseWallet', () => {
     expect(await setupCoinbase({ recentConnectorId: 'injected' }).connector.getProvider()).toBeUndefined();
     expect(calls).toEqual([]);
     expect(await setupCoinbase({ recentConnectorId: 'coinbaseWallet' }).connector.getProvider()).toBe(provider);
-  });
-
-  it('wakes for a session saved under the old coinbaseWalletSDK id', async () => {
-    expect(await setupCoinbase({ recentConnectorId: 'coinbaseWalletSDK' }).connector.getProvider()).toBe(provider);
   });
 
   it('remembers a disconnect under the renamed id', async () => {

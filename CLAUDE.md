@@ -1747,9 +1747,10 @@ every chain: the chain goes in the body (`chainId: 8453`) or query
   service computes the safeTxHash itself; the response hash must equal ours or the
   call throws. **409 = already queued** (another owner shared it, or it was copied
   from the Transaction Service): the sender's signature is then posted to
-  `/signatures` so it is not lost. A 422 there means the sender is a proposer
-  (delegate), whose signature the service refuses; the proposal is already shared,
-  so that counts as done.
+  `/signatures` so it is not lost. A 422 there counts as done only when the
+  sender is not a current on-chain owner (a proposer / delegate, whose signature the
+  service refuses; read via `/api/safe/[address]/info`). For an owner, or when the
+  owner read fails, the 422 is surfaced so the signature is not silently lost.
 - Sign: `POST /multisig-transactions/{safeTxHash}/signatures` with
   `{ signatures: [sig] }`; 409 = already recorded.
 - Pending: `GET /multisig-transactions/queue?safes={safe}:8453&nonceOrder=asc`

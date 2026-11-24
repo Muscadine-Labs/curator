@@ -91,13 +91,35 @@ describe('Safe Queue Service: propose', () => {
     expect(JSON.parse(init.body)).toEqual({ signatures: [SIG] });
   });
 
-  it('on 409 then 422 (delegate signer) treats the proposal as shared', async () => {
+  it('on 409 then 422 from a non-owner (delegate) treats the proposal as shared', async () => {
     fetchMock
       .mockResolvedValueOnce(reply(409, { detail: 'Transaction already exists' }))
-      .mockResolvedValueOnce(reply(422, { detail: 'Signer is not an owner' }));
+      .mockResolvedValueOnce(reply(422, { detail: 'Signer is not an owner' }))
+      .mockResolvedValueOnce(reply(200, { owners: [VAULT] }));
     await expect(
       proposePendingToTransactionService({ tx: pendingTx(), senderAddress: SAFE, senderSignature: SIG })
     ).resolves.toBeUndefined();
+    expect(String(fetchMock.mock.calls[2]![0])).toBe(`/api/safe/${SAFE}/info`);
+  });
+
+  it('on 409 then 422 from an owner surfaces the rejection', async () => {
+    fetchMock
+      .mockResolvedValueOnce(reply(409, { detail: 'Transaction already exists' }))
+      .mockResolvedValueOnce(reply(422, { detail: 'Invalid signature' }))
+      .mockResolvedValueOnce(reply(200, { owners: [SAFE.toLowerCase()] }));
+    await expect(
+      proposePendingToTransactionService({ tx: pendingTx(), senderAddress: SAFE, senderSignature: SIG })
+    ).rejects.toThrow('Invalid signature');
+  });
+
+  it('on 409 then 422 with an unreadable owner list surfaces the rejection', async () => {
+    fetchMock
+      .mockResolvedValueOnce(reply(409, { detail: 'Transaction already exists' }))
+      .mockResolvedValueOnce(reply(422, { detail: 'Invalid signature' }))
+      .mockResolvedValueOnce(reply(500, { error: 'rpc' }));
+    await expect(
+      proposePendingToTransactionService({ tx: pendingTx(), senderAddress: SAFE, senderSignature: SIG })
+    ).rejects.toThrow('Invalid signature');
   });
 
   it('on 409 surfaces a failed signature post', async () => {

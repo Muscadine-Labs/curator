@@ -59,8 +59,16 @@ export function lazyConnector<T extends CreateConnectorFn>(create: T, options: {
       id,
       async connect(args: Parameters<typeof connector.connect>[0]) {
         awake = true;
-        await remember(false);
-        return connector.connect(args);
+        try {
+          const result = await connector.connect(args);
+          // Clear the remembered disconnect only once connected: a cancelled popup must not
+          // make the SDK wake on every later page load.
+          await remember(false);
+          return result;
+        } catch (error) {
+          awake = false;
+          throw error;
+        }
       },
       async disconnect() {
         awake = false;
@@ -109,8 +117,21 @@ export function lazyCoinbaseWallet(parameters: { appName: string; appLogoUrl?: s
       appLogoUrl: parameters.appLogoUrl,
       preference: { options: 'all' },
     }),
-    // AppKit's own connector used the wagmi id `coinbaseWalletSDK`: wake for sessions
-    // saved under it so they reconnect after the switch.
-    { id: 'coinbaseWallet', legacyIds: ['coinbaseWalletSDK'] }
+    { id: 'coinbaseWallet' }
   );
+}
+
+let walletSdksPreloaded = false;
+
+/**
+ * Fetch both wallet SDK modules (same-origin JS chunks; importing them starts no SDK and
+ * sends nothing to Coinbase) when the user opens Connect. A lazy connector otherwise
+ * imports its SDK on the first connect, between the click and the wallet popup, and a
+ * strict popup blocker (Safari) can then refuse the popup.
+ */
+export function preloadWalletSdks() {
+  if (walletSdksPreloaded || typeof window === 'undefined') return;
+  walletSdksPreloaded = true;
+  void import('@coinbase/wallet-sdk').catch(() => {});
+  void import('@base-org/account').catch(() => {});
 }
