@@ -8,6 +8,7 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 - Node `24.x` → `26.x` (`engines`, `README.md`, `CLAUDE.md` §11) to match Vercel. `@types/node` `^26.6.6`. Verified on Node 26.13.1: lint, `tsc`, 376 tests, build.
 - `viem` 2.58.1 → 2.58.6 (still depends on `ox` 0.14.67). Override patches: `axios` 1.21.1, `hono` 4.13.21, `follow-redirects` 1.16.3, `source-map-js` 1.2.4, `brace-expansion` 1.1.22 / 5.1.0. `npm audit`: 0.
+- Overrides `js-yaml`, `nanoid`, `h3` back to the newest versions their dependents accept (`^4.3.2`, `^3.3.20`, `^1.15.11`). The `>=5.5.0` / `>=6.0.2` / `>=2.0.8` floors forced new majors onto `@eslint/eslintrc` (wants js-yaml 4), `postcss` (wants nanoid 3) and `unstorage` (wants h3 1). No advisories on those lines.
 - Still held: wagmi 2 + AppKit 1.8 (AppKit 2.0 needs wagmi 3 — migrate together), ESLint 9, TypeScript 6, ox 0.14.
 - `CLAUDE.md` names that no longer exist in code: `formatPercent` / `formatBigIntValue` / `formatRelativeCap` (now `formatPercentage`, `formatRelativeCapWad`), `totalRawAssets` (now `planningTotalRaw`), `getMultisigTransactions` (now `fetchExecutedMultisigTransactions`), the removed client hooks `useVaultCaps` / `useVaultQueues`, and the V1 `parseSupplyCap` note.
 
