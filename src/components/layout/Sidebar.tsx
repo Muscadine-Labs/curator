@@ -261,8 +261,6 @@ function AreaSidebar({
   }
 
   if (area === 'markets') {
-    const onBlueMarket = pathname.startsWith('/market/');
-    const onMidnightMarket = pathname.startsWith('/midnight');
     return (
       <div className="space-y-1">
         <SectionLabel>Markets</SectionLabel>
@@ -277,14 +275,14 @@ function AreaSidebar({
           href="/markets/blue"
           label="Blue"
           icon={Waves}
-          active={pathname === '/markets/blue' || onBlueMarket}
+          active={pathname === '/markets/blue' || pathname.startsWith('/markets/blue/')}
           onClick={onLinkClick}
         />
         <NavLink
           href="/markets/midnight"
           label="Midnight"
           icon={Moon}
-          active={pathname === '/markets/midnight' || onMidnightMarket}
+          active={pathname === '/markets/midnight' || pathname.startsWith('/markets/midnight/')}
           onClick={onLinkClick}
         />
       </div>

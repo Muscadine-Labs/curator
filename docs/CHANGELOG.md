@@ -4,6 +4,11 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-24 — Source under src, markets in one route tree
+
+- Source now lives in `src/app`, `src/components` and `src/lib`, matching the depositor app. `@/` points at `src/` (tsconfig, vitest). The auth proxy moved to `src/proxy.ts`: Next.js only picks it up next to `src/app`.
+- Blue detail is `/markets/blue/[id]`, Midnight detail is `/markets/midnight/[id]`. `/market/blue/[id]`, `/midnight/[id]`, `/market/midnight/[id]` and `/curator/market/blue/[id]` redirect there (308). `curatorBlueMarketHref` / `curatorMidnightMarketHref` build the new paths.
+
 ## 2026-11-24 — Not a Safe App; Coinbase SDK lazy
 
 - Safe Apps SDK removed (`@safe-global/safe-apps-sdk`, `@safe-global/safe-apps-react-sdk`, `lib/safe/safe-apps-context.tsx`, `safe-apps-send.ts`, the Safe App mode banner, `public/manifest.json` and its CORS headers). Queueing always goes to localStorage, then the Queue Service. CSP `frame-ancestors` is now `'none'` (it allowed `app.safe.global`).

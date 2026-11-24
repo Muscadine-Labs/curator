@@ -19,9 +19,10 @@ npm run build   # next build
 
 ## Key invariants (do not regress)
 
+- **Layout:** source lives in `src/` (`src/app`, `src/components`, `src/lib`); `@/` → `src/`. The auth proxy is `src/proxy.ts` and must stay next to `src/app`, or Next.js skips it and `/api/*` is unauthenticated.
 - **Auth:** the only login username is `admin` (role `'admin'`); password from
   `CURATOR_ADMIN_PASSWORD`. BFF
-  routes require the HttpOnly `curator_session` cookie (`proxy.ts` plus
+  routes require the HttpOnly `curator_session` cookie (`src/proxy.ts` plus
   a route-level check). `apiFetch` sends `credentials: 'same-origin'`.
   `POST /api/auth/verify` is IP rate-limited (`AUTH_LOGIN_MAX_ATTEMPTS`).
   Sessions are HMAC-signed with `CURATOR_SESSION_SECRET` when set, otherwise
@@ -129,7 +130,7 @@ npm run build   # next build
   `vaultV2transactions`. Client logs `extensions.warnings` via
   `lib/morpho/graphql-client.ts`. See `CLAUDE.md` §4.4.1.
 - **App routes** — `/` (Overview), `/vaults`, `/vault/[address]/*`,
-  `/markets`, `/market/blue/[id]`, `/midnight/[id]`, `/safe`, `/safe/[role]/{assets,transactions,history,settings}`,
+  `/markets`, `/markets/blue/[id]`, `/markets/midnight/[id]`, `/safe`, `/safe/[role]/{assets,transactions,history,settings}`,
   `/curator` (Curator tools hub), `/curator/gates` (send-assets gate), `/curator/bots` (bot watch + repos),
   `/monthly-statement`, `/muscadine-frontends`.
   Deposit/lend/create-market writes live in muscadine-onchain. Vault pages live
@@ -143,13 +144,13 @@ npm run build   # next build
   `GET /api/markets/midnight`, `GET /api/markets/midnight/[id]`; send-assets
   gate state at `GET /api/gates/[address]`; Safe extras at
   `GET /api/safe/[address]/history`, `GET /api/safe/[address]/settings`.
-- **Vault pages** — `app/vault/[address]/{page,allocation,caps,…}` via
+- **Vault pages** — `src/app/vault/[address]/{page,allocation,caps,…}` via
   `VaultPageShell` (`'use client'` + React Query); keep **dynamic** (no
   SSG/`generateStaticParams` for vault addresses).
 - **Curator Morpho Markets** — `/markets` (default: All products, listed only, sort
   market size desc; product toggle All / Blue — variable rate / Midnight — fixed
-  rate; Midnight status Active / Matured / All, default Active), `/market/blue/[id]` (Blue), and
-  `/midnight/[id]` (Midnight order book — not Blue KPIs). `/markets` lists Blue and
+  rate; Midnight status Active / Matured / All, default Active), `/markets/blue/[id]` (Blue), and
+  `/markets/midnight/[id]` (Midnight order book — not Blue KPIs). `/markets` lists Blue and
   Midnight in one table; a blank cell means that product has no value (Midnight:
   liquidity, 6H net APY, listed, Muscadine; Blue: maturity). Loan / Collateral /
   Search apply to both products (`market-pair-filter.ts`). Midnight REST

@@ -84,17 +84,17 @@ export function curatorBlueMarketHref(
   returnTo?: string | null
 ): string | null {
   if (!marketId) return null;
-  return marketHref(`/market/blue/${encodeURIComponent(marketId)}`, chainId, returnTo);
+  return marketHref(`/markets/blue/${encodeURIComponent(marketId)}`, chainId, returnTo);
 }
 
-/** In-app Midnight market detail (`/midnight/{id}`). */
+/** In-app Midnight market detail (`/markets/midnight/{id}`). */
 export function curatorMidnightMarketHref(
   marketId: string | null | undefined,
   chainId: number = BASE_CHAIN_ID,
   returnTo?: string | null
 ): string | null {
   if (!marketId) return null;
-  return marketHref(`/midnight/${encodeURIComponent(marketId)}`, chainId, returnTo);
+  return marketHref(`/markets/midnight/${encodeURIComponent(marketId)}`, chainId, returnTo);
 }
 
 /**

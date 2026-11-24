@@ -10,7 +10,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': root,
+      '@': path.join(root, 'src'),
     },
   },
 });
