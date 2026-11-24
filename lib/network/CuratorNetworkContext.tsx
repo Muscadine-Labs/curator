@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useAccount, useSwitchChain } from 'wagmi';
+import { useConnection, useSwitchChain } from 'wagmi';
 import {
   BASE_CHAIN_ID,
   CURATOR_MARKET_NETWORKS,
@@ -27,11 +27,11 @@ type CuratorNetworkContextValue = {
 const CuratorNetworkContext = createContext<CuratorNetworkContextValue | null>(null);
 
 export function CuratorNetworkProvider({ children }: { children: ReactNode }) {
-  // useAccount().chainId is the wallet's real chain. useChainId() only reports
+  // useConnection().chainId is the wallet's real chain. useChainId() only reports
   // chains in the wagmi config, so with Base-only config it stays 8453 while the
   // wallet sits on Ethereum and the "Wallet not on Base" hint could never show.
-  const { isConnected, chainId: walletChainId } = useAccount();
-  const { switchChainAsync } = useSwitchChain();
+  const { isConnected, chainId: walletChainId } = useConnection();
+  const { mutateAsync: switchChainAsync } = useSwitchChain();
   // Always start on Base. Explicit NetworkSwitcher changes last for this session only.
   const [chainId, setChainIdState] = useState(BASE_CHAIN_ID);
 

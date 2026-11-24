@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
-import { useAccount } from 'wagmi';
+import { useConnection } from 'wagmi';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -378,7 +378,7 @@ function DecreaseCapsPanel({
   const pendingCalldataRef = useRef<{ to: Address; data: Hex } | null>(null);
   const queryClient = useQueryClient();
   const router = useRouter();
-  const { address: walletAddress, isConnected, connector } = useAccount();
+  const { address: walletAddress, isConnected, connector } = useConnection();
   const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
     useCuratorSafeApps();
   const sentinelSafeAppSdk = useMemo(
@@ -978,7 +978,7 @@ function DeallocatePanel({
   const pendingCalldataRef = useRef<{ to: Address; data: Hex } | null>(null);
   const queryClient = useQueryClient();
   const router = useRouter();
-  const { address: walletAddress, isConnected, connector } = useAccount();
+  const { address: walletAddress, isConnected, connector } = useConnection();
   const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
     useCuratorSafeApps();
   const sentinelSafeAppSdk = useMemo(

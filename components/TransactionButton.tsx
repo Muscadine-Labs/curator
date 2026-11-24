@@ -1,7 +1,7 @@
 'use client';
 
 import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
-import { useAccount } from 'wagmi';
+import { useConnection } from 'wagmi';
 import { useAppKit } from '@reown/appkit/react';
 import { Button } from '@/components/ui/button';
 import { TxErrorBanner } from '@/components/TxErrorBanner';
@@ -35,7 +35,7 @@ export function TransactionButton({
   size = 'default',
   suppressConnectPrompt = false,
 }: TransactionButtonProps) {
-  const { isConnected } = useAccount();
+  const { isConnected } = useConnection();
   const { open } = useAppKit();
 
   if (!isConnected) {

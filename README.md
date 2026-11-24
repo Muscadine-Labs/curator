@@ -4,7 +4,7 @@ Next.js dashboard for Muscadine vaults on Morpho.
 
 ## Quick Start (macOS)
 
-Prerequisites: [Node.js](https://nodejs.org/) **24.x** and [Git](https://git-scm.com/). Check with:
+Prerequisites: [Node.js](https://nodejs.org/) **26.x** and [Git](https://git-scm.com/). Check with:
 
 ```bash
 node -v
@@ -86,10 +86,10 @@ Copy `.env.example` → `.env.local`. Summary:
 
 ## Tech Stack
 
-- Next.js 16.3 (App Router, webpack)
+- Next.js 16.4 (App Router, webpack)
 - TypeScript 6
 - Tailwind CSS 4 + shadcn/ui
-- Wagmi 2 + Reown AppKit (wallet)
+- wagmi 3 + Reown AppKit 2 (wallet)
 - Viem (blockchain)
 - TanStack Query (data fetching)
 - Vitest 5

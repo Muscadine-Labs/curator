@@ -28,8 +28,8 @@ export const metadata: Metadata = {
   title: "Muscadine Curator",
   description: "Explore Muscadine vaults and track performance",
   icons: {
-    icon: "/muscadinelogo.jpg",
-    apple: "/muscadinelogo.jpg",
+    icon: [{ url: "/favicon.png", type: "image/png", sizes: "512x512" }],
+    apple: [{ url: "/favicon.png", type: "image/png", sizes: "512x512" }],
   },
 };
 

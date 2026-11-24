@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAccount } from 'wagmi';
+import { useConnection } from 'wagmi';
 import { useQueryClient } from '@tanstack/react-query';
 import { getAddress, type Address, type Hex } from 'viem';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -101,7 +101,7 @@ export function VaultV2Pending({
   const acceptWrite = useVaultWrite({ chainId });
   const queryClient = useQueryClient();
   const router = useRouter();
-  const { isConnected, address: walletAddress, connector } = useAccount();
+  const { isConnected, address: walletAddress, connector } = useConnection();
   const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
     useCuratorSafeApps();
 

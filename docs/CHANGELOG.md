@@ -4,6 +4,37 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-24 — No optional analytics or telemetry
+
+- AppKit `features.analytics` `true` → `false`. Reown's mandatory `INITIALIZE` / `CONNECT_SUCCESS` events and wallet-list impressions cannot be turned off; nothing else is sent.
+- `overrides["@reown/appkit-utils"]` points AppKit's nested `@base-org/account` (2.4.0) and `@coinbase/wallet-sdk` (4.3.6, which still had telemetry) at our direct 2.6.0 / 4.4.0, so one copy of each is installed.
+- AppKit `--apkt-font-family` / `--w3m-font-family` use our self-hosted Geist, which stops AppKit preloading 8 font files from `fonts.reown.com` on every page load.
+- `dev` / `build` / `start` scripts set `NEXT_TELEMETRY_DISABLED=1` (Next.js build telemetry off locally and on Vercel).
+- `useVaultWrite` no longer passes a `chain` that wagmi ignores (it derives the chain from `chainId`); the supported-chain guard stays.
+- `public/favicon.ico` (16/32/48) added so the default browser request no longer 404s.
+
+## 2026-11-24 — wagmi 3 + Reown AppKit 2
+
+- `wagmi` 2.19.5 → 3.7.11, `@reown/appkit*` 1.8.24 → 2.0.0, `@wagmi/connectors` 6.2.0 → 8.2.4 (now a direct dep, `$` override), `@wagmi/core` override 3.6.9. 212 packages left the tree (old WalletConnect ethereum-provider, MetaMask SDK, `bufferutil` / `keccak` / `utf-8-validate`), so those `allowScripts` entries and the unused `esbuild` one are gone. `npm audit`: 0.
+- Connector SDKs are optional peers in connectors 8: `@base-org/account` ^2.6.0 and `@coinbase/wallet-sdk` ^4.4.0 added as direct deps. `lib/wallet/config.ts` and `coinbase-connector.ts` import from `@wagmi/connectors/baseAccount` / `/coinbaseWallet`, so the barrel's uninstalled MetaMask / WalletConnect / Tempo SDKs no longer warn in the webpack build. Ids (`baseAccount`, `coinbaseWalletSDK` → rewritten `coinbaseWallet`) still reach AppKit 2 unchanged.
+- Off deprecated wagmi 3 aliases: `useAccount` → `useConnection` (16 files, same hook), and `mutateAsync` for `useSwitchChain` / `useWriteContract` / `useSendTransaction` in `useVaultWrite`, `useSafeFunding`, `useSafeTransactionActions`, `CuratorNetworkContext`.
+- Review follow-ups: `wagmi` pinned exact (it pins core / connectors exactly). Dead overrides removed (`uuid`, `lodash`, `hono`, `socket.io-parser`, `decode-uri-component`; their packages left the tree, so the `hono` patch above never applied); `qr` kept as a guard. `allowScripts.unrs-resolver` removed (no install script). Deprecated `enableWalletConnect` removed from `createAppKit` (default `true`). `@coinbase/wallet-sdk` 4.4 has no telemetry option: dropped it from the Coinbase connector; the id rewrite is now documented as AppKit dedupe; Base Account still sets `telemetry: false`. `public/favicon.png` re-encoded as a 256-colour PNG: 298 KB → 15 KB, same pixels to the eye (44 dB PSNR). README / CLAUDE.md §7 / §11 / AGENTS.md drift fixed.
+- Verified on Node 26: lint, `tsc`, 376 tests, build with no warnings.
+
+## 2026-11-24 — Node 26, dependency patches, doc drift
+
+- Node `24.x` → `26.x` (`engines`, `README.md`, `CLAUDE.md` §11) to match Vercel. `@types/node` `^26.6.6`. Verified on Node 26.13.1: lint, `tsc`, 376 tests, build.
+- `viem` 2.58.1 → 2.58.6 (still depends on `ox` 0.14.67). Override patches: `axios` 1.21.1, `hono` 4.13.21, `follow-redirects` 1.16.3, `source-map-js` 1.2.4, `brace-expansion` 1.1.22 / 5.1.0. `npm audit`: 0.
+- Overrides `js-yaml`, `nanoid`, `h3` back to the newest versions their dependents accept (`^4.3.2`, `^3.3.20`, `^1.15.11`). The `>=5.5.0` / `>=6.0.2` / `>=2.0.8` floors forced new majors onto `@eslint/eslintrc` (wants js-yaml 4), `postcss` (wants nanoid 3) and `unstorage` (wants h3 1). No advisories on those lines.
+- Still held: wagmi 2 + AppKit 1.8 (AppKit 2.0 needs wagmi 3 — migrate together), ESLint 9, TypeScript 6, ox 0.14.
+- `CLAUDE.md` names that no longer exist in code: `formatPercent` / `formatBigIntValue` / `formatRelativeCap` (now `formatPercentage`, `formatRelativeCapWad`), `totalRawAssets` (now `planningTotalRaw`), `getMultisigTransactions` (now `fetchExecutedMultisigTransactions`), the removed client hooks `useVaultCaps` / `useVaultQueues`, and the V1 `parseSupplyCap` note.
+
+## 2026-11-23 — Favicon and dependency floors, repo 1.6.9
+
+- Google Search favicon is `public/favicon.png` (real 512×512 PNG). Homepage, Apple, sidebar, wallet metadata, and the Safe manifest `iconPath` all use it. Removed `public/muscadinelogo.jpg` and `public/muscadinelogo.svg`.
+- Direct ranges now match the installed versions: `@tanstack/react-query` and devtools `^5.108.4`, `lucide-react` `^1.78.0`, `recharts` `^3.11.1`, `tailwind-merge` `^3.7.1`. Override floors match what the tree resolved (`uuid` 14.0.3, `h3` 2.0.8, `js-yaml` 5.5.0, `nanoid` 6.0.2, and the other floors in `package.json`). Still held: wagmi 2, Reown AppKit 1.8.24, viem 2.58.1, ox 0.14.67, ESLint 9, TypeScript 6.
+- Repo version `1.6.8` → `1.6.9`.
+
 ## 2026-11-20 — `docs/brain/` flattened to `docs/`
 
 - Every file in `docs/` lived under `docs/brain/`, so they moved up one level (`docs/README.md`, `CHANGELOG.md`, `MCP.md`, `deposit-gates.md`, `morpho-rest-migration.md`). References in `CLAUDE.md`, `AGENTS.md`, `TODO.md`, `lib/config/deposit-gates.ts` and app `CLAUDE.md` updated; `MCP.md` relative links now go up one level.

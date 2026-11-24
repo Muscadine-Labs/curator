@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
-import { useAccount } from 'wagmi';
+import { useConnection } from 'wagmi';
 import { getAddress } from 'viem';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -134,7 +134,7 @@ export function PublicAllocatorCaps({
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { address: walletAddress, isConnected, connector } = useAccount();
+  const { address: walletAddress, isConnected, connector } = useConnection();
   const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
     useCuratorSafeApps();
   const write = useVaultWrite({ chainId });

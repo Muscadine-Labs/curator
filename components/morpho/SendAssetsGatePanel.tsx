@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { useAccount } from 'wagmi';
+import { useConnection } from 'wagmi';
 import { getAddress, isAddress, type Address, type Hex } from 'viem';
 import { AddressBadge } from '@/components/AddressBadge';
 import { Button } from '@/components/ui/button';
@@ -181,7 +181,7 @@ export function SendAssetsGatePanel({
   label: string;
 }) {
   const router = useRouter();
-  const { address: walletAddress, connector } = useAccount();
+  const { address: walletAddress, connector } = useConnection();
   const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
     useCuratorSafeApps();
   const query = useQuery({

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAccount } from 'wagmi';
+import { useConnection } from 'wagmi';
 import { useSyncExternalStore } from 'react';
 import { getAddress, isAddress, parseUnits, zeroAddress } from 'viem';
 import { AlertTriangle, ArrowRight } from 'lucide-react';
@@ -48,7 +48,7 @@ export function SafeSendDialog({
   onOpenChange: (open: boolean) => void;
   initialToken?: string;
 }) {
-  const { address: walletAddress, connector } = useAccount();
+  const { address: walletAddress, connector } = useConnection();
   const { sdk: safeAppSdk } = useCuratorSafeApps();
   const router = useRouter();
   const addressBook = useSyncExternalStore(

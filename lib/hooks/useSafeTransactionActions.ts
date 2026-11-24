@@ -3,7 +3,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getAddress, type Address, type EIP1193Provider, type Hex } from 'viem';
-import { useAccount, usePublicClient, useSendTransaction, useSwitchChain } from 'wagmi';
+import { useConnection, usePublicClient, useSendTransaction, useSwitchChain } from 'wagmi';
 import {
   addSignature,
   removePendingTransaction,
@@ -43,9 +43,9 @@ function errorMessage(e: unknown, fallback: string): string {
 
 export function useSafeTransactionActions(threshold: number | undefined) {
   const queryClient = useQueryClient();
-  const { address: walletAddress, connector } = useAccount();
-  const { switchChainAsync } = useSwitchChain();
-  const { sendTransactionAsync } = useSendTransaction();
+  const { address: walletAddress, connector } = useConnection();
+  const { mutateAsync: switchChainAsync } = useSwitchChain();
+  const { mutateAsync: sendTransactionAsync } = useSendTransaction();
   const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
   const [activeId, setActiveId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

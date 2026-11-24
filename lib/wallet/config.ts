@@ -1,5 +1,5 @@
 import { cookieStorage, createStorage, fallback, http } from 'wagmi';
-import { baseAccount } from 'wagmi/connectors';
+import { baseAccount } from '@wagmi/connectors/baseAccount';
 import { coinbaseWalletForAppKit } from '@/lib/wallet/coinbase-connector';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import type { AppKitNetwork } from '@reown/appkit/networks';
@@ -47,7 +47,7 @@ export const metadata = {
   name: 'Muscadine Curator',
   description: 'Explore Muscadine vaults and track performance',
   url: appUrl,
-  icons: [`${appUrl}/muscadinelogo.jpg`],
+  icons: [`${appUrl}/favicon.png`],
 };
 
 export const wagmiAdapter = new WagmiAdapter({
@@ -59,8 +59,9 @@ export const wagmiAdapter = new WagmiAdapter({
   networks,
   /**
    * Register Base Account and Coinbase here so AppKit does not add its defaults.
-   * Defaults post telemetry to as.coinbase.com, which tracker blockers reject.
-   * Coinbase's id is rewritten to `coinbaseWallet` in coinbaseWalletForAppKit.
+   * AppKit's default Base Account connector posts telemetry to as.coinbase.com, which
+   * tracker blockers reject; ours turns it off. Coinbase's id is rewritten to
+   * `coinbaseWallet` in coinbaseWalletForAppKit so AppKit does not add a second one.
    */
   connectors: [
     baseAccount({

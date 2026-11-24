@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAccount, usePublicClient } from 'wagmi';
+import { useConnection, usePublicClient } from 'wagmi';
 import { encodeFunctionData, getAddress } from 'viem';
 import { Button } from '@/components/ui/button';
 import { TxPreviewDialog } from '@/components/morpho/TxPreviewDialog';
@@ -55,7 +55,7 @@ export function ClaimFeesButton({
   const router = useRouter();
   const publicClient = usePublicClient({ chainId });
   const write = useVaultWrite({ chainId });
-  const { isConnected, address: walletAddress, connector } = useAccount();
+  const { isConnected, address: walletAddress, connector } = useConnection();
   const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
     useCuratorSafeApps();
   const [open, setOpen] = useState(false);

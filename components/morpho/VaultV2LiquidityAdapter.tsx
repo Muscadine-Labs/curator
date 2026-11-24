@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAccount } from 'wagmi';
+import { useConnection } from 'wagmi';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Address } from 'viem';
 import { getAddress } from 'viem';
@@ -107,7 +107,7 @@ export function VaultV2LiquidityAdapter({
   const write = useVaultWrite({ chainId });
   const queryClient = useQueryClient();
   const router = useRouter();
-  const { address: walletAddress, isConnected, connector } = useAccount();
+  const { address: walletAddress, isConnected, connector } = useConnection();
   const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
     useCuratorSafeApps();
 

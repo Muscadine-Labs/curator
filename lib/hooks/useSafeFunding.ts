@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react';
 import {
-  useAccount,
+  useConnection,
   useSendTransaction,
   useSwitchChain,
   useWaitForTransactionReceipt,
@@ -23,10 +23,10 @@ export function useSafeFunding() {
   // The wallet's real chain. useChainId() only reports configured chains, so
   // with Base-only config it reads 8453 while the wallet sits on Ethereum and
   // the switch below would be skipped (viem then rejects the chain mismatch).
-  const { address: walletAddress, isConnected, chainId: activeChainId } = useAccount();
-  const { switchChainAsync } = useSwitchChain();
-  const { sendTransactionAsync } = useSendTransaction();
-  const { writeContractAsync } = useWriteContract();
+  const { address: walletAddress, isConnected, chainId: activeChainId } = useConnection();
+  const { mutateAsync: switchChainAsync } = useSwitchChain();
+  const { mutateAsync: sendTransactionAsync } = useSendTransaction();
+  const { mutateAsync: writeContractAsync } = useWriteContract();
 
   const [txHash, setTxHash] = useState<Hex | null>(null);
   const [isPending, setIsPending] = useState(false);

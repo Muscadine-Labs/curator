@@ -118,7 +118,7 @@ npm run build   # next build
   **Settings** (modules, guard, address book). Queue several proposals into one
   MultiSend via `queueSafeBatch`. Safe Apps
   SDK embed via `CuratorSafeAppsProvider` (`lib/safe/safe-apps-context.tsx`);
-  manifest at `public/manifest.json` (`muscadinelogo.svg`). Post-execute refetch
+  manifest at `public/manifest.json` (`favicon.png`). Post-execute refetch
   via `refetch-vault-after-safe-execute.ts`; queue previews always shown (stored
   or decoded calldata in `decode-vault-calldata-preview.ts`). See `CLAUDE.md` §13.
 - **Morpho GraphQL shuts down Jan 29, 2027.** REST migration plan:
@@ -184,8 +184,8 @@ npm run build   # next build
   follows that chain.
 - **Token display decimals** — `getTokenDisplayDecimals`: WETH/cbBTC → 6, USDC → 3
   (holders, txs, allocation history, markets token lines).
-- **Dependency pins** — ESLint **9.39.x**, wagmi **2.19.x**, TypeScript **6.0.x**
-  (`typescript-eslint` peers `<6.1.0`), ox **0.14.x**, Vitest **5.0.x**. Do not
-  bump ESLint 10, wagmi 3, TypeScript 7, or ox 1 (§11).
+- **Dependency pins** — ESLint **9.39.x**, wagmi **3.7.x** + Reown AppKit **2.0.x** (bump together), TypeScript **6.0.x**
+  (`typescript-eslint` peers `<6.1.0`), ox **0.14.x**, Vitest **5.1.x**. Do not
+  bump ESLint 10, TypeScript 7, or ox 1 (§11).
 - Keep `docs/` (changelog + MCP), `CLAUDE.md`, `AGENTS.md`, and `TODO.md`
   in sync with behavior changes (closed loop).

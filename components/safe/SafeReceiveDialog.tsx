@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useAccount, useBalance, useReadContract } from 'wagmi';
+import { useConnection, useBalance, useReadContract } from 'wagmi';
 import { erc20Abi, parseUnits, type Address } from 'viem';
 import { Check, Copy, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -91,7 +91,7 @@ export function SafeReceiveDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const queryClient = useQueryClient();
-  const { address: walletAddress, isConnected } = useAccount();
+  const { address: walletAddress, isConnected } = useConnection();
   const customTokens = useCustomTokens(account.role);
   const qr = useQrDataUrl(prefixedAddress(account.address));
   const funding = useSafeFunding();
