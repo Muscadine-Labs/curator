@@ -1,5 +1,5 @@
 import { cookieStorage, createStorage, fallback, http } from 'wagmi';
-import { lazyBaseAccount } from '@/lib/wallet/lazy-base-account';
+import { lazyBaseAccount, lazyCoinbaseWallet } from '@/lib/wallet/lazy-connectors';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import type { AppKitNetwork } from '@reown/appkit/networks';
 import { BASE_CHAIN_ID } from '@/lib/constants';
@@ -57,18 +57,20 @@ export const wagmiAdapter = new WagmiAdapter({
   projectId,
   networks,
   /**
-   * Register Base Account here so AppKit does not add its default one, which posts
-   * telemetry to as.coinbase.com. Ours turns telemetry off and stays out of the mount-time
-   * reconnect until it is used (lazy-base-account.ts), so its SDK does not load on every
-   * page. AppKit's Coinbase Wallet SDK connector is off (`enableCoinbase: false` in
-   * appkit.ts): it loaded the SDK and sent HEAD requests on every page. The Coinbase
-   * Wallet extension still shows through EIP-6963, the app through WalletConnect.
+   * Register Base Account and Coinbase Wallet here so AppKit does not add its defaults.
+   * AppKit's default Base Account connector posts telemetry to as.coinbase.com; ours turns
+   * it off. Both stay out of the mount-time reconnect until they are used
+   * (lazy-connectors.ts), so neither SDK loads, nor sends its HEAD request, on every page.
    */
   connectors: [
     lazyBaseAccount({
       appName: metadata.name,
       appLogoUrl: metadata.icons[0],
       preference: { telemetry: false },
+    }),
+    lazyCoinbaseWallet({
+      appName: metadata.name,
+      appLogoUrl: metadata.icons[0],
     }),
   ],
   transports: {

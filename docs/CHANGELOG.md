@@ -4,11 +4,11 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
-## 2026-11-24 — Not a Safe App; Coinbase SDK off
+## 2026-11-24 — Not a Safe App; Coinbase SDK lazy
 
 - Safe Apps SDK removed (`@safe-global/safe-apps-sdk`, `@safe-global/safe-apps-react-sdk`, `lib/safe/safe-apps-context.tsx`, `safe-apps-send.ts`, the Safe App mode banner, `public/manifest.json` and its CORS headers). Queueing always goes to localStorage, then the Queue Service. CSP `frame-ancestors` is now `'none'` (it allowed `app.safe.global`).
-- AppKit `enableCoinbase: false` and the `coinbaseWalletForAppKit` connector removed: the Coinbase Wallet SDK loaded and sent 2 `HEAD` requests on every page. Coinbase Wallet extension still shows via EIP-6963, the app via WalletConnect.
-- `lazyBaseAccount` also remembers a disconnect from the wallet side (`onDisconnect`).
+- Coinbase Wallet SDK no longer loads on every page (it sent 2 `HEAD` requests): the Coinbase connector (id `coinbaseWallet`, so AppKit adds no second one) now uses the same lazy wrapper as Base Account. `lib/wallet/lazy-base-account.ts` + `coinbase-connector.ts` → `lib/wallet/lazy-connectors.ts` (`lazyConnector`, `lazyBaseAccount`, `lazyCoinbaseWallet`). Coinbase Wallet and Base Account (smart wallet) both stay in the Reown modal.
+- The lazy wrapper also remembers a disconnect from the wallet side (`onDisconnect`).
 - Queue Service propose: a 409 now posts the sender's signature to the existing proposal (it was dropped).
 
 ## 2026-11-24 — Safe Queue Service migration

@@ -28,8 +28,9 @@ const appKit = createAppKit({
   defaultAccountTypes: { eip155: 'eoa' },
   enableEIP6963: true,
   enableInjected: true,
-  // Off: its SDK loaded and sent HEAD requests on every page (see config.ts).
-  enableCoinbase: false,
+  // On: our lazy Coinbase connector (wagmi config) has id `coinbaseWallet`, so AppKit
+  // lists it and does not add its own eager one.
+  enableCoinbase: true,
   enableBaseAccount: true,
   enableWallets: true,
   allWallets: 'SHOW',

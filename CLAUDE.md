@@ -67,14 +67,13 @@ Muscadine for managing and reporting on Morpho-style vaults on Base (chainId
 - **Privacy**: no optional analytics or telemetry. AppKit `features.analytics:
   false` (Reown still receives its mandatory `INITIALIZE` / `CONNECT_SUCCESS`
   events and wallet-list impressions). Base Account connector sets
-  `telemetry: false` and is lazy (`lib/wallet/lazy-base-account.ts`: kept out of
-  wagmi's mount-time reconnect, so its SDK and COOP `HEAD` request run only once it
-  is used; a disconnect, from the app or the wallet, is remembered). AppKit's
-  Coinbase Wallet SDK connector is off (`enableCoinbase: false`): it loaded the SDK
-  and sent `HEAD` requests on every page. The Coinbase Wallet extension still shows
-  through EIP-6963 and the app through WalletConnect. `@coinbase/wallet-sdk` stays
-  pinned at 4.4 (no telemetry) and the `@reown/appkit-utils` override dedupes
-  AppKit's nested SDK copies onto ours.
+  `telemetry: false`. It and our Coinbase Wallet connector (id renamed to
+  `coinbaseWallet` so AppKit lists it and adds no second one) are lazy
+  (`lib/wallet/lazy-connectors.ts`: kept out of wagmi's mount-time reconnect, so
+  each SDK and its COOP `HEAD` request run only once it is used; a disconnect, from
+  the app or the wallet, is remembered). `@coinbase/wallet-sdk` is pinned at 4.4
+  (no telemetry) and the `@reown/appkit-utils` override dedupes AppKit's nested SDK
+  copies onto ours.
   npm scripts set `NEXT_TELEMETRY_DISABLED=1`. AppKit's font variables are
   `inherit` (the modal uses the page font; a `var(--font-…)` value is undefined on
   `:root` where AppKit declares it), which also stops it loading fonts from
@@ -1556,10 +1555,9 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
   (override). AppKit 2 peers wagmi / `@wagmi/core` ≥3 and `@wagmi/connectors`
   ≥8, so bump them together. Connector SDKs are optional peers in connectors 8:
   `@base-org/account` (2.6.0) and `@coinbase/wallet-sdk` (4.4.0) are exact direct
-  deps (the privacy claims depend on those versions): `lib/wallet/config.ts`
-  registers Base Account, and AppKit still bundles its Coinbase connector even
-  with `enableCoinbase: false`. Import connectors from their subpaths
-  (`@wagmi/connectors/baseAccount`), never the
+  deps (the privacy claims depend on those versions) because
+  `lib/wallet/config.ts` registers those connectors. Import connectors from
+  their subpaths (`@wagmi/connectors/baseAccount`, `/coinbaseWallet`), never the
   `wagmi/connectors` barrel: the barrel pulls in MetaMask / WalletConnect /
   Tempo connectors whose SDKs are not installed, and webpack warns on every
   build. wagmi 3 API names: `useConnection` (not `useAccount`), `useConnectors` (not `useConnect().connectors`), and `mutate` / `mutateAsync` on mutation hooks (`useConnect`, `useSwitchChain`, `useWriteContract`, `useSendTransaction`) instead of `connectAsync` / `switchChainAsync` / `writeContractAsync` / `sendTransactionAsync`; the old names are deprecated aliases. `useBalance` has no `formatted` field (use viem `formatUnits(value, decimals)`).
