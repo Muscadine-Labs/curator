@@ -293,9 +293,7 @@ Getting those semantics wrong is the #1 source of reverts.
     cap** (absolute and relative both absent/zero, with governance caps loaded)
     is hidden from the Allocations list — the vault can no longer allocate to
     it (e.g. a deallocated + delisted Blue market that Morpho's own UI no
-    longer shows). Zero-allocation rows with a live cap stay visible. Same rule
-    on V1: zero allocation + supply cap exactly 0 is hidden (`null` cap =
-    unknown, kept; `parseSupplyCap` preserves explicit `0`).
+    longer shows). Zero-allocation rows with a live cap stay visible.
   - **Risk tab** (`VaultRiskV2.tsx`): idle counts toward **Adapters Count**
     (`strategy adapters + 1`) and appears as its own row (“No strategy risk”).
 
@@ -670,8 +668,9 @@ V1 detail.
 `extensions.warnings` (Morpho deprecation notices) via `lib/utils/logger.ts`.
 Monitor server logs when Morpho schedules field removals.
 
-**Client-side Morpho queries** (browser `morphoGraphQLClient` in `useVaultCaps`,
-`useVaultQueues`) must use `marketId` as well — not only server routes.
+**No client-side Morpho queries.** Every `morphoGraphQLClient` call runs in
+server code (`app/api/*`, `lib/morpho/*`); any new query must use `marketId`
+too.
 
 V1 list query must not use removed `VaultState` APY fields (`weeklyNetApy` /
 `monthlyNetApy` caused silent empty V1 rows via `.catch(() => [])`).
@@ -1176,12 +1175,13 @@ These rules are baked into `VaultV2Allocations.tsx`, `VaultV2Sentinel.tsx`,
 ### 5.3 Planning & submit
 
 1. **Edit inputs are human-readable strings** parsed with `parseUnits` /
-   percentage of `totalRawAssets`.
+   percentage of `planningTotalRaw` (`percentInputToRaw` in
+   `lib/onchain/v2-rebalance-plan.ts`).
 2. **Cap validation** runs client-side before enabling submit.
    - V2: `target <= absoluteCap` and relative cap vs `firstTotalAssets`
 3. **Remaining banner** (`RemainingBanner`):
    - **Planned** = `inputSum` (sum of resolved target inputs), **not** forced to
-     `totalRawAssets` after dust adjustment.
+     `planningTotalRaw` after dust adjustment.
    - V2 under-allocation: “X will move to Idle after rebalance” (`implicitIdle`).
    - Uses `formatRawTokenAmount` for token amounts.
 4. **V2 submit** batches via `multicall`; deallocates before allocates.
@@ -1229,8 +1229,10 @@ All helpers live in `lib/format/number.ts`:
   string with grouping separators, up to `maxFractionDigits` (default 6).
 - `formatFullUSD(value: number, options?)` — currency-formatted USD with full
   precision when required.
-- `formatCompactNumber`, `formatPercent`, `formatBigIntValue`,
-  `formatRelativeCap` — existing helpers for compact KPI displays.
+- `formatCompactNumber`, `formatCompactUSD`, `formatPercentage` — compact KPI
+  displays. Relative caps format with `formatRelativeCapWad`
+  (`lib/morpho/vault-v2-api.ts`, wrapped by `formatCapRelative` in
+  `lib/morpho/v2-cap-format.ts`).
 - `lib/format/asset-decimals.ts` — `resolveAssetDecimals`, `getTokenDisplayDecimals`
   for known symbols (USDC 6, WETH 18, cbBTC/BTC 8).
 - `lib/format/allocation-display.ts` — `formatAllocationAmount`, `formatCapRawAmount`
@@ -1241,7 +1243,7 @@ Rules:
 - Never render raw `bigint` via `.toString()` in the UI.
 - Never do floating-point math on token amounts.
 - `relativeCap` is WAD-scaled; convert with
-  `Number(cap) / 1e18` only for display (`formatRelativeCap` handles this).
+  `Number(cap) / 1e18` only for display (`formatRelativeCapWad` handles this).
 
 ---
 
@@ -1381,7 +1383,7 @@ components.
 - **Symptom:** User edits one row (e.g. 50 USDC) but banner says
   `planned 109,475 / 109,475` and “45k rounding applied to largest non-idle target.”
 - **Cause:** Empty rows kept **current** allocations; `applyPlanningDust` forced
-  sum to `totalRawAssets` by inflating the largest strategy target.
+  sum to the vault total by inflating the largest strategy target.
 - **Fix:** Banner uses `inputSum`. Do not dust-balance partial edits onto
   strategy rows; under-allocation is implicit Idle. See §3.2 and §5.3.
 
@@ -1525,7 +1527,7 @@ npm run build
 npm test               # vitest run
 ```
 
-Node **24.x** (`engines` in `package.json`).
+Node **26.x** (`engines` in `package.json`; Vercel runs 26.x).
 
 ### Dependency pins
 
@@ -1534,11 +1536,13 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
 - **ESLint 9** — `eslint@^9.39.5` and `@eslint/js@^9.39.5`. Do **not** upgrade to
   ESLint 10 while using `eslint-config-next`; transitive plugins (`eslint-plugin-react`,
   etc.) still break on removed ESLint 10 APIs.
-- **wagmi 2** — `wagmi@^2.19.5`. `@reown/appkit-adapter-wagmi` peers `wagmi@2`.
-  Do not upgrade to wagmi 3 until AppKit supports it.
+- **wagmi 2 / AppKit 1.8** — `wagmi@^2.19.5`, `@reown/appkit*@^1.8.24`. AppKit
+  1.8 peers `wagmi@2`; AppKit 2.0 peers `wagmi` / `@wagmi/core` 3 and
+  `@wagmi/connectors` 8. Upgrade all of them together as a deliberate migration
+  (drop the `@wagmi/*` overrides), never one at a time.
 - **TypeScript 6** — installed `typescript-eslint` peers `typescript >=4.8.4 <6.1.0`;
   stay on `typescript@^6.0.3` (not 7).
-- **ox 0.14 / Vitest 5** — `ox@0.14.67` (exact: the version viem 2.58.1 depends on; bump both together — `viem` is pinned exact too, so `npm update` cannot pull a viem that needs a newer ox), `vitest@^5.1.1`, with `vite@^8.3.5` because Vitest 5 imports Vite directly. ox 1 stays off.
+- **ox 0.14 / Vitest 5** — `ox@0.14.67` (exact: the version viem 2.58.6 depends on; bump both together — `viem` is pinned exact too, so `npm update` cannot pull a viem that needs a newer ox), `vitest@^5.1.1`, with `vite@^8.3.5` because Vitest 5 imports Vite directly. ox 1 stays off.
 - **`sharp` override** — `>=0.35.4`, matching Next’s optional `sharp@^0.35.4`
   (libvips CVEs, GHSA-f88m-g3jw-g9cj).
 - **`eslint.config.mjs`** — official Next.js flat config:
@@ -1738,7 +1742,7 @@ client serializes calls with ≥210ms spacing.
   Service balances call — the free tier is 5 req/s and this route is on the
   hot path.
 - `GET /api/safe/[address]/history` — executed multisig txs from the Transaction
-  Service (`getMultisigTransactions`, executed only). On-demand; same rate
+  Service (`fetchExecutedMultisigTransactions` → `v2/safes/{address}/multisig-transactions`, executed only). On-demand; same rate
   limit. Requires `NEXT_PUBLIC_SAFE_API_KEY`.
 - `GET /api/safe/[address]/settings` — on-chain modules + guard
   (`readSafeOnChainSettings`). Address book is client-only

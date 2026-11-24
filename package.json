@@ -4,7 +4,7 @@
   "license": "MIT",
   "private": true,
   "engines": {
-    "node": "24.x"
+    "node": "26.x"
   },
   "scripts": {
     "dev": "next dev --webpack -p 3001",
@@ -40,7 +40,7 @@
     "recharts": "^3.11.1",
     "tailwind-merge": "^3.7.1",
     "valtio": "^2.3.2",
-    "viem": "2.58.1",
+    "viem": "2.58.6",
     "wagmi": "^2.19.5"
   },
   "devDependencies": {
@@ -49,7 +49,7 @@
     "@eslint/js": "^9.39.5",
     "@swc/helpers": "^0.5.24",
     "@tailwindcss/postcss": "^4.3.5",
-    "@types/node": "^24.19.2",
+    "@types/node": "^26.6.6",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -82,11 +82,11 @@
     "uuid": ">=14.0.3",
     "lodash": ">=4.18.1",
     "h3": ">=2.0.8",
-    "hono": "4.13.18",
+    "hono": "4.13.21",
     "ws": ">=8.23.0",
-    "axios": "1.21.0",
-    "follow-redirects": "1.16.2",
-    "source-map-js": "1.2.2",
+    "axios": "1.21.1",
+    "follow-redirects": "1.16.3",
+    "source-map-js": "1.2.4",
     "zod": "4.6.7",
     "defu": ">=6.1.5",
     "flatted": ">=3.4.4",
@@ -96,8 +96,8 @@
     "postcss": ">=8.5.33",
     "qr": "0.5.5",
     "browserslist": ">=4.29.6",
-    "brace-expansion@1": "1.1.21",
-    "brace-expansion@5": "5.0.12",
+    "brace-expansion@1": "1.1.22",
+    "brace-expansion@5": "5.1.0",
     "decode-uri-component": ">=0.5.1",
     "anymatch": {
       "picomatch": "2.3.2"

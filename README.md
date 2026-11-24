@@ -4,7 +4,7 @@ Next.js dashboard for Muscadine vaults on Morpho.
 
 ## Quick Start (macOS)
 
-Prerequisites: [Node.js](https://nodejs.org/) **24.x** and [Git](https://git-scm.com/). Check with:
+Prerequisites: [Node.js](https://nodejs.org/) **26.x** and [Git](https://git-scm.com/). Check with:
 
 ```bash
 node -v

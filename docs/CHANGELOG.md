@@ -4,6 +4,13 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-24 — Node 26, dependency patches, doc drift
+
+- Node `24.x` → `26.x` (`engines`, `README.md`, `CLAUDE.md` §11) to match Vercel. `@types/node` `^26.6.6`. Verified on Node 26.13.1: lint, `tsc`, 376 tests, build.
+- `viem` 2.58.1 → 2.58.6 (still depends on `ox` 0.14.67). Override patches: `axios` 1.21.1, `hono` 4.13.21, `follow-redirects` 1.16.3, `source-map-js` 1.2.4, `brace-expansion` 1.1.22 / 5.1.0. `npm audit`: 0.
+- Still held: wagmi 2 + AppKit 1.8 (AppKit 2.0 needs wagmi 3 — migrate together), ESLint 9, TypeScript 6, ox 0.14.
+- `CLAUDE.md` names that no longer exist in code: `formatPercent` / `formatBigIntValue` / `formatRelativeCap` (now `formatPercentage`, `formatRelativeCapWad`), `totalRawAssets` (now `planningTotalRaw`), `getMultisigTransactions` (now `fetchExecutedMultisigTransactions`), the removed client hooks `useVaultCaps` / `useVaultQueues`, and the V1 `parseSupplyCap` note.
+
 ## 2026-11-23 — Favicon and dependency floors, repo 1.6.9
 
 - Google Search favicon is `public/favicon.png` (real 512×512 PNG). Homepage, Apple, sidebar, wallet metadata, and the Safe manifest `iconPath` all use it. Removed `public/muscadinelogo.jpg` and `public/muscadinelogo.svg`.
