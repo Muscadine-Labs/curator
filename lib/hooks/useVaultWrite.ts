@@ -75,8 +75,8 @@ export function useVaultWrite(options?: UseVaultWriteOptions) {
       }
 
       const targetChainId = requiredChainId;
-      const chain = resolveChain(targetChainId);
-      if (!chain) {
+      // Guard only: wagmi derives the chain from `chainId` and ignores a passed `chain`.
+      if (!resolveChain(targetChainId)) {
         throw new Error(`Unsupported chain ${targetChainId}.`);
       }
 
@@ -92,7 +92,6 @@ export function useVaultWrite(options?: UseVaultWriteOptions) {
           functionName: config.functionName,
           args: config.args as unknown[],
           ...(config.value != null && config.value > 0n ? { value: config.value } : {}),
-          chain,
           chainId: targetChainId,
         });
       } catch (error) {

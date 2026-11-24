@@ -7,9 +7,9 @@
     "node": "26.x"
   },
   "scripts": {
-    "dev": "next dev --webpack -p 3001",
-    "build": "next build --webpack",
-    "start": "next start",
+    "dev": "NEXT_TELEMETRY_DISABLED=1 next dev --webpack -p 3001",
+    "build": "NEXT_TELEMETRY_DISABLED=1 next build --webpack",
+    "start": "NEXT_TELEMETRY_DISABLED=1 next start",
     "lint": "npx eslint . --max-warnings=0",
     "test": "vitest run"
   },
@@ -103,6 +103,10 @@
     },
     "@typescript-eslint/typescript-estree": {
       "minimatch": "^11.0.9"
+    },
+    "@reown/appkit-utils": {
+      "@base-org/account": "$@base-org/account",
+      "@coinbase/wallet-sdk": "$@coinbase/wallet-sdk"
     }
   }
 }

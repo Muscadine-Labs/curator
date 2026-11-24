@@ -64,6 +64,14 @@ Muscadine for managing and reporting on Morpho-style vaults on Base (chainId
   `lib/wallet/appkit.ts`, custom connect button in topbar). Featured wallets
   (in order): **Rabby, MetaMask, Base, Phantom** — plus WalletConnect and
   injected EIP-6963. No server-side private keys for vault writes.
+- **Privacy**: no optional analytics or telemetry. AppKit `features.analytics:
+  false` (Reown still receives its mandatory `INITIALIZE` / `CONNECT_SUCCESS`
+  events and wallet-list impressions). Base Account connector sets
+  `telemetry: false`; `@coinbase/wallet-sdk` 4.4 has none; the
+  `@reown/appkit-utils` override dedupes AppKit's nested SDK copies onto ours.
+  npm scripts set `NEXT_TELEMETRY_DISABLED=1`. AppKit's font variables use our
+  self-hosted Geist (`--font-geist-sans`), which also stops it loading fonts from
+  `fonts.reown.com` on every page. Do not add analytics.
 - **GraphQL**: Morpho Blue API (`https://api.morpho.org/graphql`) via
   `graphql-request` in `lib/morpho/graphql-client.ts`. **Vault list, detail,
   history, risk, and protocol stats BFF routes use this client directly** — not
@@ -1520,7 +1528,7 @@ components.
 
 ```bash
 npm install
-npm run dev            # next dev --webpack -p 3001
+npm run dev            # next dev --webpack -p 3001 (scripts set NEXT_TELEMETRY_DISABLED=1)
 npm run lint           # eslint . --max-warnings=0
 npx tsc --noEmit
 npm run build

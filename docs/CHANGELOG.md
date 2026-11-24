@@ -4,6 +4,15 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-24 — No optional analytics or telemetry
+
+- AppKit `features.analytics` `true` → `false`. Reown's mandatory `INITIALIZE` / `CONNECT_SUCCESS` events and wallet-list impressions cannot be turned off; nothing else is sent.
+- `overrides["@reown/appkit-utils"]` points AppKit's nested `@base-org/account` (2.4.0) and `@coinbase/wallet-sdk` (4.3.6, which still had telemetry) at our direct 2.6.0 / 4.4.0, so one copy of each is installed.
+- AppKit `--apkt-font-family` / `--w3m-font-family` use our self-hosted Geist, which stops AppKit preloading 8 font files from `fonts.reown.com` on every page load.
+- `dev` / `build` / `start` scripts set `NEXT_TELEMETRY_DISABLED=1` (Next.js build telemetry off locally and on Vercel).
+- `useVaultWrite` no longer passes a `chain` that wagmi ignores (it derives the chain from `chainId`); the supported-chain guard stays.
+- `public/favicon.ico` (16/32/48) added so the default browser request no longer 404s.
+
 ## 2026-11-24 — wagmi 3 + Reown AppKit 2
 
 - `wagmi` 2.19.5 → 3.7.11, `@reown/appkit*` 1.8.24 → 2.0.0, `@wagmi/connectors` 6.2.0 → 8.2.4 (now a direct dep, `$` override), `@wagmi/core` override 3.6.9. 212 packages left the tree (old WalletConnect ethereum-provider, MetaMask SDK, `bufferutil` / `keccak` / `utf-8-validate`), so those `allowScripts` entries and the unused `esbuild` one are gone. `npm audit`: 0.
