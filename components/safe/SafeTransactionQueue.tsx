@@ -31,7 +31,7 @@ import { countOwnerSignatures, queueSafeBatch } from '@/lib/safe/queue-vault-wri
 import { signatureMatchesSigner } from '@/lib/safe/verify-signature';
 import { getConnectorProvider } from '@/lib/wallet/connector-provider';
 import { syncPendingFromTransactionService } from '@/lib/safe/service-sync';
-import { useAccount } from 'wagmi';
+import { useConnection } from 'wagmi';
 
 function statusBadge(status: SafePendingTransaction['status']) {
   switch (status) {
@@ -332,7 +332,7 @@ function PendingTransactionCard({
 export function SafeTransactionQueue({ account }: { account: SafeAccountConfig }) {
   const pending = useSafePendingForRole(account.role);
   const { data: info } = useSafeInfo(account.address);
-  const { address: walletAddress, connector } = useAccount();
+  const { address: walletAddress, connector } = useConnection();
   const [importError, setImportError] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);

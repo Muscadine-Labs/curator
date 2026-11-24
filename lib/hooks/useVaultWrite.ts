@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useAppKitEvents } from '@reown/appkit/react';
 import {
-  useAccount,
+  useConnection,
   useSwitchChain,
   useWriteContract,
   useWaitForTransactionReceipt,
@@ -37,10 +37,10 @@ export function useVaultWrite(options?: UseVaultWriteOptions) {
   // The wallet's real chain. useChainId() only reports configured chains, so
   // with Base-only config it reads 8453 while the wallet sits on Ethereum and
   // the switch below would be skipped (viem then rejects the chain mismatch).
-  const { address, isConnected, chainId: activeChainId } = useAccount();
-  const { switchChainAsync } = useSwitchChain();
+  const { address, isConnected, chainId: activeChainId } = useConnection();
+  const { mutateAsync: switchChainAsync } = useSwitchChain();
   const {
-    writeContractAsync,
+    mutateAsync: writeContractAsync,
     data: txHash,
     isPending: isWriting,
     error: writeError,

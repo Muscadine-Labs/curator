@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback } from 'react';
-import { useAccount } from 'wagmi';
+import { useConnection } from 'wagmi';
 import { useAppKit } from '@reown/appkit/react';
 import { Button } from '@/components/ui/button';
 import { useIsClient } from '@/lib/hooks/useIsClient';
@@ -20,7 +20,7 @@ export function ConnectWalletButton({
   fullWidth = false,
 }: ConnectWalletButtonProps) {
   const { open } = useAppKit();
-  const { address, isConnected } = useAccount();
+  const { address, isConnected } = useConnection();
   const isClient = useIsClient();
   const { displayName } = useWalletDisplayName(address);
 

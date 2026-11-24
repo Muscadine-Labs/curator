@@ -1,4 +1,4 @@
-import { coinbaseWallet } from 'wagmi/connectors';
+import { coinbaseWallet } from '@wagmi/connectors/coinbaseWallet';
 
 /**
  * AppKit adds its own Coinbase connector unless one already has id `coinbaseWallet`.

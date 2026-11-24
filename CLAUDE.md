@@ -580,8 +580,8 @@ ops are `/vault/[address]/*`. User deposit/withdraw is muscadine-onchain.
 
 The app is Base-only: `CURATOR_MARKET_NETWORKS` / `SIDEBAR_NETWORKS` and the
 wagmi config hold Base alone. The "Wallet not on Base" hint reads the wallet's
-real chain from `useAccount().chainId` — `useChainId()` only reports configured
-chains, so with Base-only config it stays 8453 and the hint would never show. The same applies to writes: `useVaultWrite` and `useSafeFunding` compare `useAccount().chainId` to Base before `switchChainAsync`, or a wallet left on Ethereum skips the switch and viem rejects the write.
+real chain from `useConnection().chainId` — `useChainId()` only reports configured
+chains, so with Base-only config it stays 8453 and the hint would never show. The same applies to writes: `useVaultWrite` and `useSafeFunding` compare `useConnection().chainId` to Base before `switchChainAsync`, or a wallet left on Ethereum skips the switch and viem rejects the write.
 
 ### 4.4 Vault overview, liquidity, and history (Morpho GraphQL)
 
@@ -1536,10 +1536,16 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
 - **ESLint 9** — `eslint@^9.39.5` and `@eslint/js@^9.39.5`. Do **not** upgrade to
   ESLint 10 while using `eslint-config-next`; transitive plugins (`eslint-plugin-react`,
   etc.) still break on removed ESLint 10 APIs.
-- **wagmi 2 / AppKit 1.8** — `wagmi@^2.19.5`, `@reown/appkit*@^1.8.24`. AppKit
-  1.8 peers `wagmi@2`; AppKit 2.0 peers `wagmi` / `@wagmi/core` 3 and
-  `@wagmi/connectors` 8. Upgrade all of them together as a deliberate migration
-  (drop the `@wagmi/*` overrides), never one at a time.
+- **wagmi 3 / AppKit 2** — `wagmi@^3.7.11`, `@reown/appkit*@^2.0.0`,
+  `@wagmi/connectors@8.2.4` (direct, `$` override) and `@wagmi/core` 3.6.9
+  (override). AppKit 2 peers wagmi / `@wagmi/core` ≥3 and `@wagmi/connectors`
+  ≥8, so bump them together. Connector SDKs are optional peers in connectors 8:
+  `@base-org/account` and `@coinbase/wallet-sdk` are direct deps because
+  `lib/wallet/config.ts` registers those connectors. Import connectors from
+  their subpaths (`@wagmi/connectors/baseAccount`, `/coinbaseWallet`), never the
+  `wagmi/connectors` barrel: the barrel pulls in MetaMask / WalletConnect /
+  Tempo connectors whose SDKs are not installed, and webpack warns on every
+  build. wagmi 3 API names: `useConnection` (not `useAccount`), `useConnectors` (not `useConnect().connectors`), and `mutate` / `mutateAsync` on mutation hooks (`useConnect`, `useSwitchChain`, `useWriteContract`, `useSendTransaction`) instead of `connectAsync` / `switchChainAsync` / `writeContractAsync` / `sendTransactionAsync`; the old names are deprecated aliases. `useBalance` has no `formatted` field (use viem `formatUnits(value, decimals)`).
 - **TypeScript 6** — installed `typescript-eslint` peers `typescript >=4.8.4 <6.1.0`;
   stay on `typescript@^6.0.3` (not 7).
 - **ox 0.14 / Vitest 5** — `ox@0.14.67` (exact: the version viem 2.58.6 depends on; bump both together — `viem` is pinned exact too, so `npm update` cannot pull a viem that needs a newer ox), `vitest@^5.1.1`, with `vite@^8.3.5` because Vitest 5 imports Vite directly. ox 1 stays off.

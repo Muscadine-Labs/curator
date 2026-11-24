@@ -106,7 +106,7 @@ import {
 } from '@/lib/onchain/v2-rebalance-plan';
 import { vaultV2Abi } from '@/lib/onchain/abis';
 import { BASE_CHAIN_ID } from '@/lib/constants';
-import { useAccount, usePublicClient } from 'wagmi';
+import { useConnection, usePublicClient } from 'wagmi';
 import { DustRecipientSelect } from '@/components/morpho/DustRecipientSelect';
 import {
   curatorBlueMarketHref,
@@ -875,7 +875,7 @@ export function VaultV2Allocations({
   const multicallWrite = useVaultWrite({ chainId: chainId ?? BASE_CHAIN_ID });
   const resetMulticallWrite = multicallWrite.reset;
   const publicClient = usePublicClient({ chainId: chainId ?? BASE_CHAIN_ID });
-  const { address: walletAddress, isConnected, connector } = useAccount();
+  const { address: walletAddress, isConnected, connector } = useConnection();
   const router = useRouter();
   const { connected: safeAppConnected, sdk: safeAppSdk, safeRole: safeAppRole } =
     useCuratorSafeApps();

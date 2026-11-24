@@ -1,5 +1,5 @@
 import { cookieStorage, createStorage, fallback, http } from 'wagmi';
-import { baseAccount } from 'wagmi/connectors';
+import { baseAccount } from '@wagmi/connectors/baseAccount';
 import { coinbaseWalletForAppKit } from '@/lib/wallet/coinbase-connector';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import type { AppKitNetwork } from '@reown/appkit/networks';

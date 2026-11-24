@@ -4,6 +4,13 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-24 — wagmi 3 + Reown AppKit 2
+
+- `wagmi` 2.19.5 → 3.7.11, `@reown/appkit*` 1.8.24 → 2.0.0, `@wagmi/connectors` 6.2.0 → 8.2.4 (now a direct dep, `$` override), `@wagmi/core` override 3.6.9. 212 packages left the tree (old WalletConnect ethereum-provider, MetaMask SDK, `bufferutil` / `keccak` / `utf-8-validate`), so those `allowScripts` entries and the unused `esbuild` one are gone. `npm audit`: 0.
+- Connector SDKs are optional peers in connectors 8: `@base-org/account` ^2.6.0 and `@coinbase/wallet-sdk` ^4.4.0 added as direct deps. `lib/wallet/config.ts` and `coinbase-connector.ts` import from `@wagmi/connectors/baseAccount` / `/coinbaseWallet`, so the barrel's uninstalled MetaMask / WalletConnect / Tempo SDKs no longer warn in the webpack build. Ids (`baseAccount`, `coinbaseWalletSDK` → rewritten `coinbaseWallet`) and `telemetry: false` still reach AppKit 2 and the SDKs unchanged.
+- Off deprecated wagmi 3 aliases: `useAccount` → `useConnection` (16 files, same hook), and `mutateAsync` for `useSwitchChain` / `useWriteContract` / `useSendTransaction` in `useVaultWrite`, `useSafeFunding`, `useSafeTransactionActions`, `CuratorNetworkContext`.
+- Verified on Node 26: lint, `tsc`, 376 tests, build with no warnings. Not yet tested against a live wallet.
+
 ## 2026-11-24 — Node 26, dependency patches, doc drift
 
 - Node `24.x` → `26.x` (`engines`, `README.md`, `CLAUDE.md` §11) to match Vercel. `@types/node` `^26.6.6`. Verified on Node 26.13.1: lint, `tsc`, 376 tests, build.
