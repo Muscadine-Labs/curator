@@ -37,23 +37,31 @@ npm run build   # next build
   user-count special case); do not add them back. A `MorphoVaultV2Adapter` still
   reads its child vault from Morpho `innerVault` (no config fallback) with empty
   allocate `data` (`EMPTY_ADAPTER_DATA`), and the liquidity adapter panel picks its
-  mode from the vault's own adapters. Another vault's adapter holding shares is
-  detected on-chain (`parentVault()`, `findVaultAdapterHolders`) and left out of
-  user counts. Catalog and sidebar list configured vaults
+  mode from the vault's own adapters. Catalog and sidebar list configured vaults
   using Morpho/on-chain names. Send-assets gate (underlying strategy
   vaults only): `lib/config/deposit-gates.ts` (`docs/deposit-gates.md`).
   Gate calldata / propose: muscadine-onchain CLI. In this app, `/curator/gates`
   + `GET /api/gates/[address]` read the live gate and queue `setIsWhitelisted` /
   `setIsWhitelister` through Allocator / Curator Safes.
-- **Morpho GraphQL fields retired 2026-12-02** (no GraphQL replacement): collateral cap
-  addresses come from REST `/allocations`; pending changes from REST submit tx hashes →
-  receipt `Submit` events → on-chain `executableAt` (`vault-v2-pending.server.ts`).
-  Allocation history is **not shown** (Allocation tab history and Activity
-  allocation rows removed: REST has no vault-wide transaction list). REST calls go through `lib/morpho/rest-client.ts` (optional server-only
-  `MORPHO_API_KEY` → keyed host). Do not add those GraphQL fields back.
-- **Request budget:** batch Morpho reads (aliased `vaultV2ByAddress` queries, `prefetchAssets` for token lists) instead of one query per item; the server `publicClient` multicall-batches same-tick reads; refetch with `cancelRefetch: false` when a mount fetch may already be running. See CLAUDE.md §8 and the changelog.
+- **Morpho REST only — no GraphQL.** GraphQL shuts down Jan 29, 2027 (fields removed
+  2027-01-25); `graphql-request` is gone. Every Morpho read goes through
+  `lib/morpho/rest-client.ts` (30s cache, retries, stale-on-rate-limit; optional
+  server-only `MORPHO_API_KEY` → keyed host), typed reads in `rest-data.ts` /
+  `rest-markets.ts`, and the shared per-vault snapshot `rest-vault.server.ts`.
+  Historical USD comes from DefiLlama daily prices (`lib/defillama/historical-prices.ts`).
+  Instant APYs are computed from market state (`marketRates`); history APY is realized
+  from share-price growth. No paid RPC or indexer: holders, vault / protocol
+  transaction tables, the users KPI, allocation history, market liquidations, the full
+  supplier list and bad debt are **dropped until Morpho REST adds them**; borrowers /
+  collateral at risk return when REST `/positions/health` ships. Restore steps and
+  trade-offs: `docs/morpho-rest-migration.md`. Never add a GraphQL query.
+- **Request budget:** REST has one route per token / market: run them through the
+  helpers (cached, 8–10 concurrent), reuse the vault snapshot, and keep the markets
+  browser's 2-minute cache (≈110 calls per refresh; public limit 333 req/min sustained).
+  The server `publicClient` multicall-batches same-tick reads; refetch with
+  `cancelRefetch: false` when a mount fetch may already be running.
 - **React Query polling** — dashboard hooks poll every 30s; indexed vault data
-  (history, holders, vault list) does not background-poll. The
+  (history, vault list) does not background-poll. The
   vaults sidebar tree is config-only; its names come from the
   vault list query once it loads (`withFetchedVaultNames`). On-chain vault
   hooks (`risk`, `governance`) use `staleTime: 0` + `refetchOnMount: 'always'`.
@@ -68,7 +76,7 @@ npm run build   # next build
 - **V2 vault routes** (Morpho-style segments under `/vault/[address]/…`):
   Overview (`/vault/[address]`) → `/allocation` → `/caps` → `/risk` → `/timelocks` →
   `/sentinel`. `/analytics` redirects to `/risk`. The vault header is the name, chain, and more menu. Pending count is on Timelocks and Sentinel.
-  Overview: metrics, fees, max rate, roles, gates, adapters, then collapsible holders → recent txs → history
+  Overview: metrics, fees, max rate, roles, gates, adapters, then collapsible activity → history
   (10 per page with arrows, default closed).
   Risk: market risk grades. Emergency actions on Sentinel (bottom).
   Pending actions embed in Caps and sit above the Timelocks delay list (accept and revoke). Sentinel is the only tab with sentinel writes (decrease caps,
@@ -125,12 +133,10 @@ npm run build   # next build
   Safe Apps SDK or manifest). Post-execute refetch
   via `refetch-vault-after-safe-execute.ts`; queue previews always shown (stored
   or decoded calldata in `decode-vault-calldata-preview.ts`). See `CLAUDE.md` §13.
-- **Morpho GraphQL shuts down Jan 29, 2027.** REST migration plan:
-  `docs/morpho-rest-migration.md`.
-- **Morpho GraphQL** — use `marketId` → app `marketKey` (not `uniqueKey`);
-  `oracle.address` (not `Market.oracleAddress`); V2 overview txs use
-  `vaultV2transactions`. Client logs `extensions.warnings` via
-  `lib/morpho/graphql-client.ts`. See `CLAUDE.md` §4.4.1.
+- **Morpho REST gotchas** — unknown params are ignored silently; `share_price_ray` is
+  decimals-adjusted; `management_fee_wad` is per second; `liquidity_data` with no
+  liquidity adapter is keccak256 of empty bytes; market collateral totals are only on
+  `state/history`. See `CLAUDE.md` §4.4.1.
 - **App routes** — `/` (Overview), `/vaults`, `/vault/[address]/*`,
   `/markets`, `/markets/blue/[id]`, `/markets/midnight/[id]`, `/safe`, `/safe/[role]/{assets,transactions,history,settings}`,
   `/curator` (Curator tools hub), `/curator/gates` (send-assets gate), `/curator/bots` (bot watch + repos),
@@ -140,8 +146,7 @@ npm run build   # next build
 - **BFF routes (no `/curator` or `/v2` in API paths)** — `GET /api/markets`,
   `GET /api/markets/[marketId]`; on-chain vault reads at
   `GET /api/vaults/[id]/risk`, `…/governance`, `…/pending` (alongside
-  `…/history`, `…/holders`, etc.); protocol drill-downs at
-  `GET /api/protocol-users`, `GET /api/protocol-transactions`; bot watch at
+  `…/history`, `…/activity`); bot watch at
   `GET /api/bots/activity?panel=allocator|sentinel|rebater`; Midnight books at
   `GET /api/markets/midnight`, `GET /api/markets/midnight/[id]`; send-assets
   gate state at `GET /api/gates/[address]`; Safe extras at
@@ -172,14 +177,13 @@ npm run build   # next build
   Sidebar Curator area: Curator tools + Bots + Send-assets gate + Multisig Safe. Markets area: Browse.
   Vaults area: All vaults + vault tree.
 - **Oracle freshness** — `resolveMarketOracleAddress` accepts `oracleAddress` or
-  `oracle.address`; risk BFF GraphQL keeps minimal oracle fragments (`baseFeedOne`
-  on positions only) to stay under Morpho complexity limits; on-chain
-  `BASE_FEED_*` reads are the fallback (`lib/morpho/oracle-utils.ts`).
-- **Allocation display vs booked** — UI shows `max(GraphQL, on-chain)` per row;
+  `oracle.address`; oracle feeds are decoded on chain (`BASE_FEED_*`,
+  `lib/morpho/oracle-utils.ts`, `oracle-decode.server.ts`); REST has no feed hints.
+- **Allocation display vs booked** — UI shows the live on-chain position per row (REST supply as fallback);
   rebalance **inputs** show that display amount; deltas use on-chain
   `bookedAllocationAssets` via `booked + (input − display)`
   (`overlay-v2-onchain-caps.ts`, `VaultV2Allocations.tsx`). **Planning total** =
-  Σ booked + GraphQL idle (not `totalAssets`); Max leaves Idle at remaining
+  Σ booked + idle (not `totalAssets`); Max leaves Idle at remaining
   deployable cash only (accrual residual is not Idle). Post-tx: refetch risk +
   governance, exit edit. Allocations **Min** = allocation minus withdrawable
   market liquidity (0 when fully liquid); replaces former Zero.
@@ -187,7 +191,7 @@ npm run build   # next build
   The account sheet shows Base; it does not offer another chain. `/markets`
   follows that chain.
 - **Token display decimals** — `getTokenDisplayDecimals`: WETH/cbBTC → 6, USDC → 3
-  (holders, txs, allocation history, markets token lines).
+  (markets token lines).
 - **Dependency pins** — ESLint **9.39.x**, wagmi **3.7.x** + Reown AppKit **2.0.x** (bump together), TypeScript **6.0.x**
   (`typescript-eslint` peers `<6.1.0`), ox **0.14.x**, Vitest **5.1.x**. Do not
   bump ESLint 10, TypeScript 7, or ox 1 (§11).

@@ -4,6 +4,14 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-25 — Off Morpho GraphQL: every read is REST
+
+- New REST layer: `rest-client.ts` (cache, retries, stale-on-rate-limit), `rest-data.ts`, `rest-markets.ts`, `rest-vault.server.ts` (one 30s snapshot per vault shared by list, detail, governance, risk, markets), `lib/defillama/historical-prices.ts` (historical USD).
+- Converted: vault list / detail / governance / risk / history, protocol stats, token metadata and prices, cap enrichment, markets browser and detail, market activity, Midnight price history, treasury statement and transfers, bots. `graphql-client.ts`, `batch-vault-graphql.ts`, GraphQL constants and the `graphql` / `graphql-request` dependencies are gone.
+- Computed where REST has no field: instant vault / market APY (Adaptive Curve IRM), realized history APY from share prices, market collateral from `state/history`.
+- Dropped until Morpho REST adds them (no paid RPC or indexer): holders, vault and protocol transaction tables, the dashboard Users KPI, market liquidations, full supplier list, bad debt, Morpho warnings, oracle creation date. Borrowers and collateral at risk return when `/positions/health` ships.
+- Checked against the GraphQL branch on all six vaults: list, detail, governance and risk inputs identical; risk scores within 0.2; treasury revenue to the cent; protocol TVL history identical. Details and restore steps: `docs/morpho-rest-migration.md`.
+
 ## 2026-11-25 — Review fixes on the Dec 2 migration
 
 - A pending management fee change was labelled from the per-second calldata rate (2%/yr read as 0.00%). `describePendingDecoded` now shows it per year (`managementFeePerSecondToYearPercent`).
