@@ -12,6 +12,8 @@ Append-only session log. Newest first. Keep entries short; link files.
 - Gate config no longer lists wrapper adapters (`depositGateWrapperAdapterPairs`, `depositGateAdapterAllowlist`); the gate roster still finds every whitelisted account from Safe history and logs.
 - `MorphoVaultV2Adapter` support stays generic: the child vault comes only from Morpho `innerVault` (`mergeUnderlyingVaultInfo(graph)`), and the liquidity adapter panel picks vault-or-idle vs market from the vault's own adapters (`usesVaultLiquidityTargets`) instead of a `variant` prop.
 - Hub link "Create Fee Wrapper" removed.
+- `/api/vaults/[id]/governance` and `/pending` now 404 for an address that is not configured, like every other vault route (an unknown address used to be queried anyway, and Morpho's "No results" error came back as a 500). The unused `factory { address }` selections are gone from the governance query: Morpho removes `MetaMorphoAdapterFactory.address` on 2026-12-02 and a removed field fails the whole query.
+- **Open:** Morpho also removes, on **2026-12-02** with no GraphQL replacement, `CollateralCapData.collateralAddress`, `VaultV2PendingConfig.data`, `VaultV2IncreaseCapPendingData.cap` and the whole `VaultV2AllocationTransaction` type. Curator queries all of them (vault overview, governance, risk, pending, reallocations, activity, bots), so those pages fail from that date until they move to REST (`docs/morpho-rest-migration.md`).
 
 ## 2026-11-24 — Source under src, markets in one route tree
 

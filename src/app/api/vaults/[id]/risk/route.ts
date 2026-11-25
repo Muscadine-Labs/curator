@@ -46,7 +46,6 @@ type GraphAdapter = {
   assetsUsd: number | null;
   assets: string | number | null;
   type: AdapterType;
-  factory?: { address?: string | null } | null;
   innerVault?: {
     address?: string | null;
     name?: string | null;

@@ -69,19 +69,14 @@ export async function GET(
   try {
     const { id } = await params;
 
-    let address: string;
-    if (isAddress(id)) {
-      address = getAddress(id);
-    } else {
-      const cfg = getVaultByAddress(id);
-      if (!cfg) {
-        throw new AppError('Vault not found', 404, 'VAULT_NOT_FOUND');
-      }
-      address = getAddress(cfg.address);
+    // Only configured vaults, like every other vault route. An unknown address
+    // used to be queried anyway, and Morpho's "No results" error became a 500.
+    const cfg = isAddress(id) ? getVaultByAddress(id) : undefined;
+    if (!cfg) {
+      throw new AppError('Vault not found in configuration', 404, 'VAULT_NOT_FOUND');
     }
-
-    const cfg = getVaultByAddress(address);
-    const chainId = cfg?.chainId ?? BASE_CHAIN_ID;
+    const address = getAddress(cfg.address);
+    const chainId = cfg.chainId ?? BASE_CHAIN_ID;
 
     const data = await morphoGraphQLClient.request<GraphResponse>(VAULT_V2_PENDING_QUERY, {
       address,
