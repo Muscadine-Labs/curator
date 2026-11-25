@@ -222,7 +222,8 @@ Getting those semantics wrong is the #1 source of reverts.
   `vault-v2-collateral-caps.server.ts`): GraphQL drops
   `CollateralCapData.collateralAddress` on 2026-12-02. When that read fails the
   GraphQL collateral caps are kept (no address, so they cannot be labeled or
-  decreased) and a warning is logged. The on-chain overlay re-reads the values.
+  decreased) and the governance response carries `capsWarning`, shown on the
+  Caps tab and above Sentinel **Decrease caps**. The on-chain overlay re-reads the values.
 - **Cap `idData` vs adapter `data` (critical — do not conflate)**:
   All encoding helpers live in `lib/morpho/v2-id-data.ts`. The vault hashes
   `idData` to get the cap/allocation id; adapter calldata uses different bytes.

@@ -61,3 +61,13 @@ describe('decodePendingCall', () => {
     expect(decodePendingCall('0xdeadbeef')).toBeNull();
   });
 });
+
+describe('pending management fee label', () => {
+  it('shows the per-second calldata rate per year', async () => {
+    const { describePendingDecoded } = await import('@/lib/morpho/vault-v2-api');
+    const perSecond = String(Math.round((0.02 / 31_536_000) * 1e18));
+    expect(describePendingDecoded({ type: 'SetManagementFee', managementFee: perSecond })).toBe(
+      'Management fee → 2.00% a year'
+    );
+  });
+});

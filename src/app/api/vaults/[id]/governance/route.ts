@@ -110,6 +110,11 @@ export type VaultV2GovernanceResponse = {
   timelocks: TimelockInfo[];
   /** Present when the Vault V2 Blue Public Allocator is an allocator of this vault. */
   publicAllocator: VaultV2PublicAllocatorState | null;
+  /**
+   * Set when the Morpho REST collateral-cap read failed: token caps then carry no
+   * address, so they cannot be labeled or decreased until the next refresh.
+   */
+  capsWarning: string | null;
 };
 
 export type AdapterInfo = {
@@ -622,6 +627,10 @@ export async function GET(
       caps,
       timelocks,
       publicAllocator,
+      capsWarning:
+        restCollateralCaps === null
+          ? 'Token caps could not be loaded from Morpho, so they cannot be labeled or decreased right now. Refresh to retry.'
+          : null,
     };
 
     const responseHeaders = mergeApiOnChainVaultHeaders(rateLimitResult.headers);

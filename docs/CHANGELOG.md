@@ -4,6 +4,11 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-25 — Review fixes on the Dec 2 migration
+
+- A pending management fee change was labelled from the per-second calldata rate (2%/yr read as 0.00%). `describePendingDecoded` now shows it per year (`managementFeePerSecondToYearPercent`).
+- A failed Morpho REST collateral-cap read was only logged; the governance response now carries `capsWarning`, shown on Caps and above Sentinel **Decrease caps** (those caps cannot be labeled or decreased until it loads).
+
 ## 2026-11-25 — Off Morpho GraphQL fields retired on 2026-12-02
 
 - Morpho removes `CollateralCapData.collateralAddress`, `VaultV2PendingConfig.data`, `VaultV2IncreaseCapPendingData.cap` and `VaultV2AllocationTransaction` on 2026-12-02 (no GraphQL replacement); a removed field fails the whole query, so every vault page would have errored.

@@ -1,6 +1,15 @@
 import { formatVaultV2FunctionTitle } from '@/lib/morpho/vault-v2-timelocks';
 
 /** WAD-scaled bigint fee from Morpho pending decoded fields. */
+/** Vault V2 `managementFee` is a per-second WAD rate; × seconds per year → yearly percent. */
+export function managementFeePerSecondToYearPercent(perSecondWad: string | number | bigint): string {
+  try {
+    return wadBigIntToPercent(BigInt(perSecondWad) * BigInt(31_536_000));
+  } catch {
+    return String(perSecondWad);
+  }
+}
+
 export function wadBigIntToPercent(wad: string | number | bigint): string {
   try {
     const scaled = BigInt(wad);
@@ -85,7 +94,8 @@ export function describePendingDecoded(decoded: VaultV2PendingDecoded): string {
     case 'SetIsAllocator':
       return `${decoded.isAllocator ? 'Grant' : 'Revoke'} allocator ${decoded.account}`;
     case 'SetManagementFee':
-      return `Management fee → ${wadBigIntToPercent(decoded.managementFee)}`;
+      // The call takes a per-second WAD rate; show it per year like the fee everywhere else.
+      return `Management fee → ${managementFeePerSecondToYearPercent(decoded.managementFee)} a year`;
     case 'SetManagementFeeRecipient':
       return `Mgmt recipient → ${decoded.managementFeeRecipient}`;
     case 'SetPerformanceFee':
