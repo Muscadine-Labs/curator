@@ -4,7 +4,7 @@ import {
   getSidebarVaultAddresses,
   getVaultAddressesForBusinessViews,
   getVaultByAddress,
-  withFeeWrapperLabel,
+  vaultDisplayName,
 } from '@/lib/config/vaults';
 import { BASE_CHAIN_ID, BPS_PER_ONE, getScanUrlForChain } from '@/lib/constants';
 import { handleApiError } from '@/lib/utils/error-handler';
@@ -186,17 +186,14 @@ export async function GET(request: Request) {
           id: row.address,
           version: cfg?.morphoVersion ?? ('v2' as const),
           listCategory: cfg?.listCategory ?? null,
-          kind: cfg?.kind ?? 'strategy',
-          underlyingAddress: cfg?.underlyingAddress ?? null,
         };
       };
 
       const allVaults = v2Vaults.map((v) => {
         const chainId = getChainId(v.address!);
-        const cfg = getVaultByAddress(v.address!);
         return enrichFromConfig({
           address: v.address!,
-          name: withFeeWrapperLabel(v.name ?? 'Unknown Vault', v.address!),
+          name: vaultDisplayName(v.name),
           symbol: v.symbol ?? v.asset?.symbol ?? 'UNKNOWN',
           asset: v.asset?.symbol ?? 'UNKNOWN',
           assetDecimals: v.asset?.decimals ?? null,
@@ -204,8 +201,7 @@ export async function GET(request: Request) {
           scanUrl: `${getScanUrlForChain(chainId)}/address/${v.address}`,
           performanceFeeBps:
             v.performanceFee != null ? Math.round(v.performanceFee * BPS_PER_ONE) : null,
-          status:
-            cfg?.kind === 'feeWrapper' || v.listed ? ('active' as const) : ('paused' as const),
+          status: v.listed ? ('active' as const) : ('paused' as const),
           riskTier: 'medium' as const,
           createdAt: null as string | null,
           tvl: v.totalAssetsUsd ?? null,

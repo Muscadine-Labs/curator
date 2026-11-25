@@ -5,7 +5,7 @@ import { getAddress } from 'viem';
 import {
   getActiveVaultAddressesForStats,
   getConfiguredVaultDisplayName,
-  withFeeWrapperLabel,
+  vaultDisplayName,
 } from '@/lib/config/vaults';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
@@ -168,10 +168,9 @@ export async function GET(request: NextRequest) {
           if (!tx?.txHash || !tx.vault?.address) continue;
           const vaultAddr = tx.vault.address.toLowerCase();
           const cfg = vaultByAddr.get(vaultAddr);
-          const vaultName = withFeeWrapperLabel(
+          const vaultName = vaultDisplayName(
             tx.vault.name?.trim() ||
-              (cfg ? getConfiguredVaultDisplayName(cfg) : tx.vault.address),
-            tx.vault.address
+              (cfg ? getConfiguredVaultDisplayName(cfg) : tx.vault.address)
           );
           const assetSymbol = tx.vault.asset?.symbol ?? cfg?.assetSymbol ?? 'TOKEN';
           const assetDecimals = tx.vault.asset?.decimals ?? null;

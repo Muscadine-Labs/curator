@@ -4,7 +4,7 @@ import {
   takeMatchedIncome,
 } from '@/lib/morpho/treasury-self-deposit';
 
-const VAULT = '0x036A01eFdDC87F6634FFDE0533EE528b90fc7A45';
+const VAULT = '0x89712980Cb434eF5aE4AB29349419eb976B0b496';
 
 describe('takeMatchedIncome', () => {
   it('ignores a wrapper-migration self-deposit with no booked income that day', () => {

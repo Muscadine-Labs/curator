@@ -26,6 +26,7 @@ import type { TxPreview } from '@/lib/morpho/tx-preview';
 import {
   buildLiquidityAdapterOptions,
   buildVaultOrIdleLiquidityOptions,
+  usesVaultLiquidityTargets,
   resolveLiquidityDisplay,
   type LiquidityAdapterOption,
 } from '@/lib/morpho/vault-v2-liquidity';
@@ -52,8 +53,6 @@ interface VaultV2LiquidityAdapterProps {
   risk: V2VaultRiskResponse;
   assetSymbol?: string | null;
   assetDecimals?: number | null;
-  /** Fee wrappers pick a Morpho vault adapter or idle. Strategy vaults pick a market. */
-  variant?: 'market' | 'vault-or-idle';
 }
 
 function LiquidityMarketLabel({
@@ -90,8 +89,10 @@ export function VaultV2LiquidityAdapter({
   risk,
   assetSymbol,
   assetDecimals,
-  variant = 'market',
 }: VaultV2LiquidityAdapterProps) {
+  // Read from the vault's own adapters: a vault that only allocates through Vault V2
+  // adapters picks one of them or idle; any vault with market adapters picks a market.
+  const routesThroughVault = usesVaultLiquidityTargets(risk);
   const [changing, setChanging] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -139,10 +140,10 @@ export function VaultV2LiquidityAdapter({
   const display = resolveLiquidityDisplay(governance);
   const options = useMemo(() => {
     if (!governance) return [];
-    return variant === 'vault-or-idle'
+    return routesThroughVault
       ? buildVaultOrIdleLiquidityOptions(risk, governance)
       : buildLiquidityAdapterOptions(risk, governance);
-  }, [risk, governance, variant]);
+  }, [risk, governance, routesThroughVault]);
 
   const selected = options.find((o) => o.key === selectedKey) ?? null;
   const currentOption = options.find((o) => o.isCurrent) ?? null;
@@ -354,8 +355,8 @@ export function VaultV2LiquidityAdapter({
         {changing ? (
           <div className="space-y-3 border-t border-border p-4">
             <p className="text-xs text-muted-foreground">
-              {variant === 'vault-or-idle'
-                ? 'Choose the Morpho vault this wrapper deposits through, or Idle so exits use only unallocated cash. '
+              {routesThroughVault
+                ? 'Choose the Morpho vault adapter that provides withdrawable liquidity, or Idle so exits use only unallocated cash. '
                 : 'Select the market that provides withdrawable liquidity. '}
               <span className="font-medium text-foreground">setLiquidityAdapterAndData</span> is an
               allocator action — it applies immediately (not timelocked).

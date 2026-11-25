@@ -62,7 +62,7 @@ export type ContractReadOutcome<T> =
   | { status: 'error' };
 
 /** A revert or empty return means this contract does not expose the function. */
-function isExpectedReadMiss(error: unknown): boolean {
+export function isExpectedReadMiss(error: unknown): boolean {
   return (
     error instanceof BaseError &&
     error.walk(

@@ -32,18 +32,15 @@ npm run build   # next build
 - **V2-only vault config:** all tracked vaults are Morpho V2 (`lib/config/vaults.ts`).
   No MetaMorpho / V1 vault routes. Blue market risk uses `blue-market-data.ts` +
   `compute-blue-market-risk.ts`. MetaMorpho adapters are ignored in risk, allocation,
-  and sentinel UIs. **Fee wrappers** (`kind: 'feeWrapper'`) use GraphQL
-  `MorphoVaultV2Adapter.innerVault` (Morpho GraphQL) and empty allocate `data`
-  (`EMPTY_ADAPTER_DATA`). They are **not** listed on `/vaults` or the sidebar and
-  are **not peer vault pages**. Strategy vaults
-  that have a wrapper get a **Fee wrapper** tab (`/vault/[address]/fee-wrapper`)
-  with condensed TVL / users / history plus Morpho wrapper facts. Visiting a
-  wrapper address redirects there. Sidebar lists underlyings only. Wrappers are
-  excluded from protocol TVL (deposits sit in
-  the underlying vault). Unique-user counts include wrappers but skip
-  wrapper adapter contracts. Catalog lists underlying and test vaults using
-  Morpho/on-chain names. `underlyingAddress` is
-  the GraphQL fallback for the child vault. Send-assets gate (underlying strategy
+  and sentinel UIs. **Fee wrappers were deleted** (no `kind` / `underlyingAddress` /
+  `adapterAddress` config, no Fee wrapper tab, no ` (wrapper)` label, no TVL or
+  user-count special case); do not add them back. A `MorphoVaultV2Adapter` still
+  reads its child vault from Morpho `innerVault` (no config fallback) with empty
+  allocate `data` (`EMPTY_ADAPTER_DATA`), and the liquidity adapter panel picks its
+  mode from the vault's own adapters. Another vault's adapter holding shares is
+  detected on-chain (`parentVault()`, `findVaultAdapterHolders`) and left out of
+  user counts. Catalog and sidebar list configured vaults
+  using Morpho/on-chain names. Send-assets gate (underlying strategy
   vaults only): `lib/config/deposit-gates.ts` (`docs/deposit-gates.md`).
   Gate calldata / propose: muscadine-onchain CLI. In this app, `/curator/gates`
   + `GET /api/gates/[address]` read the live gate and queue `setIsWhitelisted` /
@@ -63,11 +60,10 @@ npm run build   # next build
   allocate/deallocate adapter `data` is `encodeMarketParamsData(market)` for Morpho
   Blue markets only. Never pass bare addresses or raw MarketParams as cap `idData`.
 - **V2 vault routes** (Morpho-style segments under `/vault/[address]/…`):
-  Overview (`/vault/[address]`) → **Fee wrapper** (only when the vault has one) → `/allocation` → `/caps` → `/risk` → `/timelocks` →
+  Overview (`/vault/[address]`) → `/allocation` → `/caps` → `/risk` → `/timelocks` →
   `/sentinel`. `/analytics` redirects to `/risk`. The vault header is the name, chain, and more menu. Pending count is on Timelocks and Sentinel.
   Overview: metrics, fees, max rate, roles, gates, adapters, then collapsible holders → recent txs → history
   (10 per page with arrows, default closed).
-  Fee wrapper tab: condensed boxes for wrapper TVL/APY/users/fees, overview, roles, gates, max rate, timelocks, plus collapsible holders/txs/history for the wrapper contract.
   Risk: market risk grades. Emergency actions on Sentinel (bottom).
   Pending actions embed in Caps and sit above the Timelocks delay list (accept and revoke). Sentinel is the only tab with sentinel writes (decrease caps,
   deallocate). Public Allocator caps on the Caps tab are changed by an allocator
@@ -82,7 +78,7 @@ npm run build   # next build
   Top nav: Overview · Vaults · Markets · Curator · Business; sidebar is
   area-scoped (`lib/nav/areas.ts`). Curator area: Curator tools · Bots ·
   Send-assets gate · Multisig Safe. Overview Protocol KPIs open drill-downs (Users: holdings +
-  combined txs; fee-wrapper adapters are labeled on holders/txs and omitted from unique-user counts). Bots (`/curator/bots`) watches allocator/sentinel/rebater activity
+  combined txs). Bots (`/curator/bots`) watches allocator/sentinel/rebater activity
   (Allocator + Sentinel Safes on by default; other role holders off until toggled). Telegram:
   @MuscadineVaultBot. Bot repos: `Muscadine-Labs/muscadine-bots` is the
   **downstream** fork (`main`); `morpho-org/morpho-bots` is the upstream

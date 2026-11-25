@@ -181,8 +181,18 @@ export function buildLiquidityAdapterOptions(
 const IDLE_ADAPTER = zeroAddress;
 
 /**
- * Fee-wrapper liquidity targets: the Morpho vault adapter (data must be empty)
- * or idle (`address(0)`), which leaves withdrawals on unallocated cash.
+ * True when every adapter is a Morpho Vault V2 adapter (no Blue market adapter):
+ * the liquidity target is then one of those adapters or idle, not a market.
+ */
+export function usesVaultLiquidityTargets(risk: Pick<V2VaultRiskResponse, 'adapters'>): boolean {
+  const adapters = risk.adapters ?? [];
+  return adapters.length > 0 && adapters.every((adapter) => isMorphoVaultV2Adapter(adapter));
+}
+
+/**
+ * Liquidity targets for a vault that allocates through Vault V2 adapters: one of
+ * those adapters (data must be empty) or idle (`address(0)`), which leaves
+ * withdrawals on unallocated cash.
  */
 export function buildVaultOrIdleLiquidityOptions(
   risk: V2VaultRiskResponse,

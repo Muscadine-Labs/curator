@@ -12,7 +12,6 @@ import { publicClient } from '@/lib/onchain/client';
 import { whitelistSendAssetsGateAbi } from '@/lib/onchain/whitelist-send-assets-gate-abi';
 import {
   configuredSendAssetsGates,
-  depositGateAdapterAllowlist,
   depositGateGateWhitelisters,
   resolveAllowlistLabel,
 } from '@/lib/config/deposit-gates';
@@ -75,12 +74,9 @@ export async function GET(
       throw new AppError('Gate is not in curator config', 404, 'GATE_NOT_FOUND');
     }
 
-    // Role Safes and wrapper adapters are checked immediately. Every other
-    // allowlisted account comes from the gate's logs, then isWhitelisted().
-    const configuredRows = [
-      ...depositGateGateWhitelisters(),
-      ...depositGateAdapterAllowlist(),
-    ];
+    // Role Safes are checked immediately. Every other allowlisted account
+    // comes from the gate's logs, then isWhitelisted().
+    const configuredRows = depositGateGateWhitelisters();
     const roster = await readGateRosterCandidates(address);
     const seen = new Set<string>();
     const unique: Array<{ address: Address; label: string }> = [];

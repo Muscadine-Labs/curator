@@ -15,7 +15,7 @@ export type AdapterMarketInput = {
 export type AdapterSummaryInput = {
   allocationUsd: number;
   markets: ReadonlyArray<AdapterMarketInput>;
-  /** Fee-wrapper child vault (MorphoVaultV2Adapter). */
+  /** Child vault of a MorphoVaultV2Adapter. */
   underlying?: {
     liquidityUsd?: number | null;
     avgNetApy?: number | null;

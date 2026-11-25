@@ -20,7 +20,7 @@ const RECIPIENT = getAddress('0x000000000000000000000000000000000000dEaD');
 const ZERO = getAddress('0x0000000000000000000000000000000000000000');
 const USDC = getAddress('0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913');
 /** A tracked vault — its shares are an ERC-20 at the same address. */
-const VAULT_SHARES = getAddress('0x036A01eFdDC87F6634FFDE0533EE528b90fc7A45');
+const VAULT_SHARES = getAddress('0x89712980Cb434eF5aE4AB29349419eb976B0b496');
 const ACCOUNT = getAddress('0x628037c2d25f5e5f6f90415cff6d7e8860f41c08');
 
 const transferData = (amount: bigint) =>

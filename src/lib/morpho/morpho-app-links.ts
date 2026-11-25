@@ -37,7 +37,7 @@ export function morphoVaultHref(vaultAddress: string, chainId: number): string {
   return `${MORPHO_APP_ORIGIN}/${morphoChainSlug(chainId)}/vault/${vaultAddress.toLowerCase()}`;
 }
 
-/** In-app vault detail. Fee wrappers land on the underlying vault's Fee wrapper tab. */
+/** In-app vault detail. */
 export function curatorVaultHref(vaultAddress: string | null | undefined): string | null {
   if (!vaultAddress) return null;
   return getVaultPageHref(vaultAddress);

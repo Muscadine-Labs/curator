@@ -4,6 +4,17 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-25 — Fee wrappers deleted
+
+- The five fee wrappers (USDC Prime / Frontier, WETH Prime, cbBTC Prime, USDC Test) and their adapter addresses are gone from `lib/config/vaults.ts`, along with `kind` / `underlyingAddress` / `adapterAddress`, `withFeeWrapperLabel` (now `vaultDisplayName`), `isFeeWrapperVault`, `isFeeWrapperAdapterAddress`, `getVaultByAdapterAddress`, `getFeeWrapperForUnderlying`, `resolveUnderlyingVaultAddress` and the Underlying / Wrapper list split (`groupVaultsByKindAndCategory` → `groupVaultsByCategory`).
+- Fee wrapper tab and panel deleted (`/vault/[address]/fee-wrapper`, `FeeWrapperPanel.tsx`); the vault page no longer redirects wrapper addresses. `VaultV2Timelocks` lost `showPending`; `FEE_WRAPPER_TIMELOCK_FUNCTIONS` removed.
+- Protocol TVL sums every business vault; the Active vaults drill-down has no Kind column. Holders that are a Vault V2 adapter (the retired wrapper adapters still hold $1–$13 each) are detected on-chain with `parentVault()` (`findVaultAdapterHolders`) and left out of unique users and `/api/protocol-users`, instead of a config list. Verified live on Base: the 4 adapters are flagged; the treasury Safe, a wallet and a vault are not. `GET /api/vaults` no longer returns `kind` / `underlyingAddress`.
+- Gate config no longer lists wrapper adapters (`depositGateWrapperAdapterPairs`, `depositGateAdapterAllowlist`); the gate roster still finds every whitelisted account from Safe history and logs.
+- `MorphoVaultV2Adapter` support stays generic: the child vault comes only from Morpho `innerVault` (`mergeUnderlyingVaultInfo(graph)`), and the liquidity adapter panel picks vault-or-idle vs market from the vault's own adapters (`usesVaultLiquidityTargets`) instead of a `variant` prop.
+- Hub link "Create Fee Wrapper" removed.
+- `/api/vaults/[id]/governance` and `/pending` now 404 for an address that is not configured, like every other vault route (an unknown address used to be queried anyway, and Morpho's "No results" error came back as a 500). The unused `factory { address }` selections are gone from the governance query: Morpho removes `MetaMorphoAdapterFactory.address` on 2026-12-02 and a removed field fails the whole query.
+- **Open:** Morpho also removes, on **2026-12-02** with no GraphQL replacement, `CollateralCapData.collateralAddress`, `VaultV2PendingConfig.data`, `VaultV2IncreaseCapPendingData.cap` and the whole `VaultV2AllocationTransaction` type. Curator queries all of them (vault overview, governance, risk, pending, reallocations, activity, bots), so those pages fail from that date until they move to REST (`docs/morpho-rest-migration.md`).
+
 ## 2026-11-24 — Source under src, markets in one route tree
 
 - Source now lives in `src/app`, `src/components` and `src/lib`, matching the depositor app. `@/` points at `src/` (tsconfig, vitest). The auth proxy moved to `src/proxy.ts`: Next.js only picks it up next to `src/app`.

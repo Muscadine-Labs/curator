@@ -3,8 +3,7 @@ import { getAddress } from 'viem';
 import {
   getActiveVaultAddressesForStats,
   getConfiguredVaultDisplayName,
-  isFeeWrapperAdapterAddress,
-  withFeeWrapperLabel,
+  vaultDisplayName,
 } from '@/lib/config/vaults';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { handleApiError } from '@/lib/utils/error-handler';
@@ -18,6 +17,7 @@ import { withServerResponseCache } from '@/lib/api/server-response-cache';
 import { API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
 import { batchVaultV2ByAddress } from '@/lib/morpho/batch-vault-graphql';
 import { fetchAllV2Positions } from '@/lib/morpho/paginate-v2-positions';
+import { findVaultAdapterHolders } from '@/lib/morpho/vault-adapter-holders.server';
 import { unauthorizedUnlessAdmin } from '@/lib/auth/require-admin';
 
 export const runtime = 'nodejs';
@@ -90,9 +90,8 @@ export async function GET(request: NextRequest) {
 
         for (const { vault, address, items } of results) {
           const gqlMeta = meta.get(vault.address.toLowerCase());
-          const vaultName = withFeeWrapperLabel(
-            gqlMeta?.name?.trim() || getConfiguredVaultDisplayName(vault),
-            address
+          const vaultName = vaultDisplayName(
+            gqlMeta?.name?.trim() || getConfiguredVaultDisplayName(vault)
           );
           const assetSymbol = gqlMeta?.asset?.symbol ?? vault.assetSymbol;
           const assetDecimals = gqlMeta?.asset?.decimals ?? null;
@@ -101,11 +100,10 @@ export async function GET(request: NextRequest) {
             const userAddress = item?.user?.address;
             if (!userAddress) continue;
             const key = userAddress.toLowerCase();
-            // Skip null / burn addresses and fee-wrapper adapters — not depositors.
+            // Skip null and burn addresses — not depositors.
             if (
               key === '0x0000000000000000000000000000000000000000' ||
-              key === '0x000000000000000000000000000000000000dead' ||
-              isFeeWrapperAdapterAddress(key)
+              key === '0x000000000000000000000000000000000000dead'
             ) {
               continue;
             }
@@ -142,6 +140,11 @@ export async function GET(request: NextRequest) {
               });
             }
           }
+        }
+
+        // Another vault's adapter holding shares here is not a user.
+        for (const adapter of await findVaultAdapterHolders(byUser.keys())) {
+          byUser.delete(adapter);
         }
 
         const users = Array.from(byUser.values()).sort(

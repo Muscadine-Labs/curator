@@ -39,8 +39,8 @@ export default function CuratorGatesPage() {
         </section>
         <p className="flex items-start gap-2 text-xs text-muted-foreground">
           <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          Fee wrappers stay ungated. Underlying deposits require a whitelisted msg.sender
-          (wrapper adapters, Muscadine Treasury, and other whitelisted addresses).
+          Deposits into gated vaults require a whitelisted msg.sender (Muscadine Treasury and
+          other whitelisted addresses).
         </p>
       </div>
     </AppShell>

@@ -29,7 +29,6 @@ type GraphAdapter = {
   assets?: number | string | null;
   assetsUsd?: number | null;
   forceDeallocatePenalty?: string | number | null;
-  factory?: { address?: string | null } | null;
   metaMorpho?: { address?: string | null; name?: string | null; symbol?: string | null } | null;
   innerVault?: {
     address?: string | null;
@@ -116,7 +115,6 @@ export type AdapterInfo = {
   type: string;
   assets: number | null;
   assetsUsd: number | null;
-  factoryAddress: string | null;
   forceDeallocatePenalty: string | null;
   metaMorpho?: { address: string | null; name: string | null; symbol: string | null } | null;
   underlying?: { address: string | null; name: string | null; symbol: string | null } | null;
@@ -189,7 +187,6 @@ const VAULT_V2_GOVERNANCE_QUERY = gql`
           assets
           assetsUsd
           forceDeallocatePenalty
-          factory { address }
           metaMorpho { address name symbol }
         }
         ... on MorphoMarketV1Adapter {
@@ -203,7 +200,6 @@ const VAULT_V2_GOVERNANCE_QUERY = gql`
           assets
           assetsUsd
           forceDeallocatePenalty
-          factory { address }
           innerVault { address name symbol }
         }
       }
@@ -236,7 +232,6 @@ const VAULT_V2_GOVERNANCE_QUERY = gql`
             assets
             assetsUsd
             forceDeallocatePenalty
-            factory { address }
             metaMorpho { address name symbol }
           }
           ... on MorphoMarketV1Adapter {
@@ -250,7 +245,6 @@ const VAULT_V2_GOVERNANCE_QUERY = gql`
             assets
             assetsUsd
             forceDeallocatePenalty
-            factory { address }
             innerVault { address name symbol }
           }
         }
@@ -300,14 +294,11 @@ const VAULT_V2_GOVERNANCE_QUERY = gql`
   }
 `;
 
-function mapAdapter(
-  graph: GraphAdapter | null | undefined,
-  wrapperVaultAddress: string
-): AdapterInfo | null {
+function mapAdapter(graph: GraphAdapter | null | undefined): AdapterInfo | null {
   if (!graph?.address) return null;
 
   const underlyingMerged = isMorphoVaultV2Adapter(graph)
-    ? mergeUnderlyingVaultInfo(wrapperVaultAddress, graph.innerVault)
+    ? mergeUnderlyingVaultInfo(graph.innerVault)
     : null;
 
   return {
@@ -321,7 +312,6 @@ function mapAdapter(
         ? Number(graph.assets)
         : graph.assets,
     assetsUsd: graph.assetsUsd ?? null,
-    factoryAddress: graph.factory?.address ?? null,
     forceDeallocatePenalty:
       graph.forceDeallocatePenalty != null && graph.forceDeallocatePenalty !== ''
         ? String(graph.forceDeallocatePenalty)
@@ -427,7 +417,6 @@ function overlayOnChainLiquidity(
           type: 'Unknown',
           assets: null,
           assetsUsd: null,
-          factoryAddress: null,
           forceDeallocatePenalty: null,
         };
 
@@ -507,19 +496,14 @@ export async function GET(
   try {
     const { id } = await params;
 
-    let address: string;
-    if (isAddress(id)) {
-      address = getAddress(id);
-    } else {
-      const cfg = getVaultByAddress(id);
-      if (!cfg) {
-        throw new AppError('Vault not found', 404, 'VAULT_NOT_FOUND');
-      }
-      address = getAddress(cfg.address);
+    // Only configured vaults, like every other vault route. An unknown address
+    // used to be queried anyway, and Morpho's "No results" error became a 500.
+    const cfg = isAddress(id) ? getVaultByAddress(id) : undefined;
+    if (!cfg) {
+      throw new AppError('Vault not found in configuration', 404, 'VAULT_NOT_FOUND');
     }
-
-    const cfg = getVaultByAddress(address);
-    const chainId = cfg?.chainId ?? BASE_CHAIN_ID;
+    const address = getAddress(cfg.address);
+    const chainId = cfg.chainId ?? BASE_CHAIN_ID;
 
     const data = await morphoGraphQLClient.request<GraphVaultGovernanceResponse>(
       VAULT_V2_GOVERNANCE_QUERY,
@@ -537,10 +521,10 @@ export async function GET(
 
     const adapters =
       data.vault.adapters?.items
-        ?.map((item) => mapAdapter(item, address))
+        ?.map((item) => mapAdapter(item))
         .filter((a): a is AdapterInfo => a !== null) ?? [];
 
-    let liquidityAdapter = mapAdapter(data.vault.liquidityAdapter, address);
+    let liquidityAdapter = mapAdapter(data.vault.liquidityAdapter);
     let liquidityData = mapLiquidityData(data.vault.liquidityData ?? null);
 
     const capsRaw =

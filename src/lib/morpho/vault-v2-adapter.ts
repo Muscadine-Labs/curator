@@ -3,7 +3,7 @@ import {
   getVaultByAddress,
 } from '@/lib/config/vaults';
 
-/** GraphQL `__typename` for Vault V2 → Vault V2 adapters (fee wrappers). */
+/** GraphQL `__typename` for a Vault V2 adapter that deposits into another Vault V2. */
 export const MORPHO_VAULT_V2_ADAPTER_TYPENAME = 'MorphoVaultV2Adapter';
 
 /** GraphQL `type` field on MorphoVaultV2Adapter. */
@@ -61,14 +61,13 @@ export type GraphUnderlyingVaultFields = {
 };
 
 /**
- * GraphQL `innerVault` plus config fallback (`underlyingAddress` on the wrapper).
+ * Morpho `innerVault` on a Vault V2 adapter. A configured child vault fills in a
+ * missing name or symbol.
  */
 export function mergeUnderlyingVaultInfo(
-  wrapperVaultAddress: string,
   graph: GraphUnderlyingVaultFields | null | undefined
 ): VaultV2UnderlyingInfo | null {
-  const address =
-    graph?.address || getVaultByAddress(wrapperVaultAddress)?.underlyingAddress;
+  const address = graph?.address;
   if (!address) return null;
   const childCfg = getVaultByAddress(address);
   const liquidity =

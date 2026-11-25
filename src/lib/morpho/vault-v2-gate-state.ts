@@ -166,13 +166,3 @@ export function vaultGateStatuses(
   const addrs = gates ?? emptyVaultGateAddresses();
   return GATE_ORDER.map((key) => formatVaultGateStatus(key, addrs[key], timelocks));
 }
-
-/** Timelock rows Morpho shows on the fee-wrapper overview. */
-export const FEE_WRAPPER_TIMELOCK_FUNCTIONS = [
-  'setPerformanceFee',
-  'setManagementFee',
-  'setPerformanceFeeRecipient',
-  'setManagementFeeRecipient',
-  'setIsAllocator',
-  'abdicate',
-] as const;
