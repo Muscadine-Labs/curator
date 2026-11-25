@@ -3,8 +3,7 @@ import {
   getActiveVaultAddressesForStats,
   getConfiguredVaultDisplayName,
   getVaultAddressesForProtocolStats,
-  isFeeWrapperAdapterAddress,
-  withFeeWrapperLabel,
+  vaultDisplayName,
 } from '@/lib/config/vaults';
 import {
   BASE_CHAIN_ID,
@@ -213,10 +212,7 @@ function tvlSeriesFromGraph(address: string, vault: VaultTvlGraph): VaultTvlSeri
     if (dataPoints.length === 0) return null;
 
     return {
-      name: withFeeWrapperLabel(
-        vault.name || `Vault ${address.slice(0, 6)}...`,
-        address
-      ),
+      name: vaultDisplayName(vault.name, `Vault ${address.slice(0, 6)}...`),
       address: address.toLowerCase(),
       data: dataPoints,
     };
@@ -352,18 +348,13 @@ export async function GET(request: Request) {
         return v != null && v !== 'failed';
       });
 
-    const wrapperConfigs = activeVaultsForStats.filter((v) => v.kind === 'feeWrapper');
-    const wrapperAddresses = wrapperConfigs.map((v) => getAddress(v.address));
-    // Business vaults and wrappers in one Morpho request (was one request per vault).
-    const allTvlResults = await fetchVaultV2TvlSeriesBatch([...addresses, ...wrapperAddresses]);
-    const tvlByVaultResults = keepSeries(allTvlResults.slice(0, addresses.length), addresses);
+    // Every vault's TVL history in one Morpho request (was one request per vault).
+    const tvlByVaultResults = keepSeries(await fetchVaultV2TvlSeriesBatch(addresses), addresses);
 
     const tvlByVault = tvlByVaultResults.map(padSinglePointSeries);
 
-    const wrapperSeries = keepSeries(allTvlResults.slice(addresses.length), wrapperAddresses);
-
     const tvlByAddress = new Map<string, VaultTvlSeries>();
-    for (const series of [...tvlByVaultResults, ...wrapperSeries]) {
+    for (const series of tvlByVaultResults) {
       tvlByAddress.set(series.address.toLowerCase(), series);
     }
 
@@ -371,13 +362,9 @@ export async function GET(request: Request) {
       const series = tvlByAddress.get(cfg.address.toLowerCase());
       const latest = series?.data[series.data.length - 1]?.value ?? 0;
       return {
-        name: withFeeWrapperLabel(
-          series?.name || getConfiguredVaultDisplayName(cfg),
-          cfg.address
-        ),
+        name: vaultDisplayName(series?.name || getConfiguredVaultDisplayName(cfg)),
         address: cfg.address.toLowerCase(),
         tvl: latest,
-        kind: cfg.kind ?? 'strategy',
       };
     });
 
@@ -408,8 +395,7 @@ export async function GET(request: Request) {
         if (
           userAddress &&
           userAddress !== '0x0000000000000000000000000000000000000000' &&
-          userAddress !== '0x000000000000000000000000000000000000dead' &&
-          !isFeeWrapperAdapterAddress(userAddress)
+          userAddress !== '0x000000000000000000000000000000000000dead'
         ) {
           uniqueUsers.add(userAddress);
         }
@@ -501,7 +487,7 @@ export async function GET(request: Request) {
       users: uniqueUsers.size,
       tvlTrend,
       tvlByVault: tvlByVault.map((v) => ({
-        name: withFeeWrapperLabel(v.name, v.address),
+        name: v.name,
         address: v.address,
         data: v.data,
       })),

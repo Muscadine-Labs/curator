@@ -22,7 +22,7 @@ import {
   getSidebarNavVaults,
   withFetchedVaultNames,
   getVaultPageHref,
-  groupVaultsByKindAndCategory,
+  groupVaultsByCategory,
   type SidebarNavVault,
 } from '@/lib/config/vaults';
 import { Button } from '@/components/ui/button';
@@ -35,8 +35,8 @@ type SidebarProps = {
   onClose?: () => void;
 };
 
-function kindGroupsForNetwork(vaults: SidebarNavVault[], chainId: number) {
-  return groupVaultsByKindAndCategory(vaults.filter((v) => v.chainId === chainId));
+function categoryGroupsForNetwork(vaults: SidebarNavVault[], chainId: number) {
+  return groupVaultsByCategory(vaults.filter((v) => v.chainId === chainId));
 }
 
 function NavLink({
@@ -198,9 +198,9 @@ function AreaSidebar({
         </div>
 
         {SIDEBAR_NETWORKS.filter(
-          (network) => kindGroupsForNetwork(vaults, network.chainId).length > 0
+          (network) => categoryGroupsForNetwork(vaults, network.chainId).length > 0
         ).map((network) => {
-          const kindGroups = kindGroupsForNetwork(vaults, network.chainId);
+          const categoryGroups = categoryGroupsForNetwork(vaults, network.chainId);
           const isExpanded = expandedNetworks.has(network.chainId);
           return (
             <div key={network.chainId} className="space-y-1">
@@ -218,39 +218,32 @@ function AreaSidebar({
               </button>
               {isExpanded && (
                 <div className="ml-3 space-y-3 border-l border-slate-200 pl-2 dark:border-slate-700">
-                  {kindGroups.map((kindGroup) => (
-                      <div key={kindGroup.kind} className="space-y-1.5">
-                        {kindGroups.length > 1 ? (
-                          <SectionLabel>{kindGroup.label}</SectionLabel>
-                        ) : null}
-                        {kindGroup.categories.map((category) => (
-                          <div key={`${kindGroup.kind}-${category.category}`} className="space-y-0.5">
-                            <p className="px-2 text-[10px] font-medium text-slate-500 dark:text-slate-400">
-                              {category.label}
-                            </p>
-                            {category.vaults.map((vault) => {
-                              const href = getVaultPageHref(vault.address);
-                              const active = isActive(href);
-                              return (
-                                <Link
-                                  key={vault.address}
-                                  href={href}
-                                  onClick={onLinkClick}
-                                  className={cn(
-                                    'flex min-h-[36px] w-full touch-manipulation items-center rounded-lg px-2 py-1.5 text-sm transition',
-                                    active
-                                      ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
-                                      : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
-                                  )}
-                                >
-                                  <span className="truncate min-w-0">{vault.name}</span>
-                                </Link>
-                              );
-                            })}
-                          </div>
-                        ))}
-                      </div>
-                    ))}
+                  {categoryGroups.map((category) => (
+                    <div key={category.category} className="space-y-0.5">
+                      <p className="px-2 text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                        {category.label}
+                      </p>
+                      {category.vaults.map((vault) => {
+                        const href = getVaultPageHref(vault.address);
+                        const active = isActive(href);
+                        return (
+                          <Link
+                            key={vault.address}
+                            href={href}
+                            onClick={onLinkClick}
+                            className={cn(
+                              'flex min-h-[36px] w-full touch-manipulation items-center rounded-lg px-2 py-1.5 text-sm transition',
+                              active
+                                ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                                : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+                            )}
+                          >
+                            <span className="truncate min-w-0">{vault.name}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

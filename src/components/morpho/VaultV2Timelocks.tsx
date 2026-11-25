@@ -38,8 +38,6 @@ interface VaultV2TimelocksProps {
   preloadedRisk?: V2VaultRiskResponse | null;
   assetSymbol?: string | null;
   assetDecimals?: number | null;
-  /** Fee-wrapper caps already embed pending above this table. */
-  showPending?: boolean;
 }
 
 export function VaultV2Timelocks({
@@ -50,7 +48,6 @@ export function VaultV2Timelocks({
   preloadedRisk,
   assetSymbol,
   assetDecimals,
-  showPending = true,
 }: VaultV2TimelocksProps) {
   const { data: fetchedData, isLoading, error } = useVaultV2Governance(vaultAddress);
   const data = preloadedData ?? fetchedData;
@@ -99,21 +96,19 @@ export function VaultV2Timelocks({
         description="Delays governing changes on this vault. Abdicated functions are permanently disabled and cannot be called again."
       />
 
-      {showPending ? (
-        <VaultV2Pending
-          vaultAddress={vaultAddress}
-          chainId={chainId}
-          preloadedData={preloadedPending}
-          preloadedGovernance={data}
-          preloadedRisk={preloadedRisk}
-          assetSymbol={assetSymbol}
-          assetDecimals={assetDecimals}
-          vaultSymbol={assetSymbol ?? undefined}
-          embedded
-          allowAccept
-          allowRevoke
-        />
-      ) : null}
+      <VaultV2Pending
+        vaultAddress={vaultAddress}
+        chainId={chainId}
+        preloadedData={preloadedPending}
+        preloadedGovernance={data}
+        preloadedRisk={preloadedRisk}
+        assetSymbol={assetSymbol}
+        assetDecimals={assetDecimals}
+        vaultSymbol={assetSymbol ?? undefined}
+        embedded
+        allowAccept
+        allowRevoke
+      />
 
       {timelocks.length === 0 ? (
         <CuratorEmptyText>No timelocks configured.</CuratorEmptyText>

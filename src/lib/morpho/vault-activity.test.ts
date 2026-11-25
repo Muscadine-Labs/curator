@@ -158,7 +158,7 @@ describe('summarizeAdapter', () => {
     expect(s.marketsCount).toBe(3);
     expect(s.activeMarketsCount).toBe(2);
   });
-  it('uses the child vault for a fee-wrapper adapter', () => {
+  it('uses the child vault for a Vault V2 adapter', () => {
     const s = summarizeAdapter({
       allocationUsd: 100,
       markets: [],

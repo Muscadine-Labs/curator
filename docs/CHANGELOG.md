@@ -4,6 +4,15 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-25 — Fee wrappers deleted
+
+- The five fee wrappers (USDC Prime / Frontier, WETH Prime, cbBTC Prime, USDC Test) and their adapter addresses are gone from `lib/config/vaults.ts`, along with `kind` / `underlyingAddress` / `adapterAddress`, `withFeeWrapperLabel` (now `vaultDisplayName`), `isFeeWrapperVault`, `isFeeWrapperAdapterAddress`, `getVaultByAdapterAddress`, `getFeeWrapperForUnderlying`, `resolveUnderlyingVaultAddress` and the Underlying / Wrapper list split (`groupVaultsByKindAndCategory` → `groupVaultsByCategory`).
+- Fee wrapper tab and panel deleted (`/vault/[address]/fee-wrapper`, `FeeWrapperPanel.tsx`); the vault page no longer redirects wrapper addresses. `VaultV2Timelocks` lost `showPending`; `FEE_WRAPPER_TIMELOCK_FUNCTIONS` removed.
+- Protocol TVL sums every business vault; unique users no longer skip wrapper adapters; the Active vaults drill-down has no Kind column. `GET /api/vaults` no longer returns `kind` / `underlyingAddress`.
+- Gate config no longer lists wrapper adapters (`depositGateWrapperAdapterPairs`, `depositGateAdapterAllowlist`); the gate roster still finds every whitelisted account from Safe history and logs.
+- `MorphoVaultV2Adapter` support stays generic: the child vault comes only from Morpho `innerVault` (`mergeUnderlyingVaultInfo(graph)`), and the liquidity adapter panel picks vault-or-idle vs market from the vault's own adapters (`usesVaultLiquidityTargets`) instead of a `variant` prop.
+- Hub link "Create Fee Wrapper" removed.
+
 ## 2026-11-24 — Source under src, markets in one route tree
 
 - Source now lives in `src/app`, `src/components` and `src/lib`, matching the depositor app. `@/` points at `src/` (tsconfig, vitest). The auth proxy moved to `src/proxy.ts`: Next.js only picks it up next to `src/app`.

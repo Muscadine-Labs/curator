@@ -212,7 +212,7 @@ const adapterLiveAbi = parseAbi([
 
 /**
  * Live per-row positions straight from the adapters: Blue market adapters'
- * `expectedSupplyAssets(marketId)` and a fee wrapper's Vault V2 adapter
+ * `expectedSupplyAssets(marketId)` and a Vault V2 adapter's
  * `realAssets()`. Keyed like `allocation(id)`; rows whose read fails are
  * absent and fall back to booked / GraphQL amounts.
  */

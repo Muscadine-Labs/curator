@@ -300,14 +300,11 @@ const VAULT_V2_GOVERNANCE_QUERY = gql`
   }
 `;
 
-function mapAdapter(
-  graph: GraphAdapter | null | undefined,
-  wrapperVaultAddress: string
-): AdapterInfo | null {
+function mapAdapter(graph: GraphAdapter | null | undefined): AdapterInfo | null {
   if (!graph?.address) return null;
 
   const underlyingMerged = isMorphoVaultV2Adapter(graph)
-    ? mergeUnderlyingVaultInfo(wrapperVaultAddress, graph.innerVault)
+    ? mergeUnderlyingVaultInfo(graph.innerVault)
     : null;
 
   return {
@@ -537,10 +534,10 @@ export async function GET(
 
     const adapters =
       data.vault.adapters?.items
-        ?.map((item) => mapAdapter(item, address))
+        ?.map((item) => mapAdapter(item))
         .filter((a): a is AdapterInfo => a !== null) ?? [];
 
-    let liquidityAdapter = mapAdapter(data.vault.liquidityAdapter, address);
+    let liquidityAdapter = mapAdapter(data.vault.liquidityAdapter);
     let liquidityData = mapLiquidityData(data.vault.liquidityData ?? null);
 
     const capsRaw =

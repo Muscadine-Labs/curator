@@ -17,7 +17,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { TokenUsdValue } from '@/components/morpho/TokenUsdValue';
-import { groupVaultsByKindAndCategory, getVaultPageHref } from '@/lib/config/vaults';
+import { groupVaultsByCategory, getVaultPageHref } from '@/lib/config/vaults';
 import { SIDEBAR_NETWORKS } from '@/lib/constants';
 import {
   useProtocolStats,
@@ -78,19 +78,11 @@ export function VaultsCatalog() {
     });
   }, [vaults, search, assetFilter, networkFilter]);
 
-  const catalogVaults = useMemo(
-    () => filtered.filter((v) => v.kind !== 'feeWrapper'),
-    [filtered]
-  );
-
-  const groups = useMemo(
-    () => groupVaultsByKindAndCategory(catalogVaults),
-    [catalogVaults]
-  );
+  const groups = useMemo(() => groupVaultsByCategory(filtered), [filtered]);
 
   const depositsUsd = useMemo(
-    () => catalogVaults.reduce((sum, v) => sum + (v.tvl ?? 0), 0),
-    [catalogVaults]
+    () => filtered.reduce((sum, v) => sum + (v.tvl ?? 0), 0),
+    [filtered]
   );
 
   return (
@@ -101,7 +93,7 @@ export function VaultsCatalog() {
           value={depositsUsd}
           format="usd"
           isLoading={isLoading}
-          subtitle="Underlying vaults. Fee wrappers are a tab on each vault."
+          subtitle="Vaults matching these filters"
         />
         <KpiCard
           title="Interest generated"
@@ -177,14 +169,10 @@ export function VaultsCatalog() {
       ) : groups.length === 0 ? (
         <p className="text-sm text-muted-foreground">No vaults match these filters.</p>
       ) : (
-        groups.map((kindGroup) => (
-          <section key={kindGroup.kind} className="space-y-4">
-            {kindGroup.categories.map((category) => (
-              <div key={`${kindGroup.kind}-${category.category}`} className="space-y-2">
-                <h3 className="text-sm font-medium text-muted-foreground">{category.label}</h3>
-                <VaultTable vaults={category.vaults} />
-              </div>
-            ))}
+        groups.map((category) => (
+          <section key={category.category} className="space-y-2">
+            <h3 className="text-sm font-medium text-muted-foreground">{category.label}</h3>
+            <VaultTable vaults={category.vaults} />
           </section>
         ))
       )}

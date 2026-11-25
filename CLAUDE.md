@@ -245,7 +245,7 @@ Getting those semantics wrong is the #1 source of reverts.
   a balancing revert; the allocator simply chooses deltas.
 - **Display vs booked allocation** — risk overlay (`overlay-v2-onchain-caps.ts`)
   sets `allocationAssets` / UI `displayAssets` to the adapter's **live position**
-  — Blue adapter `expectedSupplyAssets(marketId)`, fee-wrapper Vault V2 adapter
+  — Blue adapter `expectedSupplyAssets(marketId)`, Vault V2 adapter
   `realAssets()` — so accrued interest shows between rebalances. Only when that
   read fails does it fall back to `max(Morpho position supply, allocation(id))`.
   Do **not** go back to the max as the primary source: right after a
@@ -286,7 +286,7 @@ Getting those semantics wrong is the #1 source of reverts.
   `totalAssets` (`chainTotalRaw`). This is
   **not** a strategy adapter contract, but the UI treats idle as a first-class
   rebalance target alongside **Morpho Blue market** (`MorphoMarketV1Adapter`) rows
-  and, on fee wrappers, a single **Morpho Vault V2** (`MorphoVaultV2Adapter`) row:
+  and any **Morpho Vault V2** (`MorphoVaultV2Adapter`) rows:
   - **Adapters tab** (`VaultV2Adapters.tsx`): always show an **Idle Adapter**
     row (even at $0).
   - **Allocations tab** (`VaultV2Allocations.tsx`): idle is an editable target
@@ -317,49 +317,28 @@ Getting those semantics wrong is the #1 source of reverts.
   - **Risk tab** (`VaultRiskV2.tsx`): idle counts toward **Adapters Count**
     (`strategy adapters + 1`) and appears as its own row (“No strategy risk”).
 
-#### 3.2.1 Fee wrappers (Vault V2 → underlying Vault V2)
+#### 3.2.1 Vault V2 adapters (Vault V2 → child Vault V2)
 
-A **fee wrapper** is a Vault V2 that allocates only to one underlying Vault V2 via
-`MorphoVaultV2Adapter` (GraphQL `__typename`; `type` is `MorphoVaultV2`).
-Morpho GraphQL names the child `innerVault { address name symbol avgNetApy liquidity }`;
-curator maps that to **underlying vault** (`underlying` / `underlyingAddress`).
-Allocate/deallocate `data` is **empty** (`0x` / `EMPTY_ADAPTER_DATA`) — not
-market params. Cap `idData` is still `abi.encode("this", adapterAddress)`.
-`addAdapter` / `removeAdapter` and critical gates are typically abdicated.
-Wrappers are **not listed** on app.morpho.org (`listed: false`). Keep the
-**Open on Morpho** overview link anyway. Morpho docs:
-[Fee Wrapper](https://docs.morpho.org/developers/earn/concepts/fee-wrapper/).
+**Fee wrappers were deleted.** There is no fee-wrapper config (`kind`,
+`underlyingAddress`, `adapterAddress`), no Fee wrapper tab or panel, no
+` (wrapper)` label, no wrapper special case in TVL / user stats, and no
+wrapper adapters in the gate config. Do not add them back.
 
-Config: `kind: 'feeWrapper'` + `underlyingAddress` in `lib/config/vaults.ts`.
-`underlyingAddress` uses the **same env default** as the child strategy vault
-(the strategy vault constant) and is the GraphQL fallback when
-`innerVault` is omitted. Display names are Morpho/on-chain names (`USDC Prime`)
-with a ` (wrapper)` suffix on fee wrappers (`withFeeWrapperLabel`). GraphQL fragments must include `... on MorphoVaultV2Adapter` on
-list, governance, and risk queries — omitting them makes the adapter invisible
-(same failure mode as skipping `marketId`). Do **not** treat wrappers as
-Blue-market strategy vaults. Do **not** sum wrapper TVL into protocol stats —
-deposits sit inside the underlying vault. Unique-user / active-vault KPIs **do**
-include wrappers. Treasury statements **do** include wrappers (their
-performance/management fees). Transact lists wrappers and test vaults with
-their real names.
+A vault may still allocate through a `MorphoVaultV2Adapter` (GraphQL
+`__typename`; `type` is `MorphoVaultV2`) into a child Vault V2. Everything about
+that child comes from Morpho, not config: `innerVault { address name symbol
+avgNetApy liquidity }` maps to **underlying vault** (`underlying`) via
+`mergeUnderlyingVaultInfo` (a configured child only fills in a missing name or
+symbol). Allocate/deallocate `data` is **empty** (`0x` / `EMPTY_ADAPTER_DATA`);
+cap `idData` is `abi.encode("this", adapterAddress)`. GraphQL fragments must
+include `... on MorphoVaultV2Adapter` on list, governance, and risk queries —
+omitting them makes the adapter invisible. Allocation sections: **Idle → Morpho
+Vault V2 → Morpho Blue Market**. The liquidity adapter panel reads the vault's
+own adapters (`usesVaultLiquidityTargets` in `lib/morpho/vault-v2-liquidity.ts`):
+when every adapter is a Vault V2 adapter it offers those adapters or Idle,
+otherwise verified Blue markets. There is no prop for this.
 
-Allocation sections on wrappers: **Idle → Morpho Vault V2**. Writes use empty
-adapter data. Risk grades live on the underlying vault page, not the wrapper.
-Wrapper **viewing** lives on the underlying vault's **Fee wrapper** tab
-(`/vault/[underlying]/fee-wrapper`): condensed TVL / users / history plus
-sub-tabs **Overview** (Morpho-style overview, fees, roles, gates, max rate) /
-**Allocation** (`VaultV2Allocations` with `liquidityAdapterVariant="vault-or-idle"`
-— it renders the single liquidity adapter panel and its own error state; do not
-add a second `VaultV2LiquidityAdapter` beside it) / **Caps / timelocks**
-(`VaultV2Caps` with `preloadedPending` from `useVaultV2Pending`, tab label shows
-the pending count). Visiting a
-fee-wrapper address redirects to that tab. The vaults sidebar and `/vaults`
-list underlyings only. Claim fees on that tab calls `accrueInterest()` on the
-wrapper. The same button on an underlying vault overview claims that vault's
-own performance and management fees.
-
-Keep **skipping** `MetaMorphoAdapter` (V1 MetaMorpho child). That is not a fee
-wrapper.
+Keep **skipping** `MetaMorphoAdapter` (V1 MetaMorpho child).
 
 ### 3.3 Summary of V1 vs V2
 
@@ -390,12 +369,11 @@ Query (`useVaultV2Complete` → BFF + on-chain hooks). Keep the `[address]` segm
 **dynamic**; do not add `generateStaticParams` or SSG — TVL, allocations, caps,
 and risk change continuously and hooks refetch on tab switch and post-tx.
 
-**Tab order**: Overview → Fee wrapper (when configured) → Allocation → Caps → Risk → Timelocks → Sentinel.
+**Tab order**: Overview → Allocation → Caps → Risk → Timelocks → Sentinel.
 The vault header is the vault name, chain, and a more menu (copy address, Morpho, explorer). Tabs are text links under that header. Pending timelock count is on Timelocks and Sentinel.
 Overview holds metrics, fees (incl. Public Allocator fee), risk parameters (max rate, force
 deallocation penalty), roles, gates, and the adapters table, then collapsible activity → holders → recent txs →
-history (10 per page with arrows, default closed); the Fee wrapper tab
-holds condensed wrapper TVL / users / history and Morpho wrapper facts; Risk holds market risk
+history (10 per page with arrows, default closed); Risk holds market risk
 grades; Sentinel holds emergency actions at the bottom.
 
 1. `useVaultV2Complete` fans out to:
@@ -459,9 +437,7 @@ grades; Sentinel holds emergency actions at the bottom.
    allocator wallet or the Allocator Safe, and apply immediately. Vault caps
    still bind the move. Penalty stays read-only here.
 5. **Timelocks** — `VaultV2Timelocks.tsx`: pending actions (accept / revoke via
-   `VaultV2Pending`) above the read-only delay list. The fee wrapper's
-   Caps / timelocks sub-tab passes `showPending={false}` because its caps block
-   already shows them.
+   `VaultV2Pending`) above the read-only delay list.
 6. **Allocation** — `VaultV2Allocations.tsx` receives `preloadedData`
    (governance) **and** `preloadedRisk`. Its **Liquidity adapter** panel marks
    the current option from governance `liquidityAdapter` / `liquidityData`,
@@ -480,7 +456,7 @@ grades; Sentinel holds emergency actions at the bottom.
      next to name. Utilization, borrow/supply APY, liquidity from `market.state`.
      APY/utilization GraphQL values are **decimals**; multiply by 100 before
      `formatPercentage`.
-   - **MorphoVaultV2Adapter** — fee wrapper underlying vault (empty allocate `data`).
+   - **MorphoVaultV2Adapter** — child Vault V2 from Morpho `innerVault` (empty allocate `data`).
      Name links to `/vault/{underlying}`. Rate column is underlying `avgNetApy`.
    - **Idle** — vault cash row; no on-chain cap; no direct writes.
 7. **Risk** — `VaultAnalyticsPanel` on the **Risk** tab (`/vault/[address]/risk`;
@@ -573,28 +549,23 @@ from `lib/config/vaults.ts` with:
 - `id` — same as vault `address` (for legacy UI keys)
 - `version` — `v1` | `v2` from config `morphoVersion`
 - `listCategory` — optional `prime` | `vineyard` | `frontier` | `test`
-- `kind` — optional `strategy` (default) | `feeWrapper`
-- `underlyingAddress` — child Vault V2 when `kind` is `feeWrapper` (same env
-  default as the strategy vault; GraphQL `innerVault` fallback)
 
 `?includeAll=true` includes test vaults (`excludeFromBusinessViews`); default list
-is business vaults only (including fee wrappers).
+is business vaults only.
 
-Protocol TVL (`getVaultAddressesForProtocolStats`) excludes fee wrappers so
-deposits are not double-counted. Unique users and the active-vault KPI
-(`getActiveVaultAddressesForStats`) include wrappers; wrapper adapter
-contracts are omitted from the user set.
+Protocol TVL (`getVaultAddressesForProtocolStats`) sums every business vault.
+Unique users and the active-vault KPI use `getActiveVaultAddressesForStats`
+(business vaults that are not `inactive`).
 
 **Top nav + Sidebar** — Topbar areas: Overview · Vaults · Markets · Curator ·
 Business (`lib/nav/areas.ts`). Sidebar is **area-scoped**. Under **Vaults**: All
-vaults (`/vaults`), then underlying vaults grouped Prime → Frontier → Vineyard →
-Test. Fee wrappers are omitted from the sidebar and the catalog. The tree comes
+vaults (`/vaults`), then configured vaults grouped Prime → Frontier → Vineyard →
+Test. The tree comes
 from config (`getSidebarNavVaults`), so it renders before any fetch; once the
 vault list (`useVaultList(SIDEBAR_VAULT_LIST_FILTERS)`, same query as the
 catalog) loads, `withFetchedVaultNames` swaps each fallback name for the
 Morpho / on-chain name. The `/vaults`
-catalog (`VaultsCatalog`) uses `groupVaultsByKindAndCategory` on those
-underlyings. Legacy page/API paths still **redirect** via
+catalog (`VaultsCatalog`) uses `groupVaultsByCategory` on the same list. Legacy page/API paths still **redirect** via
 `next.config.ts` (`/vaults/transact` → `/vaults`). Catalog is `/vaults`; vault
 ops are `/vault/[address]/*`. User deposit/withdraw is muscadine-onchain.
 
@@ -896,7 +867,7 @@ Rebater, not as negative revenue.
 | -------- | -------- |
 | V1 MetaMorpho + V2 vault **token** positions for `TREASURY_ADDRESS` | Loose wallet balances (bare USDC/WETH/cbBTC/ETH) |
 | V1 mvUSDC / mvWETH / mvcbBTC (fee accounting only) | Test vaults (`excludeFromBusinessViews`) |
-| Business fee wrappers (performance-fee share mints on the wrapper) | |
+| Any other Morpho vault the treasury holds (e.g. retired fee wrappers), by its asset | |
 | Unknown Morpho vaults whose asset is USDC / WETH / cbBTC | Spam / unknown ERC-20s |
 
 **Treasury wallet:** `TREASURY_ADDRESS` in `lib/morpho/treasury-statement.ts`
@@ -1480,13 +1451,13 @@ components.
 - Curator **skips** `MetaMorphoAdapter` in risk, allocation, sentinel, and adapters
   tabs. If a vault still holds MetaMorpho allocation on-chain, it will not appear in
   rebalance UI and is omitted from `vaultRiskScore` / idle overlay. Strategy vaults
-  use Morpho Blue market adapters; fee wrappers use `MorphoVaultV2Adapter` (not MetaMorpho).
+  use Morpho Blue market adapters; a vault-to-vault allocation uses `MorphoVaultV2Adapter` (not MetaMorpho).
 
-### Fee wrapper GraphQL missing underlying vault
+### Vault V2 adapter missing its underlying vault
 
 - Query `... on MorphoVaultV2Adapter { innerVault { address name } }` on adapters and
-  `liquidityAdapter` (Morpho field name). Allocate/deallocate `data` must be `0x`. Do not sum wrapper TVL
-  into protocol stats. `avgNetApy` is often null until history accumulates — use `netApy`.
+  `liquidityAdapter` (Morpho field name). There is no config fallback. Allocate/deallocate
+  `data` must be `0x`. `avgNetApy` is often null until history accumulates — use `netApy`.
 
 ### V2 adapter count wrong in Risk
 
@@ -1620,7 +1591,6 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
 | Morpho app deep links            | `lib/morpho/morpho-app-links.ts`                         |
 | V2 pending UI                    | `components/morpho/VaultV2Pending.tsx`                    |
 | V2 vault page (tabs)             | `src/app/vault/[address]/page.tsx`                            |
-| Fee wrapper tab                  | `src/app/vault/[address]/fee-wrapper/page.tsx`, `FeeWrapperPanel.tsx`, `GET /api/vaults/[id]/gates` |
 | Blue market types + normalize      | `lib/morpho/blue-market-data.ts` (`asBlueMarketData`) |
 | Client fetch + refetch interval  | `lib/data/api-fetch.ts`, `lib/data/query-config.ts`      |
 | BFF cache headers                | `lib/api/response-cache.ts`, `lib/api/server-response-cache.ts` |
@@ -2180,7 +2150,7 @@ _Last updated: 2026-11-02. When you change reallocation logic, allocation
 list/filters (§5), caps/adapters display, V2 idData/Sentinel (§3.2, §4.2), tx
 preview, client fetch/cache (§4.3), src/app/API route paths (§2, §4.7, `next.config.ts`
 redirects), Morpho GraphQL field names (§4.4.1), Curator markets browser (§4.7),
-vault list/sidebar (§4.3.1), vault overview/history (share price in §4.4), risk scoring (§4.5), V2 idle/Blue/fee-wrapper display (§3.2.1), pending/emergency
+vault list/sidebar (§4.3.1), vault overview/history (share price in §4.4), risk scoring (§4.5), V2 idle/Blue/Vault V2 adapter display (§3.2.1), pending/emergency
 tabs, wallet stack, Multisig Safe (§13), formatting, CCTP status (§14 removed), global
 density (§16), brain/MCP (`docs/`), or add a new vault interaction, update Sections 3–6, 4.2–4.7, 9–10,
 13–14, 16–18 accordingly, and append `docs/CHANGELOG.md`._

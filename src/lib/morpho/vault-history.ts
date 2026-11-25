@@ -162,7 +162,7 @@ export function buildV2HistorySeries(historicalState?: {
     suppliedUsd: totalAssetsUsd,
     liquidityUsd: [],
     liquidity: [],
-    // Brand-new fee wrappers often have TVL/share-price before Morpho indexes
+    // A new vault often has TVL and share price before Morpho indexes
     // avgNetApy. Keep deposits; hide a flat 0% APY series until a rate exists.
     apy: seriesHasPositiveValue(apy) ? apy : [],
     sharePrice: mapMorphoTimeseries(historicalState?.sharePrice),

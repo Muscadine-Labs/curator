@@ -43,7 +43,7 @@ export const VAULT_V2_FACTORY_BASE =
 
 /**
  * MorphoVaultV1AdapterFactory on Base. Despite the V1 name, the adapter is
- * ERC-4626 and is what fee wrappers use to deposit into Vault V2 children.
+ * ERC-4626 and can deposit into a child Vault V2.
  */
 export const MORPHO_VAULT_V1_ADAPTER_FACTORY_BASE =
   '0xF42D9c36b34c9c2CF3Bc30eD2a52a90eEB604642' as Address;

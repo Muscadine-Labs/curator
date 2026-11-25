@@ -3,7 +3,7 @@
  *
  * **Underlying-only:** the four production strategy vaults point at one shared gate.
  * Who may deposit is whatever that gate returns (`isWhitelisted`), not a list in this
- * file. Fee-wrapper vaults stay open (`sendAssetsGate = 0x0`).
+ * file.
  *
  * The gate contract address is `DEPOSIT_GATE_CONTRACT_ADDRESS` below; change it here after a redeploy.
  * See `docs/deposit-gates.md`. Writes: muscadine-onchain `gate` commands.
@@ -12,7 +12,6 @@ import type { Address } from 'viem';
 import { getAddress } from 'viem';
 import {
   getConfiguredVaultDisplayName,
-  getVaultAddressesForBusinessViews,
   getVaultByAddress,
 } from '@/lib/config/vaults';
 import { getSafeByAddress, getSafeByRole } from '@/lib/safe/config';
@@ -20,15 +19,6 @@ import { getSafeByAddress, getSafeByRole } from '@/lib/safe/config';
 export type AllowlistedAddress = {
   address: Address;
   label: string;
-};
-
-/** Production fee-wrapper → MorphoVaultV2Adapter → underlying (no test vaults). */
-export type DepositGateWrapperAdapterPair = {
-  wrapperAddress: Address;
-  wrapperLabel: string;
-  adapterAddress: Address;
-  underlyingAddress: Address;
-  underlyingLabel: string;
 };
 
 /** Production gate (Base, 2026-09-05 deploy). Edit this constant when the gate is redeployed. */
@@ -62,7 +52,7 @@ const GATE_DISPLAY_NAMES: Readonly<Record<string, string>> = {
     'ignitis.base.eth',
 };
 
-/** Basename, Safe, vault, or wrapper-adapter label. Otherwise "Whitelisted address". */
+/** Basename, Safe, or vault label. Otherwise "Whitelisted address". */
 export function resolveAllowlistLabel(address: string): string {
   const named = GATE_DISPLAY_NAMES[address.toLowerCase()];
   if (named) return named;
@@ -70,35 +60,7 @@ export function resolveAllowlistLabel(address: string): string {
   if (safe) return safe.role === 'treasury' ? 'Muscadine Treasury' : `${safe.label} Safe`;
   const vault = getVaultByAddress(address);
   if (vault) return getConfiguredVaultDisplayName(vault);
-  const adapter = depositGateAdapterAllowlist().find(
-    (row) => row.address.toLowerCase() === address.toLowerCase()
-  );
-  if (adapter) return adapter.label;
   return 'Whitelisted address';
-}
-
-/** Four production wrapper ↔ adapter ↔ underlying rows (excludes test vaults). */
-export function depositGateWrapperAdapterPairs(): DepositGateWrapperAdapterPair[] {
-  return getVaultAddressesForBusinessViews()
-    .filter((v) => v.kind === 'feeWrapper' && v.adapterAddress && v.underlyingAddress)
-    .map((wrapper) => {
-      const underlying = getVaultByAddress(wrapper.underlyingAddress!)!;
-      return {
-        wrapperAddress: getAddress(wrapper.address),
-        wrapperLabel: getConfiguredVaultDisplayName(wrapper),
-        adapterAddress: getAddress(wrapper.adapterAddress!),
-        underlyingAddress: getAddress(underlying.address),
-        underlyingLabel: getConfiguredVaultDisplayName(underlying),
-      };
-    });
-}
-
-/** MorphoVaultV2Adapter contracts — `msg.sender` when supplying the underlying vault. */
-export function depositGateAdapterAllowlist(): AllowlistedAddress[] {
-  return depositGateWrapperAdapterPairs().map((pair) => ({
-    address: pair.adapterAddress,
-    label: `${pair.wrapperLabel} adapter → ${pair.underlyingLabel}`,
-  }));
 }
 
 export type ConfiguredSendAssetsGate = {

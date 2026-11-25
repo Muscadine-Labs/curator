@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useParams, usePathname, useRouter } from 'next/navigation';
+import { useParams, usePathname } from 'next/navigation';
 import {
   createContext,
   useContext,
@@ -16,13 +16,7 @@ import { useCopyFeedback } from '@/components/CopyFeedbackProvider';
 import { CURATOR_MARKET_NETWORKS, getScanUrlForChain } from '@/lib/constants';
 import { useVaultV2Complete } from '@/lib/hooks/useVaultV2Complete';
 import { vaultV2GovernanceQueryKey } from '@/lib/hooks/useVaultV2Governance';
-import { vaultV2GatesQueryKey } from '@/lib/hooks/useVaultV2Gates';
-import {
-  getFeeWrapperForUnderlying,
-  getVaultByAddress,
-  getVaultCategory,
-  isFeeWrapperVault,
-} from '@/lib/config/vaults';
+import { getVaultCategory } from '@/lib/config/vaults';
 import { morphoVaultHref } from '@/lib/morpho/morpho-app-links';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/button';
@@ -45,7 +39,6 @@ const CATEGORY_BADGE: Record<string, string> = {
 /** Morpho-style vault segments (path under `/vault/[address]/…`). */
 export const VAULT_NAV_SEGMENTS = [
   { segment: '', label: 'Overview', refreshOnEnter: true },
-  { segment: 'fee-wrapper', label: 'Fee wrapper', refreshOnEnter: true },
   { segment: 'allocation', label: 'Allocation', refreshOnEnter: true },
   { segment: 'caps', label: 'Caps', refreshOnEnter: true },
   { segment: 'risk', label: 'Risk', refreshOnEnter: false },
@@ -63,8 +56,6 @@ export type VaultPageData = {
   vaultName: string;
   vaultSymbol: string;
   vaultAsset: string;
-  /** Wrapper vault address when this strategy vault has a fee wrapper. */
-  feeWrapperAddress: string | null;
 };
 
 const VaultPageContext = createContext<VaultPageData | null>(null);
@@ -96,45 +87,20 @@ export function VaultPageShell({ children }: { children: ReactNode }) {
   const params = useParams();
   const address = params.address as string;
   const pathname = usePathname();
-  const router = useRouter();
   const queryClient = useQueryClient();
-  const requestedCfg = getVaultByAddress(address);
-  const wrapperRedirectHref =
-    requestedCfg && isFeeWrapperVault(requestedCfg) && requestedCfg.underlyingAddress
-      ? `/vault/${requestedCfg.underlyingAddress}/fee-wrapper`
-      : null;
   const { vault, risk, governance, pending, vaultIsLoading, isError, error } =
-    useVaultV2Complete(wrapperRedirectHref ? null : address);
+    useVaultV2Complete(address);
 
   const activeSegment = vaultSegmentFromPath(pathname, address);
-  const feeWrapperAddress = getFeeWrapperForUnderlying(address)?.address ?? null;
 
   useEffect(() => {
-    if (wrapperRedirectHref) {
-      router.replace(wrapperRedirectHref);
-    }
-  }, [router, wrapperRedirectHref]);
-
-  useEffect(() => {
-    if (activeSegment === 'fee-wrapper' && feeWrapperAddress) {
-      void queryClient.refetchQueries({ queryKey: ['vault', feeWrapperAddress] }, JOIN_IN_FLIGHT);
-      void queryClient.refetchQueries(
-        { queryKey: vaultV2GovernanceQueryKey(feeWrapperAddress) },
-        JOIN_IN_FLIGHT
-      );
-      void queryClient.refetchQueries(
-        { queryKey: vaultV2GatesQueryKey(feeWrapperAddress) },
-        JOIN_IN_FLIGHT
-      );
-      return;
-    }
     const meta = VAULT_NAV_SEGMENTS.find((s) => s.segment === activeSegment);
     if (!meta?.refreshOnEnter) return;
     void queryClient.refetchQueries({ queryKey: vaultV2GovernanceQueryKey(address) }, JOIN_IN_FLIGHT);
     void queryClient.refetchQueries({ queryKey: ['vault-v2-risk', address] }, JOIN_IN_FLIGHT);
-  }, [activeSegment, address, feeWrapperAddress, queryClient]);
+  }, [activeSegment, address, queryClient]);
 
-  if (wrapperRedirectHref || vaultIsLoading) {
+  if (vaultIsLoading) {
     return (
       <AppShell
         title="Loading vault..."
@@ -179,7 +145,6 @@ export function VaultPageShell({ children }: { children: ReactNode }) {
     );
   }
 
-  // Fee-wrapper addresses redirect above, so `vault` is always an underlying vault here.
   const vaultBadge = CATEGORY_BADGE[getVaultCategory(vault.name, vault.address)] ?? 'V2';
   const pendingCount = pending?.pending?.length ?? 0;
   const chainName =
@@ -208,7 +173,6 @@ export function VaultPageShell({ children }: { children: ReactNode }) {
     vaultName,
     vaultSymbol,
     vaultAsset,
-    feeWrapperAddress,
   };
 
   return (
@@ -236,9 +200,7 @@ export function VaultPageShell({ children }: { children: ReactNode }) {
         <div className="space-y-6">
           <nav className="-mx-4 overflow-x-auto border-b border-slate-200 px-4 dark:border-slate-800 sm:mx-0 sm:px-0">
             <div className="flex w-max min-w-full gap-1">
-              {VAULT_NAV_SEGMENTS.filter(
-                (item) => item.segment !== 'fee-wrapper' || feeWrapperAddress
-              ).map((item) => {
+              {VAULT_NAV_SEGMENTS.map((item) => {
                 const href =
                   item.segment === ''
                     ? `/vault/${address}`

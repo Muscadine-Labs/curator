@@ -30,7 +30,6 @@ export interface ProtocolStats {
     name: string;
     address: string;
     tvl: number;
-    kind?: 'strategy' | 'feeWrapper';
   }>;
   feesTrendDaily: Array<{ date: string; value: number }>;
   feesTrendCumulative: Array<{ date: string; value: number }>;
@@ -56,8 +55,6 @@ export interface VaultWithData {
   description?: string;
   version?: 'v2';
   listCategory?: 'prime' | 'vineyard' | 'frontier' | 'test' | null;
-  kind?: 'strategy' | 'feeWrapper' | null;
-  underlyingAddress?: string | null;
   tvl: number | null;
   /** Raw total assets in vault asset units (Morpho `totalAssets`). */
   totalAssetsUnderlying?: string | null;

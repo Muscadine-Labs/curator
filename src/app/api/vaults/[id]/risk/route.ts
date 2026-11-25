@@ -111,7 +111,7 @@ export type V2AdapterRiskData = {
   allocationUsd: number;
   allocationAssets: string | null;
   bookedAllocationAssets?: string | null;
-  /** Fee-wrapper adapter `realAssets()` read on-chain; null when that read failed. */
+  /** Vault V2 adapter `realAssets()` read on-chain; null when that read failed. */
   liveAllocationAssets?: string | null;
   riskScore: number;
   riskGrade: MarketRiskGrade;
@@ -428,15 +428,14 @@ async function buildBlueAdapterMarketRisks(
 async function computeAdapterRisk(
   adapter: GraphAdapter,
   chainId: number,
-  caps: CapInfo[],
-  wrapperVaultAddress: string
+  caps: CapInfo[]
 ): Promise<V2AdapterRiskData | null> {
   if (adapter.__typename === 'MetaMorphoAdapter') {
     return null;
   }
 
   if (isMorphoVaultV2Adapter(adapter)) {
-    const underlying = mergeUnderlyingVaultInfo(wrapperVaultAddress, adapter.innerVault);
+    const underlying = mergeUnderlyingVaultInfo(adapter.innerVault);
     const adapterCap = caps.find(
       (c) =>
         c.adapterAddress?.toLowerCase() === adapter.address.toLowerCase() &&
@@ -581,7 +580,7 @@ export async function GET(
 
     const adapterRisks = (
       await Promise.all(
-        adapters.map((adapter) => computeAdapterRisk(adapter, cfg.chainId, caps, address))
+        adapters.map((adapter) => computeAdapterRisk(adapter, cfg.chainId, caps))
       )
     ).filter((a): a is V2AdapterRiskData => a !== null);
 

@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { getAddress } from 'viem';
 import {
-  depositGateAdapterAllowlist,
   depositGateGateWhitelisters,
-  depositGateWrapperAdapterPairs,
   resolveAllowlistLabel,
 } from '@/lib/config/deposit-gates';
 import { TREASURY_ADDRESS } from '@/lib/morpho/treasury-statement';
@@ -19,7 +17,7 @@ const VAULT = '0x89712980Cb434eF5aE4AB29349419eb976B0b496';
 
 describe('deposit-gates config', () => {
   it('does not treat depositor wallets as a configured allowlist', () => {
-    const configured = depositGateAdapterAllowlist().map((row) => row.address.toLowerCase());
+    const configured = depositGateGateWhitelisters().map((row) => row.address.toLowerCase());
     expect(configured).not.toContain('0x628037c2d25f5e5f6f90415cff6d7e8860f41c08');
     expect(configured).not.toContain(TREASURY_ADDRESS.toLowerCase());
   });
@@ -32,31 +30,6 @@ describe('deposit-gates config', () => {
     expect(resolveAllowlistLabel('0x1111111111111111111111111111111111111111')).toBe(
       'Whitelisted address'
     );
-  });
-
-  it('lists four production wrapper ↔ adapter pairs (no test vaults)', () => {
-    const pairs = depositGateWrapperAdapterPairs();
-    expect(pairs).toHaveLength(4);
-    expect(pairs.map((p) => p.wrapperAddress.toLowerCase())).toEqual([
-      '0x036a01efddc87f6634ffde0533ee528b90fc7a45',
-      '0x54d8417bd21c86a7806b58f5aa2e2e0bb88b856a',
-      '0x548653b09b03a69f93b3890c382fe9dcd245cbc4',
-      '0x0e0a857d2af1a2d43c82d1fa54766239cab70147',
-    ]);
-    expect(pairs.map((p) => p.adapterAddress.toLowerCase())).toEqual([
-      '0x8b6e43cce1961d3671a39fe8d9e711e69ddd74ce',
-      '0x5b211da4cd92cfb9cccfbd1de78289955eb236cd',
-      '0xf691616dd2cf85c9ca9fa32bdff00f5cd92bad81',
-      '0xa3b90423fd6f70b9f4a424debfb27ac502ac1464',
-    ]);
-  });
-
-  it('uses wrapper adapters only as labels, not a depositor roster', () => {
-    const adapters = depositGateAdapterAllowlist();
-    expect(adapters).toHaveLength(4);
-    const addresses = adapters.map((adapter) => adapter.address.toLowerCase());
-    expect(addresses).not.toContain('0x628037c2d25f5e5f6f90415cff6d7e8860f41c08');
-    expect(addresses).not.toContain(TREASURY_ADDRESS.toLowerCase());
   });
 
   it('lists curator and allocator as gate whitelisters', () => {
