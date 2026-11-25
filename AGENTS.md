@@ -45,9 +45,15 @@ npm run build   # next build
   Gate calldata / propose: muscadine-onchain CLI. In this app, `/curator/gates`
   + `GET /api/gates/[address]` read the live gate and queue `setIsWhitelisted` /
   `setIsWhitelister` through Allocator / Curator Safes.
+- **Morpho GraphQL fields retired 2026-12-02** (no GraphQL replacement): collateral cap
+  addresses come from REST `/allocations`; pending changes from REST submit tx hashes →
+  receipt `Submit` events → on-chain `executableAt` (`vault-v2-pending.server.ts`).
+  Allocation history is **not shown** (Allocation tab history and Activity
+  allocation rows removed: REST has no vault-wide transaction list). REST calls go through `lib/morpho/rest-client.ts` (optional server-only
+  `MORPHO_API_KEY` → keyed host). Do not add those GraphQL fields back.
 - **Request budget:** batch Morpho reads (aliased `vaultV2ByAddress` queries, `prefetchAssets` for token lists) instead of one query per item; the server `publicClient` multicall-batches same-tick reads; refetch with `cancelRefetch: false` when a mount fetch may already be running. See CLAUDE.md §8 and the changelog.
 - **React Query polling** — dashboard hooks poll every 30s; indexed vault data
-  (history, reallocations, holders, vault list) does not background-poll. The
+  (history, holders, vault list) does not background-poll. The
   vaults sidebar tree is config-only; its names come from the
   vault list query once it loads (`withFetchedVaultNames`). On-chain vault
   hooks (`risk`, `governance`) use `staleTime: 0` + `refetchOnMount: 'always'`.

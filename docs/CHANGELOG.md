@@ -4,6 +4,22 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-25 — Review fixes on the Dec 2 migration
+
+- A pending management fee change was labelled from the per-second calldata rate (2%/yr read as 0.00%). `describePendingDecoded` now shows it per year (`managementFeePerSecondToYearPercent`).
+- A failed Morpho REST collateral-cap read was only logged; the governance response now carries `capsWarning`, shown on Caps and above Sentinel **Decrease caps** (those caps cannot be labeled or decreased until it loads).
+
+## 2026-11-25 — Off Morpho GraphQL fields retired on 2026-12-02
+
+- Morpho removes `CollateralCapData.collateralAddress`, `VaultV2PendingConfig.data`, `VaultV2IncreaseCapPendingData.cap` and `VaultV2AllocationTransaction` on 2026-12-02 (no GraphQL replacement); a removed field fails the whole query, so every vault page would have errored.
+- New `lib/morpho/rest-client.ts` (`morphoRestGet`, `morphoRestList` with cursor paging that throws instead of returning a cut list).
+- Collateral caps: REST `/allocations` (`vault-v2-collateral-caps.server.ts`), merged into governance caps; GraphQL caps kept if REST fails.
+- Pending: REST submit tx hashes → receipt `Submit` events (this vault only) → on-chain `executableAt` → local decode (`vault-v2-pending.server.ts`, `vault-v2-pending-decode.ts`). `functionName` is now the ABI name. `VAULT_V2_PENDING_QUERY` / `mapPendingDecoded` removed.
+- Allocation history **removed**: the Allocation tab history (`AllocationHistory`, `GET /api/vaults/[id]/reallocations`, `useVaultReallocations`) and Activity's allocation rows, type filter, Amount and Target columns. A REST rebuild (net per interval from market supply shares) matched GraphQL within cents but had no tx hash or sender and cost 12–65 REST reads per vault, so it was dropped. Activity reports `pendingHistory`.
+- Bots: the per-sender GraphQL allocation query is gone (`batchVaultV2AllocationTransactions` removed); candidates come from role-Safe history only, so bot EOA allocations no longer appear.
+- Verified live against GraphQL before the cutoff (see `docs/morpho-rest-migration.md` §0). No `removalAt: 2026-12-02` warning left in the server log.
+- Collateral caps and pending submits are cached 30s per vault. Optional `MORPHO_API_KEY` uses Morpho's keyed REST host.
+
 ## 2026-11-25 — Fee wrappers deleted
 
 - The five fee wrappers (USDC Prime / Frontier, WETH Prime, cbBTC Prime, USDC Test) and their adapter addresses are gone from `lib/config/vaults.ts`, along with `kind` / `underlyingAddress` / `adapterAddress`, `withFeeWrapperLabel` (now `vaultDisplayName`), `isFeeWrapperVault`, `isFeeWrapperAdapterAddress`, `getVaultByAdapterAddress`, `getFeeWrapperForUnderlying`, `resolveUnderlyingVaultAddress` and the Underlying / Wrapper list split (`groupVaultsByKindAndCategory` → `groupVaultsByCategory`).

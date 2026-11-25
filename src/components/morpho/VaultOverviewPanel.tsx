@@ -238,9 +238,6 @@ export function VaultOverviewPanel({
         vaultAddress={vault.address}
         chainId={vault.chainId}
         governance={governance}
-        risk={risk}
-        assetSymbol={vaultAsset}
-        assetDecimals={vault.assetDecimals}
       />
 
       <VaultHolders

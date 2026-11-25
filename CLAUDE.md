@@ -29,6 +29,7 @@ Copy `.env.example` → `.env.local`. See that file for the full list.
 | `ALCHEMY_API_KEY` | Recommended | Server Base RPC (public Base RPC if unset) |
 | `NEXT_PUBLIC_ALCHEMY_API_KEY` | Recommended | Client Base RPC |
 | `NEXT_PUBLIC_APP_URL` | No | App origin (wallet metadata) |
+| `MORPHO_API_KEY` | No | Server-only Morpho REST key: `lib/morpho/rest-client.ts` then uses `private.api.morpho.org` (higher rate limits) |
 | `NEXT_PUBLIC_SAFE_API_KEY` | **Yes for `/curator/gates`** | Safe API: Queue Service (proposals, signatures, proposers) and Transaction Service (executed history, gate whitelist history) |
 | `CURATOR_ADMIN_PASSWORD` | Login | Admin auth and session HMAC (unless `CURATOR_SESSION_SECRET` is set) |
 | `CURATOR_SESSION_SECRET` | No | Optional dedicated HMAC for `curator_session` |
@@ -217,6 +218,12 @@ Getting those semantics wrong is the #1 source of reverts.
   4. Violating a cap reverts. We validate both caps before sending.
 - **Cap data source**: `useVaultV2Governance` (`/api/vaults/[id]/governance`),
   which returns `CapInfo[]` keyed by `id = keccak256(idData)`.
+  **Collateral caps** come from Morpho REST `/allocations` (`collateral_address`,
+  `vault-v2-collateral-caps.server.ts`): GraphQL drops
+  `CollateralCapData.collateralAddress` on 2026-12-02. When that read fails the
+  GraphQL collateral caps are kept (no address, so they cannot be labeled or
+  decreased) and the governance response carries `capsWarning`, shown on the
+  Caps tab and above Sentinel **Decrease caps**. The on-chain overlay re-reads the values.
 - **Cap `idData` vs adapter `data` (critical — do not conflate)**:
   All encoding helpers live in `lib/morpho/v2-id-data.ts`. The vault hashes
   `idData` to get the cap/allocation id; adapter calldata uses different bytes.
@@ -399,18 +406,25 @@ grades; Sentinel holds emergency actions at the bottom.
    `allocationAssets` via `adapterAllocationRaw` (a non-finite governance
    number is unknown, never `BigInt`-ed mid-render).
    **Activity** (`VaultActivityFeed`, `GET /api/vaults/[id]/activity`,
-   `lib/morpho/vault-activity(.server).ts`) merges Morpho
-   `vaultV2AllocationTransactions` (signed `change`, `sender`), pending
-   `pendingConfigs` submits, and executed governance calls from the Owner /
-   Curator / Allocator / Sentinel Safes' Transaction Service history (direct
-   vault calls, vault `multicall`, canonical MultiSend batches; allocations
-   skipped there because Morpho indexes them). Morpho does **not** index
+   `lib/morpho/vault-activity(.server).ts`) merges pending submits and
+   executed governance calls from the Owner / Curator / Allocator / Sentinel
+   Safes' Transaction Service history (direct vault calls, vault `multicall`,
+   canonical MultiSend batches). **Allocations are not listed**, and there is no
+   allocation history on the Allocation tab: Morpho removes
+   `vaultV2AllocationTransactions` on 2026-12-02 and REST has no vault-wide
+   transaction list. A net-per-interval rebuild from market supply shares was
+   built, checked and then dropped (no tx hash or sender, many REST reads); real
+   per-transaction history needs on-chain logs (paid RPC `eth_getLogs` or an
+   indexer). **Pending rows** come from `fetchVaultPendingSubmits` (below).
+   Morpho does **not** index
    governance history; without `NEXT_PUBLIC_SAFE_API_KEY` the feed says so and
-   shows allocations + pending only. A partial Safe read is not cached. Each
+   shows pending submissions only. A partial Safe read is not cached. Each
    Safe's newest 100 executed txs are cached **per Safe** (shared across
    vaults); when a page is full the response carries
    `governanceHistorySince` and the feed says older calls may be missing.
-   Executed submits reconcile with `pendingConfigs` **per call** (tx hash +
+   `pendingHistory` = `unavailable` when that read fails (the feed says so;
+   the result is not cached).
+   Executed submits reconcile with pending submits **per call** (tx hash +
    submitted calldata, `matchPendingConfig`) — a batch can submit several
    configs with different timelocks next to calls that have none. A pending
    config with no `validAt` is never Executable (`pendingStatus` → unknown);
@@ -418,9 +432,8 @@ grades; Sentinel holds emergency actions at the bottom.
    `loadSafeHistory` (per-Safe cache) is also used by `/api/bots/activity`,
    which decodes Safe-sourced candidates from the history calldata instead of
    an RPC `getTransaction`.
-   Filters: type and role (`activityRoles` — an address can hold several).
-   Allocation targets resolve from cap ids (`keccak256(resolveCapIdData)`), most
-   specific id first. Fetches only when the card is opened.
+   Filter: role (`activityRoles` — an address can hold several). Fetches only
+   when the card is opened.
 4. **Caps** — `VaultV2Caps.tsx`. Morpho-style tables grouped **markets →
    collateral → adapters** (Name, Allocation, Absolute cap, Relative cap with
    utilization rings). Embeds `VaultV2Pending` when `pending.length > 0`.
@@ -438,6 +451,18 @@ grades; Sentinel holds emergency actions at the bottom.
    still bind the move. Penalty stays read-only here.
 5. **Timelocks** — `VaultV2Timelocks.tsx`: pending actions (accept / revoke via
    `VaultV2Pending`) above the read-only delay list.
+   **Pending source** (`GET /api/vaults/[id]/pending`,
+   `lib/morpho/vault-v2-pending.server.ts`): Morpho GraphQL drops
+   `pendingConfigs.data` and the decoded cap amount on 2026-12-02, and REST
+   `/pending-governance-actions` has no calldata. REST gives the submit tx
+   hashes; each receipt's `Submit` events **from this vault** give the exact
+   calldata (one tx can submit to several vaults); `executableAt(data)` on chain
+   keeps what is still pending (0 once accepted or revoked) and is the `validAt`.
+   `decodePendingCall` (`vault-v2-pending-decode.ts`) decodes the calldata into
+   `VaultV2PendingDecoded` (cap kind from the idData tag). `functionName` is the
+   ABI name (`increaseAbsoluteCap`; GraphQL said `IncreaseAbsoluteCap`). Any
+   failed read throws — a short list must not look complete. A just-submitted
+   change appears once Morpho REST indexes its tx.
 6. **Allocation** — `VaultV2Allocations.tsx` receives `preloadedData`
    (governance) **and** `preloadedRisk`. Its **Liquidity adapter** panel marks
    the current option from governance `liquidityAdapter` / `liquidityData`,
@@ -520,7 +545,7 @@ TTL clamped to 30s; expired keys pruned; loader timeout 40s.
 | Tier | Hooks | Poll | staleTime | Refetch triggers |
 | ---- | ----- | ---- | --------- | ---------------- |
 | Dashboard | protocol stats | 30s | 30s | mount, poll |
-| Indexed vault | history, reallocations, holders, tx, vault list | none | 30s | mount, tab |
+| Indexed vault | history, holders, tx, vault list | none | 30s | mount, tab |
 | On-chain vault | `useVaultV2Risk`, `useVaultV2Governance` | none | 0 | mount (always), vault tab switch (allocations/caps/sentinel/adapters), post-tx, **Rebalance** click |
 
 Hooks use `apiFetch` (`cache: 'no-store'`) to bypass the browser HTTP cache.
@@ -534,7 +559,6 @@ Query keys:
   `vaultV2GovernanceQueryKey(address)` from `lib/hooks/useVaultV2Governance.ts`
   for refetches/invalidations
 - `['vault-v2-pending', address, 'row-id']`
-- `['vault-reallocations', address]`
 - `['markets']`, `['protocol-stats']`
 
 Hooks live in `lib/hooks/` and should be the only entry points for reading
@@ -1703,7 +1727,7 @@ Workspace link: Muscadine on `app.safe.global` (`lib/safe/links.ts`).
    and the Safe's ETH balance first (protocol-kit's own pre-checks). The row is
    marked **executed only after the receipt succeeds**; a revert keeps it queued
    (and its nonce reserved) with the hash linked. Then Curator refetches vault
-   risk, governance, pending, reallocations, overview, and the Safe header/assets
+   risk, governance, pending, overview, and the Safe header/assets
    (`refetch-vault-after-safe-execute.ts` — matches query keys by address
    **case-insensitively**; vault pages key on lowercase config addresses).
    Wallet/chain/threshold errors surface on the row; a ref guard stops a

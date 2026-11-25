@@ -7,7 +7,6 @@ import {
   governanceCallsFromSafeTx,
   matchPendingConfig,
   pendingStatus,
-  signedAllocationAmount,
   sortActivity,
   type VaultActivityRow,
 } from '@/lib/morpho/vault-activity';
@@ -89,17 +88,6 @@ describe('governanceCallsFromSafeTx', () => {
 
   it('ignores Safe txs to other contracts', () => {
     expect(governanceCallsFromSafeTx({ to: OTHER, data: setMaxRate }, VAULT)).toEqual([]);
-  });
-});
-
-describe('signedAllocationAmount', () => {
-  it('prefers the indexed change', () => {
-    expect(signedAllocationAmount({ type: 'Allocate', assets: 575, change: 576 })).toBe('576');
-    expect(signedAllocationAmount({ type: 'Deallocate', assets: 4, change: -4 })).toBe('-4');
-  });
-  it('signs assets by type when change is missing', () => {
-    expect(signedAllocationAmount({ type: 'Deallocate', assets: '10', change: null })).toBe('-10');
-    expect(signedAllocationAmount({ type: 'Allocate', assets: null, change: null })).toBeNull();
   });
 });
 

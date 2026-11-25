@@ -3,26 +3,20 @@ import { vaultV2Abi } from '@/lib/onchain/abis';
 import { decodeMultiSend, isKnownMultiSend } from '@/lib/safe/multisend';
 
 /**
- * Vault activity feed (Morpho Curator style): allocations and governance in
- * one list. Pure helpers — shared by the server loader and tests.
+ * Vault activity feed: executed governance (role Safes' history) and pending
+ * submissions in one list. Allocations are not listed: Morpho removed its
+ * allocation transaction index on 2026-12-02. Pure helpers — shared by the
+ * server loader and tests.
  */
-
-export type VaultActivityType = 'allocation' | 'governance';
 
 export type VaultActivityRow = {
   id: string;
   /** Unix seconds; pending submissions use their submit time when known, else validAt. */
   timestamp: number;
-  type: VaultActivityType;
-  /** e.g. `allocate`, `deallocate`, `Submit increaseAbsoluteCap`, `setIsAllocator`. */
+  /** e.g. `Submit increaseAbsoluteCap`, `setIsAllocator`. */
   action: string;
-  /** Address that sent the call (allocator EOA / Safe), when known. */
+  /** Address that sent the call (role Safe), when known. */
   actor: string | null;
-  /** Signed raw asset change for allocations (+ allocate, − deallocate). */
-  amount: string | null;
-  adapter: string | null;
-  /** Allocation ids touched (adapter / collateral / market cap ids). */
-  ids: string[];
   txHash: string | null;
   /** Governance submissions still inside their timelock. */
   pending?: { validAt: number } | null;
@@ -143,28 +137,6 @@ export function pendingStatus(
 ): 'executable' | 'timelocked' | 'unknown' {
   if (validAt == null || !Number.isFinite(validAt) || validAt <= 0) return 'unknown';
   return validAt <= nowSeconds ? 'executable' : 'timelocked';
-}
-
-/** Signed allocation change: `change` when indexed, else ± assets by type. */
-export function signedAllocationAmount(input: {
-  type?: string | null;
-  assets?: string | number | null;
-  change?: string | number | null;
-}): string | null {
-  const toInt = (v: string | number | null | undefined): bigint | null => {
-    if (v == null || v === '') return null;
-    try {
-      return typeof v === 'number' ? BigInt(Math.round(v)) : BigInt(v.split('.')[0]);
-    } catch {
-      return null;
-    }
-  };
-  const change = toInt(input.change);
-  if (change != null && change !== 0n) return change.toString();
-  const assets = toInt(input.assets);
-  if (assets == null) return null;
-  const isDeallocate = /dealloc/i.test(input.type ?? '');
-  return (isDeallocate ? -assets : assets).toString();
 }
 
 /**

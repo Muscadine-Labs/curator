@@ -16,7 +16,32 @@ The paths and fields below come from that spec. They were also called live
 against mpUSDC (`8453:0x8971…b496`) on 2026-11-19.
 
 > **Work in progress.** This plan is a draft and will change: Morpho is still
-> adding REST fields, and nothing below is decided. No code has changed yet.
+> adding REST fields. Section 0 is done; the rest is not decided yet.
+
+## 0. Done: fields Morpho retires on 2026-12-02
+
+Morpho's deprecation warnings give **2026-12-02** (earlier than the endpoint
+shutdown) for `CollateralCapData.collateralAddress`, `VaultV2PendingConfig.data`,
+`VaultV2IncreaseCapPendingData.cap`, `MetaMorphoAdapterFactory.address` and the
+whole `VaultV2AllocationTransaction` type, with no GraphQL replacement. A removed
+field fails the whole query, so these moved first:
+
+| Was (GraphQL) | Now | Code |
+| --- | --- | --- |
+| `CollateralCapData.collateralAddress` (governance, vault detail) | REST `/v0/vaults-v2/{v}/allocations` → `collateral_address` (governance); dropped from the vault detail query, which only needs cap totals | `lib/morpho/vault-v2-collateral-caps.server.ts` |
+| `pendingConfigs { data decodedData }` (pending route, activity) | REST `/pending-governance-actions` → `submitted_transaction_hash`; the receipt's `Submit` events from this vault give the calldata; `executableAt(data)` on chain filters and dates it; calldata decoded locally | `lib/morpho/vault-v2-pending.server.ts`, `vault-v2-pending-decode.ts` |
+| `vaultV2AllocationTransactions` (Allocation tab history, activity) | **Dropped.** Allocation history and Activity allocation rows are removed. A net-per-interval rebuild from each Blue adapter's market supply shares (`/v0/blue/markets/{m}/users/{adapter}/position/history` × `state/history`) was built and matched GraphQL within cents, but had no tx hash or sender and cost 12–65 REST reads per vault per refresh. `/caps/history` is not usable for this: it is the live position, so it includes interest. Real per-transaction history needs on-chain logs (paid RPC or an indexer). | removed: `reallocations` route, `AllocationHistory`, `useVaultReallocations` |
+| `vaultV2AllocationTransactions` by sender (bots) | Removed; role-Safe executed history only. Allocations sent by bot EOAs no longer show until there is a log source (paid RPC `eth_getLogs` or an indexer). | `src/app/api/bots/activity/route.ts` |
+| `factory { address }` on adapters | Removed (unused) | governance route |
+
+Checked live against GraphQL before the cutoff: collateral caps match on all four
+vaults; the mfUSDC pending cap increase matches (calldata, `validAt`, amount, cap
+id).
+
+Optional `MORPHO_API_KEY` (server only) switches the REST client to
+`private.api.morpho.org` with higher limits. Collateral caps and pending
+submits are cached 30s per vault.
+
 
 ---
 
@@ -86,7 +111,7 @@ using integer division.
 | `src/app/api/vaults/[id]/history/route.ts`, `lib/morpho/vault-history.ts` | `historicalState` TVL(USD), `avgNetApy`, share price | `/state/history` + `/apy/history`. Share price = `share_price_ray`/1e27. USD series = tokens × price (spot) or DefiLlama daily. |
 | `src/app/api/vaults/[id]/holders/route.ts`, `lib/morpho/paginate-v2-positions.ts` | `vaultV2ByAddress.positions` (all holders) | **Gap.** No vault-wide holder list. |
 | `src/app/api/vaults/[id]/transactions/route.ts`, `src/app/api/protocol-transactions/route.ts` | `vaultV2transactions` (vault-wide) | **Gap.** Activity only exists per wallet (`/users/{u}/position/activity`). |
-| `src/app/api/vaults/[id]/reallocations/route.ts`, allocation part of `lib/morpho/vault-activity.server.ts` | `vaultV2AllocationTransactions` | **Partial.** `/caps/history` gives allocation per cap over time (hourly on short lookbacks), not txs (no hash / sender). Safe-history governance decode is unaffected. |
+| (removed) `src/app/api/vaults/[id]/reallocations/route.ts`, allocation part of `lib/morpho/vault-activity.server.ts` | `vaultV2AllocationTransactions` | **Partial.** `/caps/history` gives allocation per cap over time (hourly on short lookbacks), not txs (no hash / sender). Safe-history governance decode is unaffected. |
 | `src/app/api/protocol-stats/route.ts`, `src/app/api/protocol-users/route.ts` | TVL series + depositor addresses | TVL: `/state/history` per vault × price. Depositors / unique users: **gap** (no holder list). |
 | `lib/morpho/compute-treasury-statement.ts` (`userByAddress` histories), `lib/morpho/treasury-transfers.ts` (`vaultV2transactions` for the treasury) | DAY `shares` / `assets` / `assetsUsd` per vault; treasury deposits / transfers | `/v0/vaults-v2/users/{TREASURY}/positions?active_only=false`, then per vault `/position/history?lookback=inception` (daily while the history is young; Morpho picks the interval by age and it can become monthly, which would break daily income, so check before relying on it) and `/position/activity` (deposits, `shares_transfer_in` with `from_address`; `0x0` = fee mint). **No `assetsUsd`**: use DefiLlama daily prices (already a dependency). Check the REST daily timestamps against the "Day alignment" rule in `CLAUDE.md` §4.6 before reusing `utcDayClosedBySnapshot`. |
 | `lib/morpho/curator-markets.ts` (markets browser, `marketById`, Muscadine index) | One `markets` query with state, USD, APY, sorted by `SizeUsd` | `/v0/blue/markets?listed=true` returns identity only. Size, liquidity, APY and USD are ~3 calls per market plus token prices, which won't fit the ~333/min sustained limit across 1,000+ Base markets. Options: restrict the browser to listed markets with a long server cache, show size only for Muscadine markets, or compute totals on chain (Blue `market(id)` multicall + oracle). The Muscadine index comes from `/allocations` per business vault. |
@@ -112,9 +137,35 @@ On-chain reads (risk overlay, Safe, gates, writes) are unaffected.
 9. Vault `rewards`, `warnings`, `listed`, `metadata`.
 10. Pending config **raw calldata**.
 
-For each gap, decide by Jan 29, 2027 whether to (a) read it on chain (event logs
-via RPC; free Alchemy caps `eth_getLogs` at 10 blocks, so this needs a paid tier
-or an indexer), (b) ask Morpho whether a route is coming, or (c) drop the feature.
+### 4.1 Decision (2026-11-25): no paid RPC or indexer — drop until Morpho adds it
+
+Muscadine will not pay for an RPC tier or an indexer, so anything that needs
+long-range `eth_getLogs` is dropped when curator moves off GraphQL, and comes
+back only if Morpho REST adds a route. GraphQL fields are removed on
+**2027-01-25** (Morpho's deprecation warnings; the endpoint shuts down Jan 29),
+so the curator migration must land before then. The app's full migration
+(Muscadine-Labs/app, `claude/morpho-rest-full`) is the template:
+`src/lib/morpho-rest.ts` (cached client), typed reads, and computed values where
+REST is missing (instant APY from market state with the Adaptive Curve IRM,
+force-deallocatable liquidity from market cash). It matched GraphQL within
+0.02 pp on every vault.
+
+| Gap | Plan | Restore when |
+| --- | --- | --- |
+| 1. Holders / depositors, unique-users KPI | **Drop** the holders table and the unique-users KPI (and `/api/protocol-users`). | REST adds a vault-wide positions route. |
+| 2. Vault and protocol transaction tables | **Drop** both tables. Per-wallet activity (`/users/{u}/position/activity`) stays possible. | REST adds a vault-wide activity route. |
+| 3. Allocation transactions | Already dropped (allocation history and Activity allocation rows, curator#93). | REST adds an allocation-transaction route. |
+| 4. Liquidations, suppliers, Morpho's collateral-at-risk curve | **Drop** those market-activity sections. Keep **Borrowers** (`/positions/health`) and build collateral at risk locally from borrower LTVs. **IRM curve:** compute locally from `rate_at_target` (Adaptive Curve formula, same as the app's `marketSupplyApy`). | REST adds liquidation / supplier / curve routes. |
+| 5. `realizedBadDebt` (risk F override) | **Keep, on chain:** Morpho Blue emits bad debt in `Liquidate` but also tracks it in market totals; read `market(id)` and compare with REST totals, or drop the override if no cheap read exists. Decide during the migration. | REST exposes bad debt. |
+| 6. Instant APYs | **Compute** from REST market state (Adaptive Curve IRM), as the app does. | — |
+| 7. USD and historical prices | Spot price × amount (`/v0/tokens/{t}/price`); historical USD charts use today's price. Treasury statement: decide whether DefiLlama history replaces Morpho's daily `assetsUsd`. | REST adds historical prices. |
+| 8. Market list with state for sorting | Per-market REST state is too many calls for the full Base list; keep the browser on what REST lists (`/v0/blue/markets` if it carries state, else Muscadine markets + search). Decide during the migration. | REST adds a market list with state. |
+| 9. Vault `rewards`, `warnings`, `listed`, `metadata` | **Drop** `warnings` / `listed` from the UI (risk keeps its own scoring); rewards = 0 (Merkl API if ever needed). | REST adds them. |
+| 10. Pending calldata | Done: chain (`Submit` events + `executableAt`). | — |
+
+Each dropped feature gets a "Dropped until Morpho adds them" entry with
+restore steps when it is removed, like the app's
+`docs/morpho-rest-migration.md` §3.
 
 ---
 

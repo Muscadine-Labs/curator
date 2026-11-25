@@ -19,7 +19,7 @@ import { formatMarketNameWithLltv } from '@/lib/morpho/market-label';
 import { formatRelativeCapWad } from '@/lib/morpho/vault-v2-api';
 import { formatRawTokenAmount } from '@/lib/format/number';
 import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
-import { batchVaultV2ByAddress, batchVaultV2AllocationTransactions } from '@/lib/morpho/batch-vault-graphql';
+import { batchVaultV2ByAddress } from '@/lib/morpho/batch-vault-graphql';
 import { publicClient } from '@/lib/onchain/client';
 import { handleApiError } from '@/lib/utils/error-handler';
 import {
@@ -612,98 +612,12 @@ export async function GET(request: NextRequest) {
         };
 
         const candidatesByHash = new Map<string, Candidate>();
-        const watcherAddresses = Array.from(
-          new Set([...allocatorSet, ...sentinelSet])
-        ).map((a) => getAddress(a));
-
-        const upsertGraphqlRow = (
-          hash: Hex,
-          vaultAddress: Address,
-          vaultName: string,
-          assetSymbol: string,
-          chainId: number,
-          timestamp: number | null,
-          blockNumber: number | null,
-          sender: Address | null,
-          change: BotActivityChange
-        ) => {
-          const key = hash.toLowerCase();
-          const existing = candidatesByHash.get(key);
-          if (existing) {
-            existing.changes.push(change);
-            if (sender) existing.sender = sender;
-            if (timestamp != null && (existing.timestamp == null || timestamp > existing.timestamp)) {
-              existing.timestamp = timestamp;
-            }
-            if (blockNumber != null && existing.blockNumber == null) {
-              existing.blockNumber = blockNumber;
-            }
-          } else {
-            candidatesByHash.set(key, {
-              vaultAddress,
-              vaultName,
-              assetSymbol,
-              chainId,
-              hash,
-              timestamp,
-              blockNumber,
-              sender,
-              changes: [change],
-            });
-          }
-        };
-
-        try {
-          const reallocMap = await batchVaultV2AllocationTransactions<{
-            items?: Array<{
-              txHash?: string | null;
-              sender?: string | null;
-              timestamp?: number | string | null;
-              blockNumber?: number | string | null;
-              type?: string | null;
-              change?: string | number | null;
-              assets?: string | number | null;
-              ids?: string[] | null;
-              adapter?: string | null;
-            } | null> | null;
-          }>(vaultRefs, perVault, watcherAddresses);
-          for (const vault of allVaults) {
-            const vaultAddress = getAddress(vault.address);
-            const chainId = vault.chainId ?? BASE_CHAIN_ID;
-            const assetSymbol = vault.assetSymbol;
-            const vaultName = getConfiguredVaultDisplayName(vault);
-            const packed = reallocMap.get(vault.address.toLowerCase());
-            for (const item of packed?.items ?? []) {
-              if (!item?.txHash) continue;
-              const rowSender =
-                item.sender && isAddress(item.sender) ? getAddress(item.sender) : null;
-              upsertGraphqlRow(
-                item.txHash as Hex,
-                vaultAddress,
-                vaultName,
-                assetSymbol,
-                chainId,
-                item.timestamp != null ? Number(item.timestamp) : null,
-                item.blockNumber != null ? Number(item.blockNumber) : null,
-                rowSender,
-                {
-                  type: item.type ?? 'Unknown',
-                  change: item.change != null ? String(item.change) : null,
-                  assets: item.assets != null ? String(item.assets) : null,
-                  allocationId: item.ids?.[0] ?? null,
-                  adapterAddress: item.adapter ?? null,
-                }
-              );
-            }
-          }
-        } catch (error) {
-          logger.warn('Failed to batch-fetch reallocations for bot filter', {
-            error: error instanceof Error ? error : new Error(String(error)),
-          });
-        }
-
-        // Supplement with role-Safe executions (Transaction Service history) so
-        // Safe-executed cap decreases, revokes, and liquidity switches show up.
+        // Allocations by the watched wallets used to come from Morpho GraphQL
+        // `vaultV2AllocationTransactions`, which Morpho removes on 2026-12-02. REST
+        // has no per-sender allocation list, so candidates come from the role
+        // Safes' executed history below.
+        // Role-Safe executions (Transaction Service history): allocations, cap
+        // decreases, revokes and liquidity switches executed through the Safes.
         const alchemyWatchers: Address[] = [];
         if (panelFilter === 'all' || panelFilter === 'allocator') {
           alchemyWatchers.push(getSafeByRole('allocator').address);

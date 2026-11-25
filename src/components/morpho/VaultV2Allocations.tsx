@@ -888,7 +888,6 @@ export function VaultV2Allocations({
       await Promise.all([
         queryClient.refetchQueries({ queryKey: ['vault-v2-risk', vaultAddress] }),
         queryClient.refetchQueries({ queryKey: vaultV2GovernanceQueryKey(vaultAddress) }),
-        queryClient.refetchQueries({ queryKey: ['vault-reallocations', vaultAddress] }),
         queryClient.refetchQueries({ queryKey: ['vault', vaultAddress] }),
       ]);
       setEditing(false);
