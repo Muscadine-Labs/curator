@@ -4,6 +4,12 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-25 — Dependency patch bumps, repo 1.6.10
+
+- `@types/node` 26.6.10, `@types/react` 19.3.3, `lucide-react` 1.80.0, `vitest` 5.1.2. Only those packages (and vitest's own `@vitest/*`) changed in the lockfile.
+- Held back on purpose: ESLint 10 / `@eslint/js` 10 (eslint-config-next plugins), TypeScript 7 (typescript-eslint peers `<6.1.0`), ox 1 (viem 2.58.6 needs ox 0.14.67).
+- Repo version `1.6.9` → `1.6.10`.
+
 ## 2026-11-24 — Source under src, markets in one route tree
 
 - Source now lives in `src/app`, `src/components` and `src/lib`, matching the depositor app. `@/` points at `src/` (tsconfig, vitest). The auth proxy moved to `src/proxy.ts`: Next.js only picks it up next to `src/app`.
