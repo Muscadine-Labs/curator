@@ -13,6 +13,7 @@ Append-only session log. Newest first. Keep entries short; link files.
 - Allocation history (Allocation tab, Activity): net amounts per hour / day from each Blue adapter's market supply shares (`vault-v2-allocation-history(.server).ts`); no tx hash or sender, interest excluded. `ReallocationGroup.hash` is nullable with a new `key` / `since`. Activity reports `allocationHistory` / `pendingHistory`.
 - Bots: the per-sender GraphQL allocation query is gone (`batchVaultV2AllocationTransactions` removed); candidates come from role-Safe history only, so bot EOA allocations no longer appear.
 - Verified live against GraphQL before the cutoff (see `docs/morpho-rest-migration.md` §0). No `removalAt: 2026-12-02` warning left in the server log.
+- Fewer REST calls: allocation history reads daily positions first and only fetches prices / hourly detail for markets that moved (mfUSDC 85 → 65 reads, the others about half), at most 6 in flight, cached 5 min (history; exception to the 30s ceiling). Collateral caps and pending submits are cached 30s per vault. Share-math dust under 100 base units is dropped. Optional `MORPHO_API_KEY` uses Morpho's keyed REST host.
 
 ## 2026-11-25 — Fee wrappers deleted
 

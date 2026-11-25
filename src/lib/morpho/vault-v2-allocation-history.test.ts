@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   allocationChangesFromSupplyShares,
+  marketsWithShareChanges,
   type MarketAllocationSeries,
 } from '@/lib/morpho/vault-v2-allocation-history';
 
@@ -49,6 +50,14 @@ describe('allocationChangesFromSupplyShares', () => {
     expect(changes[0]).toMatchObject({ capId: '0xcap', capType: 'marketV1', adapterAddress: ADAPTER, marketId: '0xmarket' });
   });
 
+  it('drops rounding dust under 100 base units', () => {
+    // 49e6 shares = 98 assets: dust. 51e6 shares = 102 assets: kept.
+    const changes = allocationChangesFromSupplyShares([
+      series([[0, '0'], [H, '49000000'], [2 * H, '100000000']]),
+    ]);
+    expect(changes.map((c) => c.change)).toEqual(['102']);
+  });
+
   it('ignores intervals where only interest accrued (share count unchanged)', () => {
     expect(
       allocationChangesFromSupplyShares([series([[0, '7'], [H, '7'], [2 * H, '7']])])
@@ -58,18 +67,39 @@ describe('allocationChangesFromSupplyShares', () => {
   it('joins older daily points before the hourly ones', () => {
     const changes = allocationChangesFromSupplyShares([
       series(
-        [[20 * D, '3000000'], [20 * D + H, '3000000']],
-        [[1 * D, '0'], [2 * D, '1000000'], [21 * D, '999000000']]
+        [[20 * D, '3000000000'], [20 * D + H, '3000000000']],
+        [[1 * D, '0'], [2 * D, '1000000000'], [21 * D, '999000000000']]
       ),
     ]);
-    // Daily 21D is inside the hourly range and dropped; 2D → 20D adds 2e6 shares.
+    // Daily 21D is inside the hourly range and dropped; 2D → 20D adds 2e9 shares.
     expect(changes.map((c) => [c.timestamp, c.change])).toEqual([
-      [20 * D, '4'],
-      [2 * D, '2'],
+      [20 * D, '4000'],
+      [2 * D, '2000'],
     ]);
   });
 
   it('skips a market with no state history', () => {
     expect(allocationChangesFromSupplyShares([series([[0, '0'], [H, '1000000']], [], [])])).toEqual([]);
+  });
+});
+
+describe('marketsWithShareChanges', () => {
+  const daily = (points: Array<[number, string]>) =>
+    points.map(([timestamp, supply_shares]) => ({ timestamp, supply_shares }));
+
+  it('keeps only markets whose share count moved, flagging recent moves', () => {
+    const picked = marketsWithShareChanges(
+      [
+        { id: 'flat', positionDaily: daily([[D, '5'], [2 * D, '5'], [3 * D, '5']]) },
+        { id: 'old', positionDaily: daily([[D, '5'], [2 * D, '9'], [30 * D, '9']]) },
+        { id: 'new', positionDaily: daily([[D, '5'], [29 * D, '5'], [30 * D, '1']]) },
+        { id: 'empty', positionDaily: [] },
+      ],
+      23 * D
+    );
+    expect(picked.map((m) => [m.id, m.recent])).toEqual([
+      ['old', false],
+      ['new', true],
+    ]);
   });
 });

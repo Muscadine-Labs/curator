@@ -5,10 +5,21 @@ import { MORPHO_REST_ORIGIN } from '@/lib/constants';
  *
  * Replaces Morpho GraphQL fields that Morpho retires before the endpoint
  * itself shuts down (see `docs/morpho-rest-migration.md`). The result is under
- * `data`; lists add an opaque `cursor` (`null` on the last page).
+ * `data`; lists add an opaque `cursor` (`null` on the last page). Public limit:
+ * ~750 req/min per IP, a 7-day IP block past 3,334 in 10 min. Set the
+ * server-only `MORPHO_API_KEY` to use the keyed host instead.
  */
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+/** With a key, Morpho's private host has higher rate limits than the public one. */
+const MORPHO_PRIVATE_ORIGIN = 'https://private.api.morpho.org';
+
+function restOrigin(): { origin: string; headers: Record<string, string> } {
+  const key = process.env.MORPHO_API_KEY?.trim();
+  return key
+    ? { origin: MORPHO_PRIVATE_ORIGIN, headers: { 'x-api-key': key } }
+    : { origin: MORPHO_REST_ORIGIN, headers: {} };
+}
 /** Lists we read are short (caps, pending actions); this bounds a runaway cursor. */
 const MAX_PAGES = 20;
 
@@ -34,13 +45,14 @@ async function morphoRestRequest<T>(
   params: Record<string, string | number | undefined> = {},
   timeoutMs = DEFAULT_TIMEOUT_MS
 ): Promise<RestEnvelope<T>> {
-  const url = new URL(`${MORPHO_REST_ORIGIN}${path}`);
+  const { origin, headers } = restOrigin();
+  const url = new URL(`${origin}${path}`);
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined) url.searchParams.set(key, String(value));
   }
   const res = await fetch(url.toString(), {
     cache: 'no-store',
-    headers: { accept: 'application/json' },
+    headers: { accept: 'application/json', ...headers },
     signal: AbortSignal.timeout(Math.max(1, timeoutMs)),
   });
   if (!res.ok) {

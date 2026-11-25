@@ -30,14 +30,20 @@ field fails the whole query, so these moved first:
 | --- | --- | --- |
 | `CollateralCapData.collateralAddress` (governance, vault detail) | REST `/v0/vaults-v2/{v}/allocations` → `collateral_address` (governance); dropped from the vault detail query, which only needs cap totals | `lib/morpho/vault-v2-collateral-caps.server.ts` |
 | `pendingConfigs { data decodedData }` (pending route, activity) | REST `/pending-governance-actions` → `submitted_transaction_hash`; the receipt's `Submit` events from this vault give the calldata; `executableAt(data)` on chain filters and dates it; calldata decoded locally | `lib/morpho/vault-v2-pending.server.ts`, `vault-v2-pending-decode.ts` |
-| `vaultV2AllocationTransactions` (reallocations, activity) | Net amount moved per interval from each Blue adapter's supply shares (`/v0/blue/markets/{m}/users/{adapter}/position/history`) × market share price (`/v0/blue/markets/{m}/state/history`); hourly 7 days, daily 30 days. **Not** `/caps/history`, which is the live position and includes interest. No tx hash or sender. | `lib/morpho/vault-v2-allocation-history(.server).ts` |
+| `vaultV2AllocationTransactions` (reallocations, activity) | Net amount moved per interval from each Blue adapter's supply shares (`/v0/blue/markets/{m}/users/{adapter}/position/history`) × market share price (`/v0/blue/markets/{m}/state/history`); hourly 7 days, daily 30 days. **Not** `/caps/history`, which is the live position and includes interest. No tx hash or sender; changes under 100 base units dropped. Daily position per market first, then price / hourly reads only for markets that moved; cached 5 min. REST reads per refresh: mpUSDC 12, mfUSDC 65 (reallocated almost daily), mpWETH 13, mpcbBTC 18 (was 21 / 85 / 29 / 21). | `lib/morpho/vault-v2-allocation-history(.server).ts` |
 | `vaultV2AllocationTransactions` by sender (bots) | Removed; role-Safe executed history only. Allocations sent by bot EOAs no longer show until there is a log source (paid RPC `eth_getLogs` or an indexer). | `src/app/api/bots/activity/route.ts` |
 | `factory { address }` on adapters | Removed (unused) | governance route |
 
 Checked live against GraphQL before the cutoff: collateral caps match on all four
 vaults; the mfUSDC pending cap increase matches (calldata, `validAt`, amount, cap
 id); every mpUSDC allocation tx of the last 30 days appears in its hour (daily
-beyond 7 days) with the amount within cents (priced at the interval end).
+beyond 7 days) with the amount within cents (priced at the interval end); on
+mfUSDC (399 allocation events in 30 days) the per-market net over the last 6
+days matches GraphQL within cents.
+
+Optional `MORPHO_API_KEY` (server only) switches the REST client to
+`private.api.morpho.org` with higher limits. Collateral caps and pending
+submits are cached 30s per vault.
 
 
 ---

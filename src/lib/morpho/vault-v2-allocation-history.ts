@@ -71,6 +71,7 @@ function joined<T extends { timestamp?: number | null }>(
 
 /** Morpho Blue: assets = shares × (totalAssets + 1) / (totalShares + 1e6), rounded down. */
 const VIRTUAL_ASSETS = 1n;
+const DUST_BASE_UNITS = 100n;
 const VIRTUAL_SHARES = 1_000_000n;
 
 function sharesToAssets(shares: bigint, state: RestMarketStatePoint): bigint | null {
@@ -96,6 +97,33 @@ function stateAt(
   return found ?? states[0] ?? null;
 }
 
+/**
+ * Markets whose adapter share count changed in the daily history (its last
+ * point is the live position, so today's moves count). `recent`: a change in a
+ * daily interval ending after `recentSince`, so hourly detail is worth reading.
+ * A move undone within the same day nets to zero here and is skipped.
+ */
+export function marketsWithShareChanges<T extends { positionDaily: readonly RestPositionPoint[] }>(
+  markets: readonly T[],
+  recentSince: number
+): Array<T & { recent: boolean }> {
+  const out: Array<T & { recent: boolean }> = [];
+  for (const market of markets) {
+    const points = joined(market.positionDaily, [])
+      .map((p) => ({ timestamp: p.timestamp, shares: toBigInt(p.supply_shares) }))
+      .filter((p): p is { timestamp: number; shares: bigint } => p.shares !== null);
+    let changed = false;
+    let recent = false;
+    for (let i = 1; i < points.length; i++) {
+      if (points[i].shares === points[i - 1].shares) continue;
+      changed = true;
+      if (points[i].timestamp > recentSince) recent = true;
+    }
+    if (changed) out.push({ ...market, recent });
+  }
+  return out;
+}
+
 /** Net allocation changes per interval, newest first. */
 export function allocationChangesFromSupplyShares(
   series: readonly MarketAllocationSeries[]
@@ -112,7 +140,8 @@ export function allocationChangesFromSupplyShares(
       if (delta === 0n) continue;
       const state = stateAt(states, positions[i].timestamp);
       const change = state ? sharesToAssets(delta, state) : null;
-      if (change == null || change === 0n) continue;
+      // Under 100 base units (0.0001 USDC) is rounding dust from share math, not a move.
+      if (change == null || (change < 0n ? -change : change) < DUST_BASE_UNITS) continue;
       out.push({
         timestamp: positions[i].timestamp,
         since: positions[i - 1].timestamp,

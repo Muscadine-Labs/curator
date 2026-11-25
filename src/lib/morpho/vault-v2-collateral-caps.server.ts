@@ -3,6 +3,8 @@ import type { CapInfo } from '@/app/api/vaults/[id]/governance/route';
 import { morphoRestGet, morphoSelector } from '@/lib/morpho/rest-client';
 import { isCollateralCap } from '@/lib/morpho/cap-utils';
 import { logger } from '@/lib/utils/logger';
+import { withServerResponseCache } from '@/lib/api/server-response-cache';
+import { API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
 
 type RestCap = {
   cap_id?: string | null;
@@ -72,7 +74,12 @@ export async function tryFetchCollateralCapsRest(
   chainId: number
 ): Promise<CapInfo[] | null> {
   try {
-    return await fetchCollateralCapsRest(vaultAddress, chainId);
+    // Governance refetches on every tab switch; one REST read per vault per 30s.
+    return await withServerResponseCache(
+      `vault-collateral-caps:${chainId}:${vaultAddress.toLowerCase()}`,
+      API_CACHE_MAX_AGE_MS,
+      () => fetchCollateralCapsRest(vaultAddress, chainId)
+    );
   } catch (error) {
     logger.warn('Morpho REST collateral caps failed; keeping GraphQL caps', {
       vaultAddress,

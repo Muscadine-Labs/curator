@@ -29,6 +29,7 @@ Copy `.env.example` → `.env.local`. See that file for the full list.
 | `ALCHEMY_API_KEY` | Recommended | Server Base RPC (public Base RPC if unset) |
 | `NEXT_PUBLIC_ALCHEMY_API_KEY` | Recommended | Client Base RPC |
 | `NEXT_PUBLIC_APP_URL` | No | App origin (wallet metadata) |
+| `MORPHO_API_KEY` | No | Server-only Morpho REST key: `lib/morpho/rest-client.ts` then uses `private.api.morpho.org` (higher rate limits) |
 | `NEXT_PUBLIC_SAFE_API_KEY` | **Yes for `/curator/gates`** | Safe API: Queue Service (proposals, signatures, proposers) and Transaction Service (executed history, gate whitelist history) |
 | `CURATOR_ADMIN_PASSWORD` | Login | Admin auth and session HMAC (unless `CURATOR_SESSION_SECRET` is set) |
 | `CURATOR_SESSION_SECRET` | No | Optional dedicated HMAC for `curator_session` |
@@ -414,7 +415,14 @@ grades; Sentinel holds emergency actions at the bottom.
    `/v0/blue/markets/{m}/users/{adapter}/position/history`, hourly for 7 days,
    daily to 30 days) change only on allocate / deallocate, priced at the
    market's share price (`state/history`). Interest is excluded; there is no tx
-   hash or sender, and moves that cancel inside one interval do not show. Do
+   hash or sender, moves that cancel inside one interval do not show, and
+   changes under 100 base units (share-math dust) are dropped. Calls: one
+   `/allocations` read and one daily position read per capped market; share
+   prices and hourly detail only for markets whose share count moved
+   (`marketsWithShareChanges`), at most 6 REST reads in flight. Cached **5 min**
+   in process — an exception to the 30s ceiling, because it is history and the
+   public REST host blocks an IP for 7 days past 3,334 calls in 10 min. Checked
+   against GraphQL: per-market net over 6 days within cents on mfUSDC. Do
    **not** use `/caps/history` for this: it reports the live position, so every
    interval shows accrued interest. Vault V2 adapters (vault → vault) are not
    covered. **Pending rows** come from `fetchVaultPendingSubmits` (below).
@@ -529,7 +537,9 @@ surfaced on the vault **Risk** tab and Curator market detail pages.
 
 ### 4.3 Caching
 
-**TTL ceiling (30s):** BFF CDN cache, in-process server cache, React Query
+**TTL ceiling (30s)** — one exception: REST allocation history
+(`vault-v2-allocation-history.server.ts`) is cached 5 min, because it is
+history and many REST reads. Everything else — BFF CDN cache, in-process server cache, React Query
 `staleTime`/poll intervals, and `fetch-markets-by-id` lookup reuse are all
 capped at **30 seconds** via `API_CACHE_MAX_AGE_SECONDS` / `API_CACHE_MAX_AGE_MS`
 in `lib/api/response-cache.ts` (`clampCacheMaxAgeSeconds`, `clampCacheTtlMs`).

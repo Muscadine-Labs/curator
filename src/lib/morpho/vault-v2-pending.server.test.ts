@@ -11,6 +11,10 @@ vi.mock('@/lib/onchain/client', () => ({
   },
 }));
 
+vi.mock('@/lib/api/server-response-cache', () => ({
+  withServerResponseCache: <T,>(_key: string, _ttl: number, loader: () => Promise<T>) => loader(),
+}));
+
 import { fetchVaultPendingSubmits } from '@/lib/morpho/vault-v2-pending.server';
 
 const VAULT = '0x314fD07319ef645bA7D548915CCd91F4788A1839';

@@ -2,6 +2,8 @@ import { decodeEventLog, getAddress, type Address, type Hex } from 'viem';
 import { vaultV2Abi } from '@/lib/onchain/abis';
 import { publicClient } from '@/lib/onchain/client';
 import { morphoRestList, morphoSelector } from '@/lib/morpho/rest-client';
+import { withServerResponseCache } from '@/lib/api/server-response-cache';
+import { API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
 import { decodePendingCall } from '@/lib/morpho/vault-v2-pending-decode';
 import type { VaultV2PendingDecoded } from '@/lib/morpho/vault-v2-api';
 
@@ -34,11 +36,20 @@ export type PendingSubmit = {
  * Throws when REST, a receipt or the on-chain check fails: a partial list must
  * not look complete (a missing row would hide a change from Sentinel).
  */
-export async function fetchVaultPendingSubmits(
+export function fetchVaultPendingSubmits(
   vaultAddress: string,
   chainId: number
 ): Promise<PendingSubmit[]> {
   const vault = getAddress(vaultAddress);
+  // Shared by the pending route and the activity feed for 30s.
+  return withServerResponseCache(
+    `vault-pending-submits:${chainId}:${vault.toLowerCase()}`,
+    API_CACHE_MAX_AGE_MS,
+    () => loadPendingSubmits(vault, chainId)
+  );
+}
+
+async function loadPendingSubmits(vault: string, chainId: number): Promise<PendingSubmit[]> {
   const actions = await morphoRestList<RestPendingAction>(
     `/v0/vaults-v2/${morphoSelector(chainId, vault)}/pending-governance-actions`
   );
