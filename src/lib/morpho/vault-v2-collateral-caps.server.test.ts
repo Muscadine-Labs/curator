@@ -1,3 +1,4 @@
+import { clearMorphoRestCache } from '@/lib/morpho/rest-client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CapInfo } from '@/app/api/vaults/[id]/governance/route';
 import {
@@ -8,7 +9,10 @@ import {
 const VAULT = '0x314fD07319ef645bA7D548915CCd91F4788A1839';
 const CBBTC = '0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  clearMorphoRestCache();
+});
 
 function stubFetch(body: unknown, status = 200) {
   const fetchMock = vi.fn().mockResolvedValue({
