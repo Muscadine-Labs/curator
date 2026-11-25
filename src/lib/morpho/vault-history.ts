@@ -1,7 +1,9 @@
-import { gql } from 'graphql-request';
+import { morphoRestGet, morphoSelector } from '@/lib/morpho/rest-client';
+import { getRestVault, rawToNumber, toBigInt, tryGetRestTokenPriceUsd } from '@/lib/morpho/rest-data';
 import { utcDayKeyFromTimestamp } from '@/lib/utils/utc-calendar';
 
-export type MorphoTimeseriesPoint = { x?: number | null; y?: number | null };
+/** `y` is a number, or a raw integer string for token / share amounts. */
+export type MorphoTimeseriesPoint = { x?: number | null; y?: number | string | null };
 
 export type VaultHistoryChartPoint = {
   date: string;
@@ -29,38 +31,80 @@ export type VaultHistorySeries = {
 /** ERC-4626 vault shares use 18 decimals on Morpho historical `totalSupply`. */
 export const VAULT_SHARE_DECIMALS = 18;
 
-export const VAULT_V2_HISTORY_QUERY = gql`
-  query VaultV2History($address: String!, $chainId: Int!, $options: TimeseriesOptions) {
-    vault: vaultV2ByAddress(address: $address, chainId: $chainId) {
-      asset {
-        symbol
-        decimals
-      }
-      historicalState {
-        totalAssets(options: $options) {
-          x
-          y
-        }
-        totalAssetsUsd(options: $options) {
-          x
-          y
-        }
-        avgNetApy(options: $options) {
-          x
-          y
-        }
-        sharePrice(options: $options) {
-          x
-          y
-        }
-        totalSupply(options: $options) {
-          x
-          y
-        }
-      }
-    }
+type RestStatePoint = {
+  timestamp: number;
+  total_assets?: string | null;
+  total_supply?: string | null;
+  share_price_ray?: string | null;
+};
+
+const SECONDS_PER_YEAR = 31_536_000;
+
+/**
+ * Realized net APY per interval from the share price: (p₁ / p₀)^(year / Δt) − 1. Exact,
+ * fees included, one point per REST point (daily) — unlike REST `apy/history`, whose
+ * `inception` points are trailing 30-day averages. Falls back to those averages when the
+ * share price series is too short.
+ */
+export function realizedApySeries(
+  points: ReadonlyArray<{ timestamp: number; share_price_ray?: string | null }>,
+  fallback: ReadonlyArray<{ timestamp: number; apy: number | null }>
+): Array<{ x: number; y: number }> {
+  const priced = points
+    .filter((p) => p.share_price_ray && toBigInt(p.share_price_ray) > BigInt(0))
+    .sort((a, b) => a.timestamp - b.timestamp);
+  const out: Array<{ x: number; y: number }> = [];
+  for (let i = 1; i < priced.length; i++) {
+    const prev = priced[i - 1]!;
+    const cur = priced[i]!;
+    const dt = cur.timestamp - prev.timestamp;
+    if (dt < 3600) continue;
+    const ratio = Number((toBigInt(cur.share_price_ray) * BigInt(1e18)) / toBigInt(prev.share_price_ray)) / 1e18;
+    const apy = Math.pow(ratio, SECONDS_PER_YEAR / dt) - 1;
+    if (Number.isFinite(apy) && apy > -1) out.push({ x: cur.timestamp, y: apy });
   }
-`;
+  if (out.length > 0) return out;
+  return fallback
+    .filter((p) => typeof p.apy === 'number' && Number.isFinite(p.apy))
+    .map((p) => ({ x: p.timestamp, y: p.apy as number }));
+}
+
+/**
+ * A vault's daily history from Morpho REST (`state/history` + `apy/history`, `inception`
+ * lookback: daily, can turn coarser as the vault ages), as `{x, y}` series for
+ * `buildV2HistorySeries`. USD is today's spot price × tokens (REST has no historical prices).
+ * APY points are Morpho's trailing 30-day averages at that lookback, not per-day APY.
+ */
+export async function loadVaultV2HistoricalState(
+  chainId: number,
+  address: string
+): Promise<{ asset: { symbol: string | null; decimals: number }; historicalState: NonNullable<Parameters<typeof buildV2HistorySeries>[0]> }> {
+  const selector = morphoSelector(chainId, address);
+  const [vault, statePoints, apyPoints] = await Promise.all([
+    getRestVault(chainId, address),
+    morphoRestGet<RestStatePoint[]>(`/v0/vaults-v2/${selector}/state/history`, { lookback: 'inception' }),
+    morphoRestGet<Array<{ timestamp: number; apy: number | null }>>(`/v0/vaults-v2/${selector}/apy/history`, {
+      lookback: 'inception',
+    }).catch(() => []),
+  ]);
+  const price = await tryGetRestTokenPriceUsd(chainId, vault.asset.address);
+  const decimals = vault.asset.decimals;
+  const points = (statePoints ?? []).filter((p) => Number.isFinite(p.timestamp));
+  return {
+    asset: { symbol: vault.asset.symbol, decimals },
+    historicalState: {
+      totalAssets: points.map((p) => ({ x: p.timestamp, y: toBigInt(p.total_assets).toString() })),
+      totalAssetsUsd:
+        price === null ? [] : points.map((p) => ({ x: p.timestamp, y: rawToNumber(p.total_assets, decimals) * price })),
+      totalSupply: points.map((p) => ({ x: p.timestamp, y: toBigInt(p.total_supply).toString() })),
+      // share_price_ray is decimals-adjusted: assets per share × 1e27.
+      sharePrice: points
+        .filter((p) => p.share_price_ray)
+        .map((p) => ({ x: p.timestamp, y: Number(toBigInt(p.share_price_ray) / BigInt(1e9)) / 1e18 })),
+      avgNetApy: realizedApySeries(points, apyPoints ?? []),
+    },
+  };
+}
 
 function dayKeyFromTimestamp(seconds: number): string {
   return utcDayKeyFromTimestamp(seconds);
@@ -79,7 +123,7 @@ export function mapMorphoTimeseries(
     if (point.x == null || point.y == null) continue;
     const date = dayKeyFromTimestamp(point.x);
     const timestamp = point.x * 1000;
-    const value = transform(point.y);
+    const value = transform(Number(point.y));
     const existing = dayMap.get(date);
     if (!existing || timestamp > existing.timestamp) {
       dayMap.set(date, { date, value, timestamp });

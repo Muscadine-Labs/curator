@@ -49,3 +49,26 @@ describe('applyGlobalCaps', () => {
     expect(applyGlobalCaps(100, 100, 99.9, 95)).toBe(RISK_SCORE_CAPS.partialCoverage);
   });
 });
+
+describe('computeBlueMarketRiskScores with unknown collateral', () => {
+  it('leaves headroom and coverage out instead of scoring them 0', async () => {
+    const { computeBlueMarketRiskScores, isCollateralUnknown } = await import('@/lib/morpho/compute-blue-market-risk');
+    const market = {
+      id: '0x1',
+      marketId: '0x1',
+      lltv: '860000000000000000',
+      loanAsset: { address: '0xa', symbol: 'USDC', decimals: 6 },
+      collateralAsset: { address: '0xb', symbol: 'WETH', decimals: 18 },
+      oracleAddress: null,
+      irmAddress: null,
+      realizedBadDebt: null,
+      state: { supplyAssetsUsd: 100, borrowAssetsUsd: 50, collateralAssetsUsd: null, utilization: 0.5 },
+    } as unknown as Parameters<typeof computeBlueMarketRiskScores>[0];
+    expect(isCollateralUnknown(market)).toBe(true);
+    const scores = await computeBlueMarketRiskScores(market, null, 0.9);
+    expect(scores.collateralUnknown).toBe(true);
+    expect(scores.liquidationHeadroomScore).toBeNull();
+    expect(scores.coverageRatioScore).toBeNull();
+    expect(scores.marketRiskScore).toBeCloseTo(0.5 * scores.utilizationScore + 0.5 * scores.oracleScore, 6);
+  });
+});

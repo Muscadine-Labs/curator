@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getVaultByAddress, vaultDisplayName } from '@/lib/config/vaults';
-import { BPS_PER_ONE, GRAPHQL_FIRST_LIMIT } from '@/lib/constants';
+import { BPS_PER_ONE } from '@/lib/constants';
 import { handleApiError, AppError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
-import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
-import { gql } from 'graphql-request';
+import { loadRestVaultSnapshot, type RestVaultSnapshot } from '@/lib/morpho/rest-vault.server';
 import { getAddress, isAddress } from 'viem';
 import { logger } from '@/lib/utils/logger';
 import { buildVaultAnalytics } from '@/lib/morpho/vault-analytics';
@@ -12,10 +11,6 @@ import { mapCap } from '@/lib/morpho/vault-v2-governance-map';
 import type { CapInfo } from '@/app/api/vaults/[id]/governance/route';
 import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
 import { unauthorizedUnlessAdmin } from '@/lib/auth/require-admin';
-
-type VaultDetailQueryResponse = {
-  vaultV2ByAddress?: V2VaultGraphQL | null;
-};
 
 type V2VaultGraphQL = {
   address?: string;
@@ -57,75 +52,44 @@ type V2VaultGraphQL = {
   } | null;
 };
 
-const VAULT_V2_DETAIL_QUERY = gql`
-  query VaultV2Detail($address: String!, $chainId: Int!) {
-    vaultV2ByAddress(address: $address, chainId: $chainId) {
-      address
-      name
-      symbol
-      listed
-      metadata {
-        description
-        image
-      }
-      asset { address symbol decimals }
-      curator { address }
-      owner { address }
-      totalAssets
-      totalAssetsUsd
-      totalSupply
-      idleAssets
-      idleAssetsUsd
-      liquidity
-      liquidityUsd
-      performanceFee
-      managementFee
-      maxApy
-      avgNetApy
-      apy
-      netApy
-      netApyExcludingRewards
-      warnings { type level }
-      caps {
-        items {
-          type
-          absoluteCap
-          relativeCap
-          allocation
-          data {
-            __typename
-            ... on AdapterCapData { adapterAddress }
-            ... on MarketV1CapData {
-              adapterAddress
-              market { marketId }
-            }
-          }
-        }
-      }
-      rewards {
-        asset { address chain { id } }
-        supplyApr
-      }
-      positions(first: ${GRAPHQL_FIRST_LIMIT}) {
-        items { user { address } }
-      }
-    }
-  }
-`;
+/** The detail fields, from the shared REST vault snapshot (GraphQL-shaped for the mapper). */
+function detailFromSnapshot(snap: RestVaultSnapshot): V2VaultGraphQL {
+  return {
+    address: snap.address,
+    name: snap.vault.name,
+    symbol: snap.vault.symbol,
+    // Not in Morpho REST: `listed`, `warnings`, `metadata`, rewards (none on our vaults).
+    listed: null,
+    warnings: [],
+    metadata: null,
+    asset: { address: snap.vault.asset.address, symbol: snap.vault.asset.symbol ?? undefined, decimals: snap.vault.asset.decimals },
+    curator: { address: snap.vault.curator },
+    owner: { address: snap.vault.owner },
+    totalAssetsUsd: snap.totalAssetsUsd,
+    idleAssets: snap.idleAssets,
+    idleAssetsUsd: snap.idleAssetsUsd,
+    totalAssets: snap.totalAssets,
+    liquidity: snap.liquidity,
+    liquidityUsd: snap.liquidityUsd,
+    performanceFee: snap.performanceFee,
+    managementFee: snap.managementFee,
+    caps: { items: snap.caps },
+    maxApy: null,
+    apy: snap.grossApy,
+    netApy: snap.netApy,
+    netApyExcludingRewards: snap.netApy,
+    avgNetApy: snap.netApy,
+    rewards: [],
+  };
+}
 
 function mapV2VaultDetail(
   mv: V2VaultGraphQL,
   cfg: ReturnType<typeof getVaultByAddress>,
   address: string
 ) {
-  const positions = (mv.positions?.items ?? []).filter(
-    (p): p is { user: { address: string } } =>
-      p !== null && p?.user?.address !== undefined && p.user.address !== null
-  );
-
-  const depositors = new Set(
-    positions.map((p) => p.user.address.toLowerCase())
-  ).size;
+  // Depositor count needs a vault-wide holder list, which Morpho REST does not have.
+  const depositors = null;
 
   const tvlUsd = mv.totalAssetsUsd ?? null;
   const apyPct =
@@ -292,75 +256,17 @@ export async function GET(
       throw new AppError('Vault not found', 404, 'VAULT_NOT_FOUND');
     }
 
-    const variables = { address, chainId: cfg.chainId };
-
-    let data: VaultDetailQueryResponse;
-
+    let vaultData: V2VaultGraphQL;
     try {
-      data = await morphoGraphQLClient.request<VaultDetailQueryResponse>(
-        VAULT_V2_DETAIL_QUERY,
-        variables
-      );
-      if (data.vaultV2ByAddress) {
-        logger.debug('V2 vault data found', {
-          address: cfg.address,
-          name: data.vaultV2ByAddress.name,
-          totalAssetsUsd: data.vaultV2ByAddress.totalAssetsUsd,
-          avgNetApy: data.vaultV2ByAddress.avgNetApy,
-        });
-      }
-    } catch (graphqlError) {
+      vaultData = detailFromSnapshot(await loadRestVaultSnapshot(cfg.chainId, address));
+    } catch (restError) {
       logger.error(
-        'GraphQL query failed for v2 vault',
-        graphqlError instanceof Error ? graphqlError : new Error(String(graphqlError)),
+        'Morpho REST read failed for v2 vault',
+        restError instanceof Error ? restError : new Error(String(restError)),
         { address }
       );
-      // Surface the failure: a 200 "Unknown V2 Vault" placeholder would be
-      // cached by React Query as real data with no error state or retry.
+      // Surface the failure: a 200 placeholder would be cached by React Query as real data.
       throw new AppError('Morpho API request failed for this vault. Retry shortly.', 502, 'UPSTREAM_ERROR');
-    }
-
-    const vaultData = data.vaultV2ByAddress;
-    if (!vaultData) {
-      logger.debug('V2 vault not found in GraphQL response', {
-        address: cfg.address,
-        chainId: cfg.chainId,
-      });
-
-      const responseHeaders = mergeApiCacheHeaders(rateLimitResult.headers, 60);
-      return NextResponse.json(
-        {
-          ...cfg,
-          address,
-          name: 'Unknown V2 Vault',
-          symbol: 'UNKNOWN',
-          asset: 'UNKNOWN',
-          tvl: null,
-          apy: null,
-          depositors: 0,
-          revenueAllTime: null,
-          feesAllTime: null,
-          treasuryRevenueYtd: null,
-          lastHarvest: null,
-          apyBreakdown: null,
-          rewards: [],
-          allocation: [],
-          queues: { supplyQueueIndex: null, withdrawQueueIndex: null },
-          warnings: [],
-          metadata: {},
-          historicalData: { apy: [], netApy: [], totalAssets: [], totalAssetsUsd: [] },
-          roles: { owner: null, curator: null, guardian: null, timelock: null },
-          transactions: [],
-          parameters: {
-            performanceFeeBps: null,
-            performanceFeePercent: null,
-            maxDeposit: null,
-            maxWithdrawal: null,
-            strategyNotes: '',
-          },
-        },
-        { headers: responseHeaders }
-      );
     }
 
     const result = mapV2VaultDetail(vaultData, cfg, address);

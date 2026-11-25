@@ -26,7 +26,15 @@ export type RestVault = {
     }> | null;
   } | null;
   management_fee_wad: string | null;
+  management_fee_recipient?: string | null;
   performance_fee_wad: string | null;
+  performance_fee_recipient?: string | null;
+  gates?: {
+    send_shares?: string | null;
+    receive_shares?: string | null;
+    send_assets?: string | null;
+    receive_assets?: string | null;
+  } | null;
   max_rate_per_second_wad: string | null;
   liquidity_adapter: string | null;
   liquidity_data: string | null;
@@ -58,7 +66,7 @@ export type RestAllocations = {
   allocations?: Array<{
     adapter_address?: string | null;
     adapter_kind?: string | null;
-    target?: { type?: string | null } | null;
+    target?: { type?: string | null; vault_address?: string | null; address?: string | null } | null;
     caps?: RestCap[] | null;
   } | null> | null;
   unscoped_caps?: RestCap[] | null;
@@ -134,6 +142,23 @@ export async function getRestVaultRoleAddresses(
   return rows.map((row) => row.role_address).filter((a): a is string => !!a);
 }
 
+export type RestWithdrawalOptions = {
+  idle_assets?: string | null;
+  liquidity_adapter_available_assets?: string | null;
+  adapter_penalties?: Array<{
+    adapter_address?: string | null;
+    adapter_kind?: string | null;
+    force_deallocatable_assets?: string | null;
+    /** Force-deallocation penalty (WAD fraction). */
+    penalty_rate_wad?: string | null;
+  } | null> | null;
+};
+
+/** Per-adapter force-deallocation penalty and deallocatable assets (GraphQL had both on adapters). */
+export function getRestWithdrawalOptions(chainId: number, vault: string): Promise<RestWithdrawalOptions> {
+  return morphoRestGet<RestWithdrawalOptions>(`${vaultPath(chainId, vault)}/withdrawal-options`);
+}
+
 export function getRestToken(chainId: number, token: string): Promise<RestToken> {
   return morphoRestGet<RestToken>(`/v0/tokens/${morphoSelector(chainId, token)}`, undefined, {
     revalidate: STATIC_REVALIDATE,
@@ -201,24 +226,28 @@ export const ADAPTIVE_CURVE_IRM = '0x46415998764c29ab2a25cbea6254146d50d22687';
 const CURVE_STEEPNESS = 4;
 const TARGET_UTILIZATION = 0.9;
 
+export type MarketRates = { utilization: number; borrowApy: number; supplyApy: number };
+
 /**
- * Current supply APY of a Blue market from its indexed state: Morpho's Adaptive Curve IRM at
- * the current utilization with the rate at target stored at the last accrual (what Morpho's
- * GraphQL `supplyApy` and app show; adapting it for the time since then overstates a market
- * that has not accrued in days), then borrow APY × utilization × (1 − fee). REST only has
- * window averages for markets, so this is how the app keeps an instant market APY.
+ * Current rates of a Blue market from its indexed state: Morpho's Adaptive Curve IRM at the
+ * current utilization with the rate at target stored at the last accrual (what Morpho's GraphQL
+ * `supplyApy` / `borrowApy` and app show; adapting it for the time since then overstates a
+ * market that has not accrued in days). Supply APY = borrow APY × utilization × (1 − fee).
+ * REST only has window averages for markets, so this keeps instant rates.
  * Returns `null` for any other IRM or missing data (callers then use a REST average).
  */
-export function marketSupplyApy(
+export function marketRates(
   market: Pick<RestMarket, 'irm_address'>,
   state: RestMarketState
-): number | null {
+): MarketRates | null {
   if (market.irm_address?.toLowerCase() !== ADAPTIVE_CURVE_IRM) return null;
   const supply = Number(state.total_supply_assets);
   const borrow = Number(state.total_borrow_assets);
   const rateAtTarget = Number(state.rate_at_target_per_second_wad) / WAD;
   if (!Number.isFinite(supply) || !Number.isFinite(borrow) || !Number.isFinite(rateAtTarget)) return null;
-  if (supply <= 0 || borrow <= 0 || rateAtTarget <= 0) return 0;
+  if (supply <= 0 || borrow <= 0 || rateAtTarget <= 0) {
+    return { utilization: supply > 0 ? Math.min(1, Math.max(0, borrow / supply)) : 0, borrowApy: 0, supplyApy: 0 };
+  }
 
   const utilization = Math.min(1, borrow / supply);
   const errNorm = utilization > TARGET_UTILIZATION ? 1 - TARGET_UTILIZATION : TARGET_UTILIZATION;
@@ -227,8 +256,13 @@ export function marketSupplyApy(
   const borrowRate = rateAtTarget * (coeff * err + 1);
   const borrowApy = Math.expm1(borrowRate * SECONDS_PER_YEAR);
   const fee = wadToFraction(state.fee_wad) ?? 0;
-  const apy = borrowApy * utilization * (1 - fee);
-  return Number.isFinite(apy) ? apy : null;
+  const supplyApy = borrowApy * utilization * (1 - fee);
+  return Number.isFinite(supplyApy) && Number.isFinite(borrowApy) ? { utilization, borrowApy, supplyApy } : null;
+}
+
+/** Current supply APY (see `marketRates`). */
+export function marketSupplyApy(market: Pick<RestMarket, 'irm_address'>, state: RestMarketState): number | null {
+  return marketRates(market, state)?.supplyApy ?? null;
 }
 
 /** Every cap of a vault (adapter-scoped and unscoped), from `/allocations`. */

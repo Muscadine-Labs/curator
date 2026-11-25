@@ -1,16 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { gql } from 'graphql-request';
 import { getAddress, isAddress, keccak256, zeroAddress, type Address, type Hex } from 'viem';
-import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
+import { loadRestVaultSnapshot } from '@/lib/morpho/rest-vault.server';
+import { MorphoRestError } from '@/lib/morpho/rest-client';
 import { getVaultByAddress } from '@/lib/config/vaults';
 import { handleApiError, AppError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
-import { BASE_CHAIN_ID, VAULT_V2_GRAPHQL_ADAPTER_LIMIT, VAULT_V2_GRAPHQL_CAPS_LIMIT } from '@/lib/constants';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 import { mapCap, type GraphCap } from '@/lib/morpho/vault-v2-governance-map';
-import {
-  tryFetchCollateralCapsRest,
-  withRestCollateralCaps,
-} from '@/lib/morpho/vault-v2-collateral-caps.server';
 import { enrichCollateralCapSymbols, enrichMarketCapParams } from '@/lib/morpho/fetch-markets-by-id';
 import { overlayV2OnChainCaps } from '@/lib/morpho/overlay-v2-onchain-caps';
 import { resolveMarketOracleAddress } from '@/lib/morpho/market-oracle-address';
@@ -110,11 +106,6 @@ export type VaultV2GovernanceResponse = {
   timelocks: TimelockInfo[];
   /** Present when the Vault V2 Blue Public Allocator is an allocator of this vault. */
   publicAllocator: VaultV2PublicAllocatorState | null;
-  /**
-   * Set when the Morpho REST collateral-cap read failed: token caps then carry no
-   * address, so they cannot be labeled or decreased until the next refresh.
-   */
-  capsWarning: string | null;
 };
 
 export type AdapterInfo = {
@@ -166,139 +157,6 @@ export type TimelockInfo = {
   abdicatedAt: number | null;
 };
 
-const ADAPTER_LIMIT = VAULT_V2_GRAPHQL_ADAPTER_LIMIT;
-const CAPS_LIMIT = VAULT_V2_GRAPHQL_CAPS_LIMIT;
-
-const VAULT_V2_GOVERNANCE_QUERY = gql`
-  query VaultV2Governance($address: String!, $chainId: Int!, $adapterLimit: Int!, $capLimit: Int!) {
-    vault: vaultV2ByAddress(address: $address, chainId: $chainId) {
-      address
-      idleAssets
-      idleAssetsUsd
-      liquidity
-      liquidityUsd
-      maxRate
-      performanceFeeRecipient
-      managementFeeRecipient
-      owner { address }
-      curator { address }
-      allocators { allocator { address } }
-      sentinels { sentinel { address } }
-      liquidityAdapter {
-        __typename
-        address
-        type
-        assets
-        assetsUsd
-        forceDeallocatePenalty
-        ... on MetaMorphoAdapter {
-          type
-          assets
-          assetsUsd
-          forceDeallocatePenalty
-          metaMorpho { address name symbol }
-        }
-        ... on MorphoMarketV1Adapter {
-          type
-          assets
-          assetsUsd
-          forceDeallocatePenalty
-        }
-        ... on MorphoVaultV2Adapter {
-          type
-          assets
-          assetsUsd
-          forceDeallocatePenalty
-          innerVault { address name symbol }
-        }
-      }
-      liquidityData {
-        __typename
-        ... on MarketV1LiquidityData {
-          market {
-            marketId
-            loanAsset { address symbol }
-            collateralAsset { address symbol }
-            oracle { address }
-            irmAddress
-            lltv
-          }
-        }
-        ... on MetaMorphoLiquidityData {
-          metaMorpho { address name symbol }
-        }
-      }
-      adapters(first: $adapterLimit) {
-        items {
-          __typename
-          address
-          type
-          assets
-          assetsUsd
-          forceDeallocatePenalty
-          ... on MetaMorphoAdapter {
-            type
-            assets
-            assetsUsd
-            forceDeallocatePenalty
-            metaMorpho { address name symbol }
-          }
-          ... on MorphoMarketV1Adapter {
-            type
-            assets
-            assetsUsd
-            forceDeallocatePenalty
-          }
-          ... on MorphoVaultV2Adapter {
-            type
-            assets
-            assetsUsd
-            forceDeallocatePenalty
-            innerVault { address name symbol }
-          }
-        }
-      }
-      caps(first: $capLimit) {
-        items {
-          type
-          absoluteCap
-          relativeCap
-          allocation
-          data {
-            __typename
-            ... on AdapterCapData {
-              adapterAddress
-            }
-            ... on MarketV1CapData {
-              adapterAddress
-              market {
-                marketId
-                loanAsset { address symbol decimals }
-                collateralAsset { address symbol decimals }
-                oracle { address }
-                irmAddress
-                lltv
-                state {
-                  supplyApy
-                  borrowApy
-                  utilization
-                  liquidityAssets
-                  liquidityAssetsUsd
-                }
-              }
-            }
-          }
-        }
-      }
-      timelocks {
-        selector
-        functionName
-        duration
-        abdicatedAt
-      }
-    }
-  }
-`;
 
 function mapAdapter(graph: GraphAdapter | null | undefined): AdapterInfo | null {
   if (!graph?.address) return null;
@@ -511,17 +369,37 @@ export async function GET(
     const address = getAddress(cfg.address);
     const chainId = cfg.chainId ?? BASE_CHAIN_ID;
 
-    // Collateral caps come from Morpho REST (GraphQL drops their address on 2026-12-02).
-    const [data, restCollateralCaps] = await Promise.all([
-      morphoGraphQLClient.request<GraphVaultGovernanceResponse>(VAULT_V2_GOVERNANCE_QUERY, {
-        address,
-        chainId,
-        adapterLimit: ADAPTER_LIMIT,
-        capLimit: CAPS_LIMIT,
-      }),
-      tryFetchCollateralCapsRest(address, chainId),
-    ]);
-
+    // Morpho REST (one cached snapshot per vault, shared with the detail and risk routes).
+    let snap: Awaited<ReturnType<typeof loadRestVaultSnapshot>>;
+    try {
+      snap = await loadRestVaultSnapshot(chainId, address);
+    } catch (error) {
+      if (error instanceof MorphoRestError && error.status === 404) {
+        throw new AppError('Vault not found in Morpho API', 404, 'VAULT_NOT_FOUND');
+      }
+      throw error;
+    }
+    const data: GraphVaultGovernanceResponse = {
+      vault: {
+        address: snap.address,
+        idleAssets: snap.idleAssets,
+        idleAssetsUsd: snap.idleAssetsUsd,
+        liquidity: snap.liquidity,
+        liquidityUsd: snap.liquidityUsd,
+        liquidityData: snap.liquidityData,
+        maxRate: snap.vault.max_rate_per_second_wad,
+        performanceFeeRecipient: snap.vault.performance_fee_recipient ?? null,
+        managementFeeRecipient: snap.vault.management_fee_recipient ?? null,
+        owner: { address: snap.vault.owner },
+        curator: { address: snap.vault.curator },
+        allocators: snap.allocators.map((a) => ({ allocator: { address: a } })),
+        sentinels: snap.sentinels.map((a) => ({ sentinel: { address: a } })),
+        liquidityAdapter: snap.liquidityAdapter,
+        adapters: { items: snap.adapters },
+        caps: { items: snap.caps },
+        timelocks: snap.timelocks,
+      },
+    };
     if (!data.vault) {
       throw new AppError('Vault not found in Morpho API', 404, 'VAULT_NOT_FOUND');
     }
@@ -534,10 +412,7 @@ export async function GET(
     let liquidityAdapter = mapAdapter(data.vault.liquidityAdapter);
     let liquidityData = mapLiquidityData(data.vault.liquidityData ?? null);
 
-    const capsRaw = withRestCollateralCaps(
-      data.vault.caps?.items?.map(mapCap).filter((c): c is CapInfo => c !== null) ?? [],
-      restCollateralCaps
-    );
+    const capsRaw = data.vault.caps?.items?.map(mapCap).filter((c): c is CapInfo => c !== null) ?? [];
 
     const enrichedCaps = await enrichCollateralCapSymbols(
       await enrichMarketCapParams(capsRaw, chainId),
@@ -627,10 +502,6 @@ export async function GET(
       caps,
       timelocks,
       publicAllocator,
-      capsWarning:
-        restCollateralCaps === null
-          ? 'Token caps could not be loaded from Morpho, so they cannot be labeled or decreased right now. Refresh to retry.'
-          : null,
     };
 
     const responseHeaders = mergeApiOnChainVaultHeaders(rateLimitResult.headers);

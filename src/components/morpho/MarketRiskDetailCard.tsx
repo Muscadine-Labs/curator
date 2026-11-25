@@ -233,7 +233,9 @@ export function MarketRiskDetailCard({
               tooltip="Measures the buffer before liquidation under a price shock. Uses -2.5% shock for same/derivative assets (e.g., USDC/USDC, wstETH/ETH) and -5% for different assets. Higher headroom (positive value) indicates more safety margin. Negative headroom means the position would be underwater."
               score={scores.liquidationHeadroomScore}
               detail={
-                headroomRatio !== null
+                scores.collateralUnknown
+                  ? COLLATERAL_UNKNOWN_DETAIL
+                  : headroomRatio !== null
                   ? headroomRatio >= 0
                     ? `Headroom: ${headroomRatio.toFixed(2)}% (${formatCompactUSD(headroom ?? 0)}) @ ${(priceShock * 100).toFixed(1)}% shock`
                     : `Underwater: ${Math.abs(headroomRatio).toFixed(2)}% (${formatCompactUSD(headroom ?? 0)}) @ ${(priceShock * 100).toFixed(1)}% shock`
@@ -255,7 +257,9 @@ export function MarketRiskDetailCard({
               tooltip="The ratio of available liquidity to liquidatable borrows under a price shock. Uses -2.5% shock for same/derivative assets and -5% for different assets. A ratio ≥1.0 means the market can fully cover all liquidations. Lower ratios indicate insufficient liquidity."
               score={scores.coverageRatioScore}
               detail={
-                coverage !== null
+                scores.collateralUnknown
+                  ? COLLATERAL_UNKNOWN_DETAIL
+                  : coverage !== null
                   ? `Coverage: ${coverage.toFixed(2)}x @ ${(priceShock * 100).toFixed(1)}% shock${
                       liquidatableBorrow !== null
                         ? ` (${formatCompactUSD(availableLiquidityUsd)} / ${formatCompactUSD(liquidatableBorrow)})`
@@ -326,6 +330,10 @@ export function MarketRiskDetailCard({
   );
 }
 
+/** Shown on headroom and coverage while Morpho REST has no market collateral total. */
+const COLLATERAL_UNKNOWN_DETAIL =
+  'Needs the market\'s total collateral, which Morpho\'s API does not provide yet. The grade uses utilization and oracle only.';
+
 function ScorePillar({
   label,
   tooltip,
@@ -334,7 +342,7 @@ function ScorePillar({
 }: {
   label: string;
   tooltip: string;
-  score: number;
+  score: number | null;
   detail?: string;
 }) {
   return (
@@ -344,16 +352,22 @@ function ScorePillar({
         <InfoTooltip text={tooltip} />
       </div>
       <div className="flex items-center gap-2">
-        <p className={cn('text-lg font-semibold', getScoreColor(score))}>{score.toFixed(2)}</p>
-        <Badge
-          variant="outline"
-          className={cn(
-            'text-xs font-semibold px-1.5 py-0.5',
-            getGradeColor(getComponentGrade(score))
-          )}
-        >
-          {getComponentGrade(score)}
-        </Badge>
+        {score === null ? (
+          <p className="text-lg font-semibold text-muted-foreground">Unknown</p>
+        ) : (
+          <>
+            <p className={cn('text-lg font-semibold', getScoreColor(score))}>{score.toFixed(2)}</p>
+            <Badge
+              variant="outline"
+              className={cn(
+                'text-xs font-semibold px-1.5 py-0.5',
+                getGradeColor(getComponentGrade(score))
+              )}
+            >
+              {getComponentGrade(score)}
+            </Badge>
+          </>
+        )}
       </div>
       {detail != null && (
         <p className="text-xs text-muted-foreground mt-1">{detail}</p>
