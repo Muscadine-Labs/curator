@@ -10,6 +10,7 @@ import { handleApiError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
 import { MorphoRestError, morphoRestGet, morphoSelector } from '@/lib/morpho/rest-client';
 import { getRestTokenPriceUsd, getRestVault, getRestVaultState, rawToNumber } from '@/lib/morpho/rest-data';
+import { fetchDailyPricesUsd, priceOnDay } from '@/lib/defillama/historical-prices';
 import { getAddress } from 'viem';
 import { logger } from '@/lib/utils/logger';
 import { mergeApiCacheHeaders, API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
@@ -80,9 +81,9 @@ function appendCurrentTvlPoint(
 }
 
 /**
- * One vault's daily TVL (USD) from Morpho REST `state/history` (inception, daily) at today's
- * spot price: REST has no historical prices, so a non-stablecoin vault's past TVL moves with
- * today's price, not that day's. `'failed'` = a Morpho read errored (not a vault with no TVL).
+ * One vault's daily TVL (USD) from Morpho REST `state/history` (inception, daily), each day
+ * priced with that day's DefiLlama price (REST has no historical prices; spot fills gaps).
+ * `'failed'` = a Morpho read errored (not a vault with no TVL).
  */
 async function fetchVaultV2TvlSeries(address: string): Promise<VaultTvlSeries | null | 'failed'> {
   try {
@@ -94,12 +95,19 @@ async function fetchVaultV2TvlSeries(address: string): Promise<VaultTvlSeries | 
         { lookback: 'inception' }
       ),
     ]);
-    const price = await getRestTokenPriceUsd(BASE_CHAIN_ID, vault.asset.address);
+    const firstTs = Math.min(...(points ?? []).map((p) => p.timestamp), Math.floor(Date.now() / 1000));
+    const [price, daily] = await Promise.all([
+      getRestTokenPriceUsd(BASE_CHAIN_ID, vault.asset.address),
+      fetchDailyPricesUsd(BASE_CHAIN_ID, vault.asset.address, firstTs),
+    ]);
     if (price === null) return 'failed';
     const decimals = vault.asset.decimals;
     const currentTvl = rawToNumber(state.total_assets, decimals) * price;
     let dataPoints = normalizeDailyPoints(
-      (points ?? []).map((p) => ({ x: p.timestamp, y: rawToNumber(p.total_assets, decimals) * price }))
+      (points ?? []).map((p) => ({
+        x: p.timestamp,
+        y: rawToNumber(p.total_assets, decimals) * (priceOnDay(daily, p.timestamp) ?? price),
+      }))
     );
     dataPoints = dataPoints.length
       ? appendCurrentTvlPoint(dataPoints, currentTvl)

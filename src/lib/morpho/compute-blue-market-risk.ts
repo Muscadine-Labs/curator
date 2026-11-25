@@ -96,9 +96,9 @@ export interface MarketRiskScores {
   grade: MarketRiskGrade;
   realizedBadDebt?: number | null; // Realized bad debt (USD), when the source has it (Morpho REST does not)
   /**
-   * The market's total collateral is unknown (Morpho REST has no market collateral total until
-   * `/positions/health` ships), so headroom and coverage are left out and the composite is the
-   * average of utilization and oracle.
+   * The market's total collateral could not be read (Morpho REST `state/history` failed), so
+   * headroom and coverage are left out and the composite is the average of utilization and
+   * oracle, instead of scoring an unknown as 0.
    */
   collateralUnknown?: boolean;
   unrealizedBadDebt?: number | null; // Not available in GraphQL schema
@@ -493,7 +493,7 @@ export function applyGlobalCaps(
 
 /**
  * A borrowed market whose collateral total is not known (`collateralAssetsUsd` null or
- * undefined, as opposed to 0). Morpho REST has no market collateral total yet.
+ * undefined, as opposed to 0), e.g. a failed Morpho REST read.
  */
 export function isCollateralUnknown(market: BlueMarketData): boolean {
   const state = market.state;

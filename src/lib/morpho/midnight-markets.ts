@@ -1,6 +1,6 @@
 /**
  * Morpho Midnight markets via REST.
- * GraphQL (`api.morpho.org/graphql`) is Blue-only — Midnight is not in that schema.
+ * Midnight is REST-only (`/v0/midnight/*`); daily loan-token USD comes from DefiLlama.
  * Docs: https://docs.morpho.org/developers/api/morpho-midnight/
  */
 import { API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
@@ -15,9 +15,8 @@ import {
 import { bigintRatio } from '@/lib/format/bigint-ratio';
 import { logger } from '@/lib/utils/logger';
 import { AppError } from '@/lib/utils/error-handler';
-import { gql } from 'graphql-request';
 import { formatUnits, type Address } from 'viem';
-import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
+import { fetchDailyPricesUsd } from '@/lib/defillama/historical-prices';
 import { formatLltvWad, selectMidnightCollaterals } from '@/lib/morpho/midnight-format';
 
 
@@ -828,17 +827,6 @@ type MidnightTransactionsPage = {
  */
 const HISTORY_BUDGET_MS = 20_000;
 
-const LOAN_PRICE_HISTORY_QUERY = gql`
-  query MidnightLoanPriceHistory($address: String!, $chainId: Int!, $since: Int!) {
-    assetByAddress(address: $address, chainId: $chainId) {
-      historicalPriceUsd(options: { interval: DAY, startTimestamp: $since }) {
-        x
-        y
-      }
-    }
-  }
-`;
-
 /**
  * Runs after history paging (it needs the loan token), so it gets a short cap:
  * paging's 20s budget + this must stay inside the 40s cache-loader timeout.
@@ -860,17 +848,10 @@ async function fetchLoanPriceByDay(
         LOAN_PRICE_HISTORY_TIMEOUT_MS
       );
     });
-    const data = await Promise.race([
-      morphoGraphQLClient.request<{
-        assetByAddress?: {
-          historicalPriceUsd?: Array<{ x: number; y: number | null }> | null;
-        } | null;
-      }>(LOAN_PRICE_HISTORY_QUERY, { address, chainId, since: sinceSec }),
-      timeout,
-    ]).finally(() => clearTimeout(timer));
-    for (const point of data.assetByAddress?.historicalPriceUsd ?? []) {
-      if (point.y != null && Number.isFinite(point.y)) out.set(utcDay(point.x), point.y);
-    }
+    const prices = await Promise.race([fetchDailyPricesUsd(chainId, address, sinceSec), timeout]).finally(() =>
+      clearTimeout(timer)
+    );
+    for (const [day, price] of prices) out.set(utcDay(day), price);
   } catch (error) {
     logger.warn('Midnight loan price history failed', { address, error });
   }

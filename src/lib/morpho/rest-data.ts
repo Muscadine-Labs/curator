@@ -229,6 +229,17 @@ const TARGET_UTILIZATION = 0.9;
 export type MarketRates = { utilization: number; borrowApy: number; supplyApy: number };
 
 /**
+ * Adaptive Curve IRM borrow rate (per second) at a utilization, given the rate at target:
+ * rateAtTarget × curve(err), where err is the normalized distance from 90% utilization.
+ */
+export function adaptiveCurveBorrowRate(utilization: number, rateAtTargetPerSecond: number): number {
+  const errNorm = utilization > TARGET_UTILIZATION ? 1 - TARGET_UTILIZATION : TARGET_UTILIZATION;
+  const err = (utilization - TARGET_UTILIZATION) / errNorm;
+  const coeff = err < 0 ? 1 - 1 / CURVE_STEEPNESS : CURVE_STEEPNESS - 1;
+  return rateAtTargetPerSecond * (coeff * err + 1);
+}
+
+/**
  * Current rates of a Blue market from its indexed state: Morpho's Adaptive Curve IRM at the
  * current utilization with the rate at target stored at the last accrual (what Morpho's GraphQL
  * `supplyApy` / `borrowApy` and app show; adapting it for the time since then overstates a
@@ -250,10 +261,7 @@ export function marketRates(
   }
 
   const utilization = Math.min(1, borrow / supply);
-  const errNorm = utilization > TARGET_UTILIZATION ? 1 - TARGET_UTILIZATION : TARGET_UTILIZATION;
-  const err = (utilization - TARGET_UTILIZATION) / errNorm;
-  const coeff = err < 0 ? 1 - 1 / CURVE_STEEPNESS : CURVE_STEEPNESS - 1;
-  const borrowRate = rateAtTarget * (coeff * err + 1);
+  const borrowRate = adaptiveCurveBorrowRate(utilization, rateAtTarget);
   const borrowApy = Math.expm1(borrowRate * SECONDS_PER_YEAR);
   const fee = wadToFraction(state.fee_wad) ?? 0;
   const supplyApy = borrowApy * utilization * (1 - fee);

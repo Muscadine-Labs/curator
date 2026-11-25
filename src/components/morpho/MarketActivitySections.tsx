@@ -119,6 +119,9 @@ function Empty({ children }: { children: ReactNode }) {
   return <p className="py-6 text-center text-sm text-muted-foreground">{children}</p>;
 }
 
+/** Morpho's API has no data for this section yet (no paid RPC or indexer is used). */
+const NOT_IN_MORPHO_API = 'Not available from Morpho’s API yet.';
+
 function dateLabel(unix: number): string {
   return new Date(unix * 1000).toISOString().slice(5, 10);
 }
@@ -357,6 +360,15 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 /* --------------------------------------------------------- Collateral at risk */
 
 export function CollateralAtRiskPanel({ activity }: { activity: MarketActivity }) {
+  if (activity.unavailable?.collateralAtRisk) {
+    return (
+      <CuratorPanel title="Collateral at risk" description="Needs every borrower's position.">
+        <div className="p-4">
+          <Empty>{NOT_IN_MORPHO_API}</Empty>
+        </div>
+      </CuratorPanel>
+    );
+  }
   const data = activity.collateralAtRisk.map((p) => ({
     change: Math.round(p.priceChange * 100),
     usd: p.collateralUsd,
@@ -465,7 +477,9 @@ export function MarketBorrowersTable({
       description="Largest positions by borrow. Health < 1 is liquidatable."
     >
       <div className="p-4">
-        {activity.borrowers.length === 0 ? (
+        {activity.unavailable?.borrowers ? (
+          <Empty>{NOT_IN_MORPHO_API}</Empty>
+        ) : activity.borrowers.length === 0 ? (
           <Empty>No open borrows.</Empty>
         ) : (
           <>
@@ -543,10 +557,12 @@ export function MarketSuppliersTable({
 
   return (
     <CuratorPanel
-      title={`Suppliers (${supplierTotal.toLocaleString()})`}
+      title={activity.unavailable?.suppliersMuscadineOnly ? 'Muscadine vault suppliers' : `Suppliers (${supplierTotal.toLocaleString()})`}
       description={
         activity.warning ? (
           <span className="text-amber-700 dark:text-amber-300">{activity.warning}</span>
+        ) : activity.unavailable?.suppliersMuscadineOnly ? (
+          'Muscadine vaults supplying this market. Morpho’s API has no full supplier list yet.'
         ) : (
           'Largest supply positions. Vaults allocated to this market are named here, including ones outside this page.'
         )
@@ -554,7 +570,7 @@ export function MarketSuppliersTable({
     >
       <div className="p-4">
         {activity.suppliers.length === 0 ? (
-          <Empty>No suppliers.</Empty>
+          <Empty>{activity.unavailable?.suppliersMuscadineOnly ? 'No Muscadine vault supplies this market.' : 'No suppliers.'}</Empty>
         ) : (
           <>
             <Table
@@ -630,7 +646,9 @@ export function MarketLiquidationsTable({
   return (
     <CuratorPanel title="Recent liquidations" description="Most recent first (up to 100).">
       <div className="p-4">
-        {activity.liquidations.length === 0 ? (
+        {activity.unavailable?.liquidations ? (
+          <Empty>{NOT_IN_MORPHO_API}</Empty>
+        ) : activity.liquidations.length === 0 ? (
           <Empty>No liquidation has been executed.</Empty>
         ) : (
           <>

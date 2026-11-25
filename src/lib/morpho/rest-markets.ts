@@ -1,4 +1,4 @@
-import { morphoRestGet, morphoRestList, morphoSelector } from '@/lib/morpho/rest-client';
+import { morphoRestGet, morphoSelector } from '@/lib/morpho/rest-client';
 import {
   getRestMarket,
   getRestMarketState,
@@ -50,11 +50,32 @@ async function shortestApyAverages(chainId: number, marketId: string): Promise<P
  * for 60s). Rates are computed from the state for Adaptive Curve markets, else Morpho's
  * 6h averages. Throws when a market or its state fails to load, so a table is never short.
  */
-export async function loadMarketDetails(chainId: number, marketIds: readonly string[]): Promise<MarketDetails[]> {
-  return Promise.all(
-    marketIds.map(async (marketId) => {
+/** Parallel market reads at a time: the browser loads ~100 markets per refresh. */
+const MARKET_CONCURRENCY = 10;
+
+async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
+export async function loadMarketDetails(
+  chainId: number,
+  marketIds: readonly string[],
+  /** Market params the caller already has (e.g. from `/v0/blue/markets`), by lowercase id. */
+  knownParams?: ReadonlyMap<string, RestMarket>
+): Promise<MarketDetails[]> {
+  return mapWithConcurrency(marketIds, MARKET_CONCURRENCY, async (marketId) => {
+      const known = knownParams?.get(marketId.toLowerCase());
       const [market, state] = await Promise.all([
-        getRestMarket(chainId, marketId),
+        known ? Promise.resolve(known) : getRestMarket(chainId, marketId),
         getRestMarketState(chainId, marketId),
       ]);
       const [loanToken, collateralToken] = await Promise.all([
@@ -72,8 +93,7 @@ export async function loadMarketDetails(chainId: number, marketIds: readonly str
         borrowApy: rates?.borrowApy ?? null,
         utilization: utilizationOf(state),
       };
-    })
-  );
+  });
 }
 
 /** Spot USD price per token (lowercase address); a token with no price is left out. */
@@ -89,24 +109,21 @@ export async function loadPrices(chainId: number, tokens: readonly string[]): Pr
 }
 
 /**
- * Total borrower collateral of a Blue market (raw collateral units), summed from Morpho REST
- * `/positions/health`. That route is in Morpho's spec but returned 404 on 2026-11-25; until it
- * ships this returns `null` (unknown, never 0), and risk scoring leaves headroom and coverage
- * out instead of grading them 0.
+ * Total collateral of a Blue market (raw collateral units): `total_collateral_assets` on the
+ * newest point of Morpho REST `state/history` (hourly `one_day` lookback). The spot `/state`
+ * route does not carry it. Matched GraphQL `state.collateralAssets` exactly (2026-11-25).
+ * `null` on a failed read (unknown, never 0): risk scoring then leaves headroom and coverage out.
  */
 export async function loadMarketCollateralAssets(chainId: number, marketId: string): Promise<bigint | null> {
   try {
-    const rows = await morphoRestList<{ collateral_assets?: string | null }>(
-      `/v0/blue/markets/${morphoSelector(chainId, marketId)}/positions/health`,
-      { limit: 1000 }
+    const points = await morphoRestGet<Array<{ timestamp: number; total_collateral_assets?: string | null }>>(
+      `/v0/blue/markets/${morphoSelector(chainId, marketId)}/state/history`,
+      { lookback: 'one_day' }
     );
-    return rows.reduce((sum, row) => {
-      try {
-        return sum + BigInt(row.collateral_assets ?? '0');
-      } catch {
-        return sum;
-      }
-    }, BigInt(0));
+    const latest = [...(points ?? [])]
+      .filter((p) => p.total_collateral_assets != null)
+      .sort((a, b) => b.timestamp - a.timestamp)[0];
+    return latest ? BigInt(latest.total_collateral_assets!) : null;
   } catch {
     return null;
   }

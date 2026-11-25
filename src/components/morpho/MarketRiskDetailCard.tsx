@@ -330,9 +330,9 @@ export function MarketRiskDetailCard({
   );
 }
 
-/** Shown on headroom and coverage while Morpho REST has no market collateral total. */
+/** Shown on headroom and coverage when the market's collateral total could not be read. */
 const COLLATERAL_UNKNOWN_DETAIL =
-  'Needs the market\'s total collateral, which Morpho\'s API does not provide yet. The grade uses utilization and oracle only.';
+  'The market\'s total collateral could not be loaded from Morpho right now. The grade uses utilization and oracle only.';
 
 function ScorePillar({
   label,

@@ -1,5 +1,6 @@
 import { morphoRestGet, morphoSelector } from '@/lib/morpho/rest-client';
 import { getRestVault, rawToNumber, toBigInt, tryGetRestTokenPriceUsd } from '@/lib/morpho/rest-data';
+import { fetchDailyPricesUsd, priceOnDay } from '@/lib/defillama/historical-prices';
 import { utcDayKeyFromTimestamp } from '@/lib/utils/utc-calendar';
 
 /** `y` is a number, or a raw integer string for token / share amounts. */
@@ -87,15 +88,22 @@ export async function loadVaultV2HistoricalState(
       lookback: 'inception',
     }).catch(() => []),
   ]);
-  const price = await tryGetRestTokenPriceUsd(chainId, vault.asset.address);
   const decimals = vault.asset.decimals;
   const points = (statePoints ?? []).filter((p) => Number.isFinite(p.timestamp));
+  const firstTs = points.length ? Math.min(...points.map((p) => p.timestamp)) : Math.floor(Date.now() / 1000);
+  const [price, daily] = await Promise.all([
+    tryGetRestTokenPriceUsd(chainId, vault.asset.address),
+    fetchDailyPricesUsd(chainId, vault.asset.address, firstTs),
+  ]);
+  const priceAt = (ts: number) => priceOnDay(daily, ts) ?? price;
   return {
     asset: { symbol: vault.asset.symbol, decimals },
     historicalState: {
       totalAssets: points.map((p) => ({ x: p.timestamp, y: toBigInt(p.total_assets).toString() })),
-      totalAssetsUsd:
-        price === null ? [] : points.map((p) => ({ x: p.timestamp, y: rawToNumber(p.total_assets, decimals) * price })),
+      totalAssetsUsd: points.flatMap((p) => {
+        const usd = priceAt(p.timestamp);
+        return usd === null ? [] : [{ x: p.timestamp, y: rawToNumber(p.total_assets, decimals) * usd }];
+      }),
       totalSupply: points.map((p) => ({ x: p.timestamp, y: toBigInt(p.total_supply).toString() })),
       // share_price_ray is decimals-adjusted: assets per share × 1e27.
       sharePrice: points

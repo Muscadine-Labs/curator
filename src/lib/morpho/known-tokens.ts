@@ -4,8 +4,8 @@ import {
   BASE_USDC_ADDRESS,
   BASE_WETH_ADDRESS,
 } from '@/lib/constants';
-import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
-import { gql } from 'graphql-request';
+import { MorphoRestError } from '@/lib/morpho/rest-client';
+import { getRestToken, getRestTokenPriceUsd } from '@/lib/morpho/rest-data';
 import { parseAbi, type Address } from 'viem';
 import { publicClient } from '@/lib/onchain/client';
 import { API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
@@ -74,51 +74,16 @@ async function readTokenMetaOnChain(address: string): Promise<KnownTokenMeta | n
   }
 }
 
-const ASSET_META_QUERY = gql`
-  query TokenMeta($address: String!, $chainId: Int!) {
-    assetByAddress(address: $address, chainId: $chainId) {
-      address
-      symbol
-      decimals
-    }
-  }
-`;
-
-const ASSET_PRICE_QUERY = gql`
-  query AssetPrice($address: String!, $chainId: Int!) {
-    assetByAddress(address: $address, chainId: $chainId) {
-      price {
-        usd
-      }
-    }
-  }
-`;
-
-const ASSETS_BATCH_QUERY = gql`
-  query TokenMetaBatch($addresses: [String!]!, $chainId: Int!, $first: Int!) {
-    assets(first: $first, where: { address_in: $addresses, chainId_in: [$chainId] }) {
-      items {
-        address
-        symbol
-        decimals
-        price {
-          usd
-        }
-      }
-    }
-  }
-`;
-
-/** Morpho said it has no metadata for this token (batch read); skip its per-token query until expiry. */
+/** Morpho REST said it does not index this token (404); skip it until expiry. */
 const morphoMetaMiss = new Map<string, number>();
 
-/** Max addresses per batched `assets` read. */
-const ASSET_BATCH_SIZE = 500;
+/** Parallel REST reads per prefetch (REST has no batch token route; one call per token). */
+const PREFETCH_CONCURRENCY = 8;
 
 /**
- * Load metadata (and, with `prices`, USD spot) for many tokens in one Morpho request per
- * 500 addresses, filling the same caches `resolveTokenMeta` / `fetchAssetUsdPrice` read.
- * Call it before resolving a list of tokens; anything it cannot fill falls back per token.
+ * Warm metadata (and, with `prices`, USD spot) for many tokens before resolving a list,
+ * filling the same caches `resolveTokenMeta` / `fetchAssetUsdPrice` read. Morpho REST has
+ * one route per token, so this runs them 8 at a time; failures fall back per token later.
  */
 export async function prefetchAssets(
   addresses: readonly string[],
@@ -136,47 +101,17 @@ export async function prefetchAssets(
     const needsPrice = options.prices === true && !((priceCache.get(key)?.expiresAt ?? 0) > now);
     return needsMeta || needsPrice;
   });
-  for (let i = 0; i < wanted.length; i += ASSET_BATCH_SIZE) {
-    const chunk = wanted.slice(i, i + ASSET_BATCH_SIZE);
-    try {
-      const data = await morphoGraphQLClient.request<{
-        assets?: {
-          items?: Array<{
-            address?: string | null;
-            symbol?: string | null;
-            decimals?: number | null;
-            price?: { usd?: number | null } | null;
-          } | null> | null;
-        } | null;
-      }>(ASSETS_BATCH_QUERY, { addresses: chunk, chainId, first: chunk.length });
-      const expiresAt = Date.now() + API_CACHE_MAX_AGE_MS;
-      const seen = new Set<string>();
-      for (const item of data.assets?.items ?? []) {
-        const address = item?.address?.toLowerCase();
-        if (!address) continue;
-        seen.add(address);
-        const key = `${chainId}:${address}`;
-        const symbol = item?.symbol?.trim();
-        if (symbol && item?.decimals != null && !knownTokenMeta(address)) {
-          const meta: KnownTokenMeta = { address: item.address!, symbol, decimals: item.decimals };
-          rememberTokenMeta(key, meta);
-          rememberTokenMeta(address, meta);
-        }
-        if (options.prices) {
-          const usd = item?.price?.usd;
-          priceCache.set(key, { usd: usd != null && Number.isFinite(usd) ? usd : null, expiresAt });
-        }
-      }
-      for (const address of chunk) {
-        if (seen.has(address)) continue;
-        const key = `${chainId}:${address}`;
-        // No price written: fetchAssetUsdPrice still asks Morpho per token for these.
-        morphoMetaMiss.set(key, expiresAt);
-      }
-    } catch {
-      // Leave the caches alone: resolveTokenMeta / fetchAssetUsdPrice retry per token.
+  let next = 0;
+  const worker = async () => {
+    while (next < wanted.length) {
+      const address = wanted[next++]!;
+      await Promise.all([
+        resolveTokenMeta(address, chainId).catch(() => null),
+        options.prices ? fetchAssetUsdPrice(address, chainId).catch(() => null) : null,
+      ]);
     }
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(PREFETCH_CONCURRENCY, wanted.length) }, worker));
 }
 
 function knownTokenMeta(address: string): KnownTokenMeta | null {
@@ -195,31 +130,23 @@ export async function resolveTokenMeta(
   if (hit) return hit;
   const held = fallbackCache.get(key);
   if (held && held.expiresAt > Date.now()) return held.meta;
-  // A batched read just said Morpho has nothing for this token: go straight to the chain.
+  // Morpho REST just said it has nothing for this token: go straight to the chain.
   const skipMorpho = (morphoMetaMiss.get(key) ?? 0) > Date.now();
 
   try {
     if (skipMorpho) throw new Error('not indexed');
-    const data = await morphoGraphQLClient.request<{
-      assetByAddress?: {
-        address?: string | null;
-        symbol?: string | null;
-        decimals?: number | null;
-      } | null;
-    }>(ASSET_META_QUERY, { address, chainId });
-    const symbol = data.assetByAddress?.symbol?.trim();
-    const decimals = data.assetByAddress?.decimals;
-    if (symbol && decimals != null) {
-      const meta: KnownTokenMeta = {
-        address,
-        symbol,
-        decimals,
-      };
+    const token = await getRestToken(chainId, address);
+    const symbol = token.symbol?.trim();
+    if (symbol && token.decimals != null) {
+      const meta: KnownTokenMeta = { address, symbol, decimals: token.decimals };
       rememberTokenMeta(key, meta);
       rememberTokenMeta(address.toLowerCase(), meta);
       return meta;
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof MorphoRestError && error.status === 404) {
+      morphoMetaMiss.set(key, Date.now() + API_CACHE_MAX_AGE_MS);
+    }
     // fall through to the chain
   }
 
@@ -241,7 +168,7 @@ export async function resolveTokenMeta(
 /** Spot USD, capped at the app-wide 30s TTL; failures are not cached. */
 const priceCache = new Map<string, { usd: number | null; expiresAt: number }>();
 
-/** Morpho-indexed USD spot for oracle comparison panels. */
+/** Morpho REST USD spot (`/v0/tokens/{t}/price`) for oracle comparison panels and USD values. */
 export async function fetchAssetUsdPrice(
   address: string,
   chainId: number = BASE_CHAIN_ID
@@ -251,14 +178,14 @@ export async function fetchAssetUsdPrice(
   if (cachedPrice && cachedPrice.expiresAt > Date.now()) return cachedPrice.usd;
 
   try {
-    const data = await morphoGraphQLClient.request<{
-      assetByAddress?: { price?: { usd?: number | null } | null } | null;
-    }>(ASSET_PRICE_QUERY, { address, chainId });
-    const usd = data.assetByAddress?.price?.usd;
-    const value = usd != null && Number.isFinite(usd) ? usd : null;
+    const value = await getRestTokenPriceUsd(chainId, address);
     priceCache.set(key, { usd: value, expiresAt: Date.now() + API_CACHE_MAX_AGE_MS });
     return value;
-  } catch {
+  } catch (error) {
+    if (error instanceof MorphoRestError && error.status === 404) {
+      priceCache.set(key, { usd: null, expiresAt: Date.now() + API_CACHE_MAX_AGE_MS });
+      return null;
+    }
     return cachedPrice?.usd ?? null;
   }
 }

@@ -98,7 +98,7 @@ const BROWSE_COLUMNS: {
   { key: 'lltv', label: 'LLTV', products: ['blue', 'midnight'] },
   { key: 'sizeUsd', label: 'Market size', align: 'right', products: ['blue', 'midnight'] },
   { key: 'liquidity', label: 'Liquidity', align: 'right', products: ['blue'] },
-  { key: 'apy', label: '6H net APY', align: 'right', products: ['blue'] },
+  { key: 'apy', label: 'Supply APY', align: 'right', products: ['blue'] },
   { key: 'maturity', label: 'Maturity', products: ['midnight'] },
   { key: 'listed', label: 'Listed', products: ['blue', 'midnight'] },
   { key: 'muscadine', label: 'Muscadine', products: ['blue'] },
