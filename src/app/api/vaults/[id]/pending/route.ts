@@ -1,34 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAddress, isAddress } from 'viem';
-import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
-import {
-  VAULT_V2_PENDING_QUERY,
-  describePendingDecoded,
-  mapPendingDecoded,
-} from '@/lib/morpho/vault-v2-api';
+import { describePendingDecoded, type VaultV2PendingDecoded } from '@/lib/morpho/vault-v2-api';
+import { fetchVaultPendingSubmits } from '@/lib/morpho/vault-v2-pending.server';
 import { getVaultByAddress } from '@/lib/config/vaults';
 import { handleApiError, AppError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
-import { BASE_CHAIN_ID, VAULT_V2_GRAPHQL_PENDING_LIMIT } from '@/lib/constants';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
 import { unauthorizedUnlessAdmin } from '@/lib/auth/require-admin';
-
-const PENDING_LIMIT = VAULT_V2_GRAPHQL_PENDING_LIMIT;
-
-type GraphPendingItem = {
-  data?: string | null;
-  functionName?: string | null;
-  txHash?: string | null;
-  validAt?: string | number | null;
-  decodedData?: ({ __typename?: string | null } & Record<string, unknown>) | null;
-};
-
-type GraphResponse = {
-  vault?: {
-    address?: string | null;
-    pendingConfigs?: { items?: Array<GraphPendingItem | null> | null } | null;
-  } | null;
-};
 
 export type VaultV2PendingItem = {
   /** Stable list index for per-row UI state (multiple items may share `data` / `txHash`). */
@@ -39,7 +18,7 @@ export type VaultV2PendingItem = {
   validAt: number;
   status: 'waiting' | 'ready';
   summary: string;
-  decoded: ReturnType<typeof mapPendingDecoded>;
+  decoded: VaultV2PendingDecoded;
 };
 
 export type VaultV2PendingResponse = {
@@ -78,43 +57,19 @@ export async function GET(
     const address = getAddress(cfg.address);
     const chainId = cfg.chainId ?? BASE_CHAIN_ID;
 
-    const data = await morphoGraphQLClient.request<GraphResponse>(VAULT_V2_PENDING_QUERY, {
-      address,
-      chainId,
-      first: PENDING_LIMIT,
-    });
-
-    if (!data.vault) {
-      throw new AppError('Vault not found in Morpho API', 404, 'VAULT_NOT_FOUND');
-    }
-
+    const submits = await fetchVaultPendingSubmits(address, chainId);
     const now = Math.floor(Date.now() / 1000);
 
-    const pending: VaultV2PendingItem[] =
-      data.vault.pendingConfigs?.items
-        ?.filter((item): item is GraphPendingItem => Boolean(item?.data && item?.functionName))
-        .map((item, index) => {
-          const rawValidAt =
-            item.validAt == null
-              ? 0
-              : typeof item.validAt === 'string'
-                ? Number(item.validAt)
-                : item.validAt;
-          const validAt = Number.isFinite(rawValidAt) && rawValidAt > 0 ? rawValidAt : 0;
-          const decoded = mapPendingDecoded(item.decodedData);
-
-          return {
-            rowId: index,
-            data: item.data!,
-            functionName: item.functionName!,
-            txHash: item.txHash ?? '',
-            validAt,
-            // validAt 0 means the indexer did not report it — never "ready".
-            status: validAt > 0 && validAt <= now ? 'ready' : 'waiting',
-            summary: describePendingDecoded(decoded),
-            decoded,
-          };
-        }) ?? [];
+    const pending: VaultV2PendingItem[] = submits.map((item, index) => ({
+      rowId: index,
+      data: item.data,
+      functionName: item.functionName,
+      txHash: item.txHash,
+      validAt: item.validAt,
+      status: item.validAt <= now ? 'ready' : 'waiting',
+      summary: describePendingDecoded(item.decoded),
+      decoded: item.decoded,
+    }));
 
     const response: VaultV2PendingResponse = {
       vaultAddress: address,

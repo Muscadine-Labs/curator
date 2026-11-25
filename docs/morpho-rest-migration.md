@@ -16,7 +16,29 @@ The paths and fields below come from that spec. They were also called live
 against mpUSDC (`8453:0x8971…b496`) on 2026-11-19.
 
 > **Work in progress.** This plan is a draft and will change: Morpho is still
-> adding REST fields, and nothing below is decided. No code has changed yet.
+> adding REST fields. Section 0 is done; the rest is not decided yet.
+
+## 0. Done: fields Morpho retires on 2026-12-02
+
+Morpho's deprecation warnings give **2026-12-02** (earlier than the endpoint
+shutdown) for `CollateralCapData.collateralAddress`, `VaultV2PendingConfig.data`,
+`VaultV2IncreaseCapPendingData.cap`, `MetaMorphoAdapterFactory.address` and the
+whole `VaultV2AllocationTransaction` type, with no GraphQL replacement. A removed
+field fails the whole query, so these moved first:
+
+| Was (GraphQL) | Now | Code |
+| --- | --- | --- |
+| `CollateralCapData.collateralAddress` (governance, vault detail) | REST `/v0/vaults-v2/{v}/allocations` → `collateral_address` (governance); dropped from the vault detail query, which only needs cap totals | `lib/morpho/vault-v2-collateral-caps.server.ts` |
+| `pendingConfigs { data decodedData }` (pending route, activity) | REST `/pending-governance-actions` → `submitted_transaction_hash`; the receipt's `Submit` events from this vault give the calldata; `executableAt(data)` on chain filters and dates it; calldata decoded locally | `lib/morpho/vault-v2-pending.server.ts`, `vault-v2-pending-decode.ts` |
+| `vaultV2AllocationTransactions` (reallocations, activity) | Net amount moved per interval from each Blue adapter's supply shares (`/v0/blue/markets/{m}/users/{adapter}/position/history`) × market share price (`/v0/blue/markets/{m}/state/history`); hourly 7 days, daily 30 days. **Not** `/caps/history`, which is the live position and includes interest. No tx hash or sender. | `lib/morpho/vault-v2-allocation-history(.server).ts` |
+| `vaultV2AllocationTransactions` by sender (bots) | Removed; role-Safe executed history only. Allocations sent by bot EOAs no longer show until there is a log source (paid RPC `eth_getLogs` or an indexer). | `src/app/api/bots/activity/route.ts` |
+| `factory { address }` on adapters | Removed (unused) | governance route |
+
+Checked live against GraphQL before the cutoff: collateral caps match on all four
+vaults; the mfUSDC pending cap increase matches (calldata, `validAt`, amount, cap
+id); every mpUSDC allocation tx of the last 30 days appears in its hour (daily
+beyond 7 days) with the amount within cents (priced at the interval end).
+
 
 ---
 

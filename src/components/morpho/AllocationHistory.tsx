@@ -114,19 +114,28 @@ function GroupRow({
             </Badge>
           </div>
           <div className="flex items-center gap-3 shrink-0">
-            <span className="text-xs text-muted-foreground" title={new Date(timestampMs).toLocaleString()}>
+            <span
+              className="text-xs text-muted-foreground"
+              title={
+                group.since != null
+                  ? `Between ${new Date(group.since * 1000).toLocaleString()} and ${new Date(timestampMs).toLocaleString()}`
+                  : new Date(timestampMs).toLocaleString()
+              }
+            >
               {formatRelativeTime(new Date(timestampMs))}
             </span>
-            <a
-              href={`${scanUrl}/tx/${group.hash}`}
-              target="_blank"
-              rel="noreferrer"
-              className="text-muted-foreground hover:text-foreground"
-              onClick={(e) => e.stopPropagation()}
-              aria-label="View transaction"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-            </a>
+            {group.hash ? (
+              <a
+                href={`${scanUrl}/tx/${group.hash}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={(e) => e.stopPropagation()}
+                aria-label="View transaction"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            ) : null}
           </div>
         </div>
       </button>
@@ -135,7 +144,7 @@ function GroupRow({
         <div className="bg-muted/40 px-4 pb-3">
           <div className="space-y-1 pl-7">
             {group.events.map((ev, i) => (
-              <EventRow key={`${ev.hash}-${i}`} event={ev} assetDecimals={assetDecimals} assetSymbol={assetSymbol} />
+              <EventRow key={`${ev.hash ?? group.key}-${i}`} event={ev} assetDecimals={assetDecimals} assetSymbol={assetSymbol} />
             ))}
           </div>
         </div>
@@ -217,7 +226,7 @@ export function AllocationHistory({
   assetSymbol,
   pageSize = 10,
   title = 'Allocation History',
-  description,
+  description = 'Net amounts moved per hour (last 7 days) or per day (up to 30 days), from the adapters’ Morpho market positions. Interest is excluded; there is no transaction or sender.',
   filterEventTypes,
   groupHeading = 'Reallocation',
   emptyMessage = 'No reallocation events found.',
@@ -282,7 +291,7 @@ export function AllocationHistory({
           >
             {paged.map((group) => (
               <GroupRow
-                key={group.hash}
+                key={group.key}
                 group={group}
                 scanUrl={scanUrl}
                 assetDecimals={decimals}

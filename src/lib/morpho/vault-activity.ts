@@ -145,28 +145,6 @@ export function pendingStatus(
   return validAt <= nowSeconds ? 'executable' : 'timelocked';
 }
 
-/** Signed allocation change: `change` when indexed, else ± assets by type. */
-export function signedAllocationAmount(input: {
-  type?: string | null;
-  assets?: string | number | null;
-  change?: string | number | null;
-}): string | null {
-  const toInt = (v: string | number | null | undefined): bigint | null => {
-    if (v == null || v === '') return null;
-    try {
-      return typeof v === 'number' ? BigInt(Math.round(v)) : BigInt(v.split('.')[0]);
-    } catch {
-      return null;
-    }
-  };
-  const change = toInt(input.change);
-  if (change != null && change !== 0n) return change.toString();
-  const assets = toInt(input.assets);
-  if (assets == null) return null;
-  const isDeallocate = /dealloc/i.test(input.type ?? '');
-  return (isDeallocate ? -assets : assets).toString();
-}
-
 /**
  * Pending submissions with no executed Safe row first (their only time is the
  * future unlock), then newest first; stable on ties by id.

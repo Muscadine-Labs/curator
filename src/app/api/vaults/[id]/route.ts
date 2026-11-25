@@ -99,7 +99,6 @@ const VAULT_V2_DETAIL_QUERY = gql`
               adapterAddress
               market { marketId }
             }
-            ... on CollateralCapData { collateralAddress }
           }
         }
       }

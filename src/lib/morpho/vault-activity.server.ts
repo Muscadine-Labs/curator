@@ -1,13 +1,12 @@
-import { gql } from 'graphql-request';
 import { getAddress, type Address } from 'viem';
-import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
+import { fetchAllocationChanges } from '@/lib/morpho/vault-v2-allocation-history.server';
+import { fetchVaultPendingSubmits } from '@/lib/morpho/vault-v2-pending.server';
 import { withServerResponseCache } from '@/lib/api/server-response-cache';
 import { API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
 import {
   describeVaultCall,
   governanceCallsFromSafeTx,
   matchPendingConfig,
-  signedAllocationAmount,
   sortActivity,
   type VaultActivityRow,
 } from '@/lib/morpho/vault-activity';
@@ -19,70 +18,9 @@ import {
 } from '@/lib/safe/transaction-service';
 import { logger } from '@/lib/utils/logger';
 
-const ALLOCATION_ROWS = 200;
 
 /** Safes whose executed history can hold vault governance calls. */
 const GOVERNANCE_SAFE_ROLES = new Set(['owner', 'curator', 'sentinel', 'allocator']);
-
-const VAULT_ACTIVITY_QUERY = gql`
-  query VaultActivity($vaultAddress: String!, $chainId: Int!, $first: Int!) {
-    vaultV2AllocationTransactions(
-      vaultAddress: $vaultAddress
-      chainId: $chainId
-      first: $first
-      orderBy: Timestamp
-      orderDirection: Desc
-    ) {
-      items {
-        txHash
-        logIndex
-        timestamp
-        type
-        assets
-        change
-        adapter
-        sender
-        ids
-      }
-    }
-    vault: vaultV2ByAddress(address: $vaultAddress, chainId: $chainId) {
-      pendingConfigs(first: 100) {
-        items {
-          functionName
-          txHash
-          validAt
-          data
-        }
-      }
-    }
-  }
-`;
-
-type GraphResponse = {
-  vaultV2AllocationTransactions?: {
-    items?: Array<{
-      txHash: string;
-      logIndex?: number | null;
-      timestamp: number | string;
-      type?: string | null;
-      assets?: string | number | null;
-      change?: string | number | null;
-      adapter?: string | null;
-      sender?: string | null;
-      ids?: string[] | null;
-    } | null> | null;
-  } | null;
-  vault?: {
-    pendingConfigs?: {
-      items?: Array<{
-        functionName?: string | null;
-        txHash?: string | null;
-        validAt?: number | string | null;
-        data?: string | null;
-      } | null> | null;
-    } | null;
-  } | null;
-};
 
 export type VaultActivityResponse = {
   rows: VaultActivityRow[];
@@ -97,6 +35,16 @@ export type VaultActivityResponse = {
    * before this time may be missing. Null when every history was read whole.
    */
   governanceHistorySince: number | null;
+  /**
+   * Allocation rows are net amounts moved per interval, rebuilt from each Blue
+   * adapter's market supply shares (Morpho REST; hourly for 7 days, daily to 30
+   * days), with no tx hash or sender: Morpho drops allocation transactions on
+   * 2026-12-02.
+   * `unavailable` = that read failed.
+   */
+  allocationHistory: 'net' | 'unavailable';
+  /** Pending submissions: `unavailable` when the REST / receipt / on-chain read failed. */
+  pendingHistory: 'complete' | 'unavailable';
 };
 
 /** Newest executed txs read per Safe (shared across every vault the Safe governs). */
@@ -184,37 +132,45 @@ export async function fetchVaultActivity(
     `vault-activity:${chainId}:${vault.toLowerCase()}`,
     API_CACHE_MAX_AGE_MS,
     async () => {
-      const [data, governance] = await Promise.all([
-        morphoGraphQLClient.request<GraphResponse>(VAULT_ACTIVITY_QUERY, {
-          vaultAddress: vault,
-          chainId,
-          first: ALLOCATION_ROWS,
+      const [allocations, pendingSubmits, governance] = await Promise.all([
+        fetchAllocationChanges(vault, chainId).catch((error: unknown) => {
+          logger.warn('Vault activity: allocation history unavailable', {
+            vault,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return null;
+        }),
+        fetchVaultPendingSubmits(vault, chainId).catch((error: unknown) => {
+          logger.warn('Vault activity: pending submissions unavailable', {
+            vault,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return null;
         }),
         governanceRowsFromSafes(vault),
       ]);
 
-      const allocationRows: VaultActivityRow[] = (data.vaultV2AllocationTransactions?.items ?? [])
-        .filter((x): x is NonNullable<typeof x> => Boolean(x?.txHash))
-        .map((tx, i) => ({
-          id: `alloc-${tx.txHash}-${tx.logIndex ?? i}`,
-          timestamp: Number(tx.timestamp),
+      const allocationRows: VaultActivityRow[] = (allocations ?? []).map((change) => {
+        const amount = BigInt(change.change);
+        return {
+          id: `alloc-${change.capId}-${change.timestamp}`,
+          timestamp: change.timestamp,
           type: 'allocation' as const,
-          action: /dealloc/i.test(tx.type ?? '') ? 'deallocate' : 'allocate',
-          actor: tx.sender ?? null,
-          amount: signedAllocationAmount(tx),
-          adapter: tx.adapter ?? null,
-          ids: (tx.ids ?? []).filter(Boolean),
-          txHash: tx.txHash,
-        }));
+          action: amount < 0n ? 'deallocate' : 'allocate',
+          actor: null,
+          amount: change.change,
+          adapter: change.adapterAddress,
+          ids: [change.capId],
+          txHash: null,
+        };
+      });
 
-      const pendingConfigs = (data.vault?.pendingConfigs?.items ?? [])
-        .filter((p): p is NonNullable<typeof p> => Boolean(p?.functionName))
-        .map((p) => ({
-          txHash: p.txHash ?? null,
-          data: p.data ?? null,
-          functionName: p.functionName!,
-          validAt: Number(p.validAt ?? 0),
-        }));
+      const pendingConfigs = (pendingSubmits ?? []).map((p) => ({
+        txHash: p.txHash,
+        data: p.data as string,
+        functionName: p.functionName,
+        validAt: p.validAt,
+      }));
 
       // Reconcile executed Safe calls with pending configs call by call (tx
       // hash + submitted calldata): one batch can submit several configs with
@@ -250,8 +206,14 @@ export async function fetchVaultActivity(
         ]),
         governanceHistory: governance.status,
         governanceHistorySince: governance.since,
+        allocationHistory: allocations ? 'net' : 'unavailable',
+        pendingHistory: pendingSubmits ? 'complete' : 'unavailable',
       };
     },
-    (result) => result.governanceHistory !== 'partial'
+    // A partial result is served but not cached, so the next request retries.
+    (result) =>
+      result.governanceHistory !== 'partial' &&
+      result.allocationHistory !== 'unavailable' &&
+      result.pendingHistory !== 'unavailable'
   );
 }

@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { parseBoundedIntParam } from '@/lib/api/query-params';
-import { gql } from 'graphql-request';
 import { getAddress, isAddress } from 'viem';
-import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
+import { fetchAllocationChanges } from '@/lib/morpho/vault-v2-allocation-history.server';
 import { getVaultByAddress } from '@/lib/config/vaults';
 import { handleApiError, AppError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
@@ -11,7 +10,8 @@ import { mergeApiCacheHeaders } from '@/lib/api/response-cache';
 import { unauthorizedUnlessAdmin } from '@/lib/auth/require-admin';
 
 export type ReallocationEvent = {
-  hash: string;
+  /** Null: rows are net amounts per interval from market supply shares, not transactions. */
+  hash: string | null;
   timestamp: number | null;
   blockNumber: number | null;
   type: string;
@@ -29,8 +29,13 @@ export type ReallocationEvent = {
 };
 
 export type ReallocationGroup = {
+  /** Stable key: interval end (and tx hash when there is one). */
+  key: string;
+  /** End of the interval. */
   timestamp: number;
-  hash: string;
+  /** Start of the interval (previous position history point). */
+  since: number | null;
+  hash: string | null;
   blockNumber: number | null;
   events: ReallocationEvent[];
 };
@@ -41,61 +46,23 @@ export type ReallocationsResponse = {
   groups: ReallocationGroup[];
 };
 
-const V2_REALLOCATIONS_QUERY = gql`
-  query V2VaultReallocations(
-    $vaultAddress: String!
-    $chainId: Int!
-    $first: Int!
-    $skip: Int!
-  ) {
-    vaultV2AllocationTransactions(
-      vaultAddress: $vaultAddress
-      chainId: $chainId
-      first: $first
-      skip: $skip
-      orderBy: Timestamp
-      orderDirection: Desc
-    ) {
-      items {
-        txHash
-        blockNumber
-        timestamp
-        type
-        assets
-        change
-        adapter
-        ids
-      }
-    }
-  }
-`;
-
-type V2GraphResponse = {
-  vaultV2AllocationTransactions?: {
-    items?: Array<{
-      txHash?: string | null;
-      blockNumber?: number | string | null;
-      timestamp?: number | string | null;
-      type?: string | null;
-      assets?: string | number | null;
-      change?: string | number | null;
-      adapter?: string | null;
-      ids?: string[] | null;
-    } | null> | null;
-  } | null;
-};
-
-function groupByTransaction(events: ReallocationEvent[]): ReallocationGroup[] {
+/** One group per interval: every cap whose allocation moved in it. */
+function groupByInterval(
+  events: Array<ReallocationEvent & { since: number }>
+): ReallocationGroup[] {
   const map = new Map<string, ReallocationGroup>();
-  for (const ev of events) {
-    const existing = map.get(ev.hash);
+  for (const { since, ...ev } of events) {
+    const key = `${ev.timestamp ?? 0}`;
+    const existing = map.get(key);
     if (existing) {
       existing.events.push(ev);
     } else {
-      map.set(ev.hash, {
+      map.set(key, {
+        key,
         timestamp: ev.timestamp ?? 0,
-        hash: ev.hash,
-        blockNumber: ev.blockNumber,
+        since,
+        hash: null,
+        blockNumber: null,
         events: [ev],
       });
     }
@@ -138,41 +105,32 @@ export async function GET(
 
     const url = new URL(request.url);
     const first = parseBoundedIntParam(url.searchParams.get('first'), 100, { min: 1, max: 500 });
-    const skip = parseBoundedIntParam(url.searchParams.get('skip'), 0, { min: 0, max: 10_000 });
 
     const chainId = vaultConfig.chainId ?? BASE_CHAIN_ID;
-    const data = await morphoGraphQLClient.request<V2GraphResponse>(V2_REALLOCATIONS_QUERY, {
-      vaultAddress,
-      chainId,
-      first,
-      skip,
-    });
-    const items = data.vaultV2AllocationTransactions?.items ?? [];
-    const events: ReallocationEvent[] = items
-      .filter((x): x is NonNullable<typeof x> => x !== null && Boolean(x.txHash))
-      .map((tx) => {
-        const allocationIds = (tx.ids ?? []).filter(Boolean) as string[];
-        return {
-          hash: String(tx.txHash),
-          timestamp: tx.timestamp != null ? Number(tx.timestamp) : null,
-          blockNumber: tx.blockNumber != null ? Number(tx.blockNumber) : null,
-          type: tx.type ?? 'Unknown',
-          assets: tx.assets != null ? String(tx.assets) : null,
-          change: tx.change != null ? String(tx.change) : null,
-          adapterAddress: tx.adapter ?? null,
-          allocationIds,
-          market: allocationIds[0]
-            ? {
-                marketKey: allocationIds[0],
-                loanAssetSymbol: null,
-                collateralAssetSymbol: null,
-                lltv: null,
-              }
-            : null,
-        };
-      });
+    // Morpho drops allocation transactions on 2026-12-02; rebuild net amounts
+    // moved per interval from the adapters' market supply shares (no tx hash or sender).
+    const changes = await fetchAllocationChanges(vaultAddress, chainId);
+    const events = changes.slice(0, first).map((change) => ({
+      hash: null,
+      timestamp: change.timestamp,
+      since: change.since,
+      blockNumber: null,
+      type: change.change.startsWith('-') ? 'Deallocate' : 'Allocate',
+      assets: change.change.replace(/^-/, ''),
+      change: change.change,
+      adapterAddress: change.adapterAddress,
+      allocationIds: [change.capId],
+      market: change.marketId
+        ? {
+            marketKey: change.marketId,
+            loanAssetSymbol: null,
+            collateralAssetSymbol: null,
+            lltv: null,
+          }
+        : null,
+    }));
 
-    const groups = groupByTransaction(events);
+    const groups = groupByInterval(events);
 
     const response: ReallocationsResponse = {
       vaultAddress,

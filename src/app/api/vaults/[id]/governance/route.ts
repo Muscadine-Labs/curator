@@ -7,6 +7,10 @@ import { handleApiError, AppError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
 import { BASE_CHAIN_ID, VAULT_V2_GRAPHQL_ADAPTER_LIMIT, VAULT_V2_GRAPHQL_CAPS_LIMIT } from '@/lib/constants';
 import { mapCap, type GraphCap } from '@/lib/morpho/vault-v2-governance-map';
+import {
+  tryFetchCollateralCapsRest,
+  withRestCollateralCaps,
+} from '@/lib/morpho/vault-v2-collateral-caps.server';
 import { enrichCollateralCapSymbols, enrichMarketCapParams } from '@/lib/morpho/fetch-markets-by-id';
 import { overlayV2OnChainCaps } from '@/lib/morpho/overlay-v2-onchain-caps';
 import { resolveMarketOracleAddress } from '@/lib/morpho/market-oracle-address';
@@ -278,9 +282,6 @@ const VAULT_V2_GOVERNANCE_QUERY = gql`
                 }
               }
             }
-            ... on CollateralCapData {
-              collateralAddress
-            }
           }
         }
       }
@@ -505,15 +506,16 @@ export async function GET(
     const address = getAddress(cfg.address);
     const chainId = cfg.chainId ?? BASE_CHAIN_ID;
 
-    const data = await morphoGraphQLClient.request<GraphVaultGovernanceResponse>(
-      VAULT_V2_GOVERNANCE_QUERY,
-      {
+    // Collateral caps come from Morpho REST (GraphQL drops their address on 2026-12-02).
+    const [data, restCollateralCaps] = await Promise.all([
+      morphoGraphQLClient.request<GraphVaultGovernanceResponse>(VAULT_V2_GOVERNANCE_QUERY, {
         address,
         chainId,
         adapterLimit: ADAPTER_LIMIT,
         capLimit: CAPS_LIMIT,
-      }
-    );
+      }),
+      tryFetchCollateralCapsRest(address, chainId),
+    ]);
 
     if (!data.vault) {
       throw new AppError('Vault not found in Morpho API', 404, 'VAULT_NOT_FOUND');
@@ -527,10 +529,10 @@ export async function GET(
     let liquidityAdapter = mapAdapter(data.vault.liquidityAdapter);
     let liquidityData = mapLiquidityData(data.vault.liquidityData ?? null);
 
-    const capsRaw =
-      data.vault.caps?.items
-        ?.map(mapCap)
-        .filter((c): c is CapInfo => c !== null) ?? [];
+    const capsRaw = withRestCollateralCaps(
+      data.vault.caps?.items?.map(mapCap).filter((c): c is CapInfo => c !== null) ?? [],
+      restCollateralCaps
+    );
 
     const enrichedCaps = await enrichCollateralCapSymbols(
       await enrichMarketCapParams(capsRaw, chainId),

@@ -191,6 +191,23 @@ export function VaultActivityFeed({
                 : 'Some role Safe histories failed to load; governance rows may be incomplete.'}
             </p>
           )}
+          {data?.allocationHistory === 'net' && (
+            <p className="text-xs text-muted-foreground">
+              Allocation rows are net amounts moved per hour (last 7 days) or per day (up to 30
+              days), from the adapters&apos; Morpho market positions (interest excluded). They carry
+              no transaction or sender.
+            </p>
+          )}
+          {data?.allocationHistory === 'unavailable' && (
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              Allocation history failed to load; allocation rows are missing.
+            </p>
+          )}
+          {data?.pendingHistory === 'unavailable' && (
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              Pending submissions failed to load; pending rows are missing.
+            </p>
+          )}
           {rows.length === 0 ? (
             <CuratorEmptyText>No activity for this filter.</CuratorEmptyText>
           ) : (
