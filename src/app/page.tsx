@@ -145,7 +145,7 @@ export default function Home() {
           </p>
         ) : null}
         <div className="rounded-lg border bg-card/40 p-3 space-y-2.5">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-3">
             <p className="col-span-full text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
               Protocol
             </p>
@@ -168,16 +168,6 @@ export default function Home() {
               className="border-0 bg-muted/40 shadow-none py-2"
               onClick={() => toggleStat('fees')}
               selected={selectedStat === 'fees'}
-            />
-            <KpiCard
-              title="Users"
-              value={stats?.users || 0}
-              isLoading={isLoading}
-              format="number"
-              compact
-              className="border-0 bg-muted/40 shadow-none py-2"
-              onClick={() => toggleStat('users')}
-              selected={selectedStat === 'users'}
             />
             <KpiCard
               title="Active Vaults"
