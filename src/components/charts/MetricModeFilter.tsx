@@ -10,7 +10,7 @@ export type VaultHistoryMetric = 'supplied' | 'sharePrice' | 'apy';
 interface MetricModeFilterProps {
   value: VaultHistoryMetric;
   onChange: (value: VaultHistoryMetric) => void;
-  /** Metrics with no series yet (e.g. new fee wrappers before avgNetApy). */
+  /** Metrics with no series yet (for example before avgNetApy is indexed). */
   hidden?: ReadonlyArray<VaultHistoryMetric>;
 }
 

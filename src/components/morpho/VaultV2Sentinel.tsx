@@ -63,7 +63,6 @@ import {
   resolveAssetDecimals,
 } from '@/lib/format/asset-decimals';
 import { marketKeyFromGraphQL, curatorBlueMarketHref, curatorVaultHref } from '@/lib/morpho/morpho-app-links';
-import { resolveUnderlyingVaultAddress } from '@/lib/config/vaults';
 import { isMorphoVaultV2Adapter } from '@/lib/morpho/vault-v2-adapter';
 import type { CapInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/[id]/governance/route';
 import type { V2VaultRiskResponse } from '@/app/api/vaults/[id]/risk/route';
@@ -1419,7 +1418,7 @@ function livePosition(live: string | null | undefined, booked: bigint): bigint {
 function buildOverviewAndDeallocate(
   risk: V2VaultRiskResponse,
   governance: VaultV2GovernanceResponse | null | undefined,
-  wrapperVaultAddress: string,
+  vaultAddress: string,
   chainId: number
 ): {
   totalRaw: bigint;
@@ -1477,9 +1476,7 @@ function buildOverviewAndDeallocate(
       totalRaw += raw;
       const underlying = adapter.underlying;
       const label = adapter.adapterLabel || underlying?.name || underlying?.symbol || 'Underlying vault';
-      const underlyingHref = curatorVaultHref(
-        resolveUnderlyingVaultAddress(wrapperVaultAddress, underlying?.address)
-      );
+      const underlyingHref = curatorVaultHref(underlying?.address ?? null);
       const adapterCap = capByAdapter.get(adapter.adapterAddress.toLowerCase());
       overviewSegments.push({
         key: `underlying-${adapter.adapterAddress}`,
@@ -1528,7 +1525,7 @@ function buildOverviewAndDeallocate(
       const loan = m.market?.loanAsset?.symbol;
       const label = formatMarketPairLabel(col, loan);
       const morphoHref = key
-        ? curatorBlueMarketHref(key, chainId, `/vault/${wrapperVaultAddress}/sentinel`)
+        ? curatorBlueMarketHref(key, chainId, `/vault/${vaultAddress}/sentinel`)
         : null;
       overviewSegments.push({
         key: key ?? `${adapter.adapterAddress}-${col}-${loan}`,

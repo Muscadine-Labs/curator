@@ -724,7 +724,7 @@ function VaultsDetail({ stats }: { stats: ProtocolStats }) {
       <div>
         <h3 className="text-sm font-semibold">Active vaults</h3>
         <p className="text-xs text-muted-foreground">
-          {stats.activeVaults} active vaults including fee wrappers
+          {stats.activeVaults} active vaults
         </p>
       </div>
       <div className="space-y-2 sm:hidden">
@@ -739,9 +739,6 @@ function VaultsDetail({ stats }: { stats: ProtocolStats }) {
                 #{safePage * PAGE_SIZE + i + 1}
               </p>
               <p className="truncate text-sm font-medium">{row.name}</p>
-              {row.kind === 'feeWrapper' && (
-                <p className="text-[10px] text-muted-foreground">Fee wrapper</p>
-              )}
             </div>
             <p className="shrink-0 font-mono text-xs tabular-nums">
               {formatFullUSD(row.tvl)}
@@ -755,7 +752,6 @@ function VaultsDetail({ stats }: { stats: ProtocolStats }) {
             <TableRow>
               <TableHead>#</TableHead>
               <TableHead>Vault</TableHead>
-              <TableHead>Kind</TableHead>
               <TableHead className="text-right">TVL</TableHead>
             </TableRow>
           </TableHeader>
@@ -772,11 +768,6 @@ function VaultsDetail({ stats }: { stats: ProtocolStats }) {
                   >
                     {row.name}
                   </Link>
-                </TableCell>
-                <TableCell>
-                  <Badge variant="secondary" className="text-[10px] font-normal">
-                    {row.kind === 'feeWrapper' ? 'Fee wrapper' : 'Strategy'}
-                  </Badge>
                 </TableCell>
                 <TableCell className="text-right font-mono text-xs">
                   {formatFullUSD(row.tvl)}

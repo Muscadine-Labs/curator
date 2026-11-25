@@ -78,19 +78,14 @@ export function VaultsCatalog() {
     });
   }, [vaults, search, assetFilter, networkFilter]);
 
-  const catalogVaults = useMemo(
-    () => filtered.filter((v) => v.kind !== 'feeWrapper'),
+  const groups = useMemo(
+    () => groupVaultsByKindAndCategory(filtered),
     [filtered]
   );
 
-  const groups = useMemo(
-    () => groupVaultsByKindAndCategory(catalogVaults),
-    [catalogVaults]
-  );
-
   const depositsUsd = useMemo(
-    () => catalogVaults.reduce((sum, v) => sum + (v.tvl ?? 0), 0),
-    [catalogVaults]
+    () => filtered.reduce((sum, v) => sum + (v.tvl ?? 0), 0),
+    [filtered]
   );
 
   return (
@@ -101,7 +96,7 @@ export function VaultsCatalog() {
           value={depositsUsd}
           format="usd"
           isLoading={isLoading}
-          subtitle="Underlying vaults. Fee wrappers are a tab on each vault."
+          subtitle="Strategy vaults"
         />
         <KpiCard
           title="Interest generated"

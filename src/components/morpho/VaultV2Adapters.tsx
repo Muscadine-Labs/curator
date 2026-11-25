@@ -31,7 +31,6 @@ import {
 import {
   getConfiguredVaultDisplayName,
   getVaultByAddress,
-  resolveUnderlyingVaultAddress,
 } from '@/lib/config/vaults';
 import { cn } from '@/lib/utils';
 import type { AdapterInfo, VaultV2GovernanceResponse } from '@/app/api/vaults/[id]/governance/route';
@@ -184,7 +183,7 @@ export function VaultV2Adapters({
               const absoluteCap = riskAdapter?.absoluteCap ?? cap?.absoluteCap ?? null;
               const relativeCap = riskAdapter?.relativeCap ?? cap?.relativeCap ?? null;
               const underlying = isMorphoVaultV2Adapter(adapter)
-                ? adapterLabel(adapter, vaultAddress)
+                ? adapterLabel(adapter)
                 : summary.marketsCount > 0
                   ? `${summary.marketsCount} market${summary.marketsCount === 1 ? '' : 's'}${
                       summary.activeMarketsCount !== summary.marketsCount
@@ -213,7 +212,7 @@ export function VaultV2Adapters({
                           )}
                           aria-hidden
                         />
-                        {adapterLabel(adapter, vaultAddress)}
+                        {adapterLabel(adapter)}
                       </span>
                       <AddressBadge address={adapter.address} truncate />
                       {isLiquidity && (
@@ -271,15 +270,12 @@ export function VaultV2Adapters({
   );
 }
 
-function adapterLabel(adapter: AdapterInfo, wrapperAddress: string): string {
+function adapterLabel(adapter: AdapterInfo): string {
   if (adapter.underlying?.name || adapter.underlying?.symbol) {
     return underlyingVaultLabel(adapter.underlying);
   }
   if (isMorphoVaultV2Adapter(adapter)) {
-    const underlyingAddr = resolveUnderlyingVaultAddress(
-      wrapperAddress,
-      adapter.underlying?.address
-    );
+    const underlyingAddr = adapter.underlying?.address ?? null;
     const cfg = underlyingAddr ? getVaultByAddress(underlyingAddr) : undefined;
     if (cfg) return getConfiguredVaultDisplayName(cfg);
     return UNDERLYING_VAULT_FALLBACK;

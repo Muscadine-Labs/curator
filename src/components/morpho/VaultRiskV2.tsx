@@ -19,7 +19,6 @@ import {
 } from '@/components/morpho/CuratorChrome';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { curatorVaultHref } from '@/lib/morpho/morpho-app-links';
-import { resolveUnderlyingVaultAddress } from '@/lib/config/vaults';
 import { isMorphoVaultV2Adapter } from '@/lib/morpho/vault-v2-adapter';
 import { shouldShowAdapterEntry, shouldShowMarketEntry } from '@/lib/morpho/format-risk';
 import { getGradeColor, getScoreColor } from '@/lib/morpho/market-risk-display';
@@ -138,7 +137,7 @@ export function VaultRiskV2({ vaultAddress, chainId, preloadedData }: VaultRiskV
         title="Risk"
         description={
           data.adapters.some((a) => isMorphoVaultV2Adapter(a))
-            ? 'Fee wrappers allocate to a single underlying vault. Market risk is scored on the underlying vault.'
+            ? 'This vault allocates to one underlying vault. Market risk is scored on that vault.'
             : "Weighted average across strategy adapters. Markets with a non-zero cap or allocation are shown."
         }
         actions={
@@ -197,9 +196,7 @@ export function VaultRiskV2({ vaultAddress, chainId, preloadedData }: VaultRiskV
                 )
               )
               .sort((a, b) => (b.allocationUsd ?? 0) - (a.allocationUsd ?? 0));
-            const underlyingHref = curatorVaultHref(
-              resolveUnderlyingVaultAddress(vaultAddress, adapter.underlying?.address)
-            );
+            const underlyingHref = curatorVaultHref(adapter.underlying?.address ?? null);
             const isWrapper = isMorphoVaultV2Adapter(adapter);
 
             return (

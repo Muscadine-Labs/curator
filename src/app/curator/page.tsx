@@ -23,7 +23,6 @@ import {
   MORPHO_CURATOR_V2_VAULTS_URL,
   MORPHO_CURATOR_CREATE_MARKET_URL,
   MORPHO_CURATOR_CREATE_VAULT_URL,
-  MORPHO_CURATOR_CREATE_FEE_WRAPPER_URL,
   MORPHO_DOCS_GET_STARTED_URL,
   MORPHO_FIXED_RATE_MARKETS_URL,
   MORPHO_LIQUIDATION_APP_URL,
@@ -87,13 +86,6 @@ const EXTERNAL_TOOLS: readonly HubLink[] = [
     description: 'Official Morpho Curator vault setup (identity, adapter, roles, fees).',
     href: MORPHO_CURATOR_CREATE_VAULT_URL,
     icon: Shield,
-    external: true,
-  },
-  {
-    title: 'Create Fee Wrapper',
-    description: 'Official Morpho Curator fee-wrapper deploy on top of an existing Vault V2.',
-    href: MORPHO_CURATOR_CREATE_FEE_WRAPPER_URL,
-    icon: Sparkles,
     external: true,
   },
   {

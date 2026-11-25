@@ -3,8 +3,6 @@ import { getAddress } from 'viem';
 import {
   getActiveVaultAddressesForStats,
   getConfiguredVaultDisplayName,
-  isFeeWrapperAdapterAddress,
-  withFeeWrapperLabel,
 } from '@/lib/config/vaults';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { handleApiError } from '@/lib/utils/error-handler';
@@ -90,10 +88,8 @@ export async function GET(request: NextRequest) {
 
         for (const { vault, address, items } of results) {
           const gqlMeta = meta.get(vault.address.toLowerCase());
-          const vaultName = withFeeWrapperLabel(
-            gqlMeta?.name?.trim() || getConfiguredVaultDisplayName(vault),
-            address
-          );
+          const vaultName =
+            gqlMeta?.name?.trim() || getConfiguredVaultDisplayName(vault);
           const assetSymbol = gqlMeta?.asset?.symbol ?? vault.assetSymbol;
           const assetDecimals = gqlMeta?.asset?.decimals ?? null;
 
@@ -101,11 +97,10 @@ export async function GET(request: NextRequest) {
             const userAddress = item?.user?.address;
             if (!userAddress) continue;
             const key = userAddress.toLowerCase();
-            // Skip null / burn addresses and fee-wrapper adapters — not depositors.
+            // Skip null / burn addresses — not depositors.
             if (
               key === '0x0000000000000000000000000000000000000000' ||
-              key === '0x000000000000000000000000000000000000dead' ||
-              isFeeWrapperAdapterAddress(key)
+              key === '0x000000000000000000000000000000000000dead'
             ) {
               continue;
             }

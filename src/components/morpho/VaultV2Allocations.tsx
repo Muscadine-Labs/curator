@@ -112,7 +112,6 @@ import {
   curatorVaultHref,
   marketKeyFromGraphQL,
 } from '@/lib/morpho/morpho-app-links';
-import { resolveUnderlyingVaultAddress } from '@/lib/config/vaults';
 import {
   AllocationPctIndicator,
   AllocationPill,
@@ -141,8 +140,6 @@ interface VaultV2AllocationsProps {
   preloadedData?: VaultV2GovernanceResponse | null;
   /** Preloaded risk data (adapters+markets+allocations). Optional. */
   preloadedRisk?: V2VaultRiskResponse | null;
-  /** Fee wrappers pick a Morpho vault adapter or idle; strategy vaults pick a market. */
-  liquidityAdapterVariant?: 'market' | 'vault-or-idle';
 }
 
 function MorphoAllocationLink({
@@ -361,7 +358,7 @@ interface AllocTarget {
   symbol: string;
   /** Vault cash not deployed to a strategy adapter — rebalanced via adapter dealloc/alloc. */
   isVaultIdle?: boolean;
-  /** Single MorphoVaultV2Adapter target (fee wrapper underlying vault). */
+  /** Single MorphoVaultV2Adapter target (child vault). */
   isUnderlyingVault?: boolean;
   /** Absolute cap in raw token units (null when unknown). */
   absoluteCapRaw: bigint | null;
@@ -472,7 +469,6 @@ export function VaultV2Allocations({
   chainId,
   preloadedData,
   preloadedRisk,
-  liquidityAdapterVariant = 'market',
 }: VaultV2AllocationsProps) {
   const queryClient = useQueryClient();
   const {
@@ -572,10 +568,7 @@ export function VaultV2Allocations({
     for (const adapter of adapterList) {
       if (isMorphoVaultV2Adapter(adapter)) {
         const underlying = adapter.underlying;
-        const underlyingAddress = resolveUnderlyingVaultAddress(
-          vaultAddress,
-          underlying?.address
-        );
+        const underlyingAddress = underlying?.address ?? null;
         const label =
           adapter.adapterLabel ||
           underlying?.name ||
@@ -2197,7 +2190,6 @@ export function VaultV2Allocations({
         risk={risk}
         assetSymbol={vaultSymbol}
         assetDecimals={vaultDecimals}
-        variant={liquidityAdapterVariant}
       />
       <div className="space-y-4">
         <CuratorPageHeader

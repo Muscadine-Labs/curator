@@ -4,6 +4,10 @@ Append-only session log. Newest first. Keep entries short; link files.
 
 ---
 
+## 2026-11-25 — Fee wrappers removed
+
+- Strategy vaults only. Dropped fee-wrapper config, the Fee wrapper tab, wrapper labels, and wrapper adapter rows on the send-assets gate roster.
+
 ## 2026-11-24 — Source under src, markets in one route tree
 
 - Source now lives in `src/app`, `src/components` and `src/lib`, matching the depositor app. `@/` points at `src/` (tsconfig, vitest). The auth proxy moved to `src/proxy.ts`: Next.js only picks it up next to `src/app`.

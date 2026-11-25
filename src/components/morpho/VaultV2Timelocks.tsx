@@ -38,7 +38,7 @@ interface VaultV2TimelocksProps {
   preloadedRisk?: V2VaultRiskResponse | null;
   assetSymbol?: string | null;
   assetDecimals?: number | null;
-  /** Fee-wrapper caps already embed pending above this table. */
+  /** When false, pending caps are shown elsewhere and this table hides them. */
   showPending?: boolean;
 }
 

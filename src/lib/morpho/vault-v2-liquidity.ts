@@ -9,8 +9,6 @@ import {
 } from '@/lib/morpho/v2-id-data';
 import { formatMarketPairLabel, formatLltvPill } from '@/components/morpho/AllocationListView';
 import { marketKeyFromGraphQL, morphoMarketHref } from '@/lib/morpho/morpho-app-links';
-import { isMorphoVaultV2Adapter } from '@/lib/morpho/vault-v2-adapter';
-import { EMPTY_ADAPTER_DATA } from '@/lib/morpho/v2-id-data';
 
 export type LiquidityAdapterOption = {
   key: string;
@@ -178,50 +176,3 @@ export function buildLiquidityAdapterOptions(
   return options;
 }
 
-const IDLE_ADAPTER = zeroAddress;
-
-/**
- * Fee-wrapper liquidity targets: the Morpho vault adapter (data must be empty)
- * or idle (`address(0)`), which leaves withdrawals on unallocated cash.
- */
-export function buildVaultOrIdleLiquidityOptions(
-  risk: V2VaultRiskResponse,
-  governance: VaultV2GovernanceResponse
-): LiquidityAdapterOption[] {
-  const current = governance.liquidityAdapter?.address?.toLowerCase() ?? null;
-  const idleCurrent = !current || current === IDLE_ADAPTER;
-  const options: LiquidityAdapterOption[] = [
-    {
-      key: 'idle',
-      label: 'Idle',
-      lltv: null,
-      morphoHref: null,
-      adapterAddress: IDLE_ADAPTER,
-      liquidityData: EMPTY_ADAPTER_DATA,
-      kind: 'idle',
-      isCurrent: idleCurrent,
-    },
-  ];
-
-  for (const adapter of risk.adapters ?? []) {
-    if (!isMorphoVaultV2Adapter(adapter)) continue;
-    const address = adapter.adapterAddress;
-    options.push({
-      key: `vault-${address.toLowerCase()}`,
-      label: adapter.underlying?.name || adapter.underlying?.symbol || adapter.adapterLabel,
-      lltv: null,
-      morphoHref: null,
-      adapterAddress: address,
-      liquidityData: EMPTY_ADAPTER_DATA,
-      kind: 'vault',
-      isCurrent: current === address.toLowerCase(),
-    });
-  }
-
-  options.sort((a, b) => {
-    if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1;
-    if (a.kind === 'idle' || b.kind === 'idle') return a.kind === 'idle' ? 1 : -1;
-    return a.label.localeCompare(b.label);
-  });
-  return options;
-}

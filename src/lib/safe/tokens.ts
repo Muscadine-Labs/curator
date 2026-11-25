@@ -67,8 +67,7 @@ const BASE_ASSETS: ReadonlyArray<SafeTokenMeta> = [
 
 /**
  * Tokens a Muscadine Safe is expected to hold: native ETH, the three Base
- * assets the vaults denominate in, and every configured vault's shares (a Safe
- * that seeded or holds fee-wrapper shares shows them here). Anything else has
+ * assets the vaults denominate in, and every configured vault's shares. Anything else has
  * to be added by address — Safes can receive arbitrary tokens, and enumerating
  * them on-chain is not possible without an indexer.
  */
