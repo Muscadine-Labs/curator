@@ -60,9 +60,6 @@ export function parseCuratorMarketChainId(raw: string | null | undefined): numbe
 
 export const BPS_PER_ONE = 10000;
 
-export const GRAPHQL_FIRST_LIMIT = 1000;
-export const GRAPHQL_TRANSACTIONS_LIMIT = 10;
-
 const MILLISECONDS_PER_SECOND = 1000;
 const SECONDS_PER_MINUTE = 60;
 const MINUTES_PER_HOUR = 60;
@@ -77,8 +74,7 @@ export const DAYS_30_MS = 30 * DAY_MS;
 /** WAD max-rate annualization (per-second rate × year). */
 export const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
 
-export const MORPHO_GRAPHQL_ENDPOINT = 'https://api.morpho.org/graphql';
-/** Morpho REST (Midnight books/markets — GraphQL is Blue-only). */
+/** Morpho REST API (all Morpho reads; GraphQL shut down on 2027-01-29). */
 export const MORPHO_REST_ORIGIN = 'https://api.morpho.org';
 export const MORPHO_APP_ORIGIN = 'https://app.morpho.org';
 /** Morpho Markets app (Midnight / fixed-term books). */

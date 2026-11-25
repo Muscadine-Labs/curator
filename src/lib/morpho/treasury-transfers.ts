@@ -3,11 +3,11 @@
  * Used by Bots → Rebater for outflows, and by the monthly statement to remove
  * capital inflows (deposits and non-mint transfers) from fee revenue.
  */
-import { gql } from 'graphql-request';
 import { formatUnits, getAddress, isAddress, zeroAddress } from 'viem';
 import { bigintRatio } from '@/lib/format/bigint-ratio';
 import { BASE_CHAIN_ID } from '@/lib/constants';
-import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
+import { morphoRestList, morphoSelector } from '@/lib/morpho/rest-client';
+import { getRestVault } from '@/lib/morpho/rest-data';
 import {
   TREASURY_ADDRESS,
   treasuryAssetKeyForVault,
@@ -35,94 +35,6 @@ export type TreasuryVaultTransfer = {
   isSelfDeposit: boolean;
 };
 
-type TxData =
-  | {
-      __typename: 'VaultV2DepositData';
-      assets?: string | number | null;
-      onBehalf?: string | null;
-      sender?: string | null;
-    }
-  | {
-      __typename: 'VaultV2WithdrawData';
-      assets?: string | number | null;
-      onBehalf?: string | null;
-      receiver?: string | null;
-      sender?: string | null;
-    }
-  | {
-      __typename: 'VaultV2TransferData';
-      from?: string | null;
-      to?: string | null;
-    };
-
-type TxItem = {
-  txHash?: string | null;
-  timestamp?: number | string | null;
-  type?: string | null;
-  assets?: string | number | null;
-  shares?: string | number | null;
-  vault?: {
-    address?: string | null;
-    asset?: {
-      address?: string | null;
-      symbol?: string | null;
-      decimals?: number | null;
-    } | null;
-  } | null;
-  data?: TxData | null;
-};
-
-const TREASURY_TX_QUERY = gql`
-  query TreasuryVaultTransfers(
-    $user: String!
-    $chainIds: [Int!]
-    $first: Int!
-    $skip: Int!
-  ) {
-    vaultV2transactions(
-      first: $first
-      skip: $skip
-      orderBy: Time
-      orderDirection: Desc
-      where: { userAddress_in: [$user], chainId_in: $chainIds }
-    ) {
-      items {
-        txHash
-        timestamp
-        type
-        assets
-        shares
-        vault {
-          address
-          asset {
-            address
-            symbol
-            decimals
-          }
-        }
-        data {
-          __typename
-          ... on VaultV2DepositData {
-            assets
-            onBehalf
-            sender
-          }
-          ... on VaultV2WithdrawData {
-            assets
-            onBehalf
-            receiver
-            sender
-          }
-          ... on VaultV2TransferData {
-            from
-            to
-          }
-        }
-      }
-    }
-  }
-`;
-
 function rawToString(value: string | number | null | undefined): string | null {
   if (value == null) return null;
   if (typeof value === 'string') {
@@ -137,49 +49,6 @@ function rawToString(value: string | number | null | undefined): string | null {
   if (typeof value === 'number' && Number.isSafeInteger(value)) {
     return String(BigInt(value));
   }
-  return null;
-}
-
-function classify(
-  treasury: string,
-  data: TxData | null | undefined
-): {
-  direction: TreasuryTransferDirection;
-  counterparty: string | null;
-  isSelfDeposit: boolean;
-} | null {
-  const t = treasury.toLowerCase();
-  if (!data?.__typename) return null;
-
-  if (data.__typename === 'VaultV2TransferData') {
-    const from = data.from?.toLowerCase() ?? '';
-    const to = data.to?.toLowerCase() ?? '';
-    if (to === t && from !== t) {
-      return { direction: 'in', counterparty: data.from ?? null, isSelfDeposit: false };
-    }
-    if (from === t && to !== t) {
-      return { direction: 'out', counterparty: data.to ?? null, isSelfDeposit: false };
-    }
-    return null;
-  }
-
-  if (data.__typename === 'VaultV2DepositData') {
-    const onBehalf = data.onBehalf?.toLowerCase() ?? '';
-    const sender = data.sender?.toLowerCase() ?? '';
-    if (onBehalf !== t) return null;
-    return {
-      direction: 'in',
-      counterparty: data.sender ?? null,
-      isSelfDeposit: sender === t,
-    };
-  }
-
-  if (data.__typename === 'VaultV2WithdrawData') {
-    const sender = (data.sender ?? data.onBehalf)?.toLowerCase() ?? '';
-    if (sender !== t) return null;
-    return { direction: 'out', counterparty: data.receiver ?? null, isSelfDeposit: false };
-  }
-
   return null;
 }
 
@@ -231,92 +100,88 @@ export function capitalInflowTokens(input: {
   return tokens > 0 ? tokens : 0;
 }
 
-function mapItem(treasury: string, item: TxItem): TreasuryVaultTransfer | null {
-  if (!item.txHash || item.timestamp == null) return null;
-  const typeRaw = item.type ?? '';
-  const type =
-    typeRaw === 'Deposit' || typeRaw === 'Withdraw' || typeRaw === 'Transfer'
-      ? typeRaw
-      : null;
-  if (!type) return null;
-
-  const classified = classify(treasury, item.data ?? null);
-  if (!classified) return null;
-
-  const vaultAddress = item.vault?.address;
-  if (!vaultAddress || !isAddress(vaultAddress)) return null;
-  const symbolHint = item.vault?.asset?.symbol?.trim() || null;
-  const asset = treasuryAssetKeyForVault(vaultAddress, symbolHint);
-  const symbol = symbolHint || asset || 'TOKEN';
-  const decimals = item.vault?.asset?.decimals ?? (symbol === 'USDC' ? 6 : 18);
-  const assetsFromData =
-    item.data && 'assets' in item.data ? rawToString(item.data.assets) : null;
-
-  return {
-    hash: String(item.txHash),
-    timestamp: Number(item.timestamp),
-    direction: classified.direction,
-    type,
-    vaultAddress: getAddress(vaultAddress),
-    asset,
-    assetSymbol: symbol,
-    assetDecimals: decimals,
-    assetAddress: item.vault?.asset?.address ?? null,
-    assetsRaw: rawToString(item.assets) ?? assetsFromData,
-    sharesRaw: rawToString(item.shares) ?? '0',
-    counterparty: classified.counterparty,
-    isSelfDeposit: classified.isSelfDeposit,
-  };
-}
-
-const PAGE = 100;
-const MAX_PAGES = 20;
-
 export type TreasuryTransfersFetch = {
   transfers: TreasuryVaultTransfer[];
   truncated: boolean;
   error: string | null;
 };
 
+type RestActivity = {
+  type?: string | null;
+  data?: { shares?: string | null; assets?: string | null; from_address?: string | null; to_address?: string | null } | null;
+  tx_hash?: string | null;
+  timestamp?: number | null;
+};
+
+const REST_TYPE: Record<string, { type: TreasuryVaultTransfer['type']; direction: TreasuryTransferDirection }> = {
+  deposit: { type: 'Deposit', direction: 'in' },
+  withdraw: { type: 'Withdraw', direction: 'out' },
+  shares_transfer_in: { type: 'Transfer', direction: 'in' },
+  shares_transfer_out: { type: 'Transfer', direction: 'out' },
+};
+
+/**
+ * The treasury's deposits, withdrawals and share transfers in every Vault V2 it ever held,
+ * from Morpho REST `/users/{u}/position/activity` (one list per vault). REST deposit and
+ * withdraw rows carry no sender / receiver, so `counterparty` is null for them and
+ * `isSelfDeposit` is unknown (false); deposits still count as capital.
+ */
 export async function fetchTreasuryVaultTransfers(): Promise<TreasuryTransfersFetch> {
   const treasury = getAddress(TREASURY_ADDRESS);
   const out: TreasuryVaultTransfer[] = [];
-  let skip = 0;
-  let truncated = false;
-  let error: string | null = null;
-
   try {
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const data = await morphoGraphQLClient.request<{
-        vaultV2transactions?: { items?: Array<TxItem | null> | null } | null;
-      }>(TREASURY_TX_QUERY, {
-        user: treasury,
-        chainIds: [BASE_CHAIN_ID],
-        first: PAGE,
-        skip,
-      });
-      const items = (data.vaultV2transactions?.items ?? []).filter(
-        (x): x is TxItem => x != null
-      );
-      if (items.length === 0) {
-        truncated = false;
-        break;
-      }
-      for (const item of items) {
-        const mapped = mapItem(treasury, item);
-        if (mapped) out.push(mapped);
-      }
-      if (items.length < PAGE) {
-        truncated = false;
-        break;
-      }
-      skip += PAGE;
-      if (page === MAX_PAGES - 1) truncated = true;
-    }
+    const positions = await morphoRestList<{ vault_address?: string | null }>(
+      `/v0/vaults-v2/users/${treasury}/positions`,
+      { chain_ids: BASE_CHAIN_ID, active_only: false },
+      { revalidate: 0 }
+    );
+    const vaults = positions.map((p) => p.vault_address).filter((a): a is string => !!a && isAddress(a));
+    const perVault = await Promise.all(
+      vaults.map(async (vaultAddress) => {
+        const selector = morphoSelector(BASE_CHAIN_ID, vaultAddress);
+        const [vault, rows] = await Promise.all([
+          getRestVault(BASE_CHAIN_ID, vaultAddress),
+          morphoRestList<RestActivity>(`/v0/vaults-v2/${selector}/users/${treasury}/position/activity`, { limit: 1000 }, {
+            revalidate: 0,
+          }),
+        ]);
+        const symbolHint = vault.asset.symbol?.trim() || null;
+        const asset = treasuryAssetKeyForVault(vaultAddress, symbolHint);
+        return rows.flatMap((row): TreasuryVaultTransfer[] => {
+          const kind = REST_TYPE[row.type ?? ''];
+          if (!kind || !row.tx_hash || row.timestamp == null) return [];
+          const counterparty =
+            row.type === 'shares_transfer_in'
+              ? row.data?.from_address ?? null
+              : row.type === 'shares_transfer_out'
+                ? row.data?.to_address ?? null
+                : null;
+          return [
+            {
+              hash: row.tx_hash,
+              timestamp: Number(row.timestamp),
+              direction: kind.direction,
+              type: kind.type,
+              vaultAddress: getAddress(vaultAddress),
+              asset,
+              assetSymbol: symbolHint || asset || 'TOKEN',
+              assetDecimals: vault.asset.decimals,
+              assetAddress: vault.asset.address,
+              assetsRaw: rawToString(row.data?.assets),
+              sharesRaw: rawToString(row.data?.shares) ?? '0',
+              counterparty,
+              isSelfDeposit: false,
+            },
+          ];
+        });
+      })
+    );
+    for (const rows of perVault) out.push(...rows);
+    out.sort((a, b) => b.timestamp - a.timestamp);
   } catch (err) {
-    error = err instanceof Error ? err.message : String(err);
+    const error = err instanceof Error ? err.message : String(err);
     logger.warn('Failed to fetch treasury vault transfers', { error });
+    return { transfers: out, truncated: false, error };
   }
-
-  return { transfers: out, truncated, error };
+  return { transfers: out, truncated: false, error: null };
 }

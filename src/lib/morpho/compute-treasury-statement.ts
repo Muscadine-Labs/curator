@@ -14,7 +14,8 @@ import { getVaultByAddress } from '@/lib/config/vaults';
 import { BASE_CHAIN_ID } from '@/lib/constants';
 import { API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
 import { withServerResponseCache } from '@/lib/api/server-response-cache';
-import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
+import { morphoRestGet, morphoRestList, morphoSelector } from '@/lib/morpho/rest-client';
+import { fetchDailyPricesUsd, priceOnDay } from '@/lib/defillama/historical-prices';
 import {
   STATEMENT_START_DATE,
   TREASURY_ADDRESS,
@@ -42,7 +43,6 @@ import {
   utcMonthsFrom,
   fromFirstNonZeroPeriod,
 } from '@/lib/utils/utc-calendar';
-import { gql } from 'graphql-request';
 import { formatUnits, getAddress, isAddress } from 'viem';
 import { logger } from '@/lib/utils/logger';
 
@@ -93,67 +93,6 @@ type GqlHistory = {
   assets?: TimeseriesPoint[] | null;
   assetsUsd?: TimeseriesPoint[] | null;
 };
-
-const TREASURY_HISTORY_QUERY = gql`
-  query TreasuryPositionHistory(
-    $userAddress: String!
-    $chainId: Int!
-    $options: TimeseriesOptions
-  ) {
-    userByAddress(address: $userAddress, chainId: $chainId) {
-      vaultPositions {
-        vault {
-          address
-          name
-          asset {
-            address
-            symbol
-            decimals
-          }
-        }
-        historicalState {
-          shares(options: $options) {
-            x
-            y
-          }
-          assets(options: $options) {
-            x
-            y
-          }
-          assetsUsd(options: $options) {
-            x
-            y
-          }
-        }
-      }
-      vaultV2Positions {
-        vault {
-          address
-          name
-          asset {
-            address
-            symbol
-            decimals
-          }
-        }
-        history {
-          shares(options: $options) {
-            x
-            y
-          }
-          assets(options: $options) {
-            x
-            y
-          }
-          assetsUsd(options: $options) {
-            x
-            y
-          }
-        }
-      }
-    }
-  }
-`;
 
 function yToFloat(y: number | string | null | undefined): number | null {
   if (y == null) return null;
@@ -304,55 +243,66 @@ type FetchedPosition = {
   history: GqlHistory | null;
 };
 
+type RestUserPosition = { vault_address?: string | null };
+type RestHistoryPoint = { timestamp: number; shares?: string | null; assets?: string | null };
+
+/**
+ * The treasury's daily share and asset history in every vault it ever held (V1 and V2), from
+ * Morpho REST (`/users/{u}/positions` + `/position/history?lookback=inception`). REST points
+ * are 00:00 UTC balances like GraphQL's DAY buckets; the trailing off-grid "now" point is
+ * dropped so a partial day is never booked. USD = tokens × that day's DefiLlama price (REST
+ * has no `assetsUsd`); a day with no price is left out of USD, not valued at 0.
+ */
 async function fetchTreasuryPositionHistories(): Promise<FetchedPosition[]> {
-  const treasuryAddr = getAddress(TREASURY_ADDRESS);
+  const treasury = getAddress(TREASURY_ADDRESS);
   const startTimestamp = Math.floor(STATEMENT_START_DATE.getTime() / 1000);
-  const endTimestamp = Math.floor(Date.now() / 1000);
-
-  const data = await morphoGraphQLClient.request<{
-    userByAddress?: {
-      vaultPositions?: Array<{
-        vault?: GqlVault | null;
-        historicalState?: GqlHistory | null;
-      } | null> | null;
-      vaultV2Positions?: Array<{
-        vault?: GqlVault | null;
-        history?: GqlHistory | null;
-      } | null> | null;
-    } | null;
-  }>(TREASURY_HISTORY_QUERY, {
-    userAddress: treasuryAddr,
-    chainId: BASE_CHAIN_ID,
-    options: {
-      startTimestamp,
-      endTimestamp,
-      interval: 'DAY',
-    },
-  });
-
-  const user = data.userByAddress;
+  const loadVersion = async (version: 'v1' | 'v2'): Promise<FetchedPosition[]> => {
+    const rows = await morphoRestList<RestUserPosition>(
+      `/v0/vaults-${version}/users/${treasury}/positions`,
+      { chain_ids: BASE_CHAIN_ID, active_only: false },
+      { revalidate: 0 }
+    );
+    return Promise.all(
+      rows
+        .map((r) => r.vault_address)
+        .filter((a): a is string => !!a && isAddress(a))
+        .map(async (address) => {
+          const selector = morphoSelector(BASE_CHAIN_ID, address);
+          const [vault, points] = await Promise.all([
+            morphoRestGet<{ name?: string | null; asset?: { address: string; symbol: string | null; decimals: number } }>(
+              `/v0/vaults-${version}/${selector}`
+            ),
+            morphoRestGet<RestHistoryPoint[]>(`/v0/vaults-${version}/${selector}/users/${treasury}/position/history`, {
+              lookback: 'inception',
+            }, { revalidate: 0 }),
+          ]);
+          const daily = (points ?? [])
+            .filter((p) => Number.isFinite(p.timestamp) && p.timestamp % 86_400 === 0 && p.timestamp >= startTimestamp)
+            .sort((x, y) => x.timestamp - y.timestamp);
+          const decimals = vault.asset?.decimals ?? 18;
+          const prices = vault.asset?.address
+            ? await fetchDailyPricesUsd(BASE_CHAIN_ID, vault.asset.address, startTimestamp)
+            : new Map<number, number>();
+          const history: GqlHistory = {
+            shares: daily.map((p) => ({ x: p.timestamp, y: p.shares ?? '0' })),
+            assets: daily.map((p) => ({ x: p.timestamp, y: p.assets ?? '0' })),
+            assetsUsd: daily.flatMap((p) => {
+              const price = priceOnDay(prices, p.timestamp);
+              return price === null
+                ? []
+                : [{ x: p.timestamp, y: Number(formatUnits(BigInt(p.assets ?? '0'), decimals)) * price }];
+            }),
+          };
+          return {
+            vault: { address, name: vault.name ?? null, asset: vault.asset ?? null },
+            history,
+          } satisfies FetchedPosition;
+        })
+    );
+  };
+  const [v1, v2] = await Promise.all([loadVersion('v1'), loadVersion('v2')]);
   const byAddress = new Map<string, FetchedPosition>();
-
-  for (const row of user?.vaultPositions ?? []) {
-    const vault = row?.vault;
-    const address = vault?.address;
-    if (!address || !isAddress(address)) continue;
-    byAddress.set(address.toLowerCase(), {
-      vault,
-      history: row?.historicalState ?? null,
-    });
-  }
-
-  for (const row of user?.vaultV2Positions ?? []) {
-    const vault = row?.vault;
-    const address = vault?.address;
-    if (!address || !isAddress(address)) continue;
-    byAddress.set(address.toLowerCase(), {
-      vault,
-      history: row?.history ?? null,
-    });
-  }
-
+  for (const row of [...v1, ...v2]) byAddress.set(row.vault.address!.toLowerCase(), row);
   return Array.from(byAddress.values());
 }
 
