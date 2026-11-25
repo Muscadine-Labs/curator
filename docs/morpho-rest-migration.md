@@ -137,9 +137,35 @@ On-chain reads (risk overlay, Safe, gates, writes) are unaffected.
 9. Vault `rewards`, `warnings`, `listed`, `metadata`.
 10. Pending config **raw calldata**.
 
-For each gap, decide by Jan 29, 2027 whether to (a) read it on chain (event logs
-via RPC; free Alchemy caps `eth_getLogs` at 10 blocks, so this needs a paid tier
-or an indexer), (b) ask Morpho whether a route is coming, or (c) drop the feature.
+### 4.1 Decision (2026-11-25): no paid RPC or indexer — drop until Morpho adds it
+
+Muscadine will not pay for an RPC tier or an indexer, so anything that needs
+long-range `eth_getLogs` is dropped when curator moves off GraphQL, and comes
+back only if Morpho REST adds a route. GraphQL fields are removed on
+**2027-01-25** (Morpho's deprecation warnings; the endpoint shuts down Jan 29),
+so the curator migration must land before then. The app's full migration
+(Muscadine-Labs/app, `claude/morpho-rest-full`) is the template:
+`src/lib/morpho-rest.ts` (cached client), typed reads, and computed values where
+REST is missing (instant APY from market state with the Adaptive Curve IRM,
+force-deallocatable liquidity from market cash). It matched GraphQL within
+0.02 pp on every vault.
+
+| Gap | Plan | Restore when |
+| --- | --- | --- |
+| 1. Holders / depositors, unique-users KPI | **Drop** the holders table and the unique-users KPI (and `/api/protocol-users`). | REST adds a vault-wide positions route. |
+| 2. Vault and protocol transaction tables | **Drop** both tables. Per-wallet activity (`/users/{u}/position/activity`) stays possible. | REST adds a vault-wide activity route. |
+| 3. Allocation transactions | Already dropped (allocation history and Activity allocation rows, curator#93). | REST adds an allocation-transaction route. |
+| 4. Liquidations, suppliers, Morpho's collateral-at-risk curve | **Drop** those market-activity sections. Keep **Borrowers** (`/positions/health`) and build collateral at risk locally from borrower LTVs. **IRM curve:** compute locally from `rate_at_target` (Adaptive Curve formula, same as the app's `marketSupplyApy`). | REST adds liquidation / supplier / curve routes. |
+| 5. `realizedBadDebt` (risk F override) | **Keep, on chain:** Morpho Blue emits bad debt in `Liquidate` but also tracks it in market totals; read `market(id)` and compare with REST totals, or drop the override if no cheap read exists. Decide during the migration. | REST exposes bad debt. |
+| 6. Instant APYs | **Compute** from REST market state (Adaptive Curve IRM), as the app does. | — |
+| 7. USD and historical prices | Spot price × amount (`/v0/tokens/{t}/price`); historical USD charts use today's price. Treasury statement: decide whether DefiLlama history replaces Morpho's daily `assetsUsd`. | REST adds historical prices. |
+| 8. Market list with state for sorting | Per-market REST state is too many calls for the full Base list; keep the browser on what REST lists (`/v0/blue/markets` if it carries state, else Muscadine markets + search). Decide during the migration. | REST adds a market list with state. |
+| 9. Vault `rewards`, `warnings`, `listed`, `metadata` | **Drop** `warnings` / `listed` from the UI (risk keeps its own scoring); rewards = 0 (Merkl API if ever needed). | REST adds them. |
+| 10. Pending calldata | Done: chain (`Submit` events + `executableAt`). | — |
+
+Each dropped feature gets a "Dropped until Morpho adds them" entry with
+restore steps when it is removed, like the app's
+`docs/morpho-rest-migration.md` §3.
 
 ---
 
