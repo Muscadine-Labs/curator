@@ -421,8 +421,8 @@ grades; Sentinel holds emergency actions at the bottom.
    Safe's newest 100 executed txs are cached **per Safe** (shared across
    vaults); when a page is full the response carries
    `governanceHistorySince` and the feed says older calls may be missing.
-   `allocationHistory` / `pendingHistory` = `unavailable` when those reads
-   fail (the feed says so; the result is not cached).
+   `pendingHistory` = `unavailable` when that read fails (the feed says so;
+   the result is not cached).
    Executed submits reconcile with pending submits **per call** (tx hash +
    submitted calldata, `matchPendingConfig`) — a batch can submit several
    configs with different timelocks next to calls that have none. A pending
@@ -431,9 +431,8 @@ grades; Sentinel holds emergency actions at the bottom.
    `loadSafeHistory` (per-Safe cache) is also used by `/api/bots/activity`,
    which decodes Safe-sourced candidates from the history calldata instead of
    an RPC `getTransaction`.
-   Filters: type and role (`activityRoles` — an address can hold several).
-   Allocation targets resolve from cap ids (`keccak256(resolveCapIdData)`), most
-   specific id first. Fetches only when the card is opened.
+   Filter: role (`activityRoles` — an address can hold several). Fetches only
+   when the card is opened.
 4. **Caps** — `VaultV2Caps.tsx`. Morpho-style tables grouped **markets →
    collateral → adapters** (Name, Allocation, Absolute cap, Relative cap with
    utilization rings). Embeds `VaultV2Pending` when `pending.length > 0`.
