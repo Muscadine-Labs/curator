@@ -1,5 +1,4 @@
 import { getAddress, type Address } from 'viem';
-import { fetchAllocationChanges } from '@/lib/morpho/vault-v2-allocation-history.server';
 import { fetchVaultPendingSubmits } from '@/lib/morpho/vault-v2-pending.server';
 import { withServerResponseCache } from '@/lib/api/server-response-cache';
 import { API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
@@ -35,14 +34,6 @@ export type VaultActivityResponse = {
    * before this time may be missing. Null when every history was read whole.
    */
   governanceHistorySince: number | null;
-  /**
-   * Allocation rows are net amounts moved per interval, rebuilt from each Blue
-   * adapter's market supply shares (Morpho REST; hourly for 7 days, daily to 30
-   * days), with no tx hash or sender: Morpho drops allocation transactions on
-   * 2026-12-02.
-   * `unavailable` = that read failed.
-   */
-  allocationHistory: 'net' | 'unavailable';
   /** Pending submissions: `unavailable` when the REST / receipt / on-chain read failed. */
   pendingHistory: 'complete' | 'unavailable';
 };
@@ -101,12 +92,8 @@ async function governanceRowsFromSafes(vault: Address): Promise<{
           rows.push({
             id: `gov-${tx.safeTxHash}-${i}`,
             timestamp: ts,
-            type: 'governance',
             action: call.action,
             actor: safe.address,
-            amount: null,
-            adapter: null,
-            ids: [],
             txHash: tx.transactionHash ?? null,
             submittedData: call.submittedData,
           });
@@ -132,14 +119,7 @@ export async function fetchVaultActivity(
     `vault-activity:${chainId}:${vault.toLowerCase()}`,
     API_CACHE_MAX_AGE_MS,
     async () => {
-      const [allocations, pendingSubmits, governance] = await Promise.all([
-        fetchAllocationChanges(vault, chainId).catch((error: unknown) => {
-          logger.warn('Vault activity: allocation history unavailable', {
-            vault,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          return null;
-        }),
+      const [pendingSubmits, governance] = await Promise.all([
         fetchVaultPendingSubmits(vault, chainId).catch((error: unknown) => {
           logger.warn('Vault activity: pending submissions unavailable', {
             vault,
@@ -149,21 +129,6 @@ export async function fetchVaultActivity(
         }),
         governanceRowsFromSafes(vault),
       ]);
-
-      const allocationRows: VaultActivityRow[] = (allocations ?? []).map((change) => {
-        const amount = BigInt(change.change);
-        return {
-          id: `alloc-${change.capId}-${change.timestamp}`,
-          timestamp: change.timestamp,
-          type: 'allocation' as const,
-          action: amount < 0n ? 'deallocate' : 'allocate',
-          actor: null,
-          amount: change.change,
-          adapter: change.adapterAddress,
-          ids: [change.capId],
-          txHash: null,
-        };
-      });
 
       const pendingConfigs = (pendingSubmits ?? []).map((p) => ({
         txHash: p.txHash,
@@ -188,32 +153,21 @@ export async function fetchVaultActivity(
         .map((p, i) => ({
           id: `pending-${p.txHash ?? 'unknown'}-${i}`,
           timestamp: p.validAt,
-          type: 'governance' as const,
           action: `Submit ${describeVaultCall(p.data) ?? p.functionName}`,
           actor: null,
-          amount: null,
-          adapter: null,
-          ids: [],
           txHash: p.txHash,
           pending: { validAt: p.validAt },
         }));
 
       return {
-        rows: sortActivity([
-          ...allocationRows,
-          ...governanceRows,
-          ...pendingOnly,
-        ]),
+        rows: sortActivity([...governanceRows, ...pendingOnly]),
         governanceHistory: governance.status,
         governanceHistorySince: governance.since,
-        allocationHistory: allocations ? 'net' : 'unavailable',
         pendingHistory: pendingSubmits ? 'complete' : 'unavailable',
       };
     },
     // A partial result is served but not cached, so the next request retries.
     (result) =>
-      result.governanceHistory !== 'partial' &&
-      result.allocationHistory !== 'unavailable' &&
-      result.pendingHistory !== 'unavailable'
+      result.governanceHistory !== 'partial' && result.pendingHistory !== 'unavailable'
   );
 }

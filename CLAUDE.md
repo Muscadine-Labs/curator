@@ -405,30 +405,19 @@ grades; Sentinel holds emergency actions at the bottom.
    `allocationAssets` via `adapterAllocationRaw` (a non-finite governance
    number is unknown, never `BigInt`-ed mid-render).
    **Activity** (`VaultActivityFeed`, `GET /api/vaults/[id]/activity`,
-   `lib/morpho/vault-activity(.server).ts`) merges allocation changes, pending
-   submits, and executed governance calls from the Owner / Curator / Allocator /
-   Sentinel Safes' Transaction Service history (direct vault calls, vault
-   `multicall`, canonical MultiSend batches; allocations skipped there because
-   the allocation rows cover them). **Allocation rows** are net amounts moved per
-   interval (`lib/morpho/vault-v2-allocation-history(.server).ts`): each Blue
-   adapter's supply shares in each capped market (Morpho REST
-   `/v0/blue/markets/{m}/users/{adapter}/position/history`, hourly for 7 days,
-   daily to 30 days) change only on allocate / deallocate, priced at the
-   market's share price (`state/history`). Interest is excluded; there is no tx
-   hash or sender, moves that cancel inside one interval do not show, and
-   changes under 100 base units (share-math dust) are dropped. Calls: one
-   `/allocations` read and one daily position read per capped market; share
-   prices and hourly detail only for markets whose share count moved
-   (`marketsWithShareChanges`), at most 6 REST reads in flight. Cached **5 min**
-   in process — an exception to the 30s ceiling, because it is history and the
-   public REST host blocks an IP for 7 days past 3,334 calls in 10 min. Checked
-   against GraphQL: per-market net over 6 days within cents on mfUSDC. Do
-   **not** use `/caps/history` for this: it reports the live position, so every
-   interval shows accrued interest. Vault V2 adapters (vault → vault) are not
-   covered. **Pending rows** come from `fetchVaultPendingSubmits` (below).
+   `lib/morpho/vault-activity(.server).ts`) merges pending submits and
+   executed governance calls from the Owner / Curator / Allocator / Sentinel
+   Safes' Transaction Service history (direct vault calls, vault `multicall`,
+   canonical MultiSend batches). **Allocations are not listed**, and there is no
+   allocation history on the Allocation tab: Morpho removes
+   `vaultV2AllocationTransactions` on 2026-12-02 and REST has no vault-wide
+   transaction list. A net-per-interval rebuild from market supply shares was
+   built, checked and then dropped (no tx hash or sender, many REST reads); real
+   per-transaction history needs on-chain logs (paid RPC `eth_getLogs` or an
+   indexer). **Pending rows** come from `fetchVaultPendingSubmits` (below).
    Morpho does **not** index
    governance history; without `NEXT_PUBLIC_SAFE_API_KEY` the feed says so and
-   shows allocations + pending only. A partial Safe read is not cached. Each
+   shows pending submissions only. A partial Safe read is not cached. Each
    Safe's newest 100 executed txs are cached **per Safe** (shared across
    vaults); when a page is full the response carries
    `governanceHistorySince` and the feed says older calls may be missing.
@@ -474,10 +463,7 @@ grades; Sentinel holds emergency actions at the bottom.
    ABI name (`increaseAbsoluteCap`; GraphQL said `IncreaseAbsoluteCap`). Any
    failed read throws — a short list must not look complete. A just-submitted
    change appears once Morpho REST indexes its tx.
-6. **Allocation** — below the editor, `AllocationHistory`
-   (`GET /api/vaults/[id]/reallocations`) groups the same net allocation changes
-   as Activity by interval (`hash` is null; the explorer link only shows with a
-   hash). Above it, `VaultV2Allocations.tsx` receives `preloadedData`
+6. **Allocation** — `VaultV2Allocations.tsx` receives `preloadedData`
    (governance) **and** `preloadedRisk`. Its **Liquidity adapter** panel marks
    the current option from governance `liquidityAdapter` / `liquidityData`,
    which the governance route overlays with on-chain `liquidityAdapter()` /
@@ -537,9 +523,7 @@ surfaced on the vault **Risk** tab and Curator market detail pages.
 
 ### 4.3 Caching
 
-**TTL ceiling (30s)** — one exception: REST allocation history
-(`vault-v2-allocation-history.server.ts`) is cached 5 min, because it is
-history and many REST reads. Everything else — BFF CDN cache, in-process server cache, React Query
+**TTL ceiling (30s):** BFF CDN cache, in-process server cache, React Query
 `staleTime`/poll intervals, and `fetch-markets-by-id` lookup reuse are all
 capped at **30 seconds** via `API_CACHE_MAX_AGE_SECONDS` / `API_CACHE_MAX_AGE_MS`
 in `lib/api/response-cache.ts` (`clampCacheMaxAgeSeconds`, `clampCacheTtlMs`).
@@ -561,7 +545,7 @@ TTL clamped to 30s; expired keys pruned; loader timeout 40s.
 | Tier | Hooks | Poll | staleTime | Refetch triggers |
 | ---- | ----- | ---- | --------- | ---------------- |
 | Dashboard | protocol stats | 30s | 30s | mount, poll |
-| Indexed vault | history, reallocations, holders, tx, vault list | none | 30s | mount, tab |
+| Indexed vault | history, holders, tx, vault list | none | 30s | mount, tab |
 | On-chain vault | `useVaultV2Risk`, `useVaultV2Governance` | none | 0 | mount (always), vault tab switch (allocations/caps/sentinel/adapters), post-tx, **Rebalance** click |
 
 Hooks use `apiFetch` (`cache: 'no-store'`) to bypass the browser HTTP cache.
@@ -575,7 +559,6 @@ Query keys:
   `vaultV2GovernanceQueryKey(address)` from `lib/hooks/useVaultV2Governance.ts`
   for refetches/invalidations
 - `['vault-v2-pending', address, 'row-id']`
-- `['vault-reallocations', address]`
 - `['markets']`, `['protocol-stats']`
 
 Hooks live in `lib/hooks/` and should be the only entry points for reading
@@ -1744,7 +1727,7 @@ Workspace link: Muscadine on `app.safe.global` (`lib/safe/links.ts`).
    and the Safe's ETH balance first (protocol-kit's own pre-checks). The row is
    marked **executed only after the receipt succeeds**; a revert keeps it queued
    (and its nonce reserved) with the hash linked. Then Curator refetches vault
-   risk, governance, pending, reallocations, overview, and the Safe header/assets
+   risk, governance, pending, overview, and the Safe header/assets
    (`refetch-vault-after-safe-execute.ts` — matches query keys by address
    **case-insensitively**; vault pages key on lowercase config addresses).
    Wallet/chain/threshold errors surface on the row; a ref guard stops a

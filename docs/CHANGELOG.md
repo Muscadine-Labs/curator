@@ -10,10 +10,10 @@ Append-only session log. Newest first. Keep entries short; link files.
 - New `lib/morpho/rest-client.ts` (`morphoRestGet`, `morphoRestList` with cursor paging that throws instead of returning a cut list).
 - Collateral caps: REST `/allocations` (`vault-v2-collateral-caps.server.ts`), merged into governance caps; GraphQL caps kept if REST fails.
 - Pending: REST submit tx hashes → receipt `Submit` events (this vault only) → on-chain `executableAt` → local decode (`vault-v2-pending.server.ts`, `vault-v2-pending-decode.ts`). `functionName` is now the ABI name. `VAULT_V2_PENDING_QUERY` / `mapPendingDecoded` removed.
-- Allocation history (Allocation tab, Activity): net amounts per hour / day from each Blue adapter's market supply shares (`vault-v2-allocation-history(.server).ts`); no tx hash or sender, interest excluded. `ReallocationGroup.hash` is nullable with a new `key` / `since`. Activity reports `allocationHistory` / `pendingHistory`.
+- Allocation history **removed**: the Allocation tab history (`AllocationHistory`, `GET /api/vaults/[id]/reallocations`, `useVaultReallocations`) and Activity's allocation rows, type filter, Amount and Target columns. A REST rebuild (net per interval from market supply shares) matched GraphQL within cents but had no tx hash or sender and cost 12–65 REST reads per vault, so it was dropped. Activity reports `pendingHistory`.
 - Bots: the per-sender GraphQL allocation query is gone (`batchVaultV2AllocationTransactions` removed); candidates come from role-Safe history only, so bot EOA allocations no longer appear.
 - Verified live against GraphQL before the cutoff (see `docs/morpho-rest-migration.md` §0). No `removalAt: 2026-12-02` warning left in the server log.
-- Fewer REST calls: allocation history reads daily positions first and only fetches prices / hourly detail for markets that moved (mfUSDC 85 → 65 reads, the others about half), at most 6 in flight, cached 5 min (history; exception to the 30s ceiling). Collateral caps and pending submits are cached 30s per vault. Share-math dust under 100 base units is dropped. Optional `MORPHO_API_KEY` uses Morpho's keyed REST host.
+- Collateral caps and pending submits are cached 30s per vault. Optional `MORPHO_API_KEY` uses Morpho's keyed REST host.
 
 ## 2026-11-25 — Fee wrappers deleted
 

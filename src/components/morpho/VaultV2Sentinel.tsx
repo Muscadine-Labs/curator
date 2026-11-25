@@ -396,7 +396,6 @@ function DecreaseCapsPanel({
     if (!write.isSuccess) return;
     void queryClient.refetchQueries({ queryKey: ['vault-v2-risk', vaultAddress] });
     void queryClient.refetchQueries({ queryKey: vaultV2GovernanceQueryKey(vaultAddress) });
-    void queryClient.refetchQueries({ queryKey: ['vault-reallocations', vaultAddress] });
     void queryClient.refetchQueries({ queryKey: ['vault', vaultAddress] });
     setPreviewOpen(false);
     setTxPreview(null);
@@ -983,7 +982,6 @@ function DeallocatePanel({
     if (!write.isSuccess) return;
     void queryClient.refetchQueries({ queryKey: ['vault-v2-risk', vaultAddress] });
     void queryClient.refetchQueries({ queryKey: vaultV2GovernanceQueryKey(vaultAddress) });
-    void queryClient.refetchQueries({ queryKey: ['vault-reallocations', vaultAddress] });
     void queryClient.refetchQueries({ queryKey: ['vault', vaultAddress] });
     setPreviewOpen(false);
     setTxPreview(null);

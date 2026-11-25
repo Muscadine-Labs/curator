@@ -18,7 +18,7 @@ export const ON_CHAIN_VAULT_QUERY_OPTIONS = {
 };
 
 /**
- * Morpho-indexed vault data (history, reallocations, holders, transactions).
+ * Morpho-indexed vault data (history, holders, transactions).
  * No background polling — these hit the public Blue API on every refetch.
  */
 export const INDEXED_VAULT_QUERY_OPTIONS = {
