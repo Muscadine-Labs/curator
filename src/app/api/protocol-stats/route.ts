@@ -16,6 +16,7 @@ import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
 import { gql } from 'graphql-request';
 import { getAddress } from 'viem';
 import { logger } from '@/lib/utils/logger';
+import { findVaultAdapterHolders } from '@/lib/morpho/vault-adapter-holders.server';
 import { mergeApiCacheHeaders, API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
 import { withServerResponseCache } from '@/lib/api/server-response-cache';
 import {
@@ -400,6 +401,10 @@ export async function GET(request: Request) {
           uniqueUsers.add(userAddress);
         }
       }
+    }
+    // Another vault's adapter holding shares here is not a user.
+    for (const adapter of await findVaultAdapterHolders(uniqueUsers)) {
+      uniqueUsers.delete(adapter);
     }
 
     // Aggregate the real series only: the synthetic T−30d point that

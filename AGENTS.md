@@ -37,7 +37,9 @@ npm run build   # next build
   user-count special case); do not add them back. A `MorphoVaultV2Adapter` still
   reads its child vault from Morpho `innerVault` (no config fallback) with empty
   allocate `data` (`EMPTY_ADAPTER_DATA`), and the liquidity adapter panel picks its
-  mode from the vault's own adapters. Catalog and sidebar list configured vaults
+  mode from the vault's own adapters. Another vault's adapter holding shares is
+  detected on-chain (`parentVault()`, `findVaultAdapterHolders`) and left out of
+  user counts. Catalog and sidebar list configured vaults
   using Morpho/on-chain names. Send-assets gate (underlying strategy
   vaults only): `lib/config/deposit-gates.ts` (`docs/deposit-gates.md`).
   Gate calldata / propose: muscadine-onchain CLI. In this app, `/curator/gates`

@@ -555,7 +555,11 @@ is business vaults only.
 
 Protocol TVL (`getVaultAddressesForProtocolStats`) sums every business vault.
 Unique users and the active-vault KPI use `getActiveVaultAddressesForStats`
-(business vaults that are not `inactive`).
+(business vaults that are not `inactive`). Holders that are another vault's
+Vault V2 adapter are dropped from the user count and `/api/protocol-users`
+(`findVaultAdapterHolders` in `lib/morpho/vault-adapter-holders.server.ts`: one
+multicall of `parentVault()`, settled answers cached for the process, an RPC
+failure leaves the holders in). No adapter list is kept in config.
 
 **Top nav + Sidebar** — Topbar areas: Overview · Vaults · Markets · Curator ·
 Business (`lib/nav/areas.ts`). Sidebar is **area-scoped**. Under **Vaults**: All
