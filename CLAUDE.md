@@ -240,7 +240,7 @@ Getting those semantics wrong is the #1 source of reverts.
 
   Use `resolveCapIdData(cap, risk)` for `decreaseAbsoluteCap` /
   `decreaseRelativeCap`. Market caps need `cap.adapterAddress` from governance
-  GraphQL plus full market params from the risk API (oracle, irm, lltv, token
+  (REST snapshot) plus full market params from the risk API (oracle, irm, lltv, token
   addresses). Wrong encoding causes silent cap lookup misses or on-chain reverts.
   `resolveCapIdData` only encodes market params that hash back to
   `cap.marketKey` (`marketParamsMatchMarketKey`: Blue id =
@@ -333,7 +333,7 @@ Getting those semantics wrong is the #1 source of reverts.
 ` (wrapper)` label, no wrapper special case in TVL / user stats, and no
 wrapper adapters in the gate config. Do not add them back.
 
-A vault may still allocate through a `MorphoVaultV2Adapter` (GraphQL
+A vault may still allocate through a `MorphoVaultV2Adapter` (snapshot
 `__typename`; `type` is `MorphoVaultV2`) into a child Vault V2. Everything about
 that child comes from Morpho, not config: `innerVault { address name symbol
 avgNetApy liquidity }` maps to **underlying vault** (`underlying`) via
@@ -481,7 +481,7 @@ grades; Sentinel holds emergency actions at the bottom.
    Row types:
    - **MorphoMarketV1Adapter** — one row per Morpho Blue market position. LLTV pill
      next to name. Utilization, borrow/supply APY, liquidity from `market.state`.
-     APY/utilization GraphQL values are **decimals**; multiply by 100 before
+     APY/utilization values (computed from REST) are **decimals**; multiply by 100 before
      `formatPercentage`.
    - **MorphoVaultV2Adapter** — child Vault V2 from Morpho `innerVault` (empty allocate `data`).
      Name links to `/vault/{underlying}`. Rate column is underlying `avgNetApy`.
@@ -772,7 +772,7 @@ B+ ≥84, B ≥80, B− ≥77, C+ ≥74, C ≥70, C− ≥65, D ≥60, F &lt;60.
 | Adapter | `computeAdapterRisk` | USD-weighted avg of market scores in adapter |
 | Vault headline | `risk/route.ts` response | USD-weighted avg of **strategy adapter** scores |
 
-**MorphoMarketV1Adapter:** GraphQL positions → one `buildMarketRisk` per position;
+**MorphoMarketV1Adapter:** snapshot positions (`loadRiskPositions`) → one `buildMarketRisk` per position;
 adapter score = `computeWeightedRisk` over non-idle markets with `allocationUsd > 0`.
 API returns nested `markets[]` for per-market cards in `VaultRiskV2`.
 
@@ -800,7 +800,7 @@ tab switch, post-tx, and Rebalance (`lib/data/query-config.ts`).
 - Reuse `computeBlueMarketRiskScores`; do not fork component weights in UI.
 - Utilization: **100 at/below IRM target**, not “lower util = safer”.
 - V2 vault score **excludes idle** from numerator and denominator.
-- GraphQL APY/utilization on the risk route are **fractions (0–1)**; multiply by 100
+- APY/utilization on the risk route are **fractions (0–1)**; multiply by 100
   before `formatPercentage` in allocation/risk UI.
 
 ### 4.6 Monthly income statement (treasury wallet)
@@ -1084,14 +1084,14 @@ come back `type: Unknown`, `data: null`. `decodeMorphoOracle`
 (`lib/morpho/oracle-decode.server.ts`) reads the oracle on-chain in one multicall:
 V2 feeds + `BASE_VAULT`/`QUOTE_VAULT`, else the meta oracle's `primaryOracle` /
 `backupOracle` (each decoded as V2), `currentOracle`, `getDeviation` vs
-`deviationThreshold`, challenge / healing state. GraphQL feed hints are only
-the RPC-failure fallback. `getOraclePriceSnapshot` returns `kind`, `sources[]`
+`deviationThreshold`, challenge / healing state. REST has no feed hints, so
+there is no fallback when the RPC read fails. `getOraclePriceSnapshot` returns `kind`, `sources[]`
 (role `single`|`primary`|`backup`, `active`) and `meta`; `feeds` = the active
 source's feeds. `activeChainlinkSource` matches `currentOracle()` exactly and
 returns null when that source failed to decode — never substitute the other
 source, and an unreadable `currentOracle()` is null too (the panel warns), not
-primary; `onBackup` comes from the meta state alone. An RPC failure with no
-GraphQL hints is kind `error`, not `unknown`. `getOracleTimestampData` uses the
+primary; `onBackup` comes from the meta state alone. An RPC failure (no feed
+hints) is kind `error`, not `unknown`. `getOracleTimestampData` uses the
 same decoder (so a meta oracle is not scored as opaque); the market detail
 routes derive freshness from the snapshot's feeds (`oracleTimestampFromFeeds`)
 instead of re-reading them. The Chainlink directory failure is cached for the
@@ -1181,7 +1181,7 @@ These rules are baked into `VaultV2Allocations.tsx`, `VaultV2Sentinel.tsx`,
 5. **V2 idle row** — editable for planning; never in `allocate`/`deallocate`
    calldata.
 6. Use `formatRawTokenAmount` for all raw bigint display (avoid `1.23e-6`).
-7. **APY / utilization from Morpho GraphQL** (V2 risk route): multiply by 100
+7. **APY / utilization** (V2 risk route, computed from Morpho REST): multiply by 100
    before `formatPercentage`.
 8. **Sentinel cap decreases** parse via `parseCapDecreaseInput`
    (`lib/morpho/cap-decrease-input.ts`) with inline row errors.
@@ -1191,7 +1191,7 @@ These rules are baked into `VaultV2Allocations.tsx`, `VaultV2Sentinel.tsx`,
    hard failure (no cached risk) shows an error and stays read-only. Tx preview
    still calls `finalizeRebalancePlan` for a final on-chain read before sign.
 10. **Planning total vs chain total** — `planningTotalRaw` = Σ booked strategy
-    `currentAssets` + GraphQL idle (not on-chain `totalAssets`). Relative caps
+    `currentAssets` + indexed idle (not on-chain `totalAssets`). Relative caps
     still use `chainTotalRaw` (= `totalAssets`). **Max** on a strategy row uses
     deployable idle and sets Idle via `remainingDeployableIdleAfterMax`. **Min**
     (formerly Zero) = `minTargetFromLiquidity` — leave illiquid remainder;
@@ -1261,7 +1261,7 @@ components.
 - Client hooks read failed BFF responses with `apiErrorMessage(res, fallback)`
   (`lib/data/api-fetch.ts`) — the `{ message | error }` field, not the raw body.
 - Integer query params go through `parseBoundedIntParam` (`lib/api/query-params.ts`)
-  so junk never reaches GraphQL variables or cache keys.
+  so junk never reaches Morpho REST params or cache keys.
 - `GET /api/vaults/[id]` returns **502** when the Morpho REST read fails.
 - **Protocol stats** read each vault's REST `state/history` and price each day
   with DefiLlama (`fetchDailyPricesUsd`). A failed vault read is recorded in
@@ -1421,10 +1421,10 @@ components.
 
 ### V2 allocations show wrong APY or dashes for utilization/borrow
 
-- Risk route returns GraphQL APY/utilization as **fractions** (0–1). UI must
+- Risk route returns APY/utilization as **fractions** (0–1). UI must
   `× 100` before `formatPercentage`. Do not hardcode `—` for market metrics.
 - Confirm `market.state { utilization, supplyApy, borrowApy, liquidityAssetsUsd }`
-  is queried on MorphoMarketV1Adapter positions in `VAULT_V2_RISK_QUERY`.
+  is set on each position by `loadRiskPositions` (`rest-vault.server.ts`).
 
 ### V2 MetaMorpho adapter on-chain (should not happen)
 
@@ -1441,8 +1441,8 @@ components.
 
 ### V2 adapter count wrong in Risk
 
-- Count is **strategy adapters + 1** (idle). Idle is not returned in
-  `adapters.items` from GraphQL but must be included in the KPI.
+- Count is **strategy adapters + 1** (idle). Idle is not in the snapshot's
+  `adapters` but must be included in the KPI.
 
 ### Risk score looks wrong after utilization/oracle changes
 
@@ -1609,7 +1609,6 @@ Ranges in `package.json` match the installed versions. Do not take these majors:
 | Oracle Portal link               | `MORPHO_ORACLE_PORTAL_URL` in `lib/constants/links.ts` → https://oracles.morpho.dev/ |
 | Brain / session loop             | `docs/`, `.cursor/mcp.json` |
 | V2 on-chain allocation overlay   | `lib/morpho/overlay-v2-onchain-caps.ts` |
-| V2 tx user resolution            | `lib/morpho/vault-v2-transaction-utils.ts` |
 | Vault addresses                  | `lib/config/vaults.ts`                                   |
 | Theme context + migration        | `lib/theme/ThemeContext.tsx`                             |
 | Theme switcher UI                | `components/ThemeSwitcher.tsx`                           |

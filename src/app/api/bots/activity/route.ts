@@ -273,7 +273,7 @@ async function loadApySeriesAround(chainId: number, address: string, minTs: numb
 
 function isAllocateGraphType(type: string): boolean {
   const t = type.toLowerCase().replace(/\s+/g, '');
-  // Exact Morpho GraphQL / decoded allocate — not GrantAllocator / RevokeAllocator.
+  // Exact decoded allocate — not GrantAllocator / RevokeAllocator.
   return t === 'allocate' || t === 'vaultv2allocate';
 }
 
@@ -285,9 +285,9 @@ function isDeallocateGraphType(type: string): boolean {
 function needsCalldataDecode(candidate: {
   changes: BotActivityChange[];
 }): boolean {
-  // No GraphQL rows — liquidity-only or sentinel cap/revoke txs from Alchemy.
+  // No indexed rows: decode the calldata (Safe history or the tx input).
   if (candidate.changes.length === 0) return true;
-  // Enrich market labels + liquidity adapter from calldata when GraphQL ids are not marketIds.
+  // Enrich market labels + liquidity adapter from calldata when row ids are not marketIds.
   return candidate.changes.some(
     (ch) =>
       isAllocateGraphType(ch.type) ||
