@@ -56,6 +56,6 @@ Enable the project server in Cursor (**Settings → MCP**) and restart the agent
 
 Read tools come from Morpho's Core REST, Vaults App, and Markets APIs. Groups: general (`morpho_get_supported_chains`, `morpho_get_token_balance`, `morpho_doc_search`), vaults, Blue markets, Midnight books and positions, and prepare tools. The current list is on the docs page above. This server does not expose the old community GraphQL tools (`get_oracle_details`, `get_vault_reallocates`, `get_liquidations`, `get_account_overview`).
 
-## App GraphQL still matters
+## The app reads Morpho REST directly
 
-The curator BFF uses `lib/morpho/graphql-client.ts` with app-specific field names (`marketId` → `marketKey`, `oracle.address`, complexity limits). MCP is for agent investigation. See `CLAUDE.md` §4.4.1.
+The curator BFF reads Morpho REST through `lib/morpho/rest-client.ts` and its typed helpers (GraphQL is no longer used). MCP is for agent investigation. See `CLAUDE.md` §4.4.1 and `docs/morpho-rest-migration.md`.

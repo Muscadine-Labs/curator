@@ -1,45 +1,15 @@
-import { API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
-import { gql } from 'graphql-request';
 import type { CapInfo } from '@/app/api/vaults/[id]/governance/route';
-import { BASE_CHAIN_ID, GRAPHQL_FIRST_LIMIT } from '@/lib/constants';
 import { isCollateralCap, isMarketCap } from '@/lib/morpho/cap-utils';
-import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
-import { resolveMarketOracleAddress } from '@/lib/morpho/market-oracle-address';
+import { getRestToken, rawToNumber, toBigInt, tryGetRestTokenPriceUsd } from '@/lib/morpho/rest-data';
+import { loadMarketCollateralAssets, loadMarketDetails, type MarketDetails } from '@/lib/morpho/rest-markets';
+import { logger } from '@/lib/utils/logger';
 
-const MARKETS_FOR_CAPS_QUERY = gql`
-  query MarketsForCapLookup($first: Int!, $chainId: Int!) {
-    markets(first: $first, where: { chainId_in: [$chainId] }) {
-      items {
-        marketId
-        loanAsset {
-          address
-          symbol
-          decimals
-        }
-        collateralAsset {
-          address
-          symbol
-          decimals
-        }
-        irmAddress
-        lltv
-        oracle {
-          address
-        }
-        state {
-          supplyApy
-          borrowApy
-          utilization
-          liquidityAssets
-          liquidityAssetsUsd
-          supplyAssetsUsd
-          borrowAssetsUsd
-          collateralAssetsUsd
-        }
-      }
-    }
-  }
-`;
+/**
+ * Fill cap labels and market data from Morpho REST, by market id (`/v0/blue/markets/{id}`
+ * + `/state`) and token address (`/v0/tokens/{t}`). GraphQL used to load the chain's whole
+ * market index for this; REST reads only the markets and tokens the caps name (cached:
+ * params and tokens 1h, state 30s).
+ */
 
 export type MarketStateSnapshot = {
   supplyApy?: number | null;
@@ -50,96 +20,30 @@ export type MarketStateSnapshot = {
   /** Needed to score cap-only markets (no vault position to read them from). */
   supplyAssetsUsd?: number | null;
   borrowAssetsUsd?: number | null;
+  /** `null` = unknown (a failed read), never 0. */
   collateralAssetsUsd?: number | null;
 };
 
-type GraphMarketItem = {
-  marketId?: string | null;
-  loanAsset?: { address?: string | null; symbol?: string | null; decimals?: number | null } | null;
-  collateralAsset?: { address?: string | null; symbol?: string | null; decimals?: number | null } | null;
-  irmAddress?: string | null;
-  lltv?: string | number | null;
-  oracle?: { address?: string | null } | null;
-  state?: MarketStateSnapshot | null;
-};
-
-export type MarketLookupEntry = {
-  params: NonNullable<CapInfo['marketParams']>;
-  state: MarketStateSnapshot | null;
-};
-
-export type MarketParamsLookup = Map<string, NonNullable<CapInfo['marketParams']>>;
-export type MarketLookup = Map<string, MarketLookupEntry>;
-
-const CACHE_TTL_MS = API_CACHE_MAX_AGE_MS;
-let cachedLookup: { chainId: number; fetchedAt: number; map: MarketLookup } | null = null;
-
-function keysForMarket(item: GraphMarketItem): string[] {
-  return [item.marketId]
-    .filter((k): k is string => Boolean(k))
-    .map((k) => k.toLowerCase());
-}
-
-function graphMarketToEntry(item: GraphMarketItem): MarketLookupEntry | null {
-  if (!item.loanAsset?.address || !item.collateralAsset?.address) return null;
+function stateFromMarket(
+  m: MarketDetails,
+  loanPrice: number | null,
+  collateralUsd: number | null
+): MarketStateSnapshot {
+  const decimals = m.loanToken.decimals;
+  const usd = (raw: bigint) => (loanPrice === null ? null : rawToNumber(raw, decimals) * loanPrice);
+  const supply = toBigInt(m.state.total_supply_assets);
+  const borrow = toBigInt(m.state.total_borrow_assets);
+  const cash = supply > borrow ? supply - borrow : BigInt(0);
   return {
-    params: {
-      loanAsset: {
-        address: item.loanAsset.address,
-        symbol: item.loanAsset.symbol ?? null,
-        decimals: item.loanAsset.decimals ?? null,
-      },
-      collateralAsset: {
-        address: item.collateralAsset.address,
-        symbol: item.collateralAsset.symbol ?? null,
-        decimals: item.collateralAsset.decimals ?? null,
-      },
-      oracleAddress: resolveMarketOracleAddress(item),
-      irmAddress: item.irmAddress ?? null,
-      lltv: item.lltv != null ? String(item.lltv) : null,
-      state: item.state ?? null,
-    },
-    state: item.state ?? null,
+    supplyApy: m.supplyApy,
+    borrowApy: m.borrowApy,
+    utilization: m.utilization,
+    liquidityAssets: cash.toString(),
+    liquidityAssetsUsd: usd(cash),
+    supplyAssetsUsd: usd(supply),
+    borrowAssetsUsd: usd(borrow),
+    collateralAssetsUsd: collateralUsd,
   };
-}
-
-export async function fetchMarketLookup(chainId: number = BASE_CHAIN_ID): Promise<MarketLookup> {
-  const now = Date.now();
-  if (
-    cachedLookup &&
-    cachedLookup.chainId === chainId &&
-    now - cachedLookup.fetchedAt < CACHE_TTL_MS
-  ) {
-    return cachedLookup.map;
-  }
-
-  const data = await morphoGraphQLClient.request<{
-    markets?: { items?: Array<GraphMarketItem | null> | null } | null;
-  }>(MARKETS_FOR_CAPS_QUERY, { first: GRAPHQL_FIRST_LIMIT, chainId });
-
-  const map: MarketLookup = new Map();
-  for (const item of data.markets?.items ?? []) {
-    if (!item) continue;
-    const entry = graphMarketToEntry(item);
-    if (!entry) continue;
-    for (const key of keysForMarket(item)) {
-      map.set(key, entry);
-    }
-  }
-
-  cachedLookup = { chainId, fetchedAt: now, map };
-  return map;
-}
-
-export async function fetchMarketParamsLookup(
-  chainId: number = BASE_CHAIN_ID
-): Promise<MarketParamsLookup> {
-  const lookup = await fetchMarketLookup(chainId);
-  const map: MarketParamsLookup = new Map();
-  for (const [key, entry] of lookup) {
-    map.set(key, entry.params);
-  }
-  return map;
 }
 
 function hasCompleteMarketParams(params: CapInfo['marketParams']): boolean {
@@ -152,126 +56,93 @@ function hasCompleteMarketParams(params: CapInfo['marketParams']): boolean {
   );
 }
 
-/** Fill marketParams (and spot state) on market caps from Morpho Blue market index. */
-export async function enrichMarketCapParams(
-  caps: CapInfo[],
-  chainId: number
-): Promise<CapInfo[]> {
-  const needsLookup = caps.some(
-    (cap) => isMarketCap(cap) && Boolean(cap.marketKey)
-  );
-  if (!needsLookup) return caps;
+/**
+ * Fill marketParams and spot state (USD totals included) on market caps. A market that
+ * fails to load keeps the cap as it was; the cap list never shrinks.
+ */
+export async function enrichMarketCapParams(caps: CapInfo[], chainId: number): Promise<CapInfo[]> {
+  const ids = [
+    ...new Set(
+      caps.filter((cap) => isMarketCap(cap) && cap.marketKey).map((cap) => cap.marketKey!.toLowerCase())
+    ),
+  ];
+  if (ids.length === 0) return caps;
 
-  const lookup = await fetchMarketLookup(chainId);
+  const markets = new Map<string, MarketDetails>();
+  await Promise.all(
+    ids.map(async (id) => {
+      try {
+        const [m] = await loadMarketDetails(chainId, [id]);
+        if (m) markets.set(id, m);
+      } catch (error) {
+        logger.warn('Morpho REST market read failed for a cap', {
+          marketId: id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    })
+  );
+  const tokens = [
+    ...new Set(
+      [...markets.values()].flatMap((m) => [m.market.loan_token, m.market.collateral_token ?? ''].filter(Boolean).map((t) => t.toLowerCase()))
+    ),
+  ];
+  const [prices, collateralById] = await Promise.all([
+    Promise.all(tokens.map(async (t) => [t, await tryGetRestTokenPriceUsd(chainId, t)] as const)).then((e) => new Map(e)),
+    Promise.all([...markets.keys()].map(async (id) => [id, await loadMarketCollateralAssets(chainId, id)] as const)).then(
+      (e) => new Map(e)
+    ),
+  ]);
+  const collateralUsdOf = (m: MarketDetails): number | null => {
+    const raw = collateralById.get(m.marketId);
+    const price = m.market.collateral_token ? prices.get(m.market.collateral_token.toLowerCase()) ?? null : null;
+    return raw == null || price == null ? null : rawToNumber(raw, m.collateralToken?.decimals ?? 18) * price;
+  };
+
   return caps.map((cap) => {
     if (!isMarketCap(cap) || !cap.marketKey) return cap;
-    const found = lookup.get(cap.marketKey.toLowerCase());
-    if (!found) return cap;
-
+    const m = markets.get(cap.marketKey.toLowerCase());
+    if (!m) return cap;
+    const state = stateFromMarket(m, prices.get(m.market.loan_token.toLowerCase()) ?? null, collateralUsdOf(m));
     const existing = cap.marketParams;
     const params = hasCompleteMarketParams(existing)
-      ? {
-          ...existing!,
-          loanAsset: {
-            address: existing!.loanAsset!.address,
-            symbol: existing!.loanAsset?.symbol ?? found.params.loanAsset?.symbol ?? null,
-            decimals: existing!.loanAsset?.decimals ?? found.params.loanAsset?.decimals ?? null,
-          },
+      ? { ...existing!, state: { ...(existing?.state ?? {}), ...state } }
+      : {
+          loanAsset: { address: m.market.loan_token, symbol: m.loanToken.symbol, decimals: m.loanToken.decimals },
           collateralAsset: {
-            address: existing!.collateralAsset!.address,
-            symbol: existing!.collateralAsset?.symbol ?? found.params.collateralAsset?.symbol ?? null,
-            decimals:
-              existing!.collateralAsset?.decimals ?? found.params.collateralAsset?.decimals ?? null,
+            address: m.market.collateral_token ?? '',
+            symbol: m.collateralToken?.symbol ?? null,
+            decimals: m.collateralToken?.decimals ?? null,
           },
-          state: existing?.state ?? found.state ?? found.params.state ?? null,
-        }
-      : { ...found.params, state: found.state ?? found.params.state ?? null };
-
+          oracleAddress: m.market.oracle_address,
+          irmAddress: m.market.irm_address,
+          lltv: m.market.lltv_wad,
+          state,
+        };
     return { ...cap, marketParams: params };
   });
 }
 
-async function fetchTokenSymbolLookup(chainId: number): Promise<Map<string, string>> {
-  const paramsLookup = await fetchMarketParamsLookup(chainId);
-  const symbols = new Map<string, string>();
-  for (const params of paramsLookup.values()) {
-    const loan = params.loanAsset;
-    const col = params.collateralAsset;
-    if (loan?.address && loan.symbol) {
-      symbols.set(loan.address.toLowerCase(), loan.symbol);
-    }
-    if (col?.address && col.symbol) {
-      symbols.set(col.address.toLowerCase(), col.symbol);
-    }
-  }
-  return symbols;
-}
-
-const ASSET_SYMBOLS_QUERY = gql`
-  query AssetSymbols($chainId: Int!, $addresses: [String!]!) {
-    assets(where: { chainId_in: [$chainId], address_in: $addresses }) {
-      items {
-        address
-        symbol
-      }
-    }
-  }
-`;
-
-async function fetchAssetSymbols(
-  addresses: string[],
-  chainId: number
-): Promise<Map<string, string>> {
-  if (addresses.length === 0) return new Map();
-
-  const data = await morphoGraphQLClient.request<{
-    assets?: { items?: Array<{ address?: string | null; symbol?: string | null } | null> | null } | null;
-  }>(ASSET_SYMBOLS_QUERY, { chainId, addresses });
-
-  const symbols = new Map<string, string>();
-  for (const item of data.assets?.items ?? []) {
-    if (item?.address && item.symbol) {
-      symbols.set(item.address.toLowerCase(), item.symbol);
-    }
-  }
-  return symbols;
-}
-
-/** Resolve collateral cap labels from Morpho Blue market token index. */
-export async function enrichCollateralCapSymbols(
-  caps: CapInfo[],
-  chainId: number
-): Promise<CapInfo[]> {
-  const needsEnrichment = caps.some(
-    (cap) => isCollateralCap(cap) && cap.collateralAddress && !cap.collateralSymbol
-  );
-  if (!needsEnrichment) return caps;
-
-  const lookup = await fetchTokenSymbolLookup(chainId);
-  let enriched = caps.map((cap) => {
-    if (!isCollateralCap(cap) || !cap.collateralAddress || cap.collateralSymbol) return cap;
-    const symbol = lookup.get(cap.collateralAddress.toLowerCase());
-    return symbol ? { ...cap, collateralSymbol: symbol } : cap;
-  });
-
-  const missingAddresses = [
+/** Collateral cap labels from Morpho REST token metadata. */
+export async function enrichCollateralCapSymbols(caps: CapInfo[], chainId: number): Promise<CapInfo[]> {
+  const missing = [
     ...new Set(
-      enriched
-        .filter(
-          (cap) =>
-            isCollateralCap(cap) && cap.collateralAddress && !cap.collateralSymbol
-        )
-        .map((cap) => cap.collateralAddress as string)
+      caps
+        .filter((cap) => isCollateralCap(cap) && cap.collateralAddress && !cap.collateralSymbol)
+        .map((cap) => cap.collateralAddress!.toLowerCase())
     ),
   ];
-  if (missingAddresses.length === 0) return enriched;
-
-  const assetSymbols = await fetchAssetSymbols(missingAddresses, chainId);
-  enriched = enriched.map((cap) => {
+  if (missing.length === 0) return caps;
+  const symbols = new Map<string, string>();
+  await Promise.all(
+    missing.map(async (address) => {
+      const token = await getRestToken(chainId, address).catch(() => null);
+      if (token?.symbol) symbols.set(address, token.symbol);
+    })
+  );
+  return caps.map((cap) => {
     if (!isCollateralCap(cap) || !cap.collateralAddress || cap.collateralSymbol) return cap;
-    const symbol = assetSymbols.get(cap.collateralAddress.toLowerCase());
+    const symbol = symbols.get(cap.collateralAddress.toLowerCase());
     return symbol ? { ...cap, collateralSymbol: symbol } : cap;
   });
-
-  return enriched;
 }

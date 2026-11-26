@@ -9,7 +9,7 @@ import {
 import { BASE_CHAIN_ID, BPS_PER_ONE, getScanUrlForChain } from '@/lib/constants';
 import { handleApiError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
-import { batchVaultV2ByAddress } from '@/lib/morpho/batch-vault-graphql';
+import { loadRestVaultSnapshot, type RestVaultSnapshot } from '@/lib/morpho/rest-vault.server';
 import { getAddress } from 'viem';
 import { logger } from '@/lib/utils/logger';
 import { mergeApiCacheHeaders, API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
@@ -53,45 +53,45 @@ type VaultListGql = {
   } | null;
 };
 
-const VAULT_LIST_SELECTION = `
-  address
-  name
-  symbol
-  listed
-  asset { address symbol decimals }
-  performanceFee
-  totalAssets
-  totalAssetsUsd
-  apy
-  netApy
-  avgNetApy
-  idleAssets
-  liquidity
-  liquidityUsd
-  liquidityAdapter {
-    __typename
-    address
-    ... on MetaMorphoAdapter { type }
-    ... on MorphoMarketV1Adapter { type }
-    ... on MorphoVaultV2Adapter {
-      type
-      innerVault { name symbol }
-    }
-  }
-  liquidityData {
-    __typename
-    ... on MarketV1LiquidityData {
-      market {
-        loanAsset { symbol }
-        collateralAsset { symbol }
-        state { utilization }
-      }
-    }
-    ... on MetaMorphoLiquidityData {
-      metaMorpho { name symbol }
-    }
-  }
-`;
+/** The list fields from the shared REST vault snapshot (GraphQL-shaped for the mapper). */
+function listRowFromSnapshot(snap: RestVaultSnapshot): VaultListGql {
+  const route = snap.liquidityData?.market;
+  const routeState = route ? snap.markets.get(route.marketId.toLowerCase()) : undefined;
+  return {
+    address: snap.address,
+    name: snap.vault.name ?? undefined,
+    symbol: snap.vault.symbol ?? undefined,
+    // Not in Morpho REST. Every configured vault is unlisted on Morpho anyway (status paused).
+    listed: undefined,
+    asset: { address: snap.vault.asset.address, symbol: snap.vault.asset.symbol ?? undefined, decimals: snap.vault.asset.decimals },
+    performanceFee: snap.performanceFee,
+    totalAssets: snap.totalAssets,
+    totalAssetsUsd: snap.totalAssetsUsd ?? undefined,
+    apy: snap.grossApy ?? undefined,
+    netApy: snap.netApy ?? undefined,
+    idleAssets: snap.idleAssets,
+    liquidity: snap.liquidity,
+    liquidityUsd: snap.liquidityUsd,
+    liquidityAdapter: snap.liquidityAdapter
+      ? {
+          __typename: snap.liquidityAdapter.__typename,
+          address: snap.liquidityAdapter.address,
+          type: snap.liquidityAdapter.type,
+          innerVault: snap.liquidityAdapter.innerVault,
+        }
+      : null,
+    liquidityData: route
+      ? {
+          __typename: 'MarketV1LiquidityData',
+          market: {
+            loanAsset: { symbol: route.loanAsset.symbol },
+            collateralAsset: { symbol: route.collateralAsset.symbol },
+            state: { utilization: routeState?.utilization ?? null },
+          },
+        }
+      : null,
+  };
+}
 
 function listLiquidityAdapter(v: VaultListGql): {
   label: string;
@@ -158,19 +158,23 @@ export async function GET(request: Request) {
       const addresses = vaultConfigs.map((v) => getAddress(v.address));
       const configuredAddressSet = new Set(addresses.map((a) => a.toLowerCase()));
 
-      const vaultRefs = vaultConfigs.map((v) => ({
-        address: v.address,
-        chainId: v.chainId ?? BASE_CHAIN_ID,
-      }));
-
-      const gqlMap = await batchVaultV2ByAddress<VaultListGql>(
-        vaultRefs,
-        VAULT_LIST_SELECTION
+      // One shared REST snapshot per vault (cached 30s; the vault pages reuse it). A vault whose
+      // read fails is left out of the list, like a vault GraphQL did not return.
+      const snapshots = await Promise.all(
+        vaultConfigs.map((v) =>
+          loadRestVaultSnapshot(v.chainId ?? BASE_CHAIN_ID, v.address).catch((error: unknown) => {
+            logger.warn('Morpho REST read failed for a listed vault', {
+              address: v.address,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            return null;
+          })
+        )
       );
-
-      const v2Vaults = addresses
-        .map((address) => gqlMap.get(address.toLowerCase()) ?? null)
-        .filter((v): v is VaultListGql => Boolean(v?.address));
+      const v2Vaults = snapshots
+        .filter((snap): snap is RestVaultSnapshot => snap !== null)
+        .map(listRowFromSnapshot)
+        .filter((v) => configuredAddressSet.has(v.address!.toLowerCase()));
 
       const addressToChainId = Object.fromEntries(
         vaultConfigs.map((v) => [v.address.toLowerCase(), v.chainId])
@@ -217,7 +221,8 @@ export async function GET(request: Request) {
                 : v.apy != null
                   ? v.apy * 100
                   : null,
-          depositors: 0,
+          // Needs a vault-wide holder list, which Morpho REST does not have.
+          depositors: null,
           revenueAllTime: null,
           feesAllTime: null,
           lastHarvest: null,

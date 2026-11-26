@@ -1,11 +1,11 @@
 // Simplified vault config - only stores addresses
-// All other data (name, symbol, asset, performance fee, etc.) is fetched from GraphQL
+// All other data (name, symbol, asset, performance fee, etc.) is read from Morpho REST
 
 import { BASE_CHAIN_ID } from '@/lib/constants';
 
 export type VaultCategory = 'prime' | 'vineyard' | 'frontier' | 'test';
 
-/** Underlying vault asset — used for calldata decode/formatting before GraphQL loads. */
+/** Underlying vault asset — used for calldata decode/formatting before Morpho data loads. */
 export type VaultAssetSymbol = 'USDC' | 'WETH' | 'cbBTC';
 
 export interface VaultAddressConfig {
@@ -100,7 +100,7 @@ const CATEGORY_LABEL: Record<VaultCategory, string> = {
   test: 'Test',
 };
 
-/** Fallback label when GraphQL / on-chain name is unavailable. */
+/** Fallback label when the Morpho / on-chain name is unavailable. */
 export function getConfiguredVaultDisplayName(
   vault: Pick<VaultAddressConfig, 'assetSymbol' | 'listCategory'>
 ): string {

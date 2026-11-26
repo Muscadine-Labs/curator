@@ -303,7 +303,6 @@ export function VaultV2Sentinel({
         assetDecimals={assetDecimals}
         chainDecimals={chainDecimals}
         sentinels={governance.sentinels}
-        capsWarning={governance.capsWarning ?? null}
       />
 
       <DeallocatePanel
@@ -351,7 +350,6 @@ function DecreaseCapsPanel({
   assetDecimals,
   chainDecimals,
   sentinels,
-  capsWarning,
 }: {
   grouped: ReturnType<typeof groupCaps>;
   risk: V2VaultRiskResponse;
@@ -362,7 +360,6 @@ function DecreaseCapsPanel({
   assetDecimals?: number | null;
   chainDecimals: number;
   sentinels: string[];
-  capsWarning: string | null;
 }) {
   const [selections, setSelections] = useState<Record<string, CapDecreaseMode>>({});
   const [newValues, setNewValues] = useState<Record<string, string>>({});
@@ -735,11 +732,6 @@ function DecreaseCapsPanel({
         title="Decrease caps"
         description="Pick absolute or relative cap, enter a new value (must be ≤ current), then Decrease. Use 0 to preset zero; Clear resets the row input."
       />
-      {capsWarning ? (
-        <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
-          {capsWarning}
-        </p>
-      ) : null}
       {totalCaps === 0 ? (
         <CuratorEmptyText>No caps configured.</CuratorEmptyText>
       ) : (

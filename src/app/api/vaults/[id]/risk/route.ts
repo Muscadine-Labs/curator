@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { gql } from 'graphql-request';
 import { getAddress, isAddress } from 'viem';
-import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
+import { loadRestVaultSnapshot, loadRiskPositions, type RestVaultSnapshot } from '@/lib/morpho/rest-vault.server';
+import { MorphoRestError } from '@/lib/morpho/rest-client';
 import { getVaultByAddress } from '@/lib/config/vaults';
 import { handleApiError, AppError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
-import { BASE_CHAIN_ID, VAULT_V2_GRAPHQL_ADAPTER_LIMIT, VAULT_V2_GRAPHQL_CAPS_LIMIT, VAULT_V2_GRAPHQL_POSITION_LIMIT } from '@/lib/constants';
+import { BASE_CHAIN_ID } from '@/lib/constants';
 import {
   asBlueMarketData,
   type BlueMarketData,
@@ -132,118 +132,6 @@ export type V2VaultRiskResponse = {
   vaultAsset: { symbol: string; decimals: number } | null;
   adapters: V2AdapterRiskData[];
 };
-
-const ADAPTER_LIMIT = VAULT_V2_GRAPHQL_ADAPTER_LIMIT;
-const POSITION_LIMIT = VAULT_V2_GRAPHQL_POSITION_LIMIT;
-const CAPS_LIMIT = VAULT_V2_GRAPHQL_CAPS_LIMIT;
-
-// Risk query market.state: do not add sizeUsd / totalLiquidityUsd / supplyAssets (Morpho complexity).
-const VAULT_V2_RISK_QUERY = gql`
-  query VaultV2Risk($address: String!, $chainId: Int!, $adapterLimit: Int!, $positionLimit: Int!, $capLimit: Int!) {
-    vault: vaultV2ByAddress(address: $address, chainId: $chainId) {
-      address
-      totalAssetsUsd
-      idleAssets
-      idleAssetsUsd
-      liquidityUsd
-      asset { symbol decimals }
-      adapters(first: $adapterLimit) {
-        items {
-          __typename
-          address
-          ... on MorphoMarketV1Adapter {
-            assets
-            assetsUsd
-            type
-            positions(first: $positionLimit) {
-              items {
-                state {
-                  supplyAssets
-                  supplyAssetsUsd
-                }
-                market {
-                  marketId
-                  loanAsset { symbol decimals address }
-                  collateralAsset { symbol decimals address }
-                  oracle {
-                    address
-                    data {
-                      ... on MorphoChainlinkOracleV2Data {
-                        baseFeedOne { address }
-                      }
-                      ... on MorphoChainlinkOracleData {
-                        baseFeedOne { address }
-                      }
-                    }
-                  }
-                  irmAddress
-                  lltv
-                  realizedBadDebt { usd }
-                  state {
-                    supplyAssetsUsd
-                    borrowAssetsUsd
-                    collateralAssetsUsd
-                    liquidityAssets
-                    liquidityAssetsUsd
-                    utilization
-                    supplyApy
-                    borrowApy
-                  }
-                }
-              }
-            }
-          }
-          ... on MorphoVaultV2Adapter {
-            assets
-            assetsUsd
-            type
-            innerVault {
-              address
-              name
-              symbol
-              avgNetApy
-              netApy
-              liquidity
-              liquidityUsd
-            }
-          }
-        }
-      }
-      caps(first: $capLimit) {
-        items {
-          type
-          absoluteCap
-          relativeCap
-          allocation
-          data {
-            __typename
-            ... on AdapterCapData {
-              adapterAddress
-            }
-            ... on MarketV1CapData {
-              adapterAddress
-              market {
-                marketId
-                loanAsset { address symbol decimals }
-                collateralAsset { address symbol decimals }
-                oracle { address }
-                irmAddress
-                lltv
-                state {
-                  supplyApy
-                  borrowApy
-                  utilization
-                  liquidityAssets
-                  liquidityAssetsUsd
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-`;
 
 async function buildMarketRisk(
   market: BlueMarketData,
@@ -554,16 +442,44 @@ export async function GET(
       throw new AppError('Vault not found in configuration', 404, 'VAULT_NOT_FOUND');
     }
 
-    const data = await morphoGraphQLClient.request<GraphVaultResponse>(
-      VAULT_V2_RISK_QUERY,
-      {
-        address,
-        chainId: cfg.chainId ?? BASE_CHAIN_ID,
-        adapterLimit: ADAPTER_LIMIT,
-        positionLimit: POSITION_LIMIT,
-        capLimit: CAPS_LIMIT,
+    // Morpho REST (the vault snapshot is shared with the detail and governance routes).
+    let snap: RestVaultSnapshot;
+    try {
+      snap = await loadRestVaultSnapshot(cfg.chainId ?? BASE_CHAIN_ID, address);
+    } catch (error) {
+      if (error instanceof MorphoRestError && error.status === 404) {
+        throw new AppError('Vault not found in Morpho API', 404, 'VAULT_NOT_FOUND');
       }
-    );
+      throw error;
+    }
+    const positionsByAdapter = await loadRiskPositions(snap);
+    const data: GraphVaultResponse = {
+      vault: {
+        address: snap.address,
+        totalAssetsUsd: snap.totalAssetsUsd,
+        idleAssets: snap.idleAssets,
+        idleAssetsUsd: snap.idleAssetsUsd,
+        liquidityUsd: snap.liquidityUsd,
+        asset: { symbol: snap.vault.asset.symbol ?? undefined, decimals: snap.vault.asset.decimals },
+        adapters: {
+          items: snap.adapters.map((a) => ({
+            __typename: a.__typename,
+            address: a.address,
+            assetsUsd: a.assetsUsd,
+            assets: a.assets,
+            type: (a.__typename === 'MorphoMarketV1Adapter' || a.__typename === 'MorphoVaultV2Adapter'
+              ? a.__typename
+              : 'Unknown') as AdapterType,
+            innerVault: a.innerVault,
+            positions:
+              a.__typename === 'MorphoMarketV1Adapter'
+                ? { items: (positionsByAdapter.get(a.address.toLowerCase()) ?? []) as unknown as NonNullable<GraphAdapter['positions']>['items'] }
+                : null,
+          })),
+        },
+        caps: { items: snap.caps },
+      },
+    };
 
     if (!data.vault) {
       throw new AppError('Vault not found in Morpho API', 404, 'VAULT_NOT_FOUND');

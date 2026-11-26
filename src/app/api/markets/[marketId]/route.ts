@@ -61,7 +61,7 @@ export async function GET(
     const chainId = parseChainId(searchParams.get('chainId'));
 
     // Shared 30s dedupe: every open tab polls every 30s, and each uncached
-    // read is a GraphQL query plus oracle multicalls and the IRM read on RPC.
+    // read is several Morpho REST reads plus oracle multicalls and the IRM read on RPC.
     // A failed oracle decode is not cached, so it is retried on the next poll.
     const market = await withServerResponseCache(
       `curator-market-detail-v1-${chainId}-${marketId.toLowerCase()}`,

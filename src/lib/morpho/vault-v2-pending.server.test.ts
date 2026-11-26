@@ -1,3 +1,4 @@
+import { clearMorphoRestCache } from '@/lib/morpho/rest-client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, toFunctionSelector } from 'viem';
 import { vaultV2Abi } from '@/lib/onchain/abis';
@@ -34,6 +35,7 @@ const capData = encodeFunctionData({ abi: vaultV2Abi, functionName: 'increaseAbs
 const feeData = encodeFunctionData({ abi: vaultV2Abi, functionName: 'setPerformanceFee', args: [1n] });
 
 beforeEach(() => {
+  clearMorphoRestCache();
   vi.stubGlobal(
     'fetch',
     vi.fn().mockResolvedValue({

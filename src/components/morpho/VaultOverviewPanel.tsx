@@ -14,8 +14,6 @@ import { VaultV2GatesRead } from '@/components/morpho/VaultV2GatesRead';
 import { VaultV2Adapters } from '@/components/morpho/VaultV2Adapters';
 import { VaultActivityFeed } from '@/components/morpho/VaultActivityFeed';
 import { formatForceDeallocatePenaltyWad } from '@/lib/morpho/vault-v2-api';
-import { VaultHolders } from '@/components/morpho/VaultHolders';
-import { VaultTransactions } from '@/components/morpho/VaultTransactions';
 import {
   CuratorKvList,
   CuratorKvRow,
@@ -240,25 +238,6 @@ export function VaultOverviewPanel({
         governance={governance}
       />
 
-      <VaultHolders
-        vaultAddress={vault.address}
-        chainId={vault.chainId}
-        assetDecimals={vault.assetDecimals}
-        assetSymbol={vaultAsset}
-        pageSize={10}
-        collapsible
-        defaultOpen={false}
-      />
-
-      <VaultTransactions
-        vaultAddress={vault.address}
-        chainId={vault.chainId}
-        assetDecimals={vault.assetDecimals}
-        assetSymbol={vaultAsset}
-        pageSize={10}
-        collapsible
-        defaultOpen={false}
-      />
 
       <VaultOverviewHistoryChart
         vaultAddress={vault.address}

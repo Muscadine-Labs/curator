@@ -6,13 +6,12 @@ import {
 } from '@/lib/data/query-config';
 
 export interface ProtocolStats {
-  /** Some Morpho reads failed; TVL / users may be understated (result not cached). */
+  /** Some Morpho reads failed; TVL may be understated (result not cached). */
   warning?: string | null;
   totalDeposited: number;
   totalFeesGenerated: number;
   activeVaults: number;
   totalInterestGenerated: number;
-  users: number;
   tvlTrend: Array<{ date: string; value: number }>;
   tvlByVault?: Array<{
     name: string;
@@ -59,7 +58,8 @@ export interface VaultWithData {
   /** Raw total assets in vault asset units (Morpho `totalAssets`). */
   totalAssetsUnderlying?: string | null;
   apy: number | null;
-  depositors: number;
+  /** Not available: Morpho REST has no vault-wide holder list. */
+  depositors: number | null;
   revenueAllTime: number | null;
   feesAllTime: number | null;
   lastHarvest: string | null;

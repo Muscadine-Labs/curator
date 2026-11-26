@@ -30,7 +30,7 @@ Single entry for AI sessions. Deep architecture stays in **`CLAUDE.md`**. This f
 | **`TODO.md`** | Intent queue | Starting/finishing work |
 | **`docs/`** | Closed-loop hub + changelog + MCP | Every substantive session |
 | **`AGENTS.md`** | Short invariants contract | Routes, auth, write rules, polling |
-| **`CLAUDE.md`** | Deep architecture | Vault mechanics, GraphQL, Safe, formatting |
+| **`CLAUDE.md`** | Deep architecture | Vault mechanics, Morpho REST, Safe, formatting |
 | **`.cursor/rules/*.mdc`** | Always-on Cursor rules | Session protocol changes |
 | **`.cursor/mcp.json`** | Morpho MCP wiring | MCP server / tools change |
 

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { parseBoundedIntParam } from '@/lib/api/query-params';
-import { gql } from 'graphql-request';
 import { getAddress, isAddress, type Address, type Hex } from 'viem';
 import {
   getAllVaultAddresses,
@@ -18,8 +17,9 @@ import {
 import { formatMarketNameWithLltv } from '@/lib/morpho/market-label';
 import { formatRelativeCapWad } from '@/lib/morpho/vault-v2-api';
 import { formatRawTokenAmount } from '@/lib/format/number';
-import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
-import { batchVaultV2ByAddress } from '@/lib/morpho/batch-vault-graphql';
+import { morphoRestGet, morphoSelector } from '@/lib/morpho/rest-client';
+import { getRestMarket, getRestToken, getRestVaultRoleAddresses } from '@/lib/morpho/rest-data';
+import { realizedApySeries } from '@/lib/morpho/vault-history';
 import { publicClient } from '@/lib/onchain/client';
 import { handleApiError } from '@/lib/utils/error-handler';
 import {
@@ -97,88 +97,6 @@ export type BotActivityResponse = {
   rebaterItems: RebaterActivityItem[];
   rebaterTruncated: boolean;
   rebaterError: string | null;
-};
-
-const APY_QUERY = gql`
-  query BotVaultApy($address: String!, $chainId: Int!, $options: TimeseriesOptions) {
-    vaultV2ByAddress(address: $address, chainId: $chainId) {
-      historicalState {
-        avgNetApy(options: $options) {
-          x
-          y
-        }
-      }
-    }
-  }
-`;
-
-const MARKET_BY_ID_QUERY = gql`
-  query BotMarketById($marketId: String!, $chainId: Int!) {
-    marketById(marketId: $marketId, chainId: $chainId) {
-      loanAsset {
-        symbol
-      }
-      collateralAsset {
-        symbol
-      }
-      lltv
-    }
-  }
-`;
-
-const MARKETS_BY_ASSETS_QUERY = gql`
-  query BotMarketsByAssets(
-    $chainId: Int!
-    $loan: [String!]!
-    $collateral: [String!]!
-  ) {
-    markets(
-      first: 25
-      where: {
-        chainId_in: [$chainId]
-        loanAssetAddress_in: $loan
-        collateralAssetAddress_in: $collateral
-      }
-    ) {
-      items {
-        marketId
-        lltv
-        loanAsset {
-          symbol
-        }
-        collateralAsset {
-          symbol
-        }
-      }
-    }
-  }
-`;
-
-type MarketGraph = {
-  marketById?: {
-    loanAsset?: { symbol?: string | null } | null;
-    collateralAsset?: { symbol?: string | null } | null;
-    lltv?: string | number | null;
-  } | null;
-};
-
-type MarketsByAssetsGraph = {
-  markets?: {
-    items?: Array<{
-      marketId?: string | null;
-      lltv?: string | number | null;
-      loanAsset?: { symbol?: string | null } | null;
-      collateralAsset?: { symbol?: string | null } | null;
-    } | null> | null;
-  } | null;
-};
-
-type ApyGraph = {
-  vaultV2ByAddress?: {
-    historicalState?: {
-      avgNetApy?: Array<{ x?: number | null; y?: number | null } | null> | null;
-    } | null;
-  } | null;
 };
 
 function assetDecimalsForSymbol(symbol: string): number {
@@ -303,59 +221,20 @@ async function resolveMarketLabel(
   let label: string | null = null;
 
   try {
-    const data = await morphoGraphQLClient.request<MarketGraph>(MARKET_BY_ID_QUERY, {
-      marketId: market.marketId,
-      chainId,
-    });
-    const m = data.marketById;
-    if (m?.loanAsset?.symbol || m?.collateralAsset?.symbol) {
-      label = formatMarketNameWithLltv(
-        m.collateralAsset?.symbol,
-        m.loanAsset?.symbol,
-        m.lltv ?? market.lltv
-      );
+    const m = await getRestMarket(chainId, market.marketId);
+    const [loan, collateral] = await Promise.all([
+      getRestToken(chainId, m.loan_token).catch(() => null),
+      m.collateral_token ? getRestToken(chainId, m.collateral_token).catch(() => null) : Promise.resolve(null),
+    ]);
+    if (loan?.symbol || collateral?.symbol) {
+      label = formatMarketNameWithLltv(collateral?.symbol, loan?.symbol, m.lltv_wad ?? market.lltv);
     }
   } catch {
     // fall through
   }
 
   if (!label) {
-    try {
-      const data = await morphoGraphQLClient.request<MarketsByAssetsGraph>(
-        MARKETS_BY_ASSETS_QUERY,
-        {
-          chainId,
-          loan: [market.loanAsset],
-          collateral: [market.collateralAsset],
-        }
-      );
-      const items = (data.markets?.items ?? []).filter(
-        (x): x is NonNullable<typeof x> => x != null
-      );
-      const exact =
-        items.find((m) => m.marketId?.toLowerCase() === cacheKey) ??
-        items.find((m) => {
-          try {
-            return BigInt(m.lltv ?? -1) === BigInt(market.lltv);
-          } catch {
-            return false;
-          }
-        }) ??
-        items[0];
-      if (exact) {
-        label = formatMarketNameWithLltv(
-          exact.collateralAsset?.symbol,
-          exact.loanAsset?.symbol,
-          exact.lltv ?? market.lltv
-        );
-      }
-    } catch {
-      // fall through
-    }
-  }
-
-  if (!label) {
-    // Last resort: still show LLTV from calldata even without GraphQL symbols.
+    // Last resort: still show LLTV from calldata even without token symbols.
     label = formatMarketNameWithLltv(
       `${market.collateralAsset.slice(0, 6)}…`,
       `${market.loanAsset.slice(0, 6)}…`,
@@ -367,9 +246,34 @@ async function resolveMarketLabel(
   return label;
 }
 
+/**
+ * Vault net APY points around bot transactions, from Morpho REST: `apy/history?lookback=seven_days`
+ * (hourly, 1-day trailing averages) when the oldest tx is within the last week, else the realized
+ * daily APY from the share price (`state/history?lookback=inception`).
+ */
+async function loadApySeriesAround(chainId: number, address: string, minTs: number): Promise<Array<{ x: number; y: number }>> {
+  const selector = morphoSelector(chainId, address);
+  const now = Math.floor(Date.now() / 1000);
+  if (now - minTs < 6 * 86_400) {
+    const points = await morphoRestGet<Array<{ timestamp: number; apy: number | null }>>(
+      `/v0/vaults-v2/${selector}/apy/history`,
+      { lookback: 'seven_days' }
+    );
+    return (points ?? [])
+      .filter((p) => typeof p.apy === 'number' && Number.isFinite(p.apy))
+      .map((p) => ({ x: p.timestamp, y: p.apy as number }))
+      .sort((a, b) => a.x - b.x);
+  }
+  const points = await morphoRestGet<Array<{ timestamp: number; share_price_ray?: string | null }>>(
+    `/v0/vaults-v2/${selector}/state/history`,
+    { lookback: 'inception' }
+  );
+  return realizedApySeries(points ?? [], []);
+}
+
 function isAllocateGraphType(type: string): boolean {
   const t = type.toLowerCase().replace(/\s+/g, '');
-  // Exact Morpho GraphQL / decoded allocate — not GrantAllocator / RevokeAllocator.
+  // Exact decoded allocate — not GrantAllocator / RevokeAllocator.
   return t === 'allocate' || t === 'vaultv2allocate';
 }
 
@@ -381,9 +285,9 @@ function isDeallocateGraphType(type: string): boolean {
 function needsCalldataDecode(candidate: {
   changes: BotActivityChange[];
 }): boolean {
-  // No GraphQL rows — liquidity-only or sentinel cap/revoke txs from Alchemy.
+  // No indexed rows: decode the calldata (Safe history or the tx input).
   if (candidate.changes.length === 0) return true;
-  // Enrich market labels + liquidity adapter from calldata when GraphQL ids are not marketIds.
+  // Enrich market labels + liquidity adapter from calldata when row ids are not marketIds.
   return candidate.changes.some(
     (ch) =>
       isAllocateGraphType(ch.type) ||
@@ -569,30 +473,23 @@ export async function GET(request: NextRequest) {
         allocatorSet.add(getSafeByRole('allocator').address.toLowerCase());
         sentinelSet.add(getSafeByRole('sentinel').address.toLowerCase());
 
-        const vaultRefs = allVaults.map((v) => ({
-          address: v.address,
-          chainId: v.chainId ?? BASE_CHAIN_ID,
-        }));
         try {
-          const roleMap = await batchVaultV2ByAddress<{
-            allocators?: Array<{ allocator?: { address?: string | null } | null } | null> | null;
-            sentinels?: Array<{ sentinel?: { address?: string | null } | null } | null>;
-          }>(
-            vaultRefs,
-            `allocators { allocator { address } } sentinels { sentinel { address } }`
+          const roles = await Promise.all(
+            allVaults.map(async (v) => {
+              const chainId = v.chainId ?? BASE_CHAIN_ID;
+              const [allocators, sentinels] = await Promise.all([
+                getRestVaultRoleAddresses(chainId, v.address, 'allocators'),
+                getRestVaultRoleAddresses(chainId, v.address, 'sentinels'),
+              ]);
+              return { allocators, sentinels };
+            })
           );
-          for (const row of roleMap.values()) {
-            for (const a of row?.allocators ?? []) {
-              const addr = a?.allocator?.address;
-              if (addr && isAddress(addr)) allocatorSet.add(addr.toLowerCase());
-            }
-            for (const s of row?.sentinels ?? []) {
-              const a = s?.sentinel?.address;
-              if (a && isAddress(a)) sentinelSet.add(a.toLowerCase());
-            }
+          for (const row of roles) {
+            for (const addr of row.allocators) if (isAddress(addr)) allocatorSet.add(addr.toLowerCase());
+            for (const addr of row.sentinels) if (isAddress(addr)) sentinelSet.add(addr.toLowerCase());
           }
         } catch (error) {
-          logger.warn('Failed to batch-fetch vault roles for bot watch', {
+          logger.warn('Failed to fetch vault roles for bot watch', {
             error: error instanceof Error ? error : new Error(String(error)),
           });
         }
@@ -926,20 +823,8 @@ export async function GET(request: NextRequest) {
         }
         await Promise.all(
           Array.from(vaultApyWindows.entries()).map(async ([key, win]) => {
-            const startTimestamp = Math.max(0, win.minTs - 3 * 24 * 60 * 60);
-            const endTimestamp = win.maxTs + 3 * 24 * 60 * 60;
             try {
-              const data = await morphoGraphQLClient.request<ApyGraph>(APY_QUERY, {
-                address: win.address,
-                chainId: win.chainId,
-                options: { startTimestamp, endTimestamp },
-              });
-              const raw = data.vaultV2ByAddress?.historicalState?.avgNetApy ?? [];
-              const points = raw
-                .filter((p): p is { x: number; y: number } => p?.x != null && p?.y != null)
-                .map((p) => ({ x: Number(p.x), y: Number(p.y) }))
-                .sort((a, b) => a.x - b.x);
-              apySeriesByVault.set(key, points);
+              apySeriesByVault.set(key, await loadApySeriesAround(win.chainId, win.address, win.minTs));
             } catch {
               apySeriesByVault.set(key, []);
             }

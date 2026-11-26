@@ -5,18 +5,14 @@ import {
   getVaultAddressesForProtocolStats,
   vaultDisplayName,
 } from '@/lib/config/vaults';
-import {
-  BASE_CHAIN_ID,
-  GRAPHQL_FIRST_LIMIT,
-  DAYS_30_MS,
-} from '@/lib/constants';
+import { BASE_CHAIN_ID, DAYS_30_MS } from '@/lib/constants';
 import { handleApiError } from '@/lib/utils/error-handler';
 import { createRateLimitMiddleware, RATE_LIMIT_REQUESTS_PER_MINUTE, MINUTE_MS } from '@/lib/utils/rate-limit';
-import { morphoGraphQLClient } from '@/lib/morpho/graphql-client';
-import { gql } from 'graphql-request';
+import { MorphoRestError, morphoRestGet, morphoSelector } from '@/lib/morpho/rest-client';
+import { getRestTokenPriceUsd, getRestVault, getRestVaultState, rawToNumber } from '@/lib/morpho/rest-data';
+import { fetchDailyPricesUsd, priceOnDay } from '@/lib/defillama/historical-prices';
 import { getAddress } from 'viem';
 import { logger } from '@/lib/utils/logger';
-import { findVaultAdapterHolders } from '@/lib/morpho/vault-adapter-holders.server';
 import { mergeApiCacheHeaders, API_CACHE_MAX_AGE_MS } from '@/lib/api/response-cache';
 import { withServerResponseCache } from '@/lib/api/server-response-cache';
 import {
@@ -39,76 +35,12 @@ import { utcDayKeyFromTimestamp, utcTodayStartMs } from '@/lib/utils/utc-calenda
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const TVL_HISTORY_START = Math.floor(new Date('2024-06-01').getTime() / 1000);
 
 type VaultTvlSeries = {
   name: string;
   address: string;
   data: Array<{ date: string; value: number }>;
 };
-
-const VAULT_V2_TVL_FIELDS = `
-      name
-      address
-      performanceFee
-      totalAssetsUsd
-      asset { symbol address }
-      historicalState {
-        totalAssetsUsd(options: $options) {
-          x
-          y
-        }
-      }`;
-
-const VAULT_V2_TVL_QUERY = gql`
-  query VaultV2HistoricalTvl($address: String!, $chainId: Int!, $options: TimeseriesOptions) {
-    vaultV2ByAddress(address: $address, chainId: $chainId) {${VAULT_V2_TVL_FIELDS}
-    }
-  }
-`;
-
-type VaultTvlGraph = {
-  name?: string | null;
-  address?: string | null;
-  totalAssetsUsd?: number | null;
-  historicalState?: { totalAssetsUsd?: Array<{ x?: number; y?: number }> | null } | null;
-} | null;
-
-function tvlHistoryOptions() {
-  return {
-    startTimestamp: TVL_HISTORY_START,
-    endTimestamp: Math.floor(Date.now() / 1000),
-    interval: 'DAY' as const,
-  };
-}
-
-/** One query for every vault: `v0: vaultV2ByAddress(...)`, `v1: ...` (aliases keep the shape). */
-function aliasedVaultQuery(
-  name: string,
-  count: number,
-  fields: string,
-  extraVars: string
-): string {
-  const vars = Array.from({ length: count }, (_, i) => `$a${i}: String!`).join(', ');
-  const roots = Array.from(
-    { length: count },
-    (_, i) => `v${i}: vaultV2ByAddress(address: $a${i}, chainId: $chainId) {${fields}\n    }`
-  ).join('\n    ');
-  return `query ${name}(${vars}, $chainId: Int!${extraVars}) {\n    ${roots}\n  }`;
-}
-
-/**
- * A GraphQL error (one bad vault fails the whole aliased query) is worth retrying per
- * vault. A timeout or network failure is not: the per-vault round would only take longer
- * and push the route past the 40s cache-loader limit.
- */
-function isGraphQLError(error: unknown): error is Error {
-  return error instanceof Error && error.message.startsWith('GraphQL Error:');
-}
-
-function aliasedVariables(addrs: readonly string[]): Record<string, string> {
-  return Object.fromEntries(addrs.map((address, i) => [`a${i}`, address]));
-}
 
 function normalizeDailyPoints(
   raw: Array<{ x?: number; y?: number }>
@@ -148,15 +80,48 @@ function appendCurrentTvlPoint(
   return [...dataPoints.filter((p) => p.date !== today), { date: today, value: currentTvl }];
 }
 
-/** `'failed'` = the Morpho request errored (distinct from a vault with no TVL). */
+/**
+ * One vault's daily TVL (USD) from Morpho REST `state/history` (inception, daily), each day
+ * priced with that day's DefiLlama price (REST has no historical prices; spot fills gaps).
+ * `'failed'` = a Morpho read errored (not a vault with no TVL).
+ */
 async function fetchVaultV2TvlSeries(address: string): Promise<VaultTvlSeries | null | 'failed'> {
   try {
-    const result = await morphoGraphQLClient.request<{ vaultV2ByAddress?: VaultTvlGraph }>(
-      VAULT_V2_TVL_QUERY,
-      { address, chainId: BASE_CHAIN_ID, options: tvlHistoryOptions() }
+    const [vault, state, points] = await Promise.all([
+      getRestVault(BASE_CHAIN_ID, address),
+      getRestVaultState(BASE_CHAIN_ID, address),
+      morphoRestGet<Array<{ timestamp: number; total_assets?: string | null }>>(
+        `/v0/vaults-v2/${morphoSelector(BASE_CHAIN_ID, address)}/state/history`,
+        { lookback: 'inception' }
+      ),
+    ]);
+    const firstTs = Math.min(...(points ?? []).map((p) => p.timestamp), Math.floor(Date.now() / 1000));
+    const [price, daily] = await Promise.all([
+      getRestTokenPriceUsd(BASE_CHAIN_ID, vault.asset.address),
+      fetchDailyPricesUsd(BASE_CHAIN_ID, vault.asset.address, firstTs),
+    ]);
+    if (price === null) return 'failed';
+    const decimals = vault.asset.decimals;
+    const currentTvl = rawToNumber(state.total_assets, decimals) * price;
+    let dataPoints = normalizeDailyPoints(
+      (points ?? []).map((p) => ({
+        x: p.timestamp,
+        y: rawToNumber(p.total_assets, decimals) * (priceOnDay(daily, p.timestamp) ?? price),
+      }))
     );
-    return tvlSeriesFromGraph(address, result.vaultV2ByAddress ?? null);
+    dataPoints = dataPoints.length
+      ? appendCurrentTvlPoint(dataPoints, currentTvl)
+      : currentTvl > 0
+        ? [{ date: new Date().toISOString(), value: currentTvl }]
+        : [];
+    if (dataPoints.length === 0) return null;
+    return {
+      name: vaultDisplayName(vault.name, `Vault ${address.slice(0, 6)}...`),
+      address: address.toLowerCase(),
+      data: dataPoints,
+    };
   } catch (error) {
+    if (error instanceof MorphoRestError && error.status === 404) return null;
     logger.warn('Failed to fetch V2 vault TVL history', {
       address,
       error: error instanceof Error ? error.message : String(error),
@@ -164,147 +129,6 @@ async function fetchVaultV2TvlSeries(address: string): Promise<VaultTvlSeries | 
     return 'failed';
   }
 }
-
-/**
- * TVL series for many vaults in one Morpho request. If the batch fails (one bad vault fails
- * the whole query), fall back to one request per vault so each failure stays per vault.
- */
-async function fetchVaultV2TvlSeriesBatch(
-  addrs: readonly string[]
-): Promise<Array<VaultTvlSeries | null | 'failed'>> {
-  if (addrs.length <= 1) return Promise.all(addrs.map((a) => fetchVaultV2TvlSeries(a)));
-  try {
-    const query = aliasedVaultQuery(
-      'VaultV2HistoricalTvlBatch',
-      addrs.length,
-      VAULT_V2_TVL_FIELDS,
-      ', $options: TimeseriesOptions'
-    );
-    const result = await morphoGraphQLClient.request<Record<string, VaultTvlGraph>>(query, {
-      ...aliasedVariables(addrs),
-      chainId: BASE_CHAIN_ID,
-      options: tvlHistoryOptions(),
-    });
-    return addrs.map((address, i) => tvlSeriesFromGraph(address, result[`v${i}`] ?? null));
-  } catch (error) {
-    if (!isGraphQLError(error)) {
-      // A timeout or network failure would only repeat, slower, per vault.
-      logger.warn('Batched TVL history failed', { error: String(error) });
-      return addrs.map(() => 'failed' as const);
-    }
-    logger.warn('Batched TVL history failed; fetching per vault', { error: error.message });
-    return Promise.all(addrs.map((a) => fetchVaultV2TvlSeries(a)));
-  }
-}
-
-function tvlSeriesFromGraph(address: string, vault: VaultTvlGraph): VaultTvlSeries | null {
-    if (vault == null) return null;
-
-    const currentTvl = vault.totalAssetsUsd ?? 0;
-    let dataPoints: Array<{ date: string; value: number }> = [];
-
-    if (vault.historicalState?.totalAssetsUsd?.length) {
-      dataPoints = normalizeDailyPoints(vault.historicalState.totalAssetsUsd);
-      dataPoints = appendCurrentTvlPoint(dataPoints, currentTvl);
-    } else if (currentTvl > 0) {
-      dataPoints = [{ date: new Date().toISOString(), value: currentTvl }];
-    }
-
-    if (dataPoints.length === 0) return null;
-
-    return {
-      name: vaultDisplayName(vault.name, `Vault ${address.slice(0, 6)}...`),
-      address: address.toLowerCase(),
-      data: dataPoints,
-    };
-}
-
-const DEPOSITORS_FIELDS = `
-      positions(first: $first, skip: $skip) {
-        items {
-          user {
-            address
-          }
-        }
-      }`;
-
-const DEPOSITORS_QUERY = gql`
-  query V2VaultDepositors($address: String!, $chainId: Int!, $first: Int!, $skip: Int!) {
-    vaultV2ByAddress(address: $address, chainId: $chainId) {${DEPOSITORS_FIELDS}
-    }
-  }
-`;
-
-type DepositorsGraph = {
-  positions?: {
-    items?: Array<{ user?: { address?: string | null } | null } | null> | null;
-  } | null;
-} | null;
-
-/**
- * Depositors for many vaults: the first page of every vault in one request, then the rest
- * page by page only for vaults that filled it. Each entry is the addresses, or an Error when
- * that vault's read failed. A failed batch falls back to one request per vault.
- */
-async function fetchDepositorAddressesBatch(
-  addrs: readonly string[]
-): Promise<Array<string[] | Error>> {
-  const perVault = (address: string) =>
-    fetchAllDepositorAddresses(address).catch((error: unknown) =>
-      error instanceof Error ? error : new Error(String(error))
-    );
-  if (addrs.length <= 1) return Promise.all(addrs.map(perVault));
-  let firstPages: Record<string, DepositorsGraph>;
-  try {
-    firstPages = await morphoGraphQLClient.request<Record<string, DepositorsGraph>>(
-      aliasedVaultQuery('V2VaultDepositorsBatch', addrs.length, DEPOSITORS_FIELDS, ', $first: Int!, $skip: Int!'),
-      { ...aliasedVariables(addrs), chainId: BASE_CHAIN_ID, first: GRAPHQL_FIRST_LIMIT, skip: 0 }
-    );
-  } catch (error) {
-    if (!isGraphQLError(error)) {
-      logger.warn('Batched depositors read failed', { error: String(error) });
-      const failure = error instanceof Error ? error : new Error(String(error));
-      return addrs.map(() => failure);
-    }
-    logger.warn('Batched depositors read failed; fetching per vault', { error: error.message });
-    return Promise.all(addrs.map(perVault));
-  }
-  return Promise.all(
-    addrs.map(async (address, i) => {
-      const items = firstPages[`v${i}`]?.positions?.items ?? [];
-      const first = items.flatMap((item) => (item?.user?.address ? [item.user.address] : []));
-      if (items.length < GRAPHQL_FIRST_LIMIT) return first;
-      try {
-        return [...first, ...(await fetchAllDepositorAddresses(address, GRAPHQL_FIRST_LIMIT))];
-      } catch (error) {
-        return error instanceof Error ? error : new Error(String(error));
-      }
-    })
-  );
-}
-
-/** Every depositor address, paging past the 1,000-row GraphQL limit. Throws on failure. */
-async function fetchAllDepositorAddresses(address: string, startSkip = 0): Promise<string[]> {
-  const out: string[] = [];
-  for (let skip = startSkip; skip < MAX_DEPOSITOR_ROWS; skip += GRAPHQL_FIRST_LIMIT) {
-    const result = await morphoGraphQLClient.request<{
-      vaultV2ByAddress?: {
-        positions?: {
-          items?: Array<{ user?: { address?: string | null } | null } | null> | null;
-        } | null;
-      } | null;
-    }>(DEPOSITORS_QUERY, { address, chainId: BASE_CHAIN_ID, first: GRAPHQL_FIRST_LIMIT, skip });
-    const items = result.vaultV2ByAddress?.positions?.items ?? [];
-    for (const item of items) {
-      if (item?.user?.address) out.push(item.user.address);
-    }
-    if (items.length < GRAPHQL_FIRST_LIMIT) break;
-  }
-  return out;
-}
-
-/** Safety bound on depositor paging (10 pages). */
-const MAX_DEPOSITOR_ROWS = 10_000;
 
 function padSinglePointSeries(series: VaultTvlSeries): VaultTvlSeries {
   if (series.data.length !== 1) return series;
@@ -333,11 +157,10 @@ export async function GET(request: Request) {
   }
 
   try {
-    const stats = await withServerResponseCache('protocol-stats-v4', API_CACHE_MAX_AGE_MS, async () => {
+    const stats = await withServerResponseCache('protocol-stats-v5', API_CACHE_MAX_AGE_MS, async () => {
     const businessVaults = getVaultAddressesForProtocolStats();
     const activeVaultsForStats = getActiveVaultAddressesForStats();
     const addresses = businessVaults.map((v) => getAddress(v.address));
-    const activeAddresses = activeVaultsForStats.map((v) => getAddress(v.address));
     const activeVaults = activeVaultsForStats.length;
 
     // Partial data is reported, never silently summed: a failed vault would
@@ -349,8 +172,7 @@ export async function GET(request: Request) {
         return v != null && v !== 'failed';
       });
 
-    // Every vault's TVL history in one Morpho request (was one request per vault).
-    const tvlByVaultResults = keepSeries(await fetchVaultV2TvlSeriesBatch(addresses), addresses);
+    const tvlByVaultResults = keepSeries(await Promise.all(addresses.map(fetchVaultV2TvlSeries)), addresses);
 
     const tvlByVault = tvlByVaultResults.map(padSinglePointSeries);
 
@@ -376,36 +198,6 @@ export async function GET(request: Request) {
 
     let totalFeesGenerated = 0;
     let totalInterestGenerated = 0;
-
-    const uniqueUsers = new Set<string>();
-    const v2UserResults = (await fetchDepositorAddressesBatch(activeAddresses)).map(
-      (result, i) => {
-        if (!(result instanceof Error)) return result;
-        failedSources.push(`users ${activeAddresses[i]}`);
-        logger.warn('Failed to fetch V2 vault depositors', {
-          address: activeAddresses[i],
-          error: result.message,
-        });
-        return [];
-      }
-    );
-
-    for (const items of v2UserResults) {
-      for (const address of items) {
-        const userAddress = address.toLowerCase();
-        if (
-          userAddress &&
-          userAddress !== '0x0000000000000000000000000000000000000000' &&
-          userAddress !== '0x000000000000000000000000000000000000dead'
-        ) {
-          uniqueUsers.add(userAddress);
-        }
-      }
-    }
-    // Another vault's adapter holding shares here is not a user.
-    for (const adapter of await findVaultAdapterHolders(uniqueUsers)) {
-      uniqueUsers.delete(adapter);
-    }
 
     // Aggregate the real series only: the synthetic T−30d point that
     // padSinglePointSeries adds for per-vault lines would show up here as a
@@ -480,16 +272,15 @@ export async function GET(request: Request) {
     }
 
     const stats = {
-      /** Set when some Morpho reads failed: totals and users are understated. */
+      /** Set when some Morpho reads failed: totals are understated. */
       warning:
         failedSources.length > 0
-          ? `Some Morpho data failed to load (${failedSources.join(', ')}); TVL and user counts may be understated.`
+          ? `Some Morpho data failed to load (${failedSources.join(', ')}); TVL may be understated.`
           : null,
       totalDeposited,
       totalFeesGenerated,
       activeVaults,
       totalInterestGenerated,
-      users: uniqueUsers.size,
       tvlTrend,
       tvlByVault: tvlByVault.map((v) => ({
         name: v.name,

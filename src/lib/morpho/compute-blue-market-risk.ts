@@ -86,13 +86,21 @@ function isSameOrDerivativeAsset(market: BlueMarketData): boolean {
 export type MarketRiskGrade = 'A+' | 'A' | 'A−' | 'B+' | 'B' | 'B−' | 'C+' | 'C' | 'C−' | 'D' | 'F';
 
 export interface MarketRiskScores {
-  liquidationHeadroomScore: number; // [0, 100] - Liquidation Headroom (−5% shock)
+  /** [0, 100] - Liquidation Headroom (−5% shock); `null` when the market's collateral total is unknown. */
+  liquidationHeadroomScore: number | null;
   utilizationScore: number; // [0, 100] - Utilization
-  coverageRatioScore: number; // [0, 100] - Liquidation Coverage Ratio
+  /** [0, 100] - Liquidation Coverage Ratio; `null` when the market's collateral total is unknown. */
+  coverageRatioScore: number | null;
   oracleScore: number; // [0, 100] - Oracle Freshness & Reliability
   marketRiskScore: number; // [0, 100]
   grade: MarketRiskGrade;
-  realizedBadDebt?: number | null; // Realized bad debt amount (USD) from Morpho GraphQL
+  realizedBadDebt?: number | null; // Realized bad debt (USD), when the source has it (Morpho REST does not)
+  /**
+   * The market's total collateral could not be read (Morpho REST `state/history` failed), so
+   * headroom and coverage are left out and the composite is the average of utilization and
+   * oracle, instead of scoring an unknown as 0.
+   */
+  collateralUnknown?: boolean;
   unrealizedBadDebt?: number | null; // Not available in GraphQL schema
   /** IRM kink used for utilization scoring (0–1). */
   targetUtilization?: number;
@@ -484,6 +492,17 @@ export function applyGlobalCaps(
 }
 
 /**
+ * A borrowed market whose collateral total is not known (`collateralAssetsUsd` null or
+ * undefined, as opposed to 0), e.g. a failed Morpho REST read.
+ */
+export function isCollateralUnknown(market: BlueMarketData): boolean {
+  const state = market.state;
+  if (!state) return false;
+  const borrowUsd = state.borrowAssetsUsd != null ? Number(state.borrowAssetsUsd) : 0;
+  return borrowUsd > 0 && (state.collateralAssetsUsd === null || state.collateralAssetsUsd === undefined);
+}
+
+/**
  * Check if market is idle (should not be scored)
  */
 export function isMarketIdle(market: BlueMarketData): boolean {
@@ -506,24 +525,28 @@ export async function computeBlueMarketRiskScores(
     );
   }
 
-  const liquidationHeadroomScore = computeLiquidationHeadroomScore(market);
+  const collateralUnknown = isCollateralUnknown(market);
+  const liquidationHeadroomScore = collateralUnknown ? null : computeLiquidationHeadroomScore(market);
   const utilizationScore = await computeUtilizationScore(market, targetUtil);
-  const coverageRatioScore = computeCoverageRatioScore(market);
+  const coverageRatioScore = collateralUnknown ? null : computeCoverageRatioScore(market);
   const oracleScore = computeOracleScore(market, oracleTimestampData);
 
-  // Compute base market risk score (weighted average)
-  // All metrics weighted equally at 25% each
-  const baseMarketRiskScore = 
-    0.25 * liquidationHeadroomScore +
-    0.25 * utilizationScore +
-    0.25 * coverageRatioScore +
-    0.25 * oracleScore;
+  // Compute base market risk score (weighted average). All metrics weighted equally at 25%;
+  // with the collateral total unknown, the two known metrics at 50% each (never score an
+  // unknown as 0, which would grade every such market F).
+  const baseMarketRiskScore =
+    liquidationHeadroomScore === null || coverageRatioScore === null
+      ? 0.5 * utilizationScore + 0.5 * oracleScore
+      : 0.25 * liquidationHeadroomScore +
+        0.25 * utilizationScore +
+        0.25 * coverageRatioScore +
+        0.25 * oracleScore;
 
-  // Apply global caps
+  // Apply global caps (the coverage cap only when coverage is known)
   const marketRiskScore = applyGlobalCaps(
     oracleScore,
     utilizationScore,
-    coverageRatioScore,
+    coverageRatioScore ?? 100,
     baseMarketRiskScore
   );
 
@@ -554,5 +577,6 @@ export async function computeBlueMarketRiskScores(
     realizedBadDebt: badDebtUsd,
     unrealizedBadDebt: null, // Not available in GraphQL schema
     targetUtilization: targetUtil,
+    ...(collateralUnknown ? { collateralUnknown: true } : {}),
   };
 }

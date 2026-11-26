@@ -616,8 +616,8 @@ function RebaterCard({
         </CardTitle>
         <p className="text-xs text-muted-foreground">
           Funds leaving the treasury Safe (vault share transfers and withdrawals).
-          The Rebater bot is not deployed yet — GraphQL rows appear when an outflow
-          is indexed.
+          The Rebater bot is not deployed yet — rows appear once Morpho REST indexes
+          an outflow.
         </p>
         {(truncated || fetchError) && (
           <p className="text-xs text-amber-600 dark:text-amber-400">
@@ -856,9 +856,10 @@ export function BotWatchPanel() {
 
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
           <p className="text-xs text-muted-foreground max-w-2xl">
-            Allocate / deallocate and roles come from Morpho GraphQL. Liquidity
-            adapter, cap decreases, revoke pending, and remove-allocator are decoded
-            from calldata when GraphQL has no row.
+            Rows come from the role Safes&apos; executed history (Safe Transaction
+            Service): allocate / deallocate, liquidity adapter, cap decreases, revoke
+            pending and remove-allocator are decoded from calldata. Roles come from
+            Morpho REST.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <label className="flex flex-col gap-1 text-xs">
